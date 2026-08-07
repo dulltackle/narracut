@@ -38,9 +38,9 @@ Status: active
 | TTS | MiniMax Speech 2.8 Turbo，key 已有。**走 tokendance 代理还是直连 MiniMax 官方，由 08 号票实测后定** |
 | 保密 | 旁白**文本可外发**给 TTS；**视频素材全程不出本机** |
 | 实现方式 | agent 为主 + 人工审核，时间盒约一个月 |
-| 素材寻址 | DSL 只存**相对项目根的相对路径**；Node 服务把项目根整体映射成本地 HTTP（动态端口）；**端口/URL 绝不落进 DSL**。Player 与 Composition 共用同一个「相对路径→URL」函数（出处：[02](issues/02-remotion-render-research.md) 第 7 条） |
-| 渲染 | 耗时不可预测，**必须是异步后台任务**，不能假设同步秒级完成（出处：[02](issues/02-remotion-render-research.md) 第 5 条） |
-| 字体 | 中文字体必须用 `loadFont()` 显式加载并放 `public/`，**禁止依赖系统字体**；自写的换行测量必须等字体 resolve（出处：[02](issues/02-remotion-render-research.md) 第 6 条） |
+| 素材寻址 | DSL 只存**相对项目根的相对路径**；Node 服务把项目根整体映射成本地 HTTP（动态端口）；**端口/URL 绝不落进 DSL**。Player 与 Composition 共用同一个「相对路径→URL」函数（出处：[02](https://github.com/dulltackle/narracut/issues/7) 第 7 条） |
+| 渲染 | 耗时不可预测，**必须是异步后台任务**，不能假设同步秒级完成（出处：[02](https://github.com/dulltackle/narracut/issues/7) 第 5 条） |
+| 字体 | 中文字体必须用 `loadFont()` 显式加载并放 `public/`，**禁止依赖系统字体**；自写的换行测量必须等字体 resolve（出处：[02](https://github.com/dulltackle/narracut/issues/7) 第 6 条） |
 | Remotion 许可 | 个人（含商用）、≤3 人营利公司、非营利组织免费；**4 人及以上营利团队须购买 Company License**。5.0 起外包/合同工也计入人数——团队一旦扩张要重新核算 |
 
 **测试夹具**：真实文案放 `fixtures/script.md`，代表性样片放 `fixtures/clips/`（见 04 号票）。
@@ -49,8 +49,8 @@ Status: active
 
 <!-- 一行一张已关闭的票：足够判断相关性，细节点进去看 -->
 
-- [01 — TTS 接入调研：MiniMax Speech 2.8 Turbo](issues/01-tts-minimax-api.md) — MiniMax 原生协议已查清：`extra_info.audio_length` 直接返回毫秒级时长、原生支持字/词级时间戳、$60 每百万字符、RPM 60、有显式停顿标记 `<#x#>`。但两件关键事实无法从文档确认：**tokendance 平台层的全部约定**（该站是纯前端 SPA，抓不到文档），以及**中文句首尾是否自带静音 padding**（官方完全未提）。两项转入 [08](issues/08-tts-live-verification.md) 拿 key 实测。
-- [02 — Remotion 实拍渲染调研：Preview = Render 能不能成立](issues/02-remotion-render-research.md) — **能成立，但有一道必须堵住的裂缝**。截断（`trimBefore`/`trimAfter`）与冻帧（`<Freeze>`，自动暂停视频并静音）都是原生能力，有可跑代码。素材双通道有确定方案：DSL 存相对路径 + Node 服务把项目根映射成本地 HTTP。裂缝在 `@remotion/media` 的 fallback——遇到 CORS 或不支持的编解码器时，Player 退到 `<Html5Video>`、renderer 退到 `<OffthreadVideo>`，两者行为不一致（官方自己举了循环播放的例子）。**规避手段是控死素材编码**，转入 [09](issues/09-asset-import-spec.md)。另外：渲染耗时不可预测，必须做成异步后台任务；许可上个人与 ≤3 人营利公司免费。
+- [01 — TTS 接入调研：MiniMax Speech 2.8 Turbo](https://github.com/dulltackle/narracut/issues/6) — MiniMax 原生协议已查清：`extra_info.audio_length` 直接返回毫秒级时长、原生支持字/词级时间戳、$60 每百万字符、RPM 60、有显式停顿标记 `<#x#>`。但两件关键事实无法从文档确认：**tokendance 平台层的全部约定**（该站是纯前端 SPA，抓不到文档），以及**中文句首尾是否自带静音 padding**（官方完全未提）。两项转入 [08](https://github.com/dulltackle/narracut/issues/13) 拿 key 实测。
+- [02 — Remotion 实拍渲染调研：Preview = Render 能不能成立](https://github.com/dulltackle/narracut/issues/7) — **能成立，但有一道必须堵住的裂缝**。截断（`trimBefore`/`trimAfter`）与冻帧（`<Freeze>`，自动暂停视频并静音）都是原生能力，有可跑代码。素材双通道有确定方案：DSL 存相对路径 + Node 服务把项目根映射成本地 HTTP。裂缝在 `@remotion/media` 的 fallback——遇到 CORS 或不支持的编解码器时，Player 退到 `<Html5Video>`、renderer 退到 `<OffthreadVideo>`，两者行为不一致（官方自己举了循环播放的例子）。**规避手段是控死素材编码**，转入 [09](https://github.com/dulltackle/narracut/issues/14)。另外：渲染耗时不可预测，必须做成异步后台任务；许可上个人与 ≤3 人营利公司免费。
 
 ## Not yet specified
 
