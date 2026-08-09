@@ -24,6 +24,10 @@ Visual 的有限种类。V1 只有四个：`Title`、`Video`、`Video+Caption`�
 用户提供的实拍视频文件。每个 Scene 一个独立文件，拍摄时即按句分镜。V1 中 Asset 的音轨一律静音。
 _Avoid_: 素材文件、媒体、Media
 
+**Speech**：
+一个 Scene 的 Narration 文本经 TTS 生成的音频文件，存放在项目文件夹内，是 Duration 的直接来源。它不是 Asset——Asset 专指用户提供的实拍视频。
+_Avoid_: 语音、配音文件、音频
+
 ### 视觉
 
 **Caption**：
@@ -59,6 +63,10 @@ Scene 之间唯一的转场方式——硬切，无过渡。V1 不存在其他�
 **DSL**：
 `project.json` 的内容，描述整个视频的完整结构。它是系统的核心数据资产，要求可序列化、可版本升级、可 AI 生成、可校验。
 _Avoid_: 配置、Schema（Schema 专指校验用的 Zod 定义）
+
+**渲染快照**：
+发起一次渲染时冻结下来的那一份 DSL 副本。渲染只读它，因此渲染期间可以继续编辑而不影响成片。它与产出的 MP4 存放在同一个目录里。
+_Avoid_: Snapshot、备份
 
 **Preview = Render**：
 本项目的核心约束：编辑器里的实时预览与最终渲染出的 MP4 必须逐帧一致。所有技术选择都受它约束。
