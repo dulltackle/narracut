@@ -67,7 +67,17 @@ V1 不做主题切换，但渲染器内部**必须**按这些 token 组织。把
 
 硬约束（[02 — Remotion 实拍渲染调研](https://github.com/dulltackle/narracut/issues/7) 第 6 条）：必须 `loadFont()` 显式加载、字体文件放 `public/`、**禁止依赖系统字体**；自写的换行测量必须等字体 resolve。
 
-字重收敛到 **三个**：`400 Regular` / `700 Bold` / `900 Black`。原本还用了 500 Medium，为省一个字重的打包体积并入 400——中文字体每字重约 10MB，能少一个是一个。打包与子集化策略见 [16 — 中文字体打包与子集化策略](https://github.com/dulltackle/narracut/issues/16)。
+字重收敛到 **三个**：`400 Regular` / `700 Bold` / `900 Black`。原本还用了 500 Medium，并入 400。三个字重由同一份可变字体提供，不需要各打包一份静态字体。
+
+### 打包与字符覆盖
+
+V1 打包官方完整的 `NotoSansCJKsc-VF.ttf`（约 34.5 MiB），放在 `public/fonts/`。这是一份简体中文可变 TTF，由同一个物理文件提供 `400`、`700`、`900` 三档字重。Player 与 renderer 必须通过同一个共享字体加载模块引用它，并各自等待该模块导出的 `loadFont()` Promise；不通过 Google Fonts 发起网络请求，也不依赖系统字体。
+
+V1 **不做任何子集化**：不使用 GB2312 等静态区域子集，也不在打开项目、编辑文本或渲染前动态生成项目子集。因此不引入 `fonttools`、`subset-font` 或字体子集缓存/失效链路。
+
+该文件的 cmap 覆盖范围就是 V1 的可渲染字符集合。进入 Player 或发起渲染前，必须校验全部可见文本；发现字体没有的字符时硬性失败，并至少报告 Scene、字段、原字符与 Unicode 码位。禁止回落到系统字体或其他未打包字体，也禁止静默显示豆腐块。错误在编辑器中的具体呈现方式不由本文件规定。
+
+策略出处：[中文字体打包与子集化策略](https://github.com/dulltackle/narracut/issues/16)。
 
 ### 字号阶梯
 
