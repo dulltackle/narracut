@@ -25,7 +25,7 @@ Visual 的有限种类。V1 只有四个：`Title`、`Video`、`Video+Caption`�
 _Avoid_: 素材文件、媒体、Media
 
 **Speech**：
-一个 Scene 的 Narration 文本经 TTS 生成的音频文件，存放在项目文件夹内，是 Duration 的直接来源。它不是 Asset——Asset 专指用户提供的实拍视频。
+一个 Scene 的当前 Narration 文本经 TTS 生成、且仍与当前文本和合成配置匹配的音频文件，存放在项目文件夹内，是 Duration 的直接来源。Narration 或合成配置变化后，该 Scene 不再拥有 Speech；V1 不保留 Stale Speech 状态。
 _Avoid_: 语音、配音文件、音频
 
 ### 视觉
@@ -47,7 +47,10 @@ _Avoid_: 字幕（在中文讨论里指代不清时用 Subtitle 或 Caption 明�
 ### 时间
 
 **Duration**：
-一个 Scene 的时长。由 Narration 的语音时长决定——Asset 长了截断、短了冻最后一帧。精确定义见 [10 — 时间模型定稿](https://github.com/dulltackle/narracut/issues/10)。
+一个 Scene 在成片中占用的整帧时长，由完整 Speech 的实际时长向上量化得到；V1 不裁剪 Speech 的首尾近静音、不加 Padding，也不允许手动覆盖。Asset 长了截断、短了冻最后一帧；缺失必需的 Asset 不改变 Duration。
+
+**Draft Duration**：
+Scene 缺少 Speech 时用于编辑器预览的临时时长估算。它不是 Duration，不落入 DSL，也不能用于最终渲染。
 
 **冻帧**：
 Asset 短于 Duration 时，画面停在最后一帧直到 Scene 结束。
