@@ -7,7 +7,7 @@
 ### 结构
 
 **Scene**：
-脚本里的一句话及其对应的一段视觉。整个项目就是一串有序的 Scene，它既是编辑单位也是渲染单位。
+脚本里的一句话及其对应的一段视觉。整个项目就是一串有序的 Scene，它既是编辑单位也是渲染单位；重排或修改内容不改变其身份，复制则创建一个新的 Scene。
 _Avoid_: 片段、Clip、行
 
 **Narration**：
@@ -21,7 +21,7 @@ _Avoid_: 台词、配音、解说
 Visual 的有限种类。V1 只有六个：`Title`、`Image`、`Image+Caption`、`Video`、`Video+Caption`、`EndCard`。用户不能自由编写渲染组件，只能在这个封闭清单里选。
 
 **Asset**：
-用户导入后进入项目、可被 Scene 引用的静态图片或实拍视频，显式区分为 `image` 与 `video` 两种 kind；它不是项目外的导入源文件。静态图片和视频都全程留在本机。视频在拍摄时即按句分镜，每个 Scene 一个独立文件；V1 中视频 Asset 的音轨一律静音。
+用户导入后进入项目、可被 Scene 引用的静态图片或实拍视频，显式区分为 `image` 与 `video` 两种 kind；它不是项目外的导入源文件。Asset 有稳定身份，移动路径或原位替换内容不会自然变成另一个 Asset；静态图片和视频都全程留在本机，V1 中视频 Asset 的音轨一律静音。
 _Avoid_: 素材文件、媒体、Media
 
 **Speech**：
@@ -76,3 +76,6 @@ _Avoid_: Snapshot、备份
 
 **Preview = Render**：
 本项目的核心约束：编辑器里的实时预览与最终渲染出的 MP4 必须逐帧一致。所有技术选择都受它约束。
+
+**Render-ready**：
+项目已经具备最终渲染所需的全部有效 Narration、Visual、Asset 与 Speech 的状态。DSL 可以结构合法但尚未 Render-ready；这种项目可以保存和草稿预览，但不能发起最终渲染。
