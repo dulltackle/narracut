@@ -1,6 +1,6 @@
 # Design Token 第一版
 
-出处：[08 — Visual Type 四件套的视觉定稿](https://github.com/dulltackle/narracut/issues/8)
+出处：[Visual Type 四件套的视觉定稿](https://github.com/dulltackle/narracut/issues/8)、[静态图片如何进入 Visual 与 Asset 模型](https://github.com/dulltackle/narracut/issues/17)
 原型：`prototypes/visual-types.prototype.html`（分支 `prototype/visual-types`）
 
 V1 不做主题切换，但渲染器内部**必须**按这些 token 组织。把颜色字号硬写进组件，将来抽 Theme 就得重写全部组件——这是本文件存在的唯一理由。
@@ -16,7 +16,7 @@ V1 不做主题切换，但渲染器内部**必须**按这些 token 组织。把
 | 轨 | 用在哪 | 承担什么 |
 |---|---|---|
 | **品牌轨（粉）** | Title、EndCard——背景由我们完全控制 | 温暖、亲和、机构识别 |
-| **临床轨（蓝）** | Video、Video+Caption 的叠加物——叠在亮度不可控的实拍上 | 专业、可信、可读 |
+| **临床轨（蓝）** | Image、Image+Caption、Video、Video+Caption 的叠加物——叠在亮度不可控的 Asset 上 | 专业、可信、可读 |
 
 受众是医护，所以粉色只作品牌温度，不主导画面；正片一律走蓝。
 
@@ -168,7 +168,7 @@ PRD 第 13 节那套 Motion Preset 体系（Entrance / Emphasis / Exit 三组预
 
 ---
 
-## 6. 四个 Visual Type 的字段清单
+## 6. 六个 Visual Type 的字段清单
 
 > 这一节是给 [11 — DSL schema 定稿](https://github.com/dulltackle/narracut/issues/11) 的直接输入。字段名是提议，最终以 DSL 票为准；**字段的存在与否**则是本票定死的。
 
@@ -186,6 +186,10 @@ Logo 不是 Scene 字段——它是项目级资产，四块板子共用，进�
 
 无独立内容字段。字幕文本直接取 `narration.text`，不重复存储。
 
+### `Image`（全屏静态图片 + 字幕）
+
+无独立内容字段。字幕文本直接取 `narration.text`，不重复存储；图片在整个 Scene Duration 内静止显示。
+
 ### `Video+Caption`（实拍 + 叠加物）
 
 叠加物只有**两种语义**，用判别字段区分：
@@ -196,6 +200,10 @@ Logo 不是 Scene 字段——它是项目级资产，四块板子共用，进�
 | `stepNumber` | string | `kind=step` 时是 | 序号，如 `"02"`。存字符串不存数字——它是展示用编号，不参与计算，也可能出现 `"3a"` |
 | `stepName` | string | `kind=step` 时是 | 步骤名 |
 | `alertText` | string | `kind=alert` 时是 | 警示文字 |
+
+### `Image+Caption`（静态图片 + 叠加物）
+
+字段与 `Video+Caption` 完全相同，使用同一个 Step / Alert 判别模型；两者只通过所引用 Asset 的 `kind` 区分。
 
 明确**不做**的：坐标定位、箭头、圈选、部件指认。那类需求靠拍摄时的镜头语言（推近、手指指）解决，不靠后期叠加——一旦引入坐标，DSL 要加坐标字段、编辑器要加画面打点交互，工程量是其余全部叠加物之和的数倍。
 
