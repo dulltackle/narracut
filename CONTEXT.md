@@ -18,10 +18,10 @@ _Avoid_: 台词、配音、解说
 一个 Scene 的画面部分。由一个 Visual Type 加上该 type 的内容字段构成。
 
 **Visual Type**：
-Visual 的有限种类。V1 只有四个：`Title`、`Video`、`Video+Caption`、`EndCard`。用户不能自由编写渲染组件，只能在这个封闭清单里选。
+Visual 的有限种类。V1 只有六个：`Title`、`Image`、`Image+Caption`、`Video`、`Video+Caption`、`EndCard`。用户不能自由编写渲染组件，只能在这个封闭清单里选。
 
 **Asset**：
-用户提供的实拍视频文件。每个 Scene 一个独立文件，拍摄时即按句分镜。V1 中 Asset 的音轨一律静音。
+用户导入后进入项目、可被 Scene 引用的静态图片或实拍视频，显式区分为 `image` 与 `video` 两种 kind；它不是项目外的导入源文件。静态图片和视频都全程留在本机。视频在拍摄时即按句分镜，每个 Scene 一个独立文件；V1 中视频 Asset 的音轨一律静音。
 _Avoid_: 素材文件、媒体、Media
 
 **Speech**：
@@ -31,7 +31,7 @@ _Avoid_: 语音、配音文件、音频
 ### 视觉
 
 **Caption**：
-`Video+Caption` 里叠加在实拍画面上的信息块。只有两种语义：**Step**（步骤序号 + 步骤名）和 **Alert**（警示）。固定版面，不含坐标。
+`Image+Caption` 或 `Video+Caption` 里叠加在 Asset 画面上的信息块。只有两种语义：**Step**（步骤序号 + 步骤名）和 **Alert**（警示）。固定版面，不含坐标。
 _Avoid_: 标注、Overlay、注释
 
 **Subtitle**：
@@ -39,7 +39,7 @@ _Avoid_: 标注、Overlay、注释
 _Avoid_: 字幕（在中文讨论里指代不清时用 Subtitle 或 Caption 明确区分）
 
 **品牌轨 / 临床轨**：
-配色的两套体系，按画面有没有 Asset 分工。品牌轨（粉）用于 Title 与 EndCard，临床轨（蓝）用于叠在实拍上的 Caption 与 Subtitle。
+配色的两套体系，按背景是否由系统完全控制分工。品牌轨（粉）用于 Title 与 EndCard，临床轨（蓝）用于叠在图片或实拍视频 Asset 上的 Caption 与 Subtitle。
 
 **安全区**：
 画布四边各 80px 的内缩边界，所有文字与叠加物都不越过它。
@@ -47,13 +47,16 @@ _Avoid_: 字幕（在中文讨论里指代不清时用 Subtitle 或 Caption 明�
 ### 时间
 
 **Duration**：
-一个 Scene 在成片中占用的整帧时长，由完整 Speech 的实际时长向上量化得到；V1 不裁剪 Speech 的首尾近静音、不加 Padding，也不允许手动覆盖。Asset 长了截断、短了冻最后一帧；缺失必需的 Asset 不改变 Duration。
+一个 Scene 在成片中占用的整帧时长，由完整 Speech 的实际时长向上量化得到；V1 不裁剪 Speech 的首尾近静音、不加 Padding，也不允许手动覆盖。视频 Asset 长了截断、短了冻最后一帧；静态图片在整个 Duration 内保持显示；缺失必需的 Asset 不改变 Duration。
 
 **Draft Duration**：
 Scene 缺少 Speech 时用于编辑器预览的临时时长估算。它不是 Duration，不落入 DSL，也不能用于最终渲染。
 
 **冻帧**：
-Asset 短于 Duration 时，画面停在最后一帧直到 Scene 结束。
+视频 Asset 短于 Duration 时，画面停在最后一帧直到 Scene 结束。
+
+**静态图片**：
+`kind = image` 的 Asset，没有自身时长，在所属 Scene 的整个 Duration 内保持静止。
 
 **Cut**：
 Scene 之间唯一的转场方式——硬切，无过渡。V1 不存在其他转场。
