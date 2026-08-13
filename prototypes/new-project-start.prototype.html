@@ -1,0 +1,983 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%229%22 fill=%22%23E8628E%22/><path d=%22M9 23V9h4l6 8V9h4v14h-4l-6-8v8z%22 fill=%22white%22/></svg>" />
+  <title>Narracut 新项目起步路径 · 一次性原型</title>
+  <!--
+    PROTOTYPE — 一次性代码，用完即弃。
+    三种新项目起步体验，通过 ?variant=A|B|C 切换；不接真实文件、TTS、Asset 或渲染。
+    回答的问题：https://github.com/dulltackle/narracut/issues/21
+    原型形态：嵌入既定 A — 全局工作台；一旦创建 Scene，三个变体都回到同一工作流。
+  -->
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f5f7;
+      --panel: #fff;
+      --panel-soft: #f8fafb;
+      --ink: #22282f;
+      --muted: #68737d;
+      --line: #dce2e7;
+      --line-strong: #c5cdd5;
+      --blue: #1e6fd9;
+      --blue-deep: #1657ac;
+      --blue-soft: #eaf3ff;
+      --pink: #e8628e;
+      --pink-soft: #fdf2f5;
+      --amber: #b86e00;
+      --amber-soft: #fff7e8;
+      --red: #c63d45;
+      --red-soft: #fff0f1;
+      --green: #23865b;
+      --green-soft: #eaf8f1;
+      --purple: #6d55bd;
+      --purple-soft: #f1edff;
+      --stage: #2a2226;
+      --shadow: 0 16px 42px rgba(29, 43, 57, .16);
+      --r-sm: 7px;
+      --r-md: 11px;
+      --r-lg: 16px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      min-width: 1180px;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, textarea, select { font: inherit; }
+    button, select { cursor: pointer; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    .app-shell { height: 100vh; display: grid; grid-template-rows: 56px minmax(0, 1fr); }
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(300px, 1fr) auto minmax(390px, 1fr);
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      background: rgba(255, 255, 255, .97);
+      border-bottom: 1px solid var(--line);
+      box-shadow: 0 1px 8px rgba(32, 42, 52, .05);
+      position: relative;
+      z-index: 20;
+    }
+    .brand-block, .save-state, .top-actions, .history-actions, .button-row, .inline-row,
+    .player-controls, .metadata-line, .empty-actions, .sample-actions, .paste-summary {
+      display: flex;
+      align-items: center;
+    }
+    .brand-block { gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      background: var(--pink);
+      color: white;
+      font-weight: 900;
+    }
+    .project-title { min-width: 0; }
+    .project-title strong { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .project-title span { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+    .history-actions { justify-self: center; gap: 4px; }
+    .top-actions { justify-self: end; justify-content: flex-end; gap: 8px; }
+    .save-state { gap: 6px; color: var(--muted); font-size: 10px; }
+    .save-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+
+    .btn {
+      min-height: 32px;
+      padding: 0 11px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--r-sm);
+      background: var(--panel);
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 720;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--panel-soft); border-color: #aeb8c1; }
+    .btn.primary { color: white; background: var(--blue); border-color: var(--blue); }
+    .btn.primary:hover { background: var(--blue-deep); }
+    .btn.soft { color: var(--blue-deep); background: var(--blue-soft); border-color: #bfd8f7; }
+    .btn.ghost { background: transparent; border-color: transparent; }
+    .btn.small { min-height: 27px; padding: 0 8px; font-size: 10px; }
+    .btn.icon { width: 32px; padding: 0; font-size: 15px; }
+    .btn:disabled { cursor: not-allowed; opacity: .38; }
+    .link-button { padding: 0; border: 0; background: none; color: var(--blue-deep); font-size: 10px; font-weight: 720; text-decoration: underline; text-underline-offset: 2px; }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(620px, 1.4fr) minmax(390px, .9fr);
+      grid-template-rows: minmax(300px, .95fr) minmax(300px, 1.05fr);
+      gap: 10px;
+      padding: 10px 10px 58px;
+    }
+    .scene-pane { grid-column: 1; grid-row: 1 / span 2; }
+    .player-pane { grid-column: 2; grid-row: 1; }
+    .inspector-pane { grid-column: 2; grid-row: 2; }
+    .pane {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      box-shadow: 0 2px 12px rgba(31, 45, 58, .045);
+    }
+    .pane-head {
+      min-height: 43px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+    .pane-title { min-width: 0; }
+    .pane-title strong { font-size: 12px; }
+    .pane-title span { margin-left: 7px; color: var(--muted); font-size: 10px; }
+    .pane-tools { display: flex; align-items: center; gap: 6px; }
+
+    /* Script Table / shared post-empty-state workspace */
+    .scene-pane { display: grid; grid-template-rows: 43px minmax(0, 1fr); }
+    .table-wrap { min-height: 0; overflow: auto; }
+    table { width: 100%; min-width: 760px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      height: 32px;
+      padding: 0 8px;
+      background: #f7f9fa;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: .05em;
+      text-align: left;
+      text-transform: uppercase;
+    }
+    td { height: 58px; padding: 6px 7px; border-bottom: 1px solid #e9edf0; background: white; vertical-align: middle; }
+    tr:hover td { background: #fafbfd; }
+    tr.selected td { background: var(--pink-soft); }
+    tr.selected td:first-child { box-shadow: inset 3px 0 var(--pink); }
+    tr.sample-row td { background: #fbfaff; color: #56506a; }
+    .col-order { width: 56px; }
+    .col-narration { width: 34%; }
+    .col-type { width: 126px; }
+    .col-asset { width: 126px; }
+    .col-speech { width: 105px; }
+    .col-status { width: 158px; }
+    .order-cell { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 800; }
+    .drag { color: #a2abb3; font-size: 14px; letter-spacing: -4px; }
+    .row-copy { font-size: 10px; line-height: 1.45; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .select-cell { width: 100%; min-height: 29px; border: 1px solid var(--line); border-radius: 6px; background: white; padding: 0 7px; font-size: 10px; }
+    .cell-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+    .cell-primary { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 720; }
+    .cell-secondary { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 9px; }
+    .error-copy { color: var(--red); }
+    .sample-banner {
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: var(--purple-soft);
+      border-bottom: 1px solid #d8cffb;
+      color: #4d3c91;
+      font-size: 10px;
+    }
+    .sample-banner strong { display: block; font-size: 11px; }
+    .sample-banner span { display: block; margin-top: 2px; color: #7569a7; }
+    .scene-pane.sample-mode { grid-template-rows: 43px auto minmax(0, 1fr); }
+
+    /* Empty-state variants */
+    .empty-canvas { min-height: 0; overflow: auto; height: 100%; }
+    .empty-a { height: 100%; display: grid; place-items: center; padding: 32px; }
+    .empty-card { width: min(520px, 84%); text-align: center; }
+    .empty-icon {
+      width: 54px;
+      height: 54px;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 14px;
+      border-radius: 16px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-size: 25px;
+    }
+    .empty-card h1 { margin: 0; font-size: 18px; }
+    .empty-card p { max-width: 440px; margin: 8px auto 18px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+    .empty-actions { justify-content: center; gap: 8px; flex-wrap: wrap; }
+    .empty-footnote { margin-top: 14px; color: var(--muted); font-size: 9px; }
+
+    .empty-b { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+    .composer-intro { padding: 20px 24px 14px; border-bottom: 1px solid var(--line); }
+    .eyebrow { color: var(--blue-deep); font-size: 9px; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
+    .composer-intro h1 { margin: 6px 0 5px; font-size: 18px; }
+    .composer-intro p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+    .composer-grid { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 210px; }
+    .composer-main { min-height: 0; display: flex; flex-direction: column; padding: 16px 20px; }
+    .composer-main textarea {
+      flex: 1;
+      min-height: 180px;
+      width: 100%;
+      resize: none;
+      padding: 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 9px;
+      color: var(--ink);
+      font-size: 11px;
+      line-height: 1.65;
+    }
+    .composer-main textarea::placeholder { color: #9aa3aa; }
+    .composer-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: 10px; }
+    .composer-count { color: var(--muted); font-size: 9px; line-height: 1.5; }
+    .composer-count strong { display: block; color: var(--ink); font-size: 11px; }
+    .composer-side { padding: 15px; border-left: 1px solid var(--line); background: var(--panel-soft); }
+    .composer-side h2 { margin: 0 0 10px; font-size: 11px; }
+    .mini-choice {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 7px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      text-align: left;
+    }
+    .mini-choice:hover { border-color: var(--blue); background: var(--blue-soft); }
+    .mini-choice strong { display: block; font-size: 10px; }
+    .mini-choice span { display: block; margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.45; }
+
+    .empty-c { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+    .sample-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 20px;
+      padding: 16px 18px;
+      background: linear-gradient(110deg, var(--purple-soft), white 72%);
+      border-bottom: 1px solid #d8cffb;
+    }
+    .sample-hero h1 { margin: 0 0 5px; font-size: 15px; color: #41347a; }
+    .sample-hero p { margin: 0; color: #70669b; font-size: 9px; line-height: 1.5; }
+    .sample-actions { gap: 7px; }
+
+    /* Player + Inspector */
+    .player-pane { display: grid; grid-template-rows: 43px minmax(0, 1fr) 44px; }
+    .stage-wrap { min-height: 0; display: grid; place-items: center; padding: 12px; background: #e5e8eb; }
+    .player-frame {
+      position: relative;
+      width: 100%;
+      max-height: 100%;
+      aspect-ratio: 16/9;
+      overflow: hidden;
+      border-radius: 5px;
+      background: var(--stage);
+      color: white;
+      box-shadow: 0 10px 30px rgba(18, 24, 30, .22);
+    }
+    .player-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 28px; text-align: center; }
+    .player-empty .big { display: block; margin-bottom: 8px; font-size: 24px; color: #d6c7ce; }
+    .player-empty strong { display: block; font-size: 12px; }
+    .player-empty span { display: block; margin-top: 5px; color: #b7aab0; font-size: 9px; line-height: 1.45; }
+    .asset-placeholder { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; background: repeating-linear-gradient(135deg, #2a2226 0 16px, #31282d 16px 32px); }
+    .asset-placeholder strong { display: block; font-size: 12px; }
+    .asset-placeholder span { display: block; margin-top: 5px; color: #b7aab0; font-size: 9px; }
+    .subtitle {
+      position: absolute;
+      left: 5%;
+      right: 5%;
+      bottom: 8%;
+      color: white;
+      text-align: center;
+      font-size: clamp(12px, 1.1vw, 18px);
+      font-weight: 900;
+      paint-order: stroke fill;
+      -webkit-text-stroke: 1px rgba(20, 14, 17, .95);
+      text-shadow: 0 2px 7px #000, 0 0 18px rgba(0, 0, 0, .9);
+    }
+    .sample-watermark { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.5); font-size: 27px; font-weight: 900; letter-spacing: .15em; transform: rotate(-12deg); }
+    .player-controls { gap: 8px; padding: 8px 11px; border-top: 1px solid var(--line); }
+    .play-button { width: 28px; height: 28px; border: 0; border-radius: 50%; color: white; background: var(--ink); }
+    .timecode { min-width: 76px; color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+    .scrubber { flex: 1; height: 5px; overflow: hidden; border-radius: 8px; background: #dfe4e8; }
+    .scrubber div { width: 8%; height: 100%; background: var(--blue); }
+
+    .inspector-pane { display: grid; grid-template-rows: 43px minmax(0, 1fr); }
+    .inspector-scroll { min-height: 0; overflow: auto; padding: 12px; }
+    .section { padding-bottom: 13px; margin-bottom: 13px; border-bottom: 1px solid var(--line); }
+    .section:last-child { border-bottom: 0; }
+    .section h2 { margin: 0 0 9px; color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
+    .field { margin-bottom: 10px; }
+    .field label { display: block; margin-bottom: 4px; color: #4d5861; font-size: 9px; font-weight: 720; }
+    .field input, .field select, .field textarea { width: 100%; padding: 7px 8px; border: 1px solid var(--line-strong); border-radius: 7px; background: white; color: var(--ink); font-size: 10px; }
+    .field-note { display: block; margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.4; }
+    .info-card, .diagnostic-card {
+      padding: 9px;
+      margin-bottom: 7px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      font-size: 9px;
+      line-height: 1.5;
+    }
+    .info-card strong, .diagnostic-card strong { display: block; margin-bottom: 3px; font-size: 10px; }
+    .diagnostic-card { border-color: #efc8cb; background: var(--red-soft); color: #7f242a; }
+    .step-list { padding: 0; margin: 0; list-style: none; }
+    .step-list li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 7px; margin-bottom: 10px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .step-number { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 7px; background: var(--blue-soft); color: var(--blue); font-weight: 850; }
+
+    /* Dialogs and state surface */
+    .modal-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px; background: rgba(23, 30, 36, .5); }
+    .modal { width: min(640px, 92vw); max-height: 88vh; overflow: auto; padding: 18px; border-radius: 14px; background: white; box-shadow: 0 24px 70px rgba(0,0,0,.28); }
+    .modal.narrow { width: min(460px, 92vw); }
+    .modal h1 { margin: 0; font-size: 16px; }
+    .modal > p { margin: 7px 0 13px; color: var(--muted); font-size: 10px; line-height: 1.55; }
+    .modal textarea { width: 100%; min-height: 210px; resize: vertical; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 11px; line-height: 1.6; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 14px; }
+    .paste-summary { justify-content: space-between; gap: 10px; padding: 8px 10px; margin: 10px 0; border-radius: 8px; background: var(--blue-soft); color: var(--blue-deep); font-size: 9px; }
+    .paste-summary.error { background: var(--red-soft); color: var(--red); }
+    .preview-lines { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+    .preview-line { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+    .preview-line:last-child { border-bottom: 0; }
+    .preview-index { color: var(--muted); font-size: 9px; font-weight: 800; }
+    .preview-line input { width: 100%; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px; font-size: 10px; }
+    .preview-actions { display: flex; gap: 4px; }
+    .visual-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .visual-choice label { display: flex; gap: 7px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 9px; line-height: 1.45; }
+    .visual-choice strong { display: block; font-size: 10px; }
+    .dsl-drawer {
+      position: fixed;
+      z-index: 85;
+      top: 64px;
+      right: 8px;
+      bottom: 58px;
+      width: min(480px, 44vw);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #171c21;
+      color: #dfe8ee;
+      box-shadow: var(--shadow);
+    }
+    .dsl-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid #343d45; }
+    .dsl-head strong { font-size: 11px; }
+    .dsl-drawer pre { margin: 0; padding: 12px; overflow: auto; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+    .toast { position: fixed; z-index: 110; left: 50%; top: 68px; transform: translateX(-50%); padding: 8px 12px; border-radius: 8px; background: #1f252b; color: white; box-shadow: var(--shadow); font-size: 10px; }
+
+    /* Prototype-only controls. This standalone artifact is never bundled into production. */
+    .prototype-switcher {
+      position: fixed;
+      z-index: 80;
+      left: 50%;
+      bottom: 10px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px;
+      border-radius: 999px;
+      background: #1f252b;
+      color: white;
+      box-shadow: 0 10px 34px rgba(0,0,0,.28);
+    }
+    .prototype-switcher button { width: 30px; height: 30px; border: 0; border-radius: 50%; background: #353d45; color: white; font-size: 15px; }
+    .prototype-switcher button:hover { background: var(--blue); }
+    .variant-label { min-width: 230px; padding: 0 9px; text-align: center; font-size: 10px; font-weight: 760; }
+    .prototype-badge { position: fixed; z-index: 79; left: 10px; bottom: 11px; padding: 6px 9px; border: 1px solid #ead37a; border-radius: 7px; background: #fff4c7; color: #684d00; font-size: 9px; font-weight: 780; }
+    .reset-button { position: fixed; z-index: 79; right: 10px; bottom: 11px; }
+
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    const variants = {
+      A: { name: "原位空状态", note: "完整工作台从第一眼就存在，粘贴为主、逐条新增为辅。" },
+      B: { name: "脚本起步器", note: "先在工作台左栏完成批量 Narration，再第一次显示 Script Table。" },
+      C: { name: "示例先行", note: "先展示只读 13 Scene 示例，用户明确复制后才写入当前项目。" },
+    };
+
+    const fixtureNarrations = [
+      "取 100 毫升生理盐水，加入一支盐酸利多卡因注射液",
+      "从球囊连接管套装中取出连接管",
+      "将连接管与治疗仪副泵接通",
+      "将连接管与生理盐水瓶连接",
+      "将双腔管的绿色接头暂时关闭",
+      "将白色接头与连接管对接",
+      "点击“通液排气”，排尽管内空气",
+      "将双腔管缓慢置入宫腔内",
+      "使用 5 毫升注射器与双腔管的绿色接头连接",
+      "通过注射器向双腔管球囊内注气，实现锁宫",
+      "点击“通液治疗”，进行输卵管通液；治疗仪将根据子宫内压力情况，自动调整通液量",
+      "治疗完成后打开双腔管的绿色接头，解除锁宫",
+      "将双腔管缓慢从宫腔内取出",
+    ];
+
+    const fixtureTypes = [
+      "image", "video-caption", "video-caption", "video-caption", "video-caption",
+      "video-caption", "video-caption", "video", "video-caption", "video-caption",
+      "video-caption", "video-caption", "video",
+    ];
+
+    const initialState = () => ({
+      variant: normalizeVariant(new URLSearchParams(location.search).get("variant")),
+      project: { schemaVersion: 1, metadata: {}, assets: [], scenes: [] },
+      selectedId: null,
+      sampleMode: false,
+      modal: null,
+      pasteText: "",
+      pasteLines: [],
+      ignoredBlankLines: 0,
+      batchVisualType: "video",
+      composerText: "",
+      dslOpen: false,
+      toast: "",
+      idSequence: 1,
+    });
+
+    let state = initialState();
+
+    function normalizeVariant(value) { return variants[value] ? value : "A"; }
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+    function newSceneId() {
+      const n = state.idSequence++;
+      return `30000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    }
+    function visualFor(type, index = 0) {
+      if (type === "image") return { type: "image" };
+      if (type === "video") return { type: "video" };
+      if (type === "title") return { type: "title", device: "", headline: "" };
+      if (type === "end-card") return { type: "end-card", title: "", bullets: [] };
+      if (type === "image-caption") return { type: "image-caption", caption: { kind: "step", number: String(index + 1).padStart(2, "0"), name: "" } };
+      return { type: "video-caption", caption: { kind: "step", number: String(index + 1).padStart(2, "0"), name: "" } };
+    }
+    function makeScene(text, type, index = 0) {
+      return { id: newSceneId(), narration: { text }, visual: visualFor(type, index), transition: "cut" };
+    }
+    function fixtureScenes() {
+      return fixtureNarrations.map((text, index) => makeScene(text, fixtureTypes[index], index));
+    }
+    function selectedScene() { return state.project.scenes.find(scene => scene.id === state.selectedId) ?? null; }
+    function isEmpty() { return state.project.scenes.length === 0; }
+    function setToast(message) {
+      state.toast = message;
+      render();
+      window.clearTimeout(setToast.timer);
+      setToast.timer = window.setTimeout(() => { state.toast = ""; render(); }, 1800);
+    }
+    function saveableProject() { return state.project; }
+
+    function render() {
+      document.title = `Narracut 新项目起步 · ${state.variant}`;
+      document.getElementById("app").innerHTML = `
+        <div class="app-shell">
+          ${renderTopbar()}
+          <main class="workspace">
+            ${renderScenePane()}
+            ${renderPlayer()}
+            ${renderInspector()}
+          </main>
+        </div>
+        ${renderPrototypeControls()}
+        ${state.modal ? renderModal() : ""}
+        ${state.dslOpen ? renderDslDrawer() : ""}
+        ${state.toast ? `<div class="toast" role="status">${escapeHtml(state.toast)}</div>` : ""}
+      `;
+      bindEvents();
+    }
+
+    function renderTopbar() {
+      const projectName = state.project.metadata.name || "未命名项目";
+      const diagnosticCount = state.project.scenes.length * 2;
+      return `
+        <header class="topbar">
+          <div class="brand-block">
+            <div class="brand-mark">N</div>
+            <div class="project-title">
+              <strong>${escapeHtml(projectName)}</strong>
+              <span>本地文件夹 · /projects/untitled-narracut</span>
+            </div>
+            <div class="save-state"><span class="save-dot"></span>已保存</div>
+          </div>
+          <div class="history-actions">
+            <button class="btn icon" disabled aria-label="撤销">↶</button>
+            <button class="btn icon" disabled aria-label="重做">↷</button>
+          </div>
+          <div class="top-actions">
+            <button class="btn" data-action="toggle-dsl">DSL 状态</button>
+            <button class="btn">任务</button>
+            <button class="btn ${diagnosticCount ? "soft" : "primary"}" ${isEmpty() ? "disabled" : ""}>
+              ${diagnosticCount ? `检查并渲染 · ${diagnosticCount}` : "渲染 MP4"}
+            </button>
+          </div>
+        </header>
+      `;
+    }
+
+    function renderScenePane() {
+      const sampleMode = isEmpty() && state.sampleMode;
+      return `
+        <section class="pane scene-pane ${sampleMode ? "sample-mode" : ""}">
+          <div class="pane-head">
+            <div class="pane-title"><strong>Script Table</strong><span>${state.project.scenes.length} Scene</span></div>
+            <div class="pane-tools">
+              <button class="btn small" ${isEmpty() ? "disabled" : ""}>全部</button>
+              <button class="btn small" ${isEmpty() ? "disabled" : ""}>待修复</button>
+              <button class="btn small" data-action="open-add">＋ Scene</button>
+            </div>
+          </div>
+          ${sampleMode ? renderSampleBanner() : ""}
+          ${isEmpty() ? renderEmptyState() : renderProjectTable(state.project.scenes)}
+        </section>
+      `;
+    }
+
+    function renderEmptyState() {
+      if (state.sampleMode) {
+        return `<div class="empty-c">${renderSampleHero()}${renderProjectTable(fixturePreviewScenes(), true)}</div>`;
+      }
+      if (state.variant === "B") return renderComposer();
+      return `
+        <div class="empty-canvas empty-a">
+          <div class="empty-card">
+            <div class="empty-icon">≡</div>
+            <h1>从第一句 Narration 开始</h1>
+            <p>粘贴多行文案可一次建立多个 Scene；每个非空行先成为一个 Scene，并在写入前让你检查拆分结果。</p>
+            <div class="empty-actions">
+              <button class="btn primary" data-action="open-paste">粘贴多行文案</button>
+              <button class="btn" data-action="open-add">逐条新增 Scene</button>
+              <button class="link-button" data-action="show-sample">查看示例项目</button>
+            </div>
+            <div class="empty-footnote">项目名和 Logo 可稍后填写；只有创建首个 Scene 才会离开空状态。</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderComposer() {
+      const lines = parseText(state.composerText).lines;
+      return `
+        <div class="empty-canvas empty-b">
+          <div class="composer-intro">
+            <div class="eyebrow">新项目 · 第一步</div>
+            <h1>先把 Narration 变成 Scene</h1>
+            <p>这里仍属于 Script Table 区域。确认创建后，起步器消失，同一位置立即变成已经定稿的六列表格。</p>
+          </div>
+          <div class="composer-grid">
+            <div class="composer-main">
+              <textarea id="composer-text" placeholder="每行一句 Narration，例如：\n取 100 毫升生理盐水……\n从球囊连接管套装中取出连接管……">${escapeHtml(state.composerText)}</textarea>
+              <div class="composer-footer">
+                <div class="composer-count"><strong>${lines.length} / 20 Scene</strong>空行将在确认页标出，不会直接写入。</div>
+                <button class="btn primary" data-action="review-composer" ${lines.length === 0 ? "disabled" : ""}>检查拆分并创建</button>
+              </div>
+            </div>
+            <aside class="composer-side">
+              <h2>也可以这样开始</h2>
+              <button class="mini-choice" data-action="open-add">
+                <strong>只新增一条 Scene</strong>
+                <span>适合边写边做；创建时明确选择 Image 或 Video。</span>
+              </button>
+              <button class="mini-choice" data-action="show-sample">
+                <strong>查看 13 Scene 示例</strong>
+                <span>只读预览，除非明确复制，否则不进入当前项目。</span>
+              </button>
+              <button class="mini-choice" data-action="fill-fixture">
+                <strong>填入验收夹具文案</strong>
+                <span>只填入此输入框，仍需检查并确认。</span>
+              </button>
+            </aside>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSampleBanner() {
+      return `
+        <div class="sample-banner">
+          <div><strong>示例预览 · 不属于当前项目</strong><span>下方 13 个 Scene 是只读演示；当前 project.json 的 scenes[] 仍为空。</span></div>
+          <div class="sample-actions">
+            <button class="btn small" data-action="exit-sample">返回空项目</button>
+            <button class="btn small primary" data-action="confirm-copy-sample">复制为当前项目</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSampleHero() {
+      return `
+        <div class="sample-hero">
+          <div>
+            <h1>先看一个完整项目怎样组织</h1>
+            <p>紫色表示只读示例层。浏览、选择和预览都不会修改当前空项目。</p>
+          </div>
+          <div class="sample-actions">
+            <button class="btn" data-action="exit-sample">从空白开始</button>
+            <button class="btn primary" data-action="confirm-copy-sample">复制这 13 个 Scene</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function fixturePreviewScenes() {
+      return fixtureNarrations.map((text, index) => ({
+        id: `sample-${index + 1}`,
+        narration: { text },
+        visual: visualFor(fixtureTypes[index], index),
+        transition: "cut",
+      }));
+    }
+
+    function renderProjectTable(scenes, sample = false) {
+      return `
+        <div class="table-wrap">
+          <table aria-label="${sample ? "示例 Scene" : "项目 Scene"}">
+            <colgroup><col class="col-order"><col class="col-narration"><col class="col-type"><col class="col-asset"><col class="col-speech"><col class="col-status"></colgroup>
+            <thead><tr><th>顺序</th><th>Narration</th><th>Visual Type</th><th>Asset</th><th>Speech</th><th>状态</th></tr></thead>
+            <tbody>
+              ${scenes.map((scene, index) => renderSceneRow(scene, index, sample)).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderSceneRow(scene, index, sample) {
+      const selected = sample ? state.selectedId === scene.id : state.selectedId === scene.id;
+      return `
+        <tr class="${selected ? "selected" : ""} ${sample ? "sample-row" : ""}" data-action="select-scene" data-id="${scene.id}" data-sample="${sample}">
+          <td><div class="order-cell"><span class="drag">⠿</span>${String(index + 1).padStart(2, "0")}</div></td>
+          <td><div class="row-copy">${escapeHtml(scene.narration.text)}</div></td>
+          <td><select class="select-cell" ${sample ? "disabled" : ""}><option>${escapeHtml(typeLabel(scene.visual.type))}</option></select></td>
+          <td><div class="cell-stack"><span class="cell-primary ${sample ? "" : "error-copy"}">${sample ? "已绑定" : "缺 Asset"}</span><span class="cell-secondary">${sample ? "示例素材" : "导入并绑定"}</span></div></td>
+          <td><div class="cell-stack"><span class="cell-primary ${sample ? "" : "error-copy"}">${sample ? "已生成" : "缺 Speech"}</span><span class="cell-secondary">${sample ? "示例 Speech" : "生成 Narration"}</span></div></td>
+          <td><div class="cell-stack"><span class="cell-primary ${sample ? "" : "error-copy"}">${sample ? "Render-ready" : "2 个问题"}</span><span class="cell-secondary">${sample ? "只读示例" : "Asset 在前，Speech 在后"}</span></div></td>
+        </tr>
+      `;
+    }
+
+    function typeLabel(type) {
+      return ({
+        "image": "Image", "video": "Video", "image-caption": "Image+Caption",
+        "video-caption": "Video+Caption", "title": "Title", "end-card": "EndCard",
+      })[type] || type;
+    }
+
+    function renderPlayer() {
+      const scene = selectedScene();
+      const sampleScene = state.selectedId?.startsWith("sample-") ? fixturePreviewScenes().find(item => item.id === state.selectedId) : null;
+      const active = scene || sampleScene;
+      return `
+        <section class="pane player-pane">
+          <div class="pane-head"><div class="pane-title"><strong>Player</strong><span>${active ? (sampleScene ? "示例预览" : "Draft Duration") : "无 Scene"}</span></div></div>
+          <div class="stage-wrap">
+            <div class="player-frame">
+              ${active ? `
+                <div class="asset-placeholder"><div><strong>${sampleScene ? "示例 Asset 画面" : "等待导入 Asset"}</strong><span>${sampleScene ? "只读演示，不属于当前项目" : "仍显示可信的 Subtitle；时长暂按 Draft Duration 估算"}</span></div></div>
+                <div class="subtitle">${escapeHtml(active.narration.text || "Narration 为空")}</div>
+                ${sampleScene ? `<div class="sample-watermark">示例</div>` : ""}
+              ` : `
+                <div class="player-empty"><div><span class="big">▶</span><strong>还没有可预览的 Scene</strong><span>创建第一条 Scene 后，Player 会留在原位并显示缺 Asset / Speech 的分层占位。</span></div></div>
+              `}
+            </div>
+          </div>
+          <div class="player-controls"><button class="play-button" ${active ? "" : "disabled"}>▶</button><span class="timecode">00:00.000</span><div class="scrubber"><div></div></div></div>
+        </section>
+      `;
+    }
+
+    function renderInspector() {
+      const scene = selectedScene();
+      const sampleScene = state.selectedId?.startsWith("sample-") ? fixturePreviewScenes().find(item => item.id === state.selectedId) : null;
+      return `
+        <section class="pane inspector-pane">
+          <div class="pane-head"><div class="pane-title"><strong>Inspector</strong><span>${scene ? "当前 Scene" : sampleScene ? "只读示例" : "项目信息"}</span></div></div>
+          <div class="inspector-scroll">
+            ${scene ? renderSceneInspector(scene) : sampleScene ? renderSampleInspector(sampleScene) : renderProjectInspector()}
+          </div>
+        </section>
+      `;
+    }
+
+    function renderProjectInspector() {
+      return `
+        <div class="section">
+          <h2>可跳过的项目元数据</h2>
+          <div class="field"><label for="project-name">项目名</label><input id="project-name" value="${escapeHtml(state.project.metadata.name || "")}" placeholder="默认显示文件夹名"><span class="field-note">留空仍是合法 DSL；填写不会跨过空状态。</span></div>
+          <div class="field"><label>Logo</label><button class="btn small">选择图片 Asset</button><span class="field-note">可稍后添加，不阻止建立 Scene。</span></div>
+        </div>
+        <div class="section">
+          <h2>空项目状态</h2>
+          <div class="info-card"><strong>scenes[] = [] 可保存</strong>Player 无当前 Scene；“检查并渲染”不可用。真正离开空状态的动作只有：新增、确认粘贴拆分、或明确复制示例。</div>
+        </div>
+        ${state.variant === "B" ? `
+          <div class="section"><h2>起步顺序</h2><ol class="step-list"><li><span class="step-number">1</span><span>输入或粘贴 Narration。</span></li><li><span class="step-number">2</span><span>检查空行、误拆和 20 Scene 上限。</span></li><li><span class="step-number">3</span><span>选择首批 Visual Type，确认后进入 Script Table。</span></li></ol></div>
+        ` : ""}
+      `;
+    }
+
+    function renderSceneInspector(scene) {
+      return `
+        <div class="section">
+          <h2>Scene</h2>
+          <div class="field"><label>Narration</label><textarea>${escapeHtml(scene.narration.text)}</textarea></div>
+          <div class="field"><label>Visual Type</label><select><option>${escapeHtml(typeLabel(scene.visual.type))}</option></select><span class="field-note">创建后仍可按既定迁移规则切换。</span></div>
+        </div>
+        <div class="section">
+          <h2>诊断</h2>
+          <div class="diagnostic-card"><strong>缺少 Asset</strong>先导入并绑定与 ${escapeHtml(typeLabel(scene.visual.type))} 匹配的 Asset。</div>
+          <div class="diagnostic-card"><strong>缺少 Speech</strong>生成当前 Narration 的 Speech 后才有最终 Duration。</div>
+        </div>
+      `;
+    }
+
+    function renderSampleInspector(scene) {
+      return `
+        <div class="section"><h2>只读示例 Scene</h2><div class="info-card"><strong>${escapeHtml(typeLabel(scene.visual.type))}</strong>${escapeHtml(scene.narration.text)}</div></div>
+        <div class="section"><h2>当前项目状态</h2><div class="info-card"><strong>仍然是 scenes[] = []</strong>浏览示例不产生保存、Undo 或诊断；复制前示例永远不属于当前项目。</div></div>
+      `;
+    }
+
+    function renderPrototypeControls() {
+      const keys = Object.keys(variants);
+      const index = keys.indexOf(state.variant);
+      const previous = keys[(index - 1 + keys.length) % keys.length];
+      const next = keys[(index + 1) % keys.length];
+      return `
+        <div class="prototype-badge">PROTOTYPE · 不接真实写盘</div>
+        <div class="prototype-switcher" aria-label="原型变体切换">
+          <button data-variant="${previous}" aria-label="上一个变体">←</button>
+          <div class="variant-label">${state.variant} — ${variants[state.variant].name}</div>
+          <button data-variant="${next}" aria-label="下一个变体">→</button>
+        </div>
+        <button class="btn reset-button" data-action="reset">重置当前方案</button>
+      `;
+    }
+
+    function renderModal() {
+      if (state.modal === "paste") return renderPasteModal();
+      if (state.modal === "review") return renderReviewModal();
+      if (state.modal === "add") return renderAddModal();
+      if (state.modal === "copy-sample") return renderCopySampleModal();
+      return "";
+    }
+
+    function renderPasteModal() {
+      return `
+        <div class="modal-backdrop" data-action="close-modal">
+          <section class="modal" role="dialog" aria-modal="true" aria-label="粘贴多行 Narration" data-modal-panel>
+            <h1>粘贴多行 Narration</h1>
+            <p>每个非空行会成为一个 Scene。此步只收集文本；下一步一定展示拆分结果，不会直接写进项目。</p>
+            <textarea id="paste-text" placeholder="每行一句 Narration">${escapeHtml(state.pasteText)}</textarea>
+            <div class="modal-actions"><button class="btn" data-action="close-modal">取消</button><button class="btn primary" data-action="parse-paste">检查拆分</button></div>
+          </section>
+        </div>
+      `;
+    }
+
+    function renderReviewModal() {
+      const overLimit = state.pasteLines.length > 20;
+      return `
+        <div class="modal-backdrop">
+          <section class="modal" role="dialog" aria-modal="true" aria-label="检查 Scene 拆分结果" data-modal-panel>
+            <h1>检查拆分结果</h1>
+            <p>这里是写入前的确认点。可以改字、合并误拆行或删除一行；确认后才会创建 Scene。</p>
+            <div class="paste-summary ${overLimit ? "error" : ""}">
+              <span><strong>${state.pasteLines.length} 个 Scene</strong> · 已忽略 ${state.ignoredBlankLines} 个空行</span>
+              <span>${overLimit ? `超过 V1 上限 20，请删掉 ${state.pasteLines.length - 20} 行` : "未写入 project.json"}</span>
+            </div>
+            <div class="preview-lines">
+              ${state.pasteLines.map((line, index) => `
+                <div class="preview-line">
+                  <span class="preview-index">${String(index + 1).padStart(2, "0")}</span>
+                  <input data-line-index="${index}" value="${escapeHtml(line)}" aria-label="第 ${index + 1} 条 Narration">
+                  <div class="preview-actions">
+                    <button class="btn small" data-action="merge-line" data-index="${index}" ${index === 0 ? "disabled" : ""}>并到上行</button>
+                    <button class="btn small" data-action="delete-line" data-index="${index}">删除</button>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+            <div class="visual-choice">
+              <label><input type="radio" name="batch-visual" value="video" ${state.batchVisualType === "video" ? "checked" : ""}><span><strong>首批使用 Video</strong>合法可保存，但缺 Asset / Speech；之后逐 Scene 调整。</span></label>
+              <label><input type="radio" name="batch-visual" value="image" ${state.batchVisualType === "image" ? "checked" : ""}><span><strong>首批使用 Image</strong>合法可保存，但缺 Asset / Speech；之后逐 Scene 调整。</span></label>
+            </div>
+            <div class="modal-actions"><button class="btn" data-action="back-to-paste">返回原文</button><button class="btn primary" data-action="create-from-lines" ${overLimit || state.pasteLines.length === 0 ? "disabled" : ""}>创建 ${state.pasteLines.length} 个 Scene</button></div>
+          </section>
+        </div>
+      `;
+    }
+
+    function renderAddModal() {
+      return `
+        <div class="modal-backdrop" data-action="close-modal">
+          <section class="modal narrow" role="dialog" aria-modal="true" aria-label="新增 Scene" data-modal-panel>
+            <h1>新增一条 Scene</h1>
+            <p>Visual 是严格判别联合，不能保存“未选择 Visual”的中间状态，所以在创建时明确选择一个最小合法分支。</p>
+            <div class="field"><label for="single-narration">Narration</label><textarea id="single-narration" style="min-height:110px" placeholder="可以先留空，之后再写"></textarea></div>
+            <div class="field"><label for="single-visual">初始 Visual Type</label><select id="single-visual"><option value="video">Video（推荐：验收夹具主体）</option><option value="image">Image</option></select><span class="field-note">两者都可在缺 Asset 时保存；Title / EndCard 与 Caption 类型在工作台内按现有原子切换规则创建。</span></div>
+            <div class="modal-actions"><button class="btn" data-action="close-modal">取消</button><button class="btn primary" data-action="create-single">创建 Scene</button></div>
+          </section>
+        </div>
+      `;
+    }
+
+    function renderCopySampleModal() {
+      return `
+        <div class="modal-backdrop" data-action="close-modal">
+          <section class="modal narrow" role="dialog" aria-modal="true" aria-label="复制示例项目" data-modal-panel>
+            <h1>把示例 Scene 复制进当前项目？</h1>
+            <p>这是唯一会让示例成为你的内容的动作。将新建 13 个 Scene 与稳定 ID；示例 Asset / Speech 不会伪装成你的本地文件，因此复制结果仍是缺 Asset / Speech 的可保存草稿。</p>
+            <div class="info-card"><strong>复制后的结果</strong>13 个 Narration + 对应 Visual Type；0 Asset；0 Speech；26 个待修复 error。</div>
+            <div class="modal-actions"><button class="btn" data-action="close-modal">继续只读查看</button><button class="btn primary" data-action="copy-sample">确认复制 13 个 Scene</button></div>
+          </section>
+        </div>
+      `;
+    }
+
+    function renderDslDrawer() {
+      return `
+        <aside class="dsl-drawer" aria-label="当前 DSL 状态">
+          <div class="dsl-head"><strong>当前可保存 project.json</strong><button class="btn small" data-action="toggle-dsl">关闭</button></div>
+          <pre>${escapeHtml(JSON.stringify(saveableProject(), null, 2))}</pre>
+        </aside>
+      `;
+    }
+
+    function parseText(text) {
+      const raw = text.replaceAll("\r\n", "\n").split("\n");
+      return { lines: raw.filter(line => !/^\s*$/.test(line)), blanks: raw.filter(line => /^\s*$/.test(line)).length };
+    }
+
+    function selectVariant(variant) {
+      const url = new URL(location.href);
+      url.searchParams.set("variant", variant);
+      history.replaceState({}, "", url);
+      state = initialState();
+      state.variant = variant;
+      state.sampleMode = variant === "C";
+      render();
+    }
+
+    function createScenes(lines, type) {
+      state.project.scenes = lines.map((line, index) => makeScene(line, type, index));
+      state.selectedId = state.project.scenes[0]?.id ?? null;
+      state.sampleMode = false;
+      state.modal = null;
+      state.pasteLines = [];
+      setToast(`已创建 ${lines.length} 个可保存 Scene`);
+    }
+
+    function bindEvents() {
+      document.querySelectorAll("[data-variant]").forEach(button => button.addEventListener("click", () => selectVariant(button.dataset.variant)));
+
+      document.querySelectorAll("[data-action]").forEach(element => {
+        element.addEventListener("click", event => {
+          const action = element.dataset.action;
+          if (action === "close-modal" && event.target.closest("[data-modal-panel]") && !event.target.matches("[data-action='close-modal']")) return;
+          handleAction(action, element);
+        });
+      });
+
+      const projectName = document.getElementById("project-name");
+      projectName?.addEventListener("input", event => {
+        const value = event.target.value;
+        if (value) state.project.metadata.name = value;
+        else delete state.project.metadata.name;
+      });
+      projectName?.addEventListener("change", () => { setToast("项目名已保存，但项目仍为空"); });
+
+      const composer = document.getElementById("composer-text");
+      composer?.addEventListener("input", event => { state.composerText = event.target.value; render(); requestAnimationFrame(() => { const next = document.getElementById("composer-text"); next?.focus(); next?.setSelectionRange(next.value.length, next.value.length); }); });
+
+      document.querySelectorAll("[data-line-index]").forEach(input => input.addEventListener("input", event => { state.pasteLines[Number(input.dataset.lineIndex)] = event.target.value; }));
+      document.querySelectorAll("input[name='batch-visual']").forEach(input => input.addEventListener("change", () => { state.batchVisualType = input.value; }));
+    }
+
+    function handleAction(action, element) {
+      if (!action) return;
+      if (action === "toggle-dsl") { state.dslOpen = !state.dslOpen; render(); return; }
+      if (action === "reset") { selectVariant(state.variant); return; }
+      if (action === "open-paste") { state.modal = "paste"; render(); return; }
+      if (action === "open-add") { state.modal = "add"; render(); return; }
+      if (action === "close-modal") { state.modal = null; render(); return; }
+      if (action === "show-sample") { state.sampleMode = true; state.selectedId = "sample-1"; render(); return; }
+      if (action === "exit-sample") { state.sampleMode = false; state.selectedId = null; render(); return; }
+      if (action === "confirm-copy-sample") { state.modal = "copy-sample"; render(); return; }
+      if (action === "copy-sample") { state.project.scenes = fixtureScenes(); state.selectedId = state.project.scenes[0].id; state.sampleMode = false; state.modal = null; setToast("示例已明确复制：13 个 Scene，未复制假 Asset / Speech"); return; }
+      if (action === "fill-fixture") { state.composerText = fixtureNarrations.join("\n"); render(); return; }
+      if (action === "review-composer") { state.pasteText = state.composerText; loadReview(); return; }
+      if (action === "parse-paste") { state.pasteText = document.getElementById("paste-text")?.value ?? state.pasteText; loadReview(); return; }
+      if (action === "back-to-paste") { state.modal = state.variant === "B" ? null : "paste"; render(); return; }
+      if (action === "merge-line") {
+        const index = Number(element.dataset.index);
+        if (index > 0) { state.pasteLines[index - 1] = `${state.pasteLines[index - 1]}${state.pasteLines[index]}`; state.pasteLines.splice(index, 1); render(); }
+        return;
+      }
+      if (action === "delete-line") { state.pasteLines.splice(Number(element.dataset.index), 1); render(); return; }
+      if (action === "create-from-lines") { createScenes(state.pasteLines, state.batchVisualType); return; }
+      if (action === "create-single") {
+        const narration = document.getElementById("single-narration")?.value ?? "";
+        const type = document.getElementById("single-visual")?.value ?? "video";
+        const scene = makeScene(narration, type);
+        state.project.scenes.push(scene);
+        state.selectedId = scene.id;
+        state.sampleMode = false;
+        state.modal = null;
+        setToast("首个 Scene 已创建；进入同一套全局工作台");
+        return;
+      }
+      if (action === "select-scene") { state.selectedId = element.dataset.id; render(); return; }
+    }
+
+    function loadReview() {
+      const parsed = parseText(state.pasteText);
+      state.pasteLines = parsed.lines;
+      state.ignoredBlankLines = parsed.blanks;
+      state.modal = "review";
+      render();
+    }
+
+    document.addEventListener("keydown", event => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (event.target.matches("input, textarea, select, [contenteditable]")) return;
+      if (state.modal || state.dslOpen) return;
+      const keys = Object.keys(variants);
+      const index = keys.indexOf(state.variant);
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      selectVariant(keys[(index + direction + keys.length) % keys.length]);
+    });
+
+    state.sampleMode = state.variant === "C";
+    if (state.sampleMode) state.selectedId = "sample-1";
+    render();
+  </script>
+</body>
+</html>
