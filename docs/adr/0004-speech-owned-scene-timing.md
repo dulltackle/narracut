@@ -11,7 +11,7 @@ Scene 的 Duration 只由完整 Speech 的 `audio_length` 决定，不裁首尾�
 
 ## Consequences
 
-- 每个 Scene 末尾增加的余量严格小于一帧；在 V1 的 30fps、最多 20 个 Scene 约束下，整片累计增加严格小于 20 帧（667ms）。
+- 每个 Scene 末尾增加的余量严格小于一帧；项目不限制 Scene 数量，因此整片累计增加严格小于 Scene 数量个帧。30fps 下，若项目有 `N` 个 Scene，累计增加严格小于 `N / 30` 秒。
 - `startFrame`、`startTime`、`durationInFrames` 与项目总帧数全部运行时派生，不进入 DSL。
 - 缺 Speech 的 Scene 只能用 Draft Duration 参与编辑器预览，最终渲染必须拦截。
 - Asset 的播放窗口使用同一份整数帧时间线：长则截断，短则冻结最后一帧。
