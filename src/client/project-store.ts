@@ -1,0 +1,255 @@
+import { create } from "zustand";
+
+import {
+  CURRENT_SCHEMA_VERSION,
+  readSchemaVersion,
+  type Diagnostic,
+  type ProjectV1,
+  validateProjectConsistency,
+  validateProjectStructure,
+} from "../shared/project";
+
+export type ProjectInfo = {
+  projectDirectory: string;
+  projectFile: string;
+  fallbackName: string;
+};
+
+type UnknownProject = Record<string, unknown>;
+
+type ProjectState = {
+  phase: "loading" | "ready" | "readonly" | "error";
+  project?: ProjectV1;
+  unknownProject?: UnknownProject;
+  unknownVersion?: number;
+  info?: ProjectInfo;
+  diagnostics: Diagnostic[];
+  mediaAvailability: Record<string, boolean>;
+  errorMessage?: string;
+  selectedSceneId?: string;
+  saveStatus: "saved" | "saving" | "error";
+  saveErrorMessage?: string;
+  taskDrawerOpen: boolean;
+  load: () => Promise<void>;
+  selectScene: (sceneId: string) => void;
+  setTaskDrawerOpen: (open: boolean) => void;
+  updateNarration: (sceneId: string, text: string) => void;
+  addScenesFromLines: (lines: string[]) => Promise<void>;
+};
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let saveQueue: Promise<void> = Promise.resolve();
+let latestSaveRevision = 0;
+
+function structuralErrorMessage(diagnostics: Diagnostic[]): string {
+  return diagnostics[0]?.message ?? "Project DSL 未通过结构与内部一致性校验。";
+}
+
+function asUnknownProject(input: unknown): UnknownProject {
+  return typeof input === "object" && input !== null && !Array.isArray(input)
+    ? (input as UnknownProject)
+    : {};
+}
+
+async function saveProject(project: ProjectV1): Promise<void> {
+  const response = await fetch("/api/project", {
+    method: "PUT",
+    headers: { "content-type": "application/json; charset=utf-8" },
+    body: `${JSON.stringify(project, null, 2)}\n`,
+  });
+  if (!response.ok) throw new Error(`保存失败：HTTP ${response.status}`);
+}
+
+function enqueueSave(
+  project: ProjectV1,
+  revision: number,
+  setState: (state: Partial<ProjectState>) => void,
+): Promise<void> {
+  const operation = saveQueue
+    .catch(() => undefined)
+    .then(() => saveProject(project));
+  saveQueue = operation;
+  return operation.then(
+    () => {
+      if (revision === latestSaveRevision) setState({ saveStatus: "saved" });
+    },
+    (error: unknown) => {
+      if (revision === latestSaveRevision) setState({ saveStatus: "error" });
+      if (revision === latestSaveRevision) {
+        setState({
+          saveErrorMessage:
+            error instanceof Error ? error.message : "无法写入 Project DSL。",
+        });
+      }
+    },
+  );
+}
+
+export const useProjectStore = create<ProjectState>((set, get) => ({
+  phase: "loading",
+  diagnostics: [],
+  mediaAvailability: {},
+  saveStatus: "saved",
+  taskDrawerOpen: false,
+  load: async () => {
+    set({
+      phase: "loading",
+      diagnostics: [],
+      errorMessage: undefined,
+      project: undefined,
+      unknownProject: undefined,
+      mediaAvailability: {},
+      saveStatus: "saved",
+      saveErrorMessage: undefined,
+    });
+
+    try {
+      const [projectResponse, infoResponse] = await Promise.all([
+        fetch("/api/project", { cache: "no-store" }),
+        fetch("/api/project-info", { cache: "no-store" }),
+      ]);
+      if (!projectResponse.ok || !infoResponse.ok) {
+        throw new Error("本地服务未能读取项目文件。");
+      }
+
+      const [projectText, info] = await Promise.all([
+        projectResponse.text(),
+        infoResponse.json() as Promise<ProjectInfo>,
+      ]);
+      const input: unknown = JSON.parse(projectText);
+      const schemaVersion = readSchemaVersion(input);
+
+      if (schemaVersion > CURRENT_SCHEMA_VERSION) {
+        set({
+          phase: "readonly",
+          info,
+          unknownProject: asUnknownProject(input),
+          unknownVersion: schemaVersion,
+          selectedSceneId: undefined,
+          saveStatus: "saved",
+        });
+        return;
+      }
+
+      if (schemaVersion < CURRENT_SCHEMA_VERSION) {
+        throw new Error(
+          `缺少从 schemaVersion=${schemaVersion} 到 ${CURRENT_SCHEMA_VERSION} 的连续迁移函数。`,
+        );
+      }
+
+      const structural = validateProjectStructure(input);
+      if (!structural.success) {
+        set({
+          phase: "error",
+          info,
+          diagnostics: structural.diagnostics,
+          errorMessage: structuralErrorMessage(structural.diagnostics),
+        });
+        return;
+      }
+
+      const diagnostics = validateProjectConsistency(structural.project);
+      if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+        set({
+          phase: "error",
+          info,
+          diagnostics,
+          errorMessage: structuralErrorMessage(diagnostics),
+        });
+        return;
+      }
+
+      const projectPaths = [
+        ...structural.project.assets.map((asset) => asset.path),
+        ...structural.project.scenes.flatMap((scene) =>
+          scene.speech === undefined ? [] : [scene.speech.path],
+        ),
+      ];
+      const uniquePaths = [...new Set(projectPaths)];
+      let mediaAvailability: Record<string, boolean> = {};
+      if (uniquePaths.length > 0) {
+        const probeResponse = await fetch("/api/assets/probe", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ paths: uniquePaths }),
+        });
+        if (probeResponse.ok) {
+          const payload = (await probeResponse.json()) as {
+            results: Array<{ path: string; exists: boolean }>;
+          };
+          mediaAvailability = Object.fromEntries(
+            payload.results.map((result) => [result.path, result.exists]),
+          );
+        }
+      }
+
+      set({
+        phase: "ready",
+        info,
+        project: structural.project,
+        diagnostics,
+        mediaAvailability,
+        selectedSceneId: structural.project.scenes[0]?.id,
+        saveStatus: "saved",
+      });
+    } catch (error) {
+      set({
+        phase: "error",
+        diagnostics: [],
+        errorMessage:
+          error instanceof Error ? error.message : "Project DSL 加载失败。",
+      });
+    }
+  },
+  selectScene: (selectedSceneId) => set({ selectedSceneId }),
+  setTaskDrawerOpen: (taskDrawerOpen) => set({ taskDrawerOpen }),
+  updateNarration: (sceneId, text) => {
+    const project = get().project;
+    if (project === undefined || get().phase !== "ready") return;
+
+    const nextProject: ProjectV1 = {
+      ...project,
+      scenes: project.scenes.map((scene) =>
+        scene.id === sceneId
+          ? { ...scene, narration: { text }, speech: undefined }
+          : scene,
+      ),
+    };
+    const revision = ++latestSaveRevision;
+    set({
+      project: nextProject,
+      saveStatus: "saving",
+      saveErrorMessage: undefined,
+    });
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      void enqueueSave(nextProject, revision, set);
+    }, 500);
+  },
+  addScenesFromLines: async (lines) => {
+    const project = get().project;
+    if (project === undefined || get().phase !== "ready" || lines.length === 0) {
+      return;
+    }
+
+    const newScenes = lines.map((text) => ({
+      id: crypto.randomUUID(),
+      narration: { text },
+      visual: { type: "video" as const },
+      transition: "cut" as const,
+    }));
+    const nextProject: ProjectV1 = {
+      ...project,
+      scenes: [...project.scenes, ...newScenes],
+    };
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
+    const revision = ++latestSaveRevision;
+    set({
+      project: nextProject,
+      selectedSceneId: newScenes[0]?.id,
+      saveStatus: "saving",
+      saveErrorMessage: undefined,
+    });
+    await enqueueSave(nextProject, revision, set);
+  },
+}));
