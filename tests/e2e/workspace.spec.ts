@@ -61,7 +61,7 @@ test("现有 13 Scene 示例进入完整三栏工作台并显示当前 Scene 列
   );
 });
 
-test("空 Project DSL 在脚本表原位粘贴多行 Narration 并创建 Scene", async ({
+test("批量草稿可整理和取消且确认前不会写入 Project DSL", async ({
   page,
 }) => {
   await writeFile(
@@ -71,16 +71,171 @@ test("空 Project DSL 在脚本表原位粘贴多行 Narration 并创建 Scene",
   await page.goto(server.url);
 
   await expect(page.getByRole("heading", { name: "从第一句讲解开始" })).toBeVisible();
-  await page.getByRole("button", { name: "粘贴多行文案" }).click();
-  const dialog = page.getByRole("dialog", { name: "从多行文案创建 Scene" });
+  await page.getByRole("button", { name: "粘贴多行 Narration" }).click();
+  const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await dialog.getByRole("textbox").fill("第一句 Narration\n\n第二句 Narration\n第三句 Narration");
-  await expect(dialog.getByText("将创建 3 个 Scene")).toBeVisible();
-  await dialog.getByRole("button", { name: "创建 3 个 Scene" }).click();
+  await expect(dialog).toHaveAccessibleName("粘贴多行 Narration");
+  const original = "  第一句 Narration  \n \t\nCafe\u0301\n第三句 Narration  ";
+  await dialog.getByRole("textbox", { name: "原文" }).fill(original);
+  await dialog.getByRole("button", { name: "整理拆分" }).click();
+
+  await expect(dialog.getByText("3 条将创建为 Scene")).toBeVisible();
+  await expect(dialog.getByText("1 个空白行已忽略")).toBeVisible();
+  const drafts = dialog.getByRole("textbox", { name: /拆分结果/ });
+  await expect(drafts).toHaveCount(3);
+  await expect(drafts.nth(0)).toHaveValue("  第一句 Narration  ");
+  await expect(drafts.nth(1)).toHaveValue("Cafe\u0301");
+  await expect(drafts.nth(2)).toHaveValue("第三句 Narration  ");
+  expect(JSON.parse(await readFile(projectFile, "utf8")).scenes).toEqual([]);
+
+  await drafts.nth(1).fill("已编辑");
+  await dialog.getByRole("button", { name: "删除第 3 行" }).click();
+  await dialog.getByRole("button", { name: "将第 2 行并入上一行" }).click();
+  await expect(dialog.getByRole("textbox", { name: "拆分结果 1" })).toHaveValue(
+    "  第一句 Narration  \n已编辑",
+  );
+
+  await dialog.getByRole("button", { name: "返回原文" }).click();
+  await expect(dialog.getByRole("textbox", { name: "原文" })).toHaveValue(original);
+  await dialog.getByRole("button", { name: "取消" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("heading", { name: "从第一句讲解开始" })).toBeVisible();
+  expect(JSON.parse(await readFile(projectFile, "utf8")).scenes).toEqual([]);
+});
+
+test("批量确认默认创建 Video Scene 并在重新打开后完整恢复", async ({ page }) => {
+  await writeFile(
+    projectFile,
+    '{"schemaVersion":1,"metadata":{"name":"空项目"},"assets":[],"scenes":[]}\n',
+  );
+  await page.goto(server.url);
+
+  await page.getByRole("button", { name: "粘贴多行 Narration" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "原文" }).fill(
+    "  第一句保留空格  \n第二句\nCafe\u0301",
+  );
+  await dialog.getByRole("button", { name: "整理拆分" }).click();
+  await dialog.getByRole("button", { name: "创建 Scene", exact: true }).click();
 
   await expect(page.getByTestId("scene-row")).toHaveCount(3);
-  await expect(page.getByTestId("player-subtitle")).toHaveText("第一句 Narration");
-  await expect.poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes.length).toBe(3);
+  await expect(page.getByTestId("player-subtitle")).toHaveText(
+    "  第一句保留空格  ",
+  );
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes.length)
+    .toBe(3);
+  const savedProject = JSON.parse(await readFile(projectFile, "utf8"));
+  expect(savedProject).toMatchObject({
+      scenes: [
+        { narration: { text: "  第一句保留空格  " }, visual: { type: "video" } },
+        { narration: { text: "第二句" }, visual: { type: "video" } },
+        { narration: { text: "Cafe\u0301" }, visual: { type: "video" } },
+      ],
+    });
+  const sceneIds = savedProject.scenes.map((scene: { id: string }) => scene.id);
+
+  await server.close();
+  server = await startNarracutServer({
+    projectDirectory: resolve(projectFile, ".."),
+    staticDirectory: resolve("dist/client"),
+    initialPort: 0,
+  });
+  await page.goto(server.url);
+  await expect(page.getByTestId("scene-row")).toHaveCount(3);
+  await expect(page.getByTestId("player-subtitle")).toHaveText(
+    "  第一句保留空格  ",
+  );
+  const reopenedProject = JSON.parse(await readFile(projectFile, "utf8"));
+  expect(reopenedProject.scenes.map((scene: { id: string }) => scene.id)).toEqual(
+    sceneIds,
+  );
+  expect(reopenedProject.scenes.map((scene: { narration: { text: string } }) => scene.narration.text)).toEqual([
+    "  第一句保留空格  ",
+    "第二句",
+    "Cafe\u0301",
+  ]);
+});
+
+test("已有 Scene 后可整批选择 Image 且不会截断大量 Narration", async ({ page }) => {
+  await writeFile(
+    projectFile,
+    '{"schemaVersion":1,"metadata":{"name":"空项目"},"assets":[],"scenes":[]}\n',
+  );
+  await page.goto(server.url);
+
+  await page.getByRole("button", { name: "粘贴多行 Narration" }).click();
+  let dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "原文" }).fill("首条 Video");
+  await dialog.getByRole("button", { name: "整理拆分" }).click();
+  await dialog.getByRole("button", { name: "创建 Scene", exact: true }).click();
+  await expect(page.getByTestId("scene-row")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "批量添加" }).click();
+  dialog = page.getByRole("dialog");
+  const imageNarrations = Array.from(
+    { length: 120 },
+    (_, index) => `Image Scene ${index + 1}`,
+  );
+  await dialog.getByRole("textbox", { name: "原文" }).fill(imageNarrations.join("\n"));
+  await dialog.getByRole("button", { name: "整理拆分" }).click();
+  await expect(dialog.getByText("120 条将创建为 Scene")).toBeVisible();
+  await dialog.getByRole("radio", { name: "Image" }).check();
+  await dialog.getByRole("button", { name: "创建 Scene", exact: true }).click();
+
+  await expect(page.getByTestId("scene-row")).toHaveCount(121);
+  await expect(page.getByTestId("player-subtitle")).toHaveText("Image Scene 1");
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes.length)
+    .toBe(121);
+  const savedProject = JSON.parse(await readFile(projectFile, "utf8"));
+  expect(savedProject.scenes[0].visual).toEqual({ type: "video" });
+  expect(savedProject.scenes.slice(1).every(
+    (scene: { visual: { type: string } }) => scene.visual.type === "image",
+  )).toBe(true);
+  expect(savedProject.scenes.slice(1).map(
+    (scene: { narration: { text: string } }) => scene.narration.text,
+  )).toEqual(imageNarrations);
+});
+
+test("逐条新增以完整的 Image 或 Video 分支一次性创建 Scene", async ({ page }) => {
+  await writeFile(
+    projectFile,
+    '{"schemaVersion":1,"metadata":{"name":"空项目"},"assets":[],"scenes":[]}\n',
+  );
+  const savedBodies: Array<{ scenes: Array<{ narration: { text: string }; visual: { type: string } }> }> = [];
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() === "PUT") {
+      savedBodies.push(route.request().postDataJSON());
+    }
+    await route.continue();
+  });
+  await page.goto(server.url);
+
+  await page.getByRole("button", { name: "新增一条", exact: true }).click();
+  let dialog = page.getByRole("dialog", { name: "新增一条 Scene" });
+  await dialog.getByRole("radio", { name: "Image" }).check();
+  await dialog.getByRole("button", { name: "创建 Scene", exact: true }).click();
+
+  await expect(page.getByTestId("scene-row")).toHaveCount(1);
+  await expect(page.getByTestId("player-subtitle")).toHaveText("请输入 Narration");
+  await page.getByRole("button", { name: "新增一条", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "新增一条 Scene" });
+  await dialog.getByRole("textbox", { name: "Narration（可暂时为空）" }).fill(
+    "第二条 Narration",
+  );
+  await dialog.getByRole("button", { name: "创建 Scene", exact: true }).click();
+
+  await expect(page.getByTestId("scene-row")).toHaveCount(2);
+  await expect(page.getByTestId("player-subtitle")).toHaveText("第二条 Narration");
+  await expect.poll(() => savedBodies.length).toBe(2);
+  expect(savedBodies[0].scenes).toMatchObject([
+    { narration: { text: "" }, visual: { type: "image" } },
+  ]);
+  expect(savedBodies[1].scenes).toMatchObject([
+    { narration: { text: "" }, visual: { type: "image" } },
+    { narration: { text: "第二条 Narration" }, visual: { type: "video" } },
+  ]);
 });
 
 test("加载过程中显示既定工作台骨架与明确步骤", async ({ page }) => {

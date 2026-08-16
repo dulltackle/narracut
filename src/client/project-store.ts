@@ -34,7 +34,10 @@ type ProjectState = {
   selectScene: (sceneId: string) => void;
   setTaskDrawerOpen: (open: boolean) => void;
   updateNarration: (sceneId: string, text: string) => void;
-  addScenesFromLines: (lines: string[]) => Promise<void>;
+  addScenesFromLines: (
+    lines: string[],
+    visualType?: "video" | "image",
+  ) => Promise<void>;
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -226,7 +229,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       void enqueueSave(nextProject, revision, set);
     }, 500);
   },
-  addScenesFromLines: async (lines) => {
+  addScenesFromLines: async (lines, visualType = "video") => {
     const project = get().project;
     if (project === undefined || get().phase !== "ready" || lines.length === 0) {
       return;
@@ -235,7 +238,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const newScenes = lines.map((text) => ({
       id: crypto.randomUUID(),
       narration: { text },
-      visual: { type: "video" as const },
+      visual: { type: visualType },
       transition: "cut" as const,
     }));
     const nextProject: ProjectV1 = {

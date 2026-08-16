@@ -232,6 +232,112 @@ function sceneAssetStatus(
   return { className: "status-ready", label: "可编辑草稿" };
 }
 
+function BatchCreateDialog({
+  existingSceneCount,
+  onClose,
+  onCreate,
+}: {
+  existingSceneCount: number;
+  onClose: () => void;
+  onCreate: (lines: string[], visualType: "video" | "image") => Promise<void>;
+}) {
+  const [step, setStep] = useState<"raw" | "review">("raw");
+  const [rawNarration, setRawNarration] = useState("");
+  const [draftLines, setDraftLines] = useState<string[]>([]);
+  const [blankLineCount, setBlankLineCount] = useState(0);
+  const [visualType, setVisualType] = useState<"video" | "image">("video");
+  const [creating, setCreating] = useState(false);
+
+  const reviewSplit = () => {
+    const lines = rawNarration.split(/\r\n|\n|\r/);
+    const nonBlankLines = lines.filter((line) => !/^\s*$/u.test(line));
+    setDraftLines(nonBlankLines);
+    setBlankLineCount(lines.length - nonBlankLines.length);
+    setStep("review");
+  };
+  const updateDraftLine = (index: number, text: string) => {
+    setDraftLines((lines) =>
+      lines.map((line, lineIndex) => (lineIndex === index ? text : line)),
+    );
+  };
+  const deleteDraftLine = (index: number) => {
+    setDraftLines((lines) => lines.filter((_, lineIndex) => lineIndex !== index));
+  };
+  const mergeDraftLine = (index: number) => {
+    if (index === 0) return;
+    setDraftLines((lines) =>
+      lines.flatMap((line, lineIndex) => {
+        if (lineIndex === index - 1) return [`${line}\n${lines[index]}`];
+        return lineIndex === index ? [] : [line];
+      }),
+    );
+  };
+  const createScenes = async () => {
+    if (draftLines.length === 0 || creating) return;
+    setCreating(true);
+    await onCreate(draftLines, visualType);
+  };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <section className="paste-dialog" role="dialog" aria-modal="true" aria-labelledby="paste-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><p className="eyebrow">原位创建</p><h2 id="paste-title">{step === "raw" ? "粘贴多行 Narration" : "确认拆分结果"}</h2></div><button className="btn icon" aria-label="关闭" onClick={onClose}><X /></button></header>
+        <p>{step === "raw" ? "只按换行拆分，不按标点推测；纯空白行会被忽略。" : "可编辑、删除或并入上一行；这些操作仍只发生在临时草稿。"}</p>
+        {step === "raw" ? (
+          <textarea autoFocus aria-label="原文" placeholder={"第一句 Narration\n第二句 Narration"} value={rawNarration} onChange={(event) => setRawNarration(event.target.value)} />
+        ) : (
+          <div className="draft-review">
+            <div className="draft-summary"><span><strong>{draftLines.length}</strong> 条将创建为 Scene</span><span><strong>{blankLineCount}</strong> 个空白行已忽略</span></div>
+            <fieldset className="visual-choice"><legend>整批 Visual</legend><label><input type="radio" name="batch-visual" value="video" checked={visualType === "video"} onChange={() => setVisualType("video")} />Video</label><label><input type="radio" name="batch-visual" value="image" checked={visualType === "image"} onChange={() => setVisualType("image")} />Image</label></fieldset>
+            <div className="draft-list">
+              {draftLines.map((line, index) => (
+                <div className="draft-row" key={index}>
+                  <span>{String(index + 1).padStart(2, "0")}</span>
+                  <textarea aria-label={`拆分结果 ${index + 1}`} value={line} onChange={(event) => updateDraftLine(index, event.target.value)} />
+                  <div className="draft-actions">
+                    <button className="btn icon" aria-label={`将第 ${index + 1} 行并入上一行`} disabled={index === 0} onClick={() => mergeDraftLine(index)}><ArrowUUpLeft /></button>
+                    <button className="btn icon danger-button" aria-label={`删除第 ${index + 1} 行`} onClick={() => deleteDraftLine(index)}><X /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <footer><span className="draft-status">尚未写入 · scenes[] 仍为 {existingSceneCount}</span><div>{step === "review" ? <button className="btn text-button" onClick={() => setStep("raw")}>返回原文</button> : null}<button className="btn" onClick={onClose}>取消</button>{step === "raw" ? <button className="btn primary" onClick={reviewSplit}>整理拆分</button> : <button className="btn primary" disabled={draftLines.length === 0 || creating} onClick={() => void createScenes()}>{creating ? "保存中" : "创建 Scene"}</button>}</div></footer>
+      </section>
+    </div>
+  );
+}
+
+function SingleCreateDialog({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (narration: string, visualType: "video" | "image") => Promise<void>;
+}) {
+  const [narration, setNarration] = useState("");
+  const [visualType, setVisualType] = useState<"video" | "image">("video");
+  const [creating, setCreating] = useState(false);
+  const createScene = async () => {
+    if (creating) return;
+    setCreating(true);
+    await onCreate(narration, visualType);
+  };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <section className="single-dialog" role="dialog" aria-modal="true" aria-labelledby="single-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><p className="eyebrow">原位创建</p><h2 id="single-title">新增一条 Scene</h2></div><button className="btn icon" aria-label="关闭" onClick={onClose}><X /></button></header>
+        <p>Narration 可以暂时为空；创建时会与合法的 Visual 判别分支一起写入。</p>
+        <label className="single-narration">Narration（可暂时为空）<textarea autoFocus value={narration} onChange={(event) => setNarration(event.target.value)} /></label>
+        <fieldset className="visual-choice"><legend>Visual</legend><label><input type="radio" name="single-visual" value="video" checked={visualType === "video"} onChange={() => setVisualType("video")} />Video</label><label><input type="radio" name="single-visual" value="image" checked={visualType === "image"} onChange={() => setVisualType("image")} />Image</label></fieldset>
+        <footer><span className="draft-status">Narration 与 Visual 将一次性写入</span><div><button className="btn" onClick={onClose}>取消</button><button className="btn primary" disabled={creating} onClick={() => void createScene()}>{creating ? "保存中" : "创建 Scene"}</button></div></footer>
+      </section>
+    </div>
+  );
+}
+
 function Workspace() {
   const project = useProjectStore((state) => state.project);
   const info = useProjectStore((state) => state.info);
@@ -240,8 +346,11 @@ function Workspace() {
   const updateNarration = useProjectStore((state) => state.updateNarration);
   const taskDrawerOpen = useProjectStore((state) => state.taskDrawerOpen);
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
+  const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
   const mediaAvailability = useProjectStore((state) => state.mediaAvailability);
   const [playing, setPlaying] = useState(false);
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [singleDialogOpen, setSingleDialogOpen] = useState(false);
   const assets = useMemo(
     () => new Map(project?.assets.map((asset) => [asset.id, asset]) ?? []),
     [project?.assets],
@@ -284,7 +393,7 @@ function Workspace() {
               })}
             </tbody></table>
           </div>
-          <footer className="script-footer"><button className="btn compact"><Plus />添加 Scene</button></footer>
+          <footer className="script-footer"><button className="btn compact" onClick={() => setBatchDialogOpen(true)}><Plus />批量添加</button><button className="btn compact" onClick={() => setSingleDialogOpen(true)}><Plus />新增一条</button></footer>
         </section>
 
         <section className="pane player-pane">
@@ -304,39 +413,25 @@ function Workspace() {
         </section>
       </main>
       <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}><header><h2>任务</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header><div className="task-empty"><ListChecks size={48} /><strong>暂无运行中的任务</strong><span>转码、Speech 与渲染任务会显示在这里。</span></div></aside>
+      {batchDialogOpen ? <BatchCreateDialog existingSceneCount={project.scenes.length} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
+      {singleDialogOpen ? <SingleCreateDialog onClose={() => setSingleDialogOpen(false)} onCreate={async (narration, visualType) => { await addScenesFromLines([narration], visualType); setSingleDialogOpen(false); }} /> : null}
     </div>
   );
 }
 
 function EmptyWorkspace({ projectName }: { projectName: string }) {
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [pasteText, setPasteText] = useState("");
-  const lines = pasteText
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0);
-  const createScenes = async () => {
-    await addScenesFromLines(lines);
-    setDialogOpen(false);
-  };
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [singleDialogOpen, setSingleDialogOpen] = useState(false);
 
   return (
     <div className="app-shell"><Topbar projectName={projectName} controlsDisabled /><main className="workspace">
-      <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行文案，我们会按换行拆成 Scene，并在写入项目前让你检查完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setDialogOpen(true)}><Plus />粘贴多行文案</button><button className="btn" onClick={() => setDialogOpen(true)}>逐条新增 Scene</button></div><small>项目名与 Logo 可稍后补充 · 不提供示例内容</small></div></section>
+      <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setBatchDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行 Narration，我们只按换行拆分，并在真正写入项目之前让你整理完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setBatchDialogOpen(true)}><Plus />粘贴多行 Narration</button><button className="btn" onClick={() => setSingleDialogOpen(true)}>新增一条</button></div><small>空白行会被忽略并计数 · Scene 数量不限</small></div></section>
       <section className="pane player-pane"><PaneHeading title="Player" meta="无 Scene" /><div className="stage"><div className="preview-frame empty-preview"><strong>暂无可预览内容</strong><span>创建 Scene 后，这里会显示画面与可储存的字幕层。</span></div></div><div className="player-controls"><button className="play-button" aria-label="播放" disabled><Play weight="fill" /></button><span className="timecode">00:00 / 00:00</span><div className="scrubber"><span /></div></div></section>
-      <section className="pane inspector-pane"><PaneHeading title="Inspector" meta="项目" /><div className="inspector-scroll"><h3>项目元数据 · 可跳过</h3><label>项目名<input placeholder="未填写时使用文件夹名" /></label><label>Logo<input value="尚未选择" readOnly /></label><button className="btn compact" disabled>选择 Logo</button><h3 className="project-dsl-heading">Project DSL</h3><div className="readonly-note neutral-note">结构有效 · scenes[] 为空。只有创建至少一个 Scene 后才会离开空状态。</div></div></section>
+      <section className="pane inspector-pane"><PaneHeading title="Inspector" meta="项目" /><div className="inspector-scroll"><h3>Project DSL</h3><div className="readonly-note neutral-note"><span><strong>结构有效</strong><br />scenes[] 为空。草稿操作不会写入项目。</span></div><h3 className="project-dsl-heading">创建规则</h3><div className="readonly-note neutral-note">Narration 只按换行拆分；非空行保留原始空格与 Unicode。至少创建一个 Scene 后才离开空状态。</div></div></section>
     </main>
-      {dialogOpen ? (
-        <div className="modal-backdrop" onMouseDown={() => setDialogOpen(false)}>
-          <section className="paste-dialog" role="dialog" aria-modal="true" aria-labelledby="paste-title" onMouseDown={(event) => event.stopPropagation()}>
-            <header><div><p className="eyebrow">原位创建</p><h2 id="paste-title">从多行文案创建 Scene</h2></div><button className="btn icon" aria-label="关闭" onClick={() => setDialogOpen(false)}><X /></button></header>
-            <p>每个非空行会原样成为一个 Scene 的 Narration；创建后仍可在脚本表里逐句修改。</p>
-            <textarea autoFocus aria-label="多行 Narration" placeholder={"第一句 Narration\n第二句 Narration"} value={pasteText} onChange={(event) => setPasteText(event.target.value)} />
-            <div className="paste-preview"><strong>{lines.length === 0 ? "等待输入" : `将创建 ${lines.length} 个 Scene`}</strong><span>{lines.slice(0, 3).join(" · ") || "空行会被忽略"}</span></div>
-            <footer><button className="btn" onClick={() => setDialogOpen(false)}>取消</button><button className="btn primary" disabled={lines.length === 0} onClick={() => void createScenes()}>创建 {lines.length} 个 Scene</button></footer>
-          </section>
-        </div>
-      ) : null}
+      {batchDialogOpen ? <BatchCreateDialog existingSceneCount={0} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
+      {singleDialogOpen ? <SingleCreateDialog onClose={() => setSingleDialogOpen(false)} onCreate={async (narration, visualType) => { await addScenesFromLines([narration], visualType); setSingleDialogOpen(false); }} /> : null}
     </div>
   );
 }
