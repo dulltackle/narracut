@@ -6,3 +6,5 @@ dist/
 fixtures/
 .claude/settings.local.json
 .claude/.cc-writes/
+.od-skills/
+design/
