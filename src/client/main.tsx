@@ -1,7 +1,8 @@
-import { StrictMode, useEffect, useMemo, useState, type ReactNode } from "react";
+import { StrictMode, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { ArrowCounterClockwise } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ArrowUUpLeft } from "@phosphor-icons/react/ArrowUUpLeft";
+import { ArrowsOutSimple } from "@phosphor-icons/react/ArrowsOutSimple";
 import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
 import { CircleNotch } from "@phosphor-icons/react/CircleNotch";
 import { ClipboardText } from "@phosphor-icons/react/ClipboardText";
@@ -232,6 +233,16 @@ function sceneAssetStatus(
   return { className: "status-ready", label: "可编辑草稿" };
 }
 
+function openNarrationPopover(popoverId: string, editorId: string) {
+  const popover = document.getElementById(popoverId);
+  popover?.showPopover();
+  requestAnimationFrame(() => document.getElementById(editorId)?.focus());
+}
+
+function closeNarrationPopover(popoverId: string) {
+  document.getElementById(popoverId)?.hidePopover();
+}
+
 function BatchCreateDialog({
   existingSceneCount,
   onClose,
@@ -309,35 +320,6 @@ function BatchCreateDialog({
   );
 }
 
-function SingleCreateDialog({
-  onClose,
-  onCreate,
-}: {
-  onClose: () => void;
-  onCreate: (narration: string, visualType: "video" | "image") => Promise<void>;
-}) {
-  const [narration, setNarration] = useState("");
-  const [visualType, setVisualType] = useState<"video" | "image">("video");
-  const [creating, setCreating] = useState(false);
-  const createScene = async () => {
-    if (creating) return;
-    setCreating(true);
-    await onCreate(narration, visualType);
-  };
-
-  return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <section className="single-dialog" role="dialog" aria-modal="true" aria-labelledby="single-title" onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><p className="eyebrow">原位创建</p><h2 id="single-title">新增一条 Scene</h2></div><button className="btn icon" aria-label="关闭" onClick={onClose}><X /></button></header>
-        <p>Narration 可以暂时为空；创建时会与合法的 Visual 判别分支一起写入。</p>
-        <label className="single-narration">Narration（可暂时为空）<textarea autoFocus value={narration} onChange={(event) => setNarration(event.target.value)} /></label>
-        <fieldset className="visual-choice"><legend>Visual</legend><label><input type="radio" name="single-visual" value="video" checked={visualType === "video"} onChange={() => setVisualType("video")} />Video</label><label><input type="radio" name="single-visual" value="image" checked={visualType === "image"} onChange={() => setVisualType("image")} />Image</label></fieldset>
-        <footer><span className="draft-status">Narration 与 Visual 将一次性写入</span><div><button className="btn" onClick={onClose}>取消</button><button className="btn primary" disabled={creating} onClick={() => void createScene()}>{creating ? "保存中" : "创建 Scene"}</button></div></footer>
-      </section>
-    </div>
-  );
-}
-
 function Workspace() {
   const project = useProjectStore((state) => state.project);
   const info = useProjectStore((state) => state.info);
@@ -350,12 +332,33 @@ function Workspace() {
   const mediaAvailability = useProjectStore((state) => state.mediaAvailability);
   const [playing, setPlaying] = useState(false);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
-  const [singleDialogOpen, setSingleDialogOpen] = useState(false);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const lastNarrationRef = useRef<HTMLTextAreaElement>(null);
+  const singleSceneFocusPendingRef = useRef(false);
   const assets = useMemo(
     () => new Map(project?.assets.map((asset) => [asset.id, asset]) ?? []),
     [project?.assets],
   );
+  const sceneCount = project?.scenes.length ?? 0;
+  useEffect(() => {
+    if (!singleSceneFocusPendingRef.current || sceneCount === 0) return;
+    singleSceneFocusPendingRef.current = false;
+    if (tableScrollRef.current !== null) {
+      tableScrollRef.current.scrollTo({
+        top: tableScrollRef.current.scrollHeight,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    }
+    lastNarrationRef.current?.focus({ preventScroll: true });
+  }, [sceneCount]);
   if (project === undefined) return null;
+
+  const addSingleScene = () => {
+    singleSceneFocusPendingRef.current = true;
+    void addScenesFromLines([""]);
+  };
 
   const selectedScene =
     project.scenes.find((scene) => scene.id === selectedSceneId) ?? project.scenes[0];
@@ -365,7 +368,7 @@ function Workspace() {
   const projectName = project.metadata.name || info?.fallbackName || "未命名项目";
 
   if (project.scenes.length === 0) {
-    return <EmptyWorkspace projectName={projectName} />;
+    return <EmptyWorkspace projectName={projectName} onAddScene={addSingleScene} />;
   }
 
   return (
@@ -374,16 +377,26 @@ function Workspace() {
       <main className="workspace" data-testid="global-workbench">
         <section className="pane script-pane">
           <PaneHeading title="脚本表" meta={`${project.scenes.length} 个 Scene`} actions={<div className="filter"><button aria-pressed="true">全部</button><button aria-pressed="false">待修复</button></div>} />
-          <div className="table-wrap">
+          <div className="table-wrap" ref={tableScrollRef}>
             <table className="scene-table"><thead><tr><th>顺序</th><th>Narration</th><th>Visual Type</th><th>Asset</th><th>Speech</th><th>状态</th></tr></thead><tbody>
               {project.scenes.map((scene, index) => {
                 const asset = assetForScene(scene, assets);
                 const assetStatus = sceneAssetStatus(scene, asset, mediaAvailability);
                 const selected = scene.id === selectedScene?.id;
+                const narrationPopoverId = `narration-popover-${scene.id}`;
+                const expandedNarrationId = `narration-expanded-${scene.id}`;
                 return (
                   <tr key={scene.id} className={selected ? "selected" : ""} data-testid="scene-row" onClick={() => selectScene(scene.id)}>
                     <td><span className="scene-number">{String(index + 1).padStart(2, "0")}</span></td>
-                    <td><textarea className="narration" aria-label={`Scene ${index + 1} Narration`} value={scene.narration.text} onClick={(event) => event.stopPropagation()} onChange={(event) => updateNarration(scene.id, event.target.value)} /></td>
+                    <td><div className="narration-cell">
+                      <textarea ref={index === project.scenes.length - 1 ? lastNarrationRef : undefined} className="narration" aria-label={`Scene ${index + 1} Narration`} value={scene.narration.text} onClick={(event) => event.stopPropagation()} onChange={(event) => updateNarration(scene.id, event.target.value)} />
+                      <button className="narration-expand" type="button" aria-label={`扩大编辑 Scene ${index + 1} Narration`} onClick={(event) => { event.stopPropagation(); openNarrationPopover(narrationPopoverId, expandedNarrationId); }}><ArrowsOutSimple /></button>
+                      <section id={narrationPopoverId} className="narration-popover" popover="auto" role="dialog" aria-label={`扩大编辑 Scene ${index + 1} Narration`} onClick={(event) => event.stopPropagation()}>
+                        <header><div><p className="eyebrow">Scene {String(index + 1).padStart(2, "0")}</p><h2>扩大编辑 Narration</h2></div><button className="btn icon" type="button" aria-label="关闭扩大编辑" onClick={() => closeNarrationPopover(narrationPopoverId)}><X /></button></header>
+                        <textarea id={expandedNarrationId} aria-label={`Scene ${index + 1} Narration 扩大编辑`} value={scene.narration.text} onChange={(event) => updateNarration(scene.id, event.target.value)} />
+                        <small>内容会直接写回当前 Scene</small>
+                      </section>
+                    </div></td>
                     <td><div className="table-cell"><strong>{visualLabels[scene.visual.type]}</strong><span>{captionForVisual(scene.visual) ?? "标准画面"}</span></div></td>
                     <td><div className="table-cell"><strong>{asset?.path.split("/").at(-1) ?? "尚未绑定"}</strong><span>{asset ? "项目相对路径" : "需要 Asset"}</span></div></td>
                     <td><div className="table-cell"><strong>{scene.speech ? "已生成" : "缺少 Speech"}</strong><span>{scene.speech ? `${(scene.speech.durationMs / 1000).toFixed(1)} 秒` : "使用 Draft Duration"}</span></div></td>
@@ -393,7 +406,7 @@ function Workspace() {
               })}
             </tbody></table>
           </div>
-          <footer className="script-footer"><button className="btn compact" onClick={() => setBatchDialogOpen(true)}><Plus />批量添加</button><button className="btn compact" onClick={() => setSingleDialogOpen(true)}><Plus />新增一条</button></footer>
+          <footer className="script-footer"><button className="btn compact" onClick={() => setBatchDialogOpen(true)}><Plus />批量添加</button><button className="btn compact" onClick={addSingleScene}><Plus />新增一条</button></footer>
         </section>
 
         <section className="pane player-pane">
@@ -414,24 +427,21 @@ function Workspace() {
       </main>
       <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}><header><h2>任务</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header><div className="task-empty"><ListChecks size={48} /><strong>暂无运行中的任务</strong><span>转码、Speech 与渲染任务会显示在这里。</span></div></aside>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={project.scenes.length} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
-      {singleDialogOpen ? <SingleCreateDialog onClose={() => setSingleDialogOpen(false)} onCreate={async (narration, visualType) => { await addScenesFromLines([narration], visualType); setSingleDialogOpen(false); }} /> : null}
     </div>
   );
 }
 
-function EmptyWorkspace({ projectName }: { projectName: string }) {
+function EmptyWorkspace({ projectName, onAddScene }: { projectName: string; onAddScene: () => void }) {
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
-  const [singleDialogOpen, setSingleDialogOpen] = useState(false);
 
   return (
     <div className="app-shell"><Topbar projectName={projectName} controlsDisabled /><main className="workspace">
-      <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setBatchDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行 Narration，我们只按换行拆分，并在真正写入项目之前让你整理完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setBatchDialogOpen(true)}><Plus />粘贴多行 Narration</button><button className="btn" onClick={() => setSingleDialogOpen(true)}>新增一条</button></div><small>空白行会被忽略并计数 · Scene 数量不限</small></div></section>
+      <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setBatchDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行 Narration，我们只按换行拆分，并在真正写入项目之前让你整理完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setBatchDialogOpen(true)}><Plus />粘贴多行 Narration</button><button className="btn" onClick={onAddScene}>新增一条</button></div><small>空白行会被忽略并计数 · Scene 数量不限</small></div></section>
       <section className="pane player-pane"><PaneHeading title="Player" meta="无 Scene" /><div className="stage"><div className="preview-frame empty-preview"><strong>暂无可预览内容</strong><span>创建 Scene 后，这里会显示画面与可储存的字幕层。</span></div></div><div className="player-controls"><button className="play-button" aria-label="播放" disabled><Play weight="fill" /></button><span className="timecode">00:00 / 00:00</span><div className="scrubber"><span /></div></div></section>
       <section className="pane inspector-pane"><PaneHeading title="Inspector" meta="项目" /><div className="inspector-scroll"><h3>Project DSL</h3><div className="readonly-note neutral-note"><span><strong>结构有效</strong><br />scenes[] 为空。草稿操作不会写入项目。</span></div><h3 className="project-dsl-heading">创建规则</h3><div className="readonly-note neutral-note">Narration 只按换行拆分；非空行保留原始空格与 Unicode。至少创建一个 Scene 后才离开空状态。</div></div></section>
     </main>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={0} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
-      {singleDialogOpen ? <SingleCreateDialog onClose={() => setSingleDialogOpen(false)} onCreate={async (narration, visualType) => { await addScenesFromLines([narration], visualType); setSingleDialogOpen(false); }} /> : null}
     </div>
   );
 }

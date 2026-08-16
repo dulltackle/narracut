@@ -61,6 +61,45 @@ test("现有 13 Scene 示例进入完整三栏工作台并显示当前 Scene 列
   );
 });
 
+test("Narration 默认容纳更多文字并可悬浮扩大编辑", async ({ page }) => {
+  const project = JSON.parse(
+    await readFile(resolve("docs/spec/project.example.json"), "utf8"),
+  );
+  const longNarration = "这是一段需要在脚本表中完整查看和编辑的较长 Narration。".repeat(8);
+  project.scenes[0].narration.text = longNarration;
+  await writeFile(projectFile, `${JSON.stringify(project)}\n`);
+  await page.goto(server.url);
+
+  const compactNarration = page.getByRole("textbox", {
+    name: "Scene 1 Narration",
+    exact: true,
+  });
+  await expect(compactNarration).toHaveValue(longNarration);
+  const compactMetrics = await compactNarration.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    overflowY: getComputedStyle(element).overflowY,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(compactMetrics.clientHeight).toBeGreaterThanOrEqual(60);
+  expect(compactMetrics.scrollHeight).toBeGreaterThan(compactMetrics.clientHeight);
+  expect(compactMetrics.overflowY).toBe("hidden");
+
+  await compactNarration.hover();
+  await page.getByRole("button", { name: "扩大编辑 Scene 1 Narration" }).click();
+  const expandedEditor = page.getByRole("dialog", {
+    name: "扩大编辑 Scene 1 Narration",
+  });
+  await expect(expandedEditor).toBeVisible();
+  const expandedNarration = expandedEditor.getByRole("textbox", {
+    name: "Scene 1 Narration 扩大编辑",
+  });
+  await expect(expandedNarration).toBeFocused();
+  await expandedNarration.fill("从悬浮编辑器写回 Narration");
+  await expect(compactNarration).toHaveValue("从悬浮编辑器写回 Narration");
+  await expandedEditor.getByRole("button", { name: "关闭扩大编辑" }).click();
+  await expect(expandedEditor).toBeHidden();
+});
+
 test("批量草稿可整理和取消且确认前不会写入 Project DSL", async ({
   page,
 }) => {
@@ -198,7 +237,7 @@ test("已有 Scene 后可整批选择 Image 且不会截断大量 Narration", as
   )).toEqual(imageNarrations);
 });
 
-test("逐条新增以完整的 Image 或 Video 分支一次性创建 Scene", async ({ page }) => {
+test("点击新增一条直接创建空 Narration 的 Video Scene", async ({ page }) => {
   await writeFile(
     projectFile,
     '{"schemaVersion":1,"metadata":{"name":"空项目"},"assets":[],"scenes":[]}\n',
@@ -213,29 +252,65 @@ test("逐条新增以完整的 Image 或 Video 分支一次性创建 Scene", asy
   await page.goto(server.url);
 
   await page.getByRole("button", { name: "新增一条", exact: true }).click();
-  let dialog = page.getByRole("dialog", { name: "新增一条 Scene" });
-  await dialog.getByRole("radio", { name: "Image" }).check();
-  await dialog.getByRole("button", { name: "创建 Scene", exact: true }).click();
-
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("scene-row")).toHaveCount(1);
   await expect(page.getByTestId("player-subtitle")).toHaveText("请输入 Narration");
-  await page.getByRole("button", { name: "新增一条", exact: true }).click();
-  dialog = page.getByRole("dialog", { name: "新增一条 Scene" });
-  await dialog.getByRole("textbox", { name: "Narration（可暂时为空）" }).fill(
-    "第二条 Narration",
-  );
-  await dialog.getByRole("button", { name: "创建 Scene", exact: true }).click();
+  await expect(page.getByTestId("inspector-scene")).toContainText("Scene 01");
+  await expect(page.getByRole("textbox", { name: "Scene 1 Narration" })).toBeFocused();
 
+  await page.getByRole("button", { name: "新增一条", exact: true }).click();
   await expect(page.getByTestId("scene-row")).toHaveCount(2);
-  await expect(page.getByTestId("player-subtitle")).toHaveText("第二条 Narration");
+  await expect(page.getByTestId("inspector-scene")).toContainText("Scene 02");
+  await expect(page.getByRole("textbox", { name: "Scene 2 Narration" })).toBeFocused();
   await expect.poll(() => savedBodies.length).toBe(2);
   expect(savedBodies[0].scenes).toMatchObject([
-    { narration: { text: "" }, visual: { type: "image" } },
+    { narration: { text: "" }, visual: { type: "video" } },
   ]);
   expect(savedBodies[1].scenes).toMatchObject([
-    { narration: { text: "" }, visual: { type: "image" } },
-    { narration: { text: "第二条 Narration" }, visual: { type: "video" } },
+    { narration: { text: "" }, visual: { type: "video" } },
+    { narration: { text: "" }, visual: { type: "video" } },
   ]);
+});
+
+test("新增一条后自动滚动到新增 Scene 并聚焦其 Narration", async ({ page }) => {
+  await writeFile(
+    projectFile,
+    await readFile(resolve("docs/spec/project.example.json")),
+  );
+  await page.goto(server.url);
+
+  const sceneRows = page.getByTestId("scene-row");
+  const tableScroll = page.locator(".table-wrap");
+  await expect(sceneRows).toHaveCount(13);
+  await tableScroll.evaluate((element) => {
+    element.setAttribute("data-scroll-samples", "");
+    element.addEventListener("scroll", () => {
+      const samples = element.getAttribute("data-scroll-samples") ?? "";
+      element.setAttribute("data-scroll-samples", `${samples}${element.scrollTop},`);
+    });
+  });
+  await page.getByRole("button", { name: "新增一条", exact: true }).click();
+
+  await expect(sceneRows).toHaveCount(14);
+  await expect(page.getByTestId("inspector-scene")).toContainText("Scene 14");
+  await expect(page.getByRole("textbox", { name: "Scene 14 Narration" })).toBeFocused();
+  await expect(sceneRows.last()).toBeInViewport();
+  await expect(sceneRows.first()).not.toBeInViewport();
+  await expect.poll(() => tableScroll.evaluate(
+    (element) => element.scrollTop === element.scrollHeight - element.clientHeight,
+  )).toBe(true);
+  const scrollState = await tableScroll.evaluate((element) => ({
+    current: element.scrollTop,
+    maximum: element.scrollHeight - element.clientHeight,
+    samples: (element.getAttribute("data-scroll-samples") ?? "")
+      .split(",")
+      .filter(Boolean)
+      .map(Number),
+  }));
+  expect(scrollState.current).toBe(scrollState.maximum);
+  expect(scrollState.samples.some(
+    (position) => position > 0 && position < scrollState.maximum,
+  )).toBe(true);
 });
 
 test("加载过程中显示既定工作台骨架与明确步骤", async ({ page }) => {
