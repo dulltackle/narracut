@@ -51,6 +51,14 @@ test("现有 13 Scene 示例进入完整三栏工作台并显示当前 Scene 列
   await expect(page.getByRole("heading", { name: "脚本表" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Player" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Inspector" })).toBeVisible();
+  await expect(page.locator(".scene-table thead th")).toHaveText([
+    "顺序",
+    "Narration",
+    "Visual Type",
+    "Asset",
+    "Speech",
+    "状态",
+  ]);
   await expect(page.getByTestId("scene-row")).toHaveCount(13);
   await expect(page.getByText("宫腔通液治疗仪操作演示")).toBeVisible();
 
@@ -98,6 +106,325 @@ test("Narration 默认容纳更多文字并可悬浮扩大编辑", async ({ page
   await expect(compactNarration).toHaveValue("从悬浮编辑器写回 Narration");
   await expandedEditor.getByRole("button", { name: "关闭扩大编辑" }).click();
   await expect(expandedEditor).toBeHidden();
+});
+
+test("项目名可原位编辑、取消、清空并在重新打开后恢复", async ({ page }) => {
+  await writeFile(
+    projectFile,
+    '{"schemaVersion":1,"metadata":{"name":"原项目名"},"assets":[],"scenes":[{"id":"3d594650-3436-4f0e-9696-2a9a28d7717f","narration":{"text":"测试 Narration"},"visual":{"type":"video"},"transition":"cut"}]}\n',
+  );
+  await page.goto(server.url);
+
+  await page.getByRole("button", { name: "编辑项目名" }).click();
+  const editor = page.getByRole("textbox", { name: "项目名" });
+  await expect(editor).toBeFocused();
+  await editor.fill("不应保存");
+  await editor.press("Escape");
+  await expect(page.getByRole("button", { name: "编辑项目名" })).toHaveText(
+    "原项目名",
+  );
+
+  await page.getByRole("button", { name: "编辑项目名" }).click();
+  await editor.fill("新项目名");
+  await editor.press("Enter");
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).metadata.name)
+    .toBe("新项目名");
+
+  await page.getByRole("button", { name: "编辑项目名" }).click();
+  await editor.fill("");
+  await editor.blur();
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).metadata.name)
+    .toBeUndefined();
+  const fallbackName = resolve(projectFile, "..").split("/").at(-1)!;
+  await expect(page.getByRole("button", { name: "编辑项目名" })).toHaveText(
+    fallbackName,
+  );
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "编辑项目名" })).toHaveText(
+    fallbackName,
+  );
+  expect(JSON.parse(await readFile(projectFile, "utf8")).metadata).toEqual({});
+});
+
+test("六种 Visual 以原子事务切换并只确认真实数据丢失", async ({ page }) => {
+  const imageAssetId = "5b3a52e2-5b55-4dad-a7d1-79358ae18956";
+  await writeFile(
+    projectFile,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      metadata: { name: "Visual 事务测试" },
+      assets: [
+        { id: imageAssetId, kind: "image", path: "assets/device.png" },
+        {
+          id: "74420ec4-2a98-442f-969a-bd0e2db36baf",
+          kind: "video",
+          path: "assets/demo.mp4",
+        },
+      ],
+      scenes: [
+        {
+          id: "1cf54ba2-bb03-4621-b6b9-7fdf46066043",
+          narration: { text: "切换 Visual" },
+          visual: { type: "image", assetId: imageAssetId },
+          transition: "cut",
+        },
+      ],
+    })}\n`,
+  );
+  const savedBodies: Array<{ scenes: Array<{ visual: Record<string, unknown> }> }> = [];
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() === "PUT") savedBodies.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  await page.goto(server.url);
+  const visualType = page.getByRole("combobox", { name: "Scene 1 Visual Type" });
+
+  await visualType.selectOption("image-caption");
+  const captionDialog = page.getByRole("dialog", { name: "选择 Caption 类型" });
+  await expect(captionDialog).toBeVisible();
+  expect(savedBodies).toHaveLength(0);
+  expect(JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual).toEqual({
+    type: "image",
+    assetId: imageAssetId,
+  });
+  await captionDialog.getByRole("button", { name: "Step" }).click();
+  await expect.poll(() => savedBodies.length).toBe(1);
+  expect(savedBodies.at(-1)!.scenes[0].visual).toEqual({
+    type: "image-caption",
+    assetId: imageAssetId,
+    caption: { kind: "step", number: "", name: "" },
+  });
+
+  await page.getByRole("textbox", { name: "步骤编号" }).fill("02");
+  await page.getByRole("textbox", { name: "步骤名" }).fill("连接设备");
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual.caption)
+    .toEqual({ kind: "step", number: "02", name: "连接设备" });
+
+  await visualType.selectOption("video-caption");
+  let confirmDialog = page.getByRole("dialog", { name: "确认 Visual 切换" });
+  await expect(confirmDialog).toContainText("device.png");
+  expect(JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual.type).toBe(
+    "image-caption",
+  );
+  await page.keyboard.press("Escape");
+  await expect(visualType).toHaveValue("image-caption");
+  await expect(visualType).toBeFocused();
+
+  await visualType.selectOption("video-caption");
+  confirmDialog = page.getByRole("dialog", { name: "确认 Visual 切换" });
+  await confirmDialog.getByRole("button", { name: "确认切换" }).click();
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual)
+    .toEqual({
+      type: "video-caption",
+      caption: { kind: "step", number: "02", name: "连接设备" },
+    });
+
+  await visualType.selectOption("video");
+  confirmDialog = page.getByRole("dialog", { name: "确认 Visual 切换" });
+  await expect(confirmDialog).toContainText("步骤编号 02");
+  await confirmDialog.getByRole("button", { name: "确认切换" }).click();
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual)
+    .toEqual({ type: "video" });
+
+  await visualType.selectOption("title");
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual)
+    .toEqual({ type: "title", device: "", headline: "" });
+  await page.getByRole("textbox", { name: "设备名与型号" }).fill("NC-01");
+  await page.getByRole("textbox", { name: "操作主题" }).fill("标题场景");
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual.headline)
+    .toBe("标题场景");
+  await expect(page.getByTestId("player-visual")).toContainText("NC-01");
+  await expect(page.getByTestId("player-visual")).toContainText("标题场景");
+
+  await visualType.selectOption("end-card");
+  confirmDialog = page.getByRole("dialog", { name: "确认 Visual 切换" });
+  await expect(confirmDialog).toContainText("设备名与型号“NC-01”");
+  await expect(confirmDialog).toContainText("操作主题“标题场景”");
+  await confirmDialog.getByRole("button", { name: "确认切换" }).click();
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual)
+    .toEqual({ type: "end-card", title: "", bullets: [] });
+
+  await visualType.selectOption("image");
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual)
+    .toEqual({ type: "image" });
+});
+
+test("Inspector 编辑 Caption kind、Title 与可重排的 EndCard 要点", async ({ page }) => {
+  await writeFile(
+    projectFile,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      metadata: {},
+      assets: [],
+      scenes: [
+        {
+          id: "29620c28-1d95-497c-8ff0-a701a889910d",
+          narration: { text: "Inspector 字段" },
+          visual: {
+            type: "video-caption",
+            caption: { kind: "alert", text: "请勿断开电源" },
+          },
+          transition: "cut",
+        },
+      ],
+    })}\n`,
+  );
+  await page.goto(server.url);
+  const captionKind = page.getByRole("combobox", { name: "Caption 类型" });
+
+  await captionKind.selectOption("step");
+  let confirmDialog = page.getByRole("dialog", { name: "确认 Visual 切换" });
+  await expect(confirmDialog).toContainText("警示文字“请勿断开电源”");
+  await confirmDialog.getByRole("button", { name: "取消" }).click();
+  await expect(captionKind).toHaveValue("alert");
+
+  await captionKind.selectOption("step");
+  confirmDialog = page.getByRole("dialog", { name: "确认 Visual 切换" });
+  await confirmDialog.getByRole("button", { name: "确认切换" }).click();
+  await page.getByRole("textbox", { name: "步骤编号" }).fill("03");
+  await page.getByRole("textbox", { name: "步骤名" }).fill("完成设置");
+
+  const visualType = page.getByRole("combobox", { name: "Scene 1 Visual Type" });
+  await visualType.selectOption("title");
+  confirmDialog = page.getByRole("dialog", { name: "确认 Visual 切换" });
+  await confirmDialog.getByRole("button", { name: "确认切换" }).click();
+  await page.getByRole("textbox", { name: "设备名与型号" }).fill("NC-02");
+  await page.getByRole("textbox", { name: "操作主题" }).fill("安全操作");
+  const subheadline = page.getByRole("textbox", { name: "副标题" });
+  await subheadline.fill("工作台演示");
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual.subheadline)
+    .toBe("工作台演示");
+  await subheadline.fill("");
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual.subheadline)
+    .toBeUndefined();
+
+  await visualType.selectOption("end-card");
+  confirmDialog = page.getByRole("dialog", { name: "确认 Visual 切换" });
+  await confirmDialog.getByRole("button", { name: "确认切换" }).click();
+  await page.getByRole("textbox", { name: "片尾标题" }).fill("操作完成");
+  const addBullet = page.getByRole("button", { name: "添加片尾要点" });
+  await addBullet.click();
+  await addBullet.click();
+  await addBullet.click();
+  await addBullet.click();
+  await page.getByRole("textbox", { name: "片尾要点 1" }).fill("关闭设备");
+  await page.getByRole("textbox", { name: "片尾要点 2" }).fill("整理耗材");
+  await page.getByRole("textbox", { name: "片尾要点 3" }).fill("记录结果");
+  await page.getByRole("textbox", { name: "片尾要点 4" }).fill("签字确认");
+  await page.getByRole("button", { name: "上移片尾要点 4" }).click();
+  await page.getByRole("button", { name: "删除片尾要点 2" }).click();
+  await expect(page.getByRole("status")).toContainText("3 条有效要点");
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual)
+    .toEqual({
+      type: "end-card",
+      title: "操作完成",
+      bullets: ["关闭设备", "签字确认", "记录结果"],
+    });
+
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: "片尾标题" })).toHaveValue(
+    "操作完成",
+  );
+  await expect(page.getByRole("textbox", { name: /片尾要点 \d/ })).toHaveCount(3);
+});
+
+test("鼠标与键盘重排保持 Scene ID 并拒绝越过 Title 与 EndCard 锚点", async ({ page }) => {
+  const ids = {
+    title: "25429f3f-0ae8-43de-af21-e308b47f7c64",
+    first: "f644507c-c988-42a1-aa3d-293e4044a98e",
+    second: "6fed7ce7-d6fb-475a-b56a-9e24d7ac7f1c",
+    end: "59a165fe-50a1-4a4a-b7c1-9e8bbce18220",
+  };
+  await writeFile(
+    projectFile,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      metadata: {},
+      assets: [],
+      scenes: [
+        { id: ids.title, narration: { text: "Title" }, visual: { type: "title", device: "NC", headline: "开始" }, transition: "cut" },
+        { id: ids.first, narration: { text: "Scene A" }, visual: { type: "image" }, transition: "cut" },
+        { id: ids.second, narration: { text: "Scene B" }, visual: { type: "video" }, transition: "cut" },
+        { id: ids.end, narration: { text: "End" }, visual: { type: "end-card", title: "结束", bullets: [] }, transition: "cut" },
+      ],
+    })}\n`,
+  );
+  await page.goto(server.url);
+  const order = () =>
+    page.getByTestId("scene-row").evaluateAll((rows) =>
+      rows.map((row) => row.getAttribute("data-scene-id")),
+    );
+  const row = (sceneId: string) => page.locator(`[data-scene-id="${sceneId}"]`);
+
+  await row(ids.second).click();
+  await row(ids.second).getByRole("button", { name: /重排 Scene/ }).dragTo(row(ids.first));
+  await expect.poll(order).toEqual([ids.title, ids.second, ids.first, ids.end]);
+  await expect(page.getByTestId("inspector-scene")).toContainText("Scene 02");
+  await expect(page.getByTestId("player-subtitle")).toHaveText("Scene B");
+
+  const keyboardHandle = row(ids.second).getByRole("button", { name: /重排 Scene/ });
+  await keyboardHandle.focus();
+  await keyboardHandle.press("Space");
+  await expect(keyboardHandle).toHaveAttribute("aria-pressed", "true");
+  await keyboardHandle.press("ArrowDown");
+  await keyboardHandle.press("Enter");
+  await expect.poll(order).toEqual([ids.title, ids.first, ids.second, ids.end]);
+  await expect(row(ids.second).getByRole("button", { name: /重排 Scene/ })).toBeFocused();
+  await expect(page.getByTestId("inspector-scene")).toContainText("Scene 03");
+
+  await row(ids.title).getByRole("button", { name: /重排 Scene/ }).dragTo(row(ids.second));
+  await expect(page.getByRole("status", { name: "重排提示" })).toHaveText(
+    "Title 只能位于开头",
+  );
+  await expect.poll(order).toEqual([ids.title, ids.first, ids.second, ids.end]);
+
+  const endHandle = row(ids.end).getByRole("button", { name: /重排 Scene/ });
+  await endHandle.focus();
+  await endHandle.press("Space");
+  await endHandle.press("ArrowUp");
+  await expect(page.getByRole("status", { name: "重排提示" })).toHaveText(
+    "End Card 只能位于结尾",
+  );
+  await endHandle.press("Escape");
+
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes.map((scene: { id: string }) => scene.id))
+    .toEqual([ids.title, ids.first, ids.second, ids.end]);
+  await page.reload();
+  await expect.poll(order).toEqual([ids.title, ids.first, ids.second, ids.end]);
+
+  await page.getByRole("button", { name: "新增一条", exact: true }).click();
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes.length)
+    .toBe(5);
+  const orderAfterInsert = JSON.parse(await readFile(projectFile, "utf8")).scenes.map(
+    (scene: { id: string }) => scene.id,
+  );
+  expect(orderAfterInsert.slice(0, 3)).toEqual([ids.title, ids.first, ids.second]);
+  expect(orderAfterInsert.at(-1)).toBe(ids.end);
+
+  const invalidProject = JSON.parse(await readFile(projectFile, "utf8"));
+  invalidProject.scenes = [invalidProject.scenes[1], invalidProject.scenes[0], ...invalidProject.scenes.slice(2)];
+  await writeFile(projectFile, `${JSON.stringify(invalidProject)}\n`);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Project DSL 校验失败" })).toBeVisible();
+  await page.getByRole("button", { name: "查看技术详情" }).click();
+  await expect(page.getByTestId("error-details")).toContainText(
+    "TITLE_SCENE_POSITION_INVALID",
+  );
 });
 
 test("批量草稿可整理和取消且确认前不会写入 Project DSL", async ({

@@ -5,6 +5,7 @@ import {
   readSchemaVersion,
   type Diagnostic,
   type ProjectV1,
+  type Visual,
   validateProjectConsistency,
   validateProjectStructure,
 } from "../shared/project";
@@ -33,7 +34,10 @@ type ProjectState = {
   load: () => Promise<void>;
   selectScene: (sceneId: string) => void;
   setTaskDrawerOpen: (open: boolean) => void;
+  updateProjectName: (name: string) => Promise<void>;
   updateNarration: (sceneId: string, text: string) => void;
+  updateVisual: (sceneId: string, visual: Visual) => Promise<void>;
+  reorderScene: (sceneId: string, targetIndex: number) => Promise<void>;
   addScenesFromLines: (
     lines: string[],
     visualType?: "video" | "image",
@@ -206,6 +210,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   selectScene: (selectedSceneId) => set({ selectedSceneId }),
   setTaskDrawerOpen: (taskDrawerOpen) => set({ taskDrawerOpen }),
+  updateProjectName: async (name) => {
+    const project = get().project;
+    if (project === undefined || get().phase !== "ready") return;
+
+    const metadata = { ...project.metadata };
+    if (name === "") delete metadata.name;
+    else metadata.name = name;
+    const nextProject: ProjectV1 = { ...project, metadata };
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
+    const revision = ++latestSaveRevision;
+    set({
+      project: nextProject,
+      saveStatus: "saving",
+      saveErrorMessage: undefined,
+    });
+    await enqueueSave(nextProject, revision, set);
+  },
   updateNarration: (sceneId, text) => {
     const project = get().project;
     if (project === undefined || get().phase !== "ready") return;
@@ -229,6 +250,73 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       void enqueueSave(nextProject, revision, set);
     }, 500);
   },
+  updateVisual: async (sceneId, visual) => {
+    const project = get().project;
+    if (project === undefined || get().phase !== "ready") return;
+
+    const nextProject: ProjectV1 = {
+      ...project,
+      scenes: project.scenes.map((scene) =>
+        scene.id === sceneId ? { ...scene, visual } : scene,
+      ),
+    };
+    const structural = validateProjectStructure(nextProject);
+    const diagnostics = structural.success
+      ? validateProjectConsistency(structural.project)
+      : structural.diagnostics;
+    if (
+      !structural.success ||
+      diagnostics.some((diagnostic) => diagnostic.severity === "error")
+    ) {
+      throw new Error(structuralErrorMessage(diagnostics));
+    }
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
+    const revision = ++latestSaveRevision;
+    set({
+      project: structural.project,
+      diagnostics,
+      saveStatus: "saving",
+      saveErrorMessage: undefined,
+    });
+    await enqueueSave(structural.project, revision, set);
+  },
+  reorderScene: async (sceneId, targetIndex) => {
+    const project = get().project;
+    if (project === undefined || get().phase !== "ready") return;
+    const sourceIndex = project.scenes.findIndex((scene) => scene.id === sceneId);
+    if (
+      sourceIndex < 0 ||
+      targetIndex < 0 ||
+      targetIndex >= project.scenes.length ||
+      sourceIndex === targetIndex
+    ) {
+      return;
+    }
+
+    const scenes = [...project.scenes];
+    const [scene] = scenes.splice(sourceIndex, 1);
+    scenes.splice(targetIndex, 0, scene);
+    const nextProject: ProjectV1 = { ...project, scenes };
+    const structural = validateProjectStructure(nextProject);
+    const diagnostics = structural.success
+      ? validateProjectConsistency(structural.project)
+      : structural.diagnostics;
+    if (
+      !structural.success ||
+      diagnostics.some((diagnostic) => diagnostic.severity === "error")
+    ) {
+      throw new Error(structuralErrorMessage(diagnostics));
+    }
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
+    const revision = ++latestSaveRevision;
+    set({
+      project: structural.project,
+      diagnostics,
+      saveStatus: "saving",
+      saveErrorMessage: undefined,
+    });
+    await enqueueSave(structural.project, revision, set);
+  },
   addScenesFromLines: async (lines, visualType = "video") => {
     const project = get().project;
     if (project === undefined || get().phase !== "ready" || lines.length === 0) {
@@ -241,18 +329,30 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       visual: { type: visualType },
       transition: "cut" as const,
     }));
-    const nextProject: ProjectV1 = {
-      ...project,
-      scenes: [...project.scenes, ...newScenes],
-    };
+    const scenes = [...project.scenes];
+    const insertIndex =
+      scenes.at(-1)?.visual.type === "end-card" ? scenes.length - 1 : scenes.length;
+    scenes.splice(insertIndex, 0, ...newScenes);
+    const nextProject: ProjectV1 = { ...project, scenes };
+    const structural = validateProjectStructure(nextProject);
+    const diagnostics = structural.success
+      ? validateProjectConsistency(structural.project)
+      : structural.diagnostics;
+    if (
+      !structural.success ||
+      diagnostics.some((diagnostic) => diagnostic.severity === "error")
+    ) {
+      throw new Error(structuralErrorMessage(diagnostics));
+    }
     if (saveTimer !== undefined) clearTimeout(saveTimer);
     const revision = ++latestSaveRevision;
     set({
-      project: nextProject,
+      project: structural.project,
+      diagnostics,
       selectedSceneId: newScenes[0]?.id,
       saveStatus: "saving",
       saveErrorMessage: undefined,
     });
-    await enqueueSave(nextProject, revision, set);
+    await enqueueSave(structural.project, revision, set);
   },
 }));

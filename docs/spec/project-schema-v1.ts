@@ -243,6 +243,8 @@ export function validateProjectConsistency(project: ProjectV1): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const assetsById = new Map<string, Asset>();
   const seenSceneIds = new Set<string>();
+  const titleSceneIndices: number[] = [];
+  const endCardSceneIndices: number[] = [];
 
   project.assets.forEach((asset, index) => {
     if (assetsById.has(asset.id)) {
@@ -293,6 +295,31 @@ export function validateProjectConsistency(project: ProjectV1): Diagnostic[] {
       seenSceneIds.add(scene.id);
     }
 
+    if (scene.visual.type === "title") {
+      titleSceneIndices.push(index);
+      if (index !== 0) {
+        diagnostics.push({
+          code: "TITLE_SCENE_POSITION_INVALID",
+          severity: "error",
+          path: ["scenes", index, "visual", "type"],
+          message: "Title Scene 只能位于 scenes[] 开头。",
+          sceneId: scene.id,
+        });
+      }
+    }
+    if (scene.visual.type === "end-card") {
+      endCardSceneIndices.push(index);
+      if (index !== project.scenes.length - 1) {
+        diagnostics.push({
+          code: "END_CARD_SCENE_POSITION_INVALID",
+          severity: "error",
+          path: ["scenes", index, "visual", "type"],
+          message: "EndCard Scene 只能位于 scenes[] 结尾。",
+          sceneId: scene.id,
+        });
+      }
+    }
+
     const assetId = visualAssetReference(scene.visual);
     const kind = expectedAssetKind(scene.visual);
     if (assetId !== undefined) {
@@ -333,6 +360,25 @@ export function validateProjectConsistency(project: ProjectV1): Diagnostic[] {
       }
     }
   });
+
+  if (titleSceneIndices.length > 1) {
+    diagnostics.push({
+      code: "TITLE_SCENE_DUPLICATE",
+      severity: "error",
+      path: ["scenes", titleSceneIndices[1], "visual", "type"],
+      message: "一个项目至多包含一个 Title Scene。",
+      sceneId: project.scenes[titleSceneIndices[1]]?.id,
+    });
+  }
+  if (endCardSceneIndices.length > 1) {
+    diagnostics.push({
+      code: "END_CARD_SCENE_DUPLICATE",
+      severity: "error",
+      path: ["scenes", endCardSceneIndices[1], "visual", "type"],
+      message: "一个项目至多包含一个 EndCard Scene。",
+      sceneId: project.scenes[endCardSceneIndices[1]]?.id,
+    });
+  }
 
   return diagnostics;
 }
