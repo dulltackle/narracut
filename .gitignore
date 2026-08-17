@@ -8,6 +8,7 @@ fixtures/
 .claude/.cc-writes/
 .od-skills/
 design/
+project.json
 
 # impeccable-ignore-start
 # Ephemeral output, runtime state, and per-dev overrides.
