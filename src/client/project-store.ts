@@ -2,9 +2,11 @@ import { create } from "zustand";
 
 import {
   CURRENT_SCHEMA_VERSION,
+  migrateKnownProjectToCurrent,
+  ProjectMigrationError,
   readSchemaVersion,
   type Diagnostic,
-  type ProjectV1,
+  type Project,
   type Visual,
   validateProjectConsistency,
   validateProjectStructure,
@@ -20,7 +22,7 @@ type UnknownProject = Record<string, unknown>;
 
 type ProjectState = {
   phase: "loading" | "ready" | "readonly" | "error";
-  project?: ProjectV1;
+  project?: Project;
   unknownProject?: UnknownProject;
   unknownVersion?: number;
   info?: ProjectInfo;
@@ -58,7 +60,7 @@ function asUnknownProject(input: unknown): UnknownProject {
     : {};
 }
 
-async function saveProject(project: ProjectV1): Promise<void> {
+async function saveProject(project: Project): Promise<void> {
   const response = await fetch("/api/project", {
     method: "PUT",
     headers: { "content-type": "application/json; charset=utf-8" },
@@ -68,7 +70,7 @@ async function saveProject(project: ProjectV1): Promise<void> {
 }
 
 function enqueueSave(
-  project: ProjectV1,
+  project: Project,
   revision: number,
   setState: (state: Partial<ProjectState>) => void,
 ): Promise<void> {
@@ -138,13 +140,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return;
       }
 
-      if (schemaVersion < CURRENT_SCHEMA_VERSION) {
-        throw new Error(
-          `缺少从 schemaVersion=${schemaVersion} 到 ${CURRENT_SCHEMA_VERSION} 的连续迁移函数。`,
-        );
-      }
-
-      const structural = validateProjectStructure(input);
+      const currentProject = migrateKnownProjectToCurrent(input);
+      const structural = validateProjectStructure(currentProject);
       if (!structural.success) {
         set({
           phase: "error",
@@ -202,7 +199,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch (error) {
       set({
         phase: "error",
-        diagnostics: [],
+        diagnostics:
+          error instanceof ProjectMigrationError ? error.diagnostics : [],
         errorMessage:
           error instanceof Error ? error.message : "Project DSL 加载失败。",
       });
@@ -217,7 +215,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const metadata = { ...project.metadata };
     if (name === "") delete metadata.name;
     else metadata.name = name;
-    const nextProject: ProjectV1 = { ...project, metadata };
+    const nextProject: Project = { ...project, metadata };
     if (saveTimer !== undefined) clearTimeout(saveTimer);
     const revision = ++latestSaveRevision;
     set({
@@ -231,7 +229,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const project = get().project;
     if (project === undefined || get().phase !== "ready") return;
 
-    const nextProject: ProjectV1 = {
+    const nextProject: Project = {
       ...project,
       scenes: project.scenes.map((scene) =>
         scene.id === sceneId
@@ -254,7 +252,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const project = get().project;
     if (project === undefined || get().phase !== "ready") return;
 
-    const nextProject: ProjectV1 = {
+    const nextProject: Project = {
       ...project,
       scenes: project.scenes.map((scene) =>
         scene.id === sceneId ? { ...scene, visual } : scene,
@@ -296,7 +294,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const scenes = [...project.scenes];
     const [scene] = scenes.splice(sourceIndex, 1);
     scenes.splice(targetIndex, 0, scene);
-    const nextProject: ProjectV1 = { ...project, scenes };
+    const nextProject: Project = { ...project, scenes };
     const structural = validateProjectStructure(nextProject);
     const diagnostics = structural.success
       ? validateProjectConsistency(structural.project)
@@ -330,10 +328,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       transition: "cut" as const,
     }));
     const scenes = [...project.scenes];
-    const insertIndex =
-      scenes.at(-1)?.visual.type === "end-card" ? scenes.length - 1 : scenes.length;
-    scenes.splice(insertIndex, 0, ...newScenes);
-    const nextProject: ProjectV1 = { ...project, scenes };
+    scenes.push(...newScenes);
+    const nextProject: Project = { ...project, scenes };
     const structural = validateProjectStructure(nextProject);
     const diagnostics = structural.success
       ? validateProjectConsistency(structural.project)

@@ -1,1 +1,1 @@
-export * from "../../docs/spec/project-schema-v1";
+export * from "../../docs/spec/project-schema-v2";

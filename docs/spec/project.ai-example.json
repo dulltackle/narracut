@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "metadata": {
     "name": "宫腔通液治疗仪操作演示"
   },
@@ -77,10 +77,10 @@
         "text": "本视频演示宫腔通液治疗仪的规范操作流程。"
       },
       "visual": {
-        "type": "title",
-        "device": "宫腔通液治疗仪",
-        "headline": "宫腔通液规范操作",
-        "subheadline": "连接、排气、治疗与退出"
+        "type": "card",
+        "label": "宫腔通液治疗仪",
+        "title": "宫腔通液规范操作",
+        "body": "连接、排气、治疗与退出"
       },
       "transition": "cut"
     },
@@ -101,12 +101,10 @@
         "text": "取 100 毫升生理盐水，加入一支盐酸利多卡因注射液。"
       },
       "visual": {
-        "type": "image-caption",
+        "type": "image",
         "assetId": "10000000-0000-4000-8000-000000000001",
         "caption": {
-          "kind": "step",
-          "number": "01",
-          "name": "配置通液液体"
+          "text": "配置通液液体"
         }
       },
       "transition": "cut"
@@ -128,12 +126,10 @@
         "text": "将连接管与治疗仪副泵接通。"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000003",
         "caption": {
-          "kind": "step",
-          "number": "02",
-          "name": "连接治疗仪副泵"
+          "text": "连接治疗仪副泵"
         }
       },
       "transition": "cut"
@@ -144,12 +140,10 @@
         "text": "再将连接管与生理盐水瓶连接。"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000004",
         "caption": {
-          "kind": "step",
-          "number": "03",
-          "name": "连接生理盐水瓶"
+          "text": "连接生理盐水瓶"
         }
       },
       "transition": "cut"
@@ -160,10 +154,9 @@
         "text": "此时应将双腔管的绿色接头暂时关闭。"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000005",
         "caption": {
-          "kind": "alert",
           "text": "暂时关闭绿色接头"
         }
       },
@@ -186,10 +179,9 @@
         "text": "点击通液排气，并确认管内空气已经排尽。"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000007",
         "caption": {
-          "kind": "alert",
           "text": "必须排尽管内空气"
         }
       },
@@ -212,12 +204,10 @@
         "text": "使用 5 毫升注射器与双腔管的绿色接头连接。"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000009",
         "caption": {
-          "kind": "step",
-          "number": "04",
-          "name": "连接注射器"
+          "text": "连接注射器"
         }
       },
       "transition": "cut"
@@ -228,12 +218,10 @@
         "text": "通过注射器向球囊内注气，实现锁宫。"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000010",
         "caption": {
-          "kind": "step",
-          "number": "05",
-          "name": "球囊注气锁宫"
+          "text": "球囊注气锁宫"
         }
       },
       "transition": "cut"
@@ -244,12 +232,10 @@
         "text": "点击通液治疗，开始输卵管通液。"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000011",
         "caption": {
-          "kind": "step",
-          "number": "06",
-          "name": "开始通液治疗"
+          "text": "开始通液治疗"
         }
       },
       "transition": "cut"
@@ -260,10 +246,9 @@
         "text": "治疗仪会根据子宫内压力自动调整通液量，请持续观察。"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000011",
         "caption": {
-          "kind": "alert",
           "text": "持续观察压力变化"
         }
       },
@@ -286,10 +271,9 @@
         "text": "确认球囊已经泄气，锁宫状态已经解除。"
       },
       "visual": {
-        "type": "image-caption",
+        "type": "image",
         "assetId": "10000000-0000-4000-8000-000000000001",
         "caption": {
-          "kind": "alert",
           "text": "确认球囊完全泄气"
         }
       },
@@ -312,12 +296,10 @@
         "text": "退出过程中保持动作缓慢，并留意患者反应。"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000013",
         "caption": {
-          "kind": "step",
-          "number": "07",
-          "name": "缓慢退出双腔管"
+          "text": "缓慢退出双腔管"
         }
       },
       "transition": "cut"
@@ -339,9 +321,9 @@
         "text": "请牢记规范连接、彻底排气和缓慢操作三个要点。"
       },
       "visual": {
-        "type": "end-card",
+        "type": "card",
         "title": "本节要点",
-        "bullets": [
+        "items": [
           "按顺序完成管路连接",
           "通液前彻底排尽空气",
           "置入与退出保持缓慢"

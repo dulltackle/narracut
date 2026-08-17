@@ -7,7 +7,7 @@ const PROJECT_RELATIVE_PATH_PATTERN =
   /^(?!\/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?!.*\/\/)(?!.*\\)(?!.*\0)(?!.*%[0-9A-Fa-f]{2})(?!.*(?:^|\/)\.{1,2}(?:\/|$)).+$/;
 const SOURCE_TEXT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
-const projectRelativePathSchema = z
+export const projectRelativePathSchema = z
   .string()
   .regex(
     PROJECT_RELATIVE_PATH_PATTERN,
@@ -15,11 +15,11 @@ const projectRelativePathSchema = z
   )
   .describe("相对项目根的 POSIX 路径；不能是绝对路径或 URL。");
 
-const stableIdSchema = z
+export const stableIdSchema = z
   .uuid()
   .describe("由应用生成的稳定 UUID；重排、改内容或移动文件都不改变它。");
 
-const nonNormalizedTextSchema = z
+export const nonNormalizedTextSchema = z
   .string()
   .describe("原样持久化的文本；不得 trim 或做 Unicode 归一化。");
 

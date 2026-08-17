@@ -1,129 +1,83 @@
 import type { Asset, Caption, Visual } from "../shared/project";
 
 export type VisualType = Visual["type"];
-export type CaptionKind = Caption["kind"];
+export type CardVisual = Extract<Visual, { type: "card" }>;
 
 export type VisualMigration = {
   visual: Visual;
   losses: string[];
 };
 
-export function isCaptionVisual(
+export function hasCaption(
   visual: Visual,
-): visual is Extract<Visual, { type: "image-caption" | "video-caption" }> {
-  return visual.type === "image-caption" || visual.type === "video-caption";
-}
-
-export function isCaptionVisualType(
-  type: VisualType,
-): type is "image-caption" | "video-caption" {
-  return type === "image-caption" || type === "video-caption";
-}
-
-function mediaKindForType(type: VisualType): Asset["kind"] | undefined {
-  if (type === "image" || type === "image-caption") return "image";
-  if (type === "video" || type === "video-caption") return "video";
-  return undefined;
-}
-
-export function emptyCaption(kind: CaptionKind): Caption {
-  return kind === "step"
-    ? { kind: "step", number: "", name: "" }
-    : { kind: "alert", text: "" };
+): visual is Extract<Visual, { type: "image" | "video" }> & {
+  caption: Caption;
+} {
+  return visual.type !== "card" && visual.caption !== undefined;
 }
 
 export function captionLosses(caption: Caption): string[] {
-  if (caption.kind === "step") {
-    return [
-      ...(caption.number === "" ? [] : [`步骤编号 ${caption.number}`]),
-      ...(caption.name === "" ? [] : [`步骤名“${caption.name}”`]),
-    ];
-  }
-  return caption.text === "" ? [] : [`警示文字“${caption.text}”`];
+  return [`Caption 正文“${caption.text}”`];
 }
 
-function visualFieldLosses(visual: Visual): string[] {
-  if (visual.type === "title") {
-    return [
-      ...(visual.device === "" ? [] : [`设备名与型号“${visual.device}”`]),
-      ...(visual.headline === "" ? [] : [`操作主题“${visual.headline}”`]),
-      ...(visual.subheadline === undefined || visual.subheadline === ""
-        ? []
-        : [`副标题“${visual.subheadline}”`]),
-    ];
-  }
-  if (visual.type === "end-card") {
-    return [
-      ...(visual.title === "" ? [] : [`片尾标题“${visual.title}”`]),
-      ...visual.bullets.flatMap((bullet) =>
-        bullet === "" ? [] : [`片尾要点“${bullet}”`],
-      ),
-    ];
-  }
-  return [];
+export function cardFieldLosses(card: CardVisual): string[] {
+  return [
+    ...(card.label === undefined ? [] : [`标签“${card.label}”`]),
+    ...(card.title === undefined ? [] : [`标题“${card.title}”`]),
+    ...(card.body === undefined ? [] : [`正文“${card.body}”`]),
+    ...(card.items ?? []).map((item) => `列表项“${item}”`),
+  ];
 }
 
-function currentAssetId(visual: Visual): string | undefined {
-  return "assetId" in visual ? visual.assetId : undefined;
+function assetLoss(
+  visual: Visual,
+  asset: Asset | undefined,
+): string[] {
+  if (visual.type === "card" || visual.assetId === undefined) return [];
+  return [
+    `当前 Scene 的 Asset 绑定“${asset?.path.split("/").at(-1) ?? visual.assetId}”（项目中的文件不会删除）`,
+  ];
 }
 
 export function migrateVisual(
   current: Visual,
   targetType: VisualType,
   asset: Asset | undefined,
-  captionKind?: CaptionKind,
+  cardDraft?: CardVisual,
 ): VisualMigration {
-  const currentMediaKind = mediaKindForType(current.type);
-  const targetMediaKind = mediaKindForType(targetType);
-  const assetId =
-    currentMediaKind !== undefined && currentMediaKind === targetMediaKind
-      ? currentAssetId(current)
-      : undefined;
-  const caption = isCaptionVisual(current)
-    ? current.caption
-    : captionKind === undefined
-      ? undefined
-      : emptyCaption(captionKind);
-
-  let visual: Visual;
-  switch (targetType) {
-    case "title":
-      visual = { type: "title", device: "", headline: "" };
-      break;
-    case "image":
-      visual = assetId === undefined ? { type: "image" } : { type: "image", assetId };
-      break;
-    case "image-caption":
-      if (caption === undefined) throw new Error("Caption Visual 必须先选择 Caption kind。");
-      visual =
-        assetId === undefined
-          ? { type: "image-caption", caption }
-          : { type: "image-caption", assetId, caption };
-      break;
-    case "video":
-      visual = assetId === undefined ? { type: "video" } : { type: "video", assetId };
-      break;
-    case "video-caption":
-      if (caption === undefined) throw new Error("Caption Visual 必须先选择 Caption kind。");
-      visual =
-        assetId === undefined
-          ? { type: "video-caption", caption }
-          : { type: "video-caption", assetId, caption };
-      break;
-    case "end-card":
-      visual = { type: "end-card", title: "", bullets: [] };
-      break;
+  if (current.type === targetType) {
+    return { visual: current, losses: [] };
   }
 
-  const losses = [
-    ...(currentAssetId(current) !== undefined && assetId === undefined
-      ? [`Asset 文件“${asset?.path.split("/").at(-1) ?? currentAssetId(current)}”`]
-      : []),
-    ...(isCaptionVisual(current) && !isCaptionVisualType(targetType)
-      ? captionLosses(current.caption)
-      : []),
-    ...visualFieldLosses(current),
-  ];
+  if (targetType === "card") {
+    if (current.type === "card") return { visual: current, losses: [] };
+    const visual =
+      current.caption === undefined
+        ? cardDraft
+        : ({ type: "card", body: current.caption.text } as const);
+    if (visual === undefined) {
+      throw new Error("切换到 Card 前必须填写至少一项内容。");
+    }
+    return { visual, losses: assetLoss(current, asset) };
+  }
 
-  return { visual, losses };
+  if (current.type === "card") {
+    return {
+      visual: { type: targetType },
+      losses: cardFieldLosses(current),
+    };
+  }
+
+  const sameAssetKind = current.type === targetType;
+  const assetId = sameAssetKind ? current.assetId : undefined;
+  const visual: Visual = {
+    type: targetType,
+    ...(assetId === undefined ? {} : { assetId }),
+    ...(current.caption === undefined ? {} : { caption: current.caption }),
+  };
+
+  return {
+    visual,
+    losses: sameAssetKind ? [] : assetLoss(current, asset),
+  };
 }

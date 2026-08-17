@@ -2,17 +2,17 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import {
-  projectV1JsonSchema,
+  projectV2JsonSchema,
   validateProjectConsistency,
   validateProjectStructure,
-  type ProjectV1,
-} from "./project-schema-v1.ts";
+  type ProjectV2,
+} from "./project-schema-v2.ts";
 
 async function readJson(name: string): Promise<unknown> {
   return JSON.parse(await readFile(new URL(name, import.meta.url), "utf8"));
 }
 
-function requireValidProject(input: unknown, name: string): ProjectV1 {
+function requireValidProject(input: unknown, name: string): ProjectV2 {
   const structure = validateProjectStructure(input);
   assert.equal(
     structure.success,
@@ -58,40 +58,26 @@ async function main(): Promise<void> {
   const visualTypes = new Set(ai.scenes.map((scene) => scene.visual.type));
   assert.deepEqual(
     visualTypes,
-    new Set([
-      "title",
-      "image",
-      "image-caption",
-      "video",
-      "video-caption",
-      "end-card",
-    ]),
-    "AI 样本必须覆盖六种 Visual Type。",
+    new Set(["card", "image", "video"]),
+    "AI 样本必须覆盖三种 Visual Type。",
   );
 
-  const captionKinds = new Set(
-    ai.scenes.flatMap((scene) => {
-      if (
-        scene.visual.type === "image-caption" ||
-        scene.visual.type === "video-caption"
-      ) {
-        return [scene.visual.caption.kind];
-      }
-      return [];
-    }),
+  const captions = ai.scenes.flatMap((scene) =>
+    scene.visual.type !== "card" && scene.visual.caption !== undefined
+      ? [scene.visual.caption]
+      : [],
   );
-  assert.deepEqual(
-    captionKinds,
-    new Set(["step", "alert"]),
-    "AI 样本必须覆盖两种 Caption kind。",
+  assert.ok(
+    captions.length > 0 && captions.every((caption) => Object.keys(caption).join() === "text"),
+    "AI 样本的 Caption 必须统一为单段 text。",
   );
 
   assert.equal(
-    projectV1JsonSchema.$schema,
+    projectV2JsonSchema.$schema,
     "https://json-schema.org/draft/2020-12/schema",
   );
   assert.equal(
-    projectV1JsonSchema.additionalProperties,
+    projectV2JsonSchema.additionalProperties,
     false,
     "顶层必须拒绝未知键。",
   );
@@ -149,8 +135,8 @@ async function main(): Promise<void> {
         aiScenes: ai.scenes.length,
         assetsPreserved: ai.assets.length,
         visualTypes: [...visualTypes].sort(),
-        captionKinds: [...captionKinds].sort(),
-        jsonSchemaDraft: projectV1JsonSchema.$schema,
+        captions: captions.length,
+        jsonSchemaDraft: projectV2JsonSchema.$schema,
         negativeCases: 5,
         diagnostics: 0,
       },

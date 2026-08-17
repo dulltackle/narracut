@@ -24,23 +24,17 @@ import type { Asset, Scene, Visual } from "../shared/project";
 import { CURRENT_SCHEMA_VERSION } from "../shared/project";
 import { useProjectStore } from "./project-store";
 import {
-  captionLosses,
-  emptyCaption,
-  isCaptionVisual,
-  isCaptionVisualType,
+  hasCaption,
   migrateVisual,
-  type CaptionKind,
+  type CardVisual,
   type VisualType,
 } from "./visual-migration";
 import "./styles.css";
 
 const visualLabels: Record<Visual["type"], string> = {
-  title: "Title",
+  card: "Card",
   image: "Image",
-  "image-caption": "Image + Caption",
   video: "Video",
-  "video-caption": "Video + Caption",
-  "end-card": "End Card",
 };
 
 function BrandMark() {
@@ -222,10 +216,7 @@ function assetForScene(scene: Scene, assets: Map<string, Asset>) {
 }
 
 function captionForVisual(visual: Visual): string | undefined {
-  if (visual.type !== "image-caption" && visual.type !== "video-caption") return undefined;
-  return visual.caption.kind === "step"
-    ? `步骤 ${visual.caption.number} · ${visual.caption.name}`
-    : visual.caption.text;
+  return visual.type === "card" ? undefined : visual.caption?.text;
 }
 
 function PlayerMedia({
@@ -258,20 +249,16 @@ function PlayerVisual({
   asset: Asset | undefined;
   exists: boolean;
 }) {
-  if (scene.visual.type === "title") {
+  if (scene.visual.type === "card") {
     return (
-      <div className="visual-layer title-visual" data-testid="player-visual">
-        <span>{scene.visual.device || "设备名与型号"}</span>
-        <strong>{scene.visual.headline || "操作主题"}</strong>
-        {scene.visual.subheadline ? <small>{scene.visual.subheadline}</small> : null}
-      </div>
-    );
-  }
-  if (scene.visual.type === "end-card") {
-    return (
-      <div className="visual-layer end-card-visual" data-testid="player-visual">
-        <strong>{scene.visual.title || "片尾标题"}</strong>
-        <ul>{scene.visual.bullets.filter((bullet) => bullet !== "").map((bullet, index) => <li key={`${index}-${bullet}`}>{bullet}</li>)}</ul>
+      <div className="visual-layer card-visual" data-testid="player-visual">
+        <div className="card-content">
+          {scene.visual.label ? <span>{scene.visual.label}</span> : null}
+          {scene.visual.title ? <strong>{scene.visual.title}</strong> : null}
+          {scene.visual.body ? <p>{scene.visual.body}</p> : null}
+          {scene.visual.items ? <ul>{scene.visual.items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : null}
+        </div>
+        <div className="subtitle" data-testid="player-subtitle">{scene.narration.text || "请输入 Narration"}</div>
       </div>
     );
   }
@@ -299,7 +286,7 @@ function sceneAssetStatus(
 }
 
 function sceneAssetCopy(scene: Scene, asset: Asset | undefined) {
-  if (scene.visual.type === "title" || scene.visual.type === "end-card") {
+  if (scene.visual.type === "card") {
     return { primary: "不适用", secondary: "生成型画面" };
   }
   return {
@@ -333,6 +320,7 @@ function ModalFrame({
 }) {
   const dialogRef = useRef<HTMLElement>(null);
   const titleId = `dialog-${title.replace(/\s+/gu, "-")}`;
+  const descriptionId = `${titleId}-description`;
   useEffect(() => {
     const preferred = dialogRef.current?.querySelector<HTMLElement>("[data-autofocus]");
     const first = dialogRef.current?.querySelector<HTMLElement>("button, input, select, textarea");
@@ -364,8 +352,8 @@ function ModalFrame({
 
   return (
     <div className="modal-backdrop" onMouseDown={onCancel}>
-      <section ref={dialogRef} className="transaction-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><h2 id={titleId}>{title}</h2><p>{description}</p></div><button className="btn icon" type="button" aria-label="关闭" onClick={onCancel}><X /></button></header>
+      <section ref={dialogRef} className="transaction-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><h2 id={titleId}>{title}</h2><p id={descriptionId}>{description}</p></div><button className="btn icon" type="button" aria-label="关闭" onClick={onCancel}><X /></button></header>
         <div className="transaction-dialog-body">{children}</div>
         {footer === undefined ? null : <footer>{footer}</footer>}
       </section>
@@ -373,19 +361,53 @@ function ModalFrame({
   );
 }
 
-function CaptionKindDialog({
-  onChoose,
+function AddCaptionDialog({
+  onAdd,
   onCancel,
 }: {
-  onChoose: (kind: CaptionKind) => void;
+  onAdd: (text: string) => void;
   onCancel: () => void;
 }) {
+  const [text, setText] = useState("");
   return (
-    <ModalFrame title="选择 Caption 类型" description="先明确这段画面承载步骤信息还是警示信息；选择前 Project DSL 保持不变。" onCancel={onCancel}>
-      <div className="caption-kind-grid">
-        <button data-autofocus className="caption-kind-option" type="button" onClick={() => onChoose("step")}><strong>Step</strong><span>步骤编号与步骤名</span></button>
-        <button className="caption-kind-option alert-option" type="button" onClick={() => onChoose("alert")}><strong>Alert</strong><span>需要突出显示的警示文字</span></button>
-      </div>
+    <ModalFrame title="添加 Caption" description="Caption 是一段不分类用途的正文；提交前 Project DSL 保持不变。" onCancel={onCancel} footer={<><button className="btn" type="button" onClick={onCancel}>取消</button><button className="btn primary" type="button" disabled={text.trim() === ""} onClick={() => onAdd(text)}>添加 Caption</button></>}>
+      <label>Caption 正文<textarea data-autofocus aria-label="Caption 正文" value={text} onChange={(event) => setText(event.target.value)} /></label>
+    </ModalFrame>
+  );
+}
+
+function CardContentDialog({
+  onCreate,
+  onCancel,
+}: {
+  onCreate: (card: CardVisual) => void;
+  onCancel: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [itemsText, setItemsText] = useState("");
+  const items = itemsText
+    .split(/\r\n|\n|\r/u)
+    .filter((item) => item.trim() !== "");
+  const hasContent =
+    [label, title, body].some((value) => value.trim() !== "") || items.length > 0;
+  const create = () => {
+    if (!hasContent) return;
+    onCreate({
+      type: "card",
+      ...(label.trim() === "" ? {} : { label }),
+      ...(title.trim() === "" ? {} : { title }),
+      ...(body.trim() === "" ? {} : { body }),
+      ...(items.length === 0 ? {} : { items }),
+    });
+  };
+  return (
+    <ModalFrame title="填写 Card 内容" description="Card 至少需要标签、标题、正文或列表中的一项；提交前 Project DSL 保持不变。" onCancel={onCancel} footer={<><button className="btn" type="button" onClick={onCancel}>取消</button><button className="btn primary" type="button" disabled={!hasContent} onClick={create}>创建 Card</button></>}>
+      <label>Card 标签<input data-autofocus aria-label="Card 标签" value={label} onChange={(event) => setLabel(event.target.value)} /></label>
+      <label>Card 标题<input aria-label="Card 标题" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+      <label>Card 正文<textarea aria-label="Card 正文" value={body} onChange={(event) => setBody(event.target.value)} /></label>
+      <label>Card 列表（每行一项）<textarea aria-label="Card 列表（每行一项）" value={itemsText} onChange={(event) => setItemsText(event.target.value)} /></label>
     </ModalFrame>
   );
 }
@@ -400,44 +422,148 @@ function VisualLossDialog({
   onCancel: () => void;
 }) {
   return (
-    <ModalFrame title="确认 Visual 切换" description="以下内容与目标 Visual 不兼容。确认后只保存新分支，不会在 DSL 中保留隐藏字段。" onCancel={onCancel} footer={<><button className="btn" type="button" onClick={onCancel}>取消</button><button data-autofocus className="btn primary" type="button" onClick={onConfirm}>确认切换</button></>}>
-      <ul className="loss-list">{losses.map((loss) => <li key={loss}><WarningCircle weight="fill" />{loss}</li>)}</ul>
+    <ModalFrame title="确认 Visual 切换" description="以下内容与目标 Visual 不兼容。确认后只保存新分支，不会在 DSL 中保留隐藏字段。" onCancel={onCancel} footer={<><button data-autofocus className="btn" type="button" onClick={onCancel}>取消</button><button className="btn primary" type="button" onClick={onConfirm}>确认切换</button></>}>
+      <ul className="loss-list">{losses.map((loss, index) => <li key={`${index}-${loss}`}><WarningCircle weight="fill" />{loss}</li>)}</ul>
     </ModalFrame>
+  );
+}
+
+function CommittedTextField({
+  label,
+  value,
+  multiline = false,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  multiline?: boolean;
+  onCommit: (value: string) => boolean | void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    if (draft === value) return;
+    if (onCommit(draft) === false) setDraft(value);
+  };
+  return (
+    <label>{label}{multiline ? <textarea aria-label={label} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} /> : <input aria-label={label} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} />}</label>
+  );
+}
+
+function cardHasContent(card: CardVisual): boolean {
+  return (
+    card.label !== undefined ||
+    card.title !== undefined ||
+    card.body !== undefined ||
+    card.items !== undefined
+  );
+}
+
+function textLayoutNeedsReview(visual: Visual): boolean {
+  if (visual.type === "card") {
+    const characterCount = [visual.label, visual.title, visual.body, ...(visual.items ?? [])]
+      .filter((value): value is string => value !== undefined)
+      .join("")
+      .length;
+    return characterCount > 180 || (visual.items?.length ?? 0) > 5;
+  }
+  return (visual.caption?.text.length ?? 0) > 100;
+}
+
+function CardFields({
+  visual,
+  onChange,
+}: {
+  visual: CardVisual;
+  onChange: (visual: Visual) => void;
+}) {
+  const [itemDrafts, setItemDrafts] = useState(visual.items ?? []);
+  useEffect(() => setItemDrafts(visual.items ?? []), [visual.items]);
+  const commitField = (field: "label" | "title" | "body", value: string) => {
+    const next = { ...visual };
+    if (value.trim() === "") delete next[field];
+    else next[field] = value;
+    if (!cardHasContent(next)) return false;
+    onChange(next);
+  };
+  const commitItems = (items: string[]) => {
+    const nonBlankItems = items.filter((item) => item.trim() !== "");
+    const next = { ...visual };
+    if (nonBlankItems.length === 0) delete next.items;
+    else next.items = nonBlankItems;
+    if (!cardHasContent(next)) return false;
+    onChange(next);
+    setItemDrafts(nonBlankItems);
+  };
+  const moveItem = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= itemDrafts.length) return;
+    const items = [...itemDrafts];
+    [items[index], items[target]] = [items[target], items[index]];
+    setItemDrafts(items);
+    commitItems(items);
+  };
+  return (
+    <>
+      <h3>Card</h3>
+      <CommittedTextField label="Card 标签" value={visual.label ?? ""} onCommit={(value) => commitField("label", value)} />
+      <CommittedTextField label="Card 标题" value={visual.title ?? ""} onCommit={(value) => commitField("title", value)} />
+      <CommittedTextField label="Card 正文" value={visual.body ?? ""} multiline onCommit={(value) => commitField("body", value)} />
+      <div className="bullet-heading"><strong>列表</strong><button className="btn compact" type="button" aria-label="添加列表项" onClick={() => setItemDrafts((items) => [...items, ""])}><Plus />添加</button></div>
+      <div className="bullet-list">
+        {itemDrafts.map((item, index) => (
+          <div className="bullet-row" key={index}>
+            <input aria-label={`列表项 ${index + 1}`} value={item} onChange={(event) => setItemDrafts((items) => items.map((value, itemIndex) => itemIndex === index ? event.target.value : value))} onBlur={() => { if (commitItems(itemDrafts) === false) setItemDrafts(visual.items ?? []); }} />
+            <div className="bullet-actions"><button className="btn icon" type="button" aria-label={`上移列表项 ${index + 1}`} disabled={index === 0} onClick={() => moveItem(index, -1)}><ArrowUp /></button><button className="btn icon" type="button" aria-label={`下移列表项 ${index + 1}`} disabled={index === itemDrafts.length - 1} onClick={() => moveItem(index, 1)}><ArrowDown /></button><button className="btn icon danger-button" type="button" aria-label={`删除列表项 ${index + 1}`} onClick={() => { const items = itemDrafts.filter((_, itemIndex) => itemIndex !== index); setItemDrafts(items); if (commitItems(items) === false) setItemDrafts(visual.items ?? []); }}><Trash /></button></div>
+          </div>
+        ))}
+      </div>
+      <div className="inspector-note neutral-note">Card 至少保留标签、标题、正文或列表中的一项。</div>
+    </>
+  );
+}
+
+function MediaFields({
+  visual,
+  onChange,
+}: {
+  visual: Extract<Visual, { type: "image" | "video" }>;
+  onChange: (visual: Visual) => void;
+}) {
+  const [addingCaption, setAddingCaption] = useState(false);
+  return (
+    <>
+      <h3>Caption</h3>
+      {hasCaption(visual) ? (
+        <CommittedTextField label="Caption 正文" value={visual.caption.text} multiline onCommit={(text) => {
+          if (text.trim() === "") {
+            const { caption: _caption, ...next } = visual;
+            onChange(next);
+          } else {
+            onChange({ ...visual, caption: { text } });
+          }
+        }} />
+      ) : (
+        <div className="inspector-note neutral-note"><span>当前 Visual 没有 Caption。</span><button className="btn compact" type="button" onClick={() => setAddingCaption(true)}><Plus />添加 Caption</button></div>
+      )}
+      <h3>Asset</h3>
+      <div className="inspector-note neutral-note">此 Visual 使用现有 Asset 上下文；本票不扩展导入流程。</div>
+      {addingCaption ? <AddCaptionDialog onCancel={() => setAddingCaption(false)} onAdd={(text) => { onChange({ ...visual, caption: { text } }); setAddingCaption(false); }} /> : null}
+    </>
   );
 }
 
 function VisualFields({
   visual,
   onChange,
-  onCaptionKindChange,
 }: {
   visual: Visual;
   onChange: (visual: Visual) => void;
-  onCaptionKindChange: (kind: CaptionKind, trigger: HTMLSelectElement) => void;
 }) {
-  if (visual.type === "title") {
-    return <><h3>Title</h3><label>设备名与型号<input aria-label="设备名与型号" value={visual.device} onChange={(event) => onChange({ ...visual, device: event.target.value })} /></label><label>操作主题<input aria-label="操作主题" value={visual.headline} onChange={(event) => onChange({ ...visual, headline: event.target.value })} /></label><label>副标题（可选）<input aria-label="副标题" value={visual.subheadline ?? ""} onChange={(event) => { const value = event.target.value; const next = { ...visual }; if (value === "") delete next.subheadline; else next.subheadline = value; onChange(next); }} /></label></>;
+  if (visual.type === "card") {
+    return <CardFields visual={visual} onChange={onChange} />;
   }
-  if (visual.type === "end-card") {
-    const validBulletCount = visual.bullets.filter((bullet) => bullet.trim() !== "").length;
-    const moveBullet = (index: number, direction: -1 | 1) => {
-      const targetIndex = index + direction;
-      if (targetIndex < 0 || targetIndex >= visual.bullets.length) return;
-      const bullets = [...visual.bullets];
-      [bullets[index], bullets[targetIndex]] = [bullets[targetIndex], bullets[index]];
-      onChange({ ...visual, bullets });
-    };
-    return <><h3>End Card</h3><label>片尾标题<input aria-label="片尾标题" value={visual.title} onChange={(event) => onChange({ ...visual, title: event.target.value })} /></label><div className="bullet-heading"><strong>片尾要点</strong><button className="btn compact" type="button" aria-label="添加片尾要点" onClick={() => onChange({ ...visual, bullets: [...visual.bullets, ""] })}><Plus />添加</button></div><div className="bullet-list">{visual.bullets.map((bullet, index) => <div className="bullet-row" key={index}><input aria-label={`片尾要点 ${index + 1}`} value={bullet} onChange={(event) => onChange({ ...visual, bullets: visual.bullets.map((value, bulletIndex) => bulletIndex === index ? event.target.value : value) })} /><div className="bullet-actions"><button className="btn icon" type="button" aria-label={`上移片尾要点 ${index + 1}`} disabled={index === 0} onClick={() => moveBullet(index, -1)}><ArrowUp /></button><button className="btn icon" type="button" aria-label={`下移片尾要点 ${index + 1}`} disabled={index === visual.bullets.length - 1} onClick={() => moveBullet(index, 1)}><ArrowDown /></button><button className="btn icon danger-button" type="button" aria-label={`删除片尾要点 ${index + 1}`} onClick={() => onChange({ ...visual, bullets: visual.bullets.filter((_, bulletIndex) => bulletIndex !== index) })}><Trash /></button></div></div>)}</div><div className={`bullet-readiness ${validBulletCount >= 3 && validBulletCount <= 5 ? "ready" : "pending"}`} role="status"><strong>{validBulletCount} 条有效要点</strong><span>{validBulletCount >= 3 && validBulletCount <= 5 ? "满足 Render-ready 数量要求" : "Render-ready 需要 3–5 条有效要点"}</span></div></>;
-  }
-  if (isCaptionVisual(visual)) {
-    if (visual.caption.kind === "step") {
-      const caption = visual.caption;
-      return <><h3>Caption</h3><label>Caption 类型<select aria-label="Caption 类型" value={caption.kind} onChange={(event) => onCaptionKindChange(event.target.value as CaptionKind, event.currentTarget)}><option value="step">Step</option><option value="alert">Alert</option></select></label><label>步骤编号<input aria-label="步骤编号" value={caption.number} onChange={(event) => onChange({ ...visual, caption: { ...caption, number: event.target.value } })} /></label><label>步骤名<input aria-label="步骤名" value={caption.name} onChange={(event) => onChange({ ...visual, caption: { ...caption, name: event.target.value } })} /></label></>;
-    }
-    const caption = visual.caption;
-    return <><h3>Caption</h3><label>Caption 类型<select aria-label="Caption 类型" value={caption.kind} onChange={(event) => onCaptionKindChange(event.target.value as CaptionKind, event.currentTarget)}><option value="step">Step</option><option value="alert">Alert</option></select></label><label>警示文字<textarea aria-label="警示文字" value={caption.text} onChange={(event) => onChange({ ...visual, caption: { ...caption, text: event.target.value } })} /></label></>;
-  }
-  return <><h3>Asset</h3><div className="inspector-note neutral-note">此 Visual 使用现有 Asset 上下文；本票不扩展导入流程。</div></>;
+  return <MediaFields visual={visual} onChange={onChange} />;
 }
 
 function BatchCreateDialog({
@@ -531,9 +657,8 @@ function Workspace() {
   const mediaAvailability = useProjectStore((state) => state.mediaAvailability);
   const [playing, setPlaying] = useState(false);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
-  const [captionChoice, setCaptionChoice] = useState<{
+  const [cardChoice, setCardChoice] = useState<{
     sceneId: string;
-    targetType: Extract<VisualType, "image-caption" | "video-caption">;
     trigger: HTMLSelectElement;
   }>();
   const [pendingVisualChange, setPendingVisualChange] = useState<{
@@ -592,7 +717,7 @@ function Workspace() {
     sceneId: string,
     targetType: VisualType,
     trigger: HTMLSelectElement,
-    captionKind?: CaptionKind,
+    cardDraft?: CardVisual,
   ) => {
     const scene = project.scenes.find((candidate) => candidate.id === sceneId);
     if (scene === undefined) return;
@@ -600,7 +725,7 @@ function Workspace() {
       scene.visual,
       targetType,
       assetForScene(scene, assets),
-      captionKind,
+      cardDraft,
     );
     if (migration.losses.length > 0) {
       setPendingVisualChange({
@@ -620,50 +745,15 @@ function Workspace() {
     trigger: HTMLSelectElement,
   ) => {
     if (scene.visual.type === targetType) return;
-    if (isCaptionVisualType(targetType) && !isCaptionVisual(scene.visual)) {
-      setCaptionChoice({ sceneId: scene.id, targetType, trigger });
+    if (
+      targetType === "card" &&
+      scene.visual.type !== "card" &&
+      scene.visual.caption === undefined
+    ) {
+      setCardChoice({ sceneId: scene.id, trigger });
       return;
     }
     stageVisualMigration(scene.id, targetType, trigger);
-  };
-  const requestCaptionKindChange = (
-    scene: Scene,
-    kind: CaptionKind,
-    trigger: HTMLSelectElement,
-  ) => {
-    if (!isCaptionVisual(scene.visual) || scene.visual.caption.kind === kind) return;
-    const visual: Visual = { ...scene.visual, caption: emptyCaption(kind) };
-    const losses = captionLosses(scene.visual.caption);
-    if (losses.length > 0) {
-      setPendingVisualChange({ sceneId: scene.id, visual, losses, trigger });
-      return;
-    }
-    void updateVisual(scene.id, visual);
-    restoreVisualTrigger(trigger);
-  };
-  const reorderError = (scene: Scene, targetIndex: number): string | undefined => {
-    const lastIndex = project.scenes.length - 1;
-    if (scene.visual.type === "title" && targetIndex !== 0) {
-      return "Title 只能位于开头";
-    }
-    if (scene.visual.type === "end-card" && targetIndex !== lastIndex) {
-      return "End Card 只能位于结尾";
-    }
-    if (
-      scene.visual.type !== "title" &&
-      project.scenes[0]?.visual.type === "title" &&
-      targetIndex === 0
-    ) {
-      return "Title 只能位于开头";
-    }
-    if (
-      scene.visual.type !== "end-card" &&
-      project.scenes[lastIndex]?.visual.type === "end-card" &&
-      targetIndex === lastIndex
-    ) {
-      return "End Card 只能位于结尾";
-    }
-    return undefined;
   };
   const focusReorderHandle = (sceneId: string) => {
     requestAnimationFrame(() => {
@@ -679,13 +769,6 @@ function Workspace() {
   ) => {
     const scene = project.scenes.find((candidate) => candidate.id === sceneId);
     if (scene === undefined) return;
-    const error = reorderError(scene, targetIndex);
-    if (error !== undefined) {
-      setReorderNotice(error);
-      setReorderAnnouncement(error);
-      if (restoreFocus) focusReorderHandle(sceneId);
-      return;
-    }
     const sourceIndex = project.scenes.indexOf(scene);
     if (sourceIndex !== targetIndex) void reorderScene(sceneId, targetIndex);
     const message = `Scene 已移动到第 ${targetIndex + 1} 项`;
@@ -726,12 +809,6 @@ function Workspace() {
     const direction = event.key === "ArrowUp" ? -1 : 1;
     const targetIndex = keyboardReorder.targetIndex + direction;
     if (targetIndex < 0 || targetIndex >= project.scenes.length) return;
-    const error = reorderError(scene, targetIndex);
-    if (error !== undefined) {
-      setReorderNotice(error);
-      setReorderAnnouncement(error);
-      return;
-    }
     setKeyboardReorder({ sceneId: scene.id, targetIndex });
     setDropTargetIndex(targetIndex);
     setReorderAnnouncement(`Scene 将移动到第 ${targetIndex + 1} 项`);
@@ -768,7 +845,7 @@ function Workspace() {
                         <small>内容会直接写回当前 Scene</small>
                       </section>
                     </div></td>
-                    <td><div className="table-cell visual-type-cell"><select aria-label={`Scene ${index + 1} Visual Type`} value={scene.visual.type} onClick={(event) => event.stopPropagation()} onChange={(event) => requestVisualChange(scene, event.target.value as VisualType, event.currentTarget)}>{(Object.keys(visualLabels) as VisualType[]).map((type) => <option key={type} value={type} disabled={(type === "title" && (index !== 0 || project.scenes.some((candidate) => candidate.id !== scene.id && candidate.visual.type === "title"))) || (type === "end-card" && (index !== project.scenes.length - 1 || project.scenes.some((candidate) => candidate.id !== scene.id && candidate.visual.type === "end-card")))}>{visualLabels[type]}</option>)}</select><span>{captionForVisual(scene.visual) ?? "标准画面"}</span></div></td>
+                    <td><div className="table-cell visual-type-cell"><select aria-label={`Scene ${index + 1} Visual Type`} value={scene.visual.type} onClick={(event) => event.stopPropagation()} onChange={(event) => requestVisualChange(scene, event.target.value as VisualType, event.currentTarget)}>{(Object.keys(visualLabels) as VisualType[]).map((type) => <option key={type} value={type}>{visualLabels[type]}</option>)}</select><span>{captionForVisual(scene.visual) ?? (scene.visual.type === "card" ? "结构化文字画面" : "标准画面")}</span></div></td>
                     <td><div className="table-cell"><strong>{assetCopy.primary}</strong><span>{assetCopy.secondary}</span></div></td>
                     <td><div className="table-cell"><strong>{scene.speech ? "已生成" : "缺少 Speech"}</strong><span>{scene.speech ? `${(scene.speech.durationMs / 1000).toFixed(1)} 秒` : "使用 Draft Duration"}</span></div></td>
                     <td><span className={assetStatus.className}>{assetStatus.label}</span></td>
@@ -793,13 +870,13 @@ function Workspace() {
         <section className="pane inspector-pane">
           <PaneHeading title="Inspector" meta={selectedScene ? visualLabels[selectedScene.visual.type] : "未选择 Scene"} />
           <div className="inspector-scroll" data-testid="inspector-scene">
-            {selectedScene ? <><h3>Scene {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>Narration<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} onCaptionKindChange={(kind, trigger) => requestCaptionKindChange(selectedScene, kind, trigger)} /><label>项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label><div className="inspector-note"><WarningCircle weight="fill" />缺少 Speech 时使用 Draft Duration；最终渲染前仍需补齐。</div></> : null}
+            {selectedScene ? <><h3>Scene {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>Narration<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} />{textLayoutNeedsReview(selectedScene.visual) ? <div className="inspector-note"><WarningCircle weight="fill" /><span>文字较多，可能超出成片安全版面；请在 Player 中检查，是否调整由作者决定。</span></div> : null}<label>项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label><div className="inspector-note"><WarningCircle weight="fill" />缺少 Speech 时使用 Draft Duration；最终渲染前仍需补齐。</div></> : null}
           </div>
         </section>
       </main>
       <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}><header><h2>任务</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header><div className="task-empty"><ListChecks size={48} /><strong>暂无运行中的任务</strong><span>转码、Speech 与渲染任务会显示在这里。</span></div></aside>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={project.scenes.length} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
-      {captionChoice ? <CaptionKindDialog onCancel={() => { const trigger = captionChoice.trigger; setCaptionChoice(undefined); restoreVisualTrigger(trigger); }} onChoose={(kind) => { const choice = captionChoice; setCaptionChoice(undefined); stageVisualMigration(choice.sceneId, choice.targetType, choice.trigger, kind); }} /> : null}
+      {cardChoice ? <CardContentDialog onCancel={() => { const trigger = cardChoice.trigger; setCardChoice(undefined); restoreVisualTrigger(trigger); }} onCreate={(card) => { const choice = cardChoice; setCardChoice(undefined); stageVisualMigration(choice.sceneId, "card", choice.trigger, card); }} /> : null}
       {pendingVisualChange ? <VisualLossDialog losses={pendingVisualChange.losses} onCancel={() => { const trigger = pendingVisualChange.trigger; setPendingVisualChange(undefined); restoreVisualTrigger(trigger); }} onConfirm={() => { const change = pendingVisualChange; setPendingVisualChange(undefined); void updateVisual(change.sceneId, change.visual); restoreVisualTrigger(change.trigger); }} /> : null}
     </div>
   );

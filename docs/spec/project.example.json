@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "metadata": {
     "name": "宫腔通液治疗仪操作演示"
   },
@@ -88,12 +88,10 @@
         "text": "从球囊连接管套装中取出连接管"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000002",
         "caption": {
-          "kind": "step",
-          "number": "01",
-          "name": "准备连接管"
+          "text": "准备连接管"
         }
       },
       "transition": "cut"
@@ -104,12 +102,10 @@
         "text": "将连接管与治疗仪副泵接通"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000003",
         "caption": {
-          "kind": "step",
-          "number": "02",
-          "name": "连接副泵"
+          "text": "连接副泵"
         }
       },
       "transition": "cut"
@@ -120,12 +116,10 @@
         "text": "将连接管与生理盐水瓶连接"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000004",
         "caption": {
-          "kind": "step",
-          "number": "03",
-          "name": "连接盐水瓶"
+          "text": "连接盐水瓶"
         }
       },
       "transition": "cut"
@@ -136,10 +130,9 @@
         "text": "将双腔管的绿色接头暂时关闭"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000005",
         "caption": {
-          "kind": "alert",
           "text": "暂时关闭绿色接头"
         }
       },
@@ -151,12 +144,10 @@
         "text": "将白色接头与连接管对接"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000006",
         "caption": {
-          "kind": "step",
-          "number": "04",
-          "name": "对接白色接头"
+          "text": "对接白色接头"
         }
       },
       "transition": "cut"
@@ -167,10 +158,9 @@
         "text": "点击“通液排气”，排尽管内空气"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000007",
         "caption": {
-          "kind": "alert",
           "text": "确认管内空气已经排尽"
         }
       },
@@ -193,12 +183,10 @@
         "text": "使用 5 毫升注射器与双腔管的绿色接头连接"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000009",
         "caption": {
-          "kind": "step",
-          "number": "05",
-          "name": "连接注射器"
+          "text": "连接注射器"
         }
       },
       "transition": "cut"
@@ -209,12 +197,10 @@
         "text": "通过注射器向双腔管球囊内注气，实现锁宫"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000010",
         "caption": {
-          "kind": "step",
-          "number": "06",
-          "name": "球囊注气锁宫"
+          "text": "球囊注气锁宫"
         }
       },
       "transition": "cut"
@@ -225,12 +211,10 @@
         "text": "点击“通液治疗”，进行输卵管通液；治疗仪将根据子宫内压力情况，自动调整通液量"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000011",
         "caption": {
-          "kind": "step",
-          "number": "07",
-          "name": "开始通液治疗"
+          "text": "开始通液治疗"
         }
       },
       "transition": "cut"
@@ -241,10 +225,9 @@
         "text": "治疗完成后打开双腔管的绿色接头，解除锁宫"
       },
       "visual": {
-        "type": "video-caption",
+        "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000012",
         "caption": {
-          "kind": "alert",
           "text": "治疗完成后解除锁宫"
         }
       },

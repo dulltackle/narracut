@@ -18,7 +18,10 @@ _Avoid_: 台词、配音、解说
 一个 Scene 的画面部分。由一个 Visual Type 加上该 type 的内容字段构成。
 
 **Visual Type**：
-Visual 的有限种类。V1 只有六个：`Title`、`Image`、`Image+Caption`、`Video`、`Video+Caption`、`EndCard`。用户不能自由编写渲染组件，只能在这个封闭清单里选。
+Visual 的有限种类，只有 `Card`、`Image` 和 `Video`。用户不能自由编写渲染组件，只能在这个封闭清单里选；Image 和 Video 可以带有 Caption。
+
+**Card**：
+不依赖 Asset、由系统根据 Text Block 生成画面的 Visual。Card 可以出现在项目的任意位置，用于标题、章节页、总结、引用或其他文字画面，但不记录这些业务用途。
 
 **Asset**：
 由导入源在本机规范化后进入项目、可被 Scene 引用的静态图片或实拍视频，显式区分为 `image` 与 `video` 两种 kind；它不是项目外的导入源文件。Asset 有稳定身份，移动路径或原位替换内容不会自然变成另一个 Asset；静态图片和视频都全程留在本机，V1 中视频 Asset 不含音轨。
@@ -39,16 +42,28 @@ _Avoid_: 语音、配音文件、音频
 
 ### 视觉
 
+**Text Block**：
+由标签、标题、正文和列表组成的文字信息块，其中至少一项有内容。Card 使用完整的 Text Block，Caption 只使用其中的正文。
+
 **Caption**：
-`Image+Caption` 或 `Video+Caption` 里叠加在 Asset 画面上的信息块。只有两种语义：**Step**（步骤序号 + 步骤名）和 **Alert**（警示）。固定版面，不含坐标。
+Image 或 Video 里叠加在 Asset 画面上的可选 Text Block。Caption 不对文字的业务语义分类，在所属 Scene 的完整 Duration 内显示，并且可以与 Subtitle 同时出现；没有正文时，该 Visual 不拥有 Caption。
 _Avoid_: 标注、Overlay、注释
+
+**Text Style**：
+Card 与 Caption 中 Text Block 的纯视觉与版面预设，不表达文字的业务语义，也不绑定 Visual Type。每个 Text Style 都支持标签、标题、正文和列表，并从 Project Theme 取得字体与颜色；没有单独选择 Text Style 的 Scene 跟随项目默认值，单独选择的 Scene 保持自己的 Text Style。Subtitle 不使用 Text Style。
+_Avoid_: Caption Type、Caption Kind、Caption Style
+
+**Text Motion**：
+Card 与 Caption 中 Text Block 在 Scene 开始时的出现方式，不表达文字的业务语义，也不绑定 Visual Type；Text Block 一直保留到 Cut，不单独退场。没有单独选择 Text Motion 的 Scene 跟随项目默认值，单独选择的 Scene 保持自己的 Text Motion；任意 Text Style 都可以搭配任意 Text Motion。Subtitle 不使用 Text Motion。
+_Avoid_: Caption Animation、Caption Motion
 
 **Subtitle**：
 画面底部逐句显示的旁白文字，内容直接取自 Narration 文本，不单独存储。与 Caption 是两个不同的东西，两者可以同时出现。
 _Avoid_: 字幕（在中文讨论里指代不清时用 Subtitle 或 Caption 明确区分）
 
-**品牌轨 / 临床轨**：
-配色的两套体系，按背景是否由系统完全控制分工。品牌轨（粉）用于 Title 与 EndCard，临床轨（蓝）用于叠在图片或实拍视频 Asset 上的 Caption 与 Subtitle。
+**Project Theme**：
+项目中所有 Scene 共享的整体视觉语言，包括字体、颜色、Logo 以及 Card、Caption 和 Subtitle 的默认表现。作者只选择一个品牌强调色、一款可稳定渲染的字体和一个可选 Logo；Project Theme 提供默认 Text Style 与 Text Motion，但不对项目内容或 Text Block 的业务语义分类。
+_Avoid_: 品牌轨、临床轨
 
 **安全区**：
 画布四边各 80px 的内缩边界，所有文字与叠加物都不越过它。

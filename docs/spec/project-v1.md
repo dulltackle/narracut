@@ -1,5 +1,7 @@
 # Project DSL V1 技术规格
 
+> 本规格仅用于读取与迁移历史项目。当前写入格式见 [`project-v2.md`](./project-v2.md)。
+
 本文件是 [DSL schema 定稿](https://github.com/dulltackle/narracut/issues/11) 的可执行参考规格。结构定义见 [`project-schema-v1.ts`](./project-schema-v1.ts)，真实文案示例见 [`project.example.json`](./project.example.json)，AI 可生成性样本见 [`project.ai-example.json`](./project.ai-example.json)。
 
 ## 边界
