@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-17T01:39:00Z",
+  "title": "Design System: Narracut",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "冷纸灰",
+        "canonical": "#f6f8fb",
+        "tonalRamp": ["oklch(15% 0.000 258.3)", "oklch(27% 0.000 258.3)", "oklch(39% 0.000 258.3)", "oklch(51% 0.000 258.3)", "oklch(63% 0.000 258.3)", "oklch(75% 0.000 258.3)", "oklch(87% 0.000 258.3)", "oklch(95% 0.000 258.3)"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "纯净工作面",
+        "canonical": "#ffffff",
+        "tonalRamp": ["oklch(15% 0.000 89.9)", "oklch(27% 0.000 89.9)", "oklch(39% 0.000 89.9)", "oklch(51% 0.000 89.9)", "oklch(63% 0.000 89.9)", "oklch(75% 0.000 89.9)", "oklch(87% 0.000 89.9)", "oklch(95% 0.000 89.9)"]
+      },
+      "surface-mint": {
+        "role": "neutral",
+        "displayName": "薄荷雾面",
+        "canonical": "#eef8f6",
+        "tonalRamp": ["oklch(15% 0.011 182.9)", "oklch(27% 0.011 182.9)", "oklch(39% 0.011 182.9)", "oklch(51% 0.011 182.9)", "oklch(63% 0.011 182.9)", "oklch(75% 0.011 182.9)", "oklch(87% 0.011 182.9)", "oklch(95% 0.011 182.9)"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "墨蓝黑",
+        "canonical": "#0f172a",
+        "tonalRamp": ["oklch(15% 0.040 265.8)", "oklch(27% 0.040 265.8)", "oklch(39% 0.040 265.8)", "oklch(51% 0.040 265.8)", "oklch(63% 0.040 265.8)", "oklch(75% 0.040 265.8)", "oklch(87% 0.040 265.8)", "oklch(95% 0.040 265.8)"]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "石板蓝灰",
+        "canonical": "#334155",
+        "tonalRamp": ["oklch(15% 0.039 257.3)", "oklch(27% 0.039 257.3)", "oklch(39% 0.039 257.3)", "oklch(51% 0.039 257.3)", "oklch(63% 0.039 257.3)", "oklch(75% 0.039 257.3)", "oklch(87% 0.039 257.3)", "oklch(95% 0.039 257.3)"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "元数据灰",
+        "canonical": "#64748b",
+        "tonalRamp": ["oklch(15% 0.041 257.4)", "oklch(27% 0.041 257.4)", "oklch(39% 0.041 257.4)", "oklch(51% 0.041 257.4)", "oklch(63% 0.041 257.4)", "oklch(75% 0.041 257.4)", "oklch(87% 0.041 257.4)", "oklch(95% 0.041 257.4)"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "冷界线",
+        "canonical": "#dbe4ee",
+        "tonalRamp": ["oklch(15% 0.017 250.9)", "oklch(27% 0.017 250.9)", "oklch(39% 0.017 250.9)", "oklch(51% 0.017 250.9)", "oklch(63% 0.017 250.9)", "oklch(75% 0.017 250.9)", "oklch(87% 0.017 250.9)", "oklch(95% 0.017 250.9)"]
+      },
+      "border-soft": {
+        "role": "neutral",
+        "displayName": "柔界线",
+        "canonical": "#edf2f7",
+        "tonalRamp": ["oklch(15% 0.009 247.9)", "oklch(27% 0.009 247.9)", "oklch(39% 0.009 247.9)", "oklch(51% 0.009 247.9)", "oklch(63% 0.009 247.9)", "oklch(75% 0.009 247.9)", "oklch(87% 0.009 247.9)", "oklch(95% 0.009 247.9)"]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "自动化青绿",
+        "canonical": "#00a3a6",
+        "tonalRamp": ["oklch(15% 0.110 197.1)", "oklch(27% 0.110 197.1)", "oklch(39% 0.110 197.1)", "oklch(51% 0.110 197.1)", "oklch(63% 0.110 197.1)", "oklch(75% 0.110 197.1)", "oklch(87% 0.110 197.1)", "oklch(95% 0.110 197.1)"]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "深自动化青绿",
+        "canonical": "#008f92",
+        "tonalRamp": ["oklch(15% 0.100 197.4)", "oklch(27% 0.100 197.4)", "oklch(39% 0.100 197.4)", "oklch(51% 0.100 197.4)", "oklch(63% 0.100 197.4)", "oklch(75% 0.100 197.4)", "oklch(87% 0.100 197.4)", "oklch(95% 0.100 197.4)"]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "完成绿",
+        "canonical": "#15803d",
+        "tonalRamp": ["oklch(15% 0.137 150.1)", "oklch(27% 0.137 150.1)", "oklch(39% 0.137 150.1)", "oklch(51% 0.137 150.1)", "oklch(63% 0.137 150.1)", "oklch(75% 0.137 150.1)", "oklch(87% 0.137 150.1)", "oklch(95% 0.137 150.1)"]
+      },
+      "warning": {
+        "role": "semantic",
+        "displayName": "提醒琥珀",
+        "canonical": "#b45309",
+        "tonalRamp": ["oklch(15% 0.146 49.0)", "oklch(27% 0.146 49.0)", "oklch(39% 0.146 49.0)", "oklch(51% 0.146 49.0)", "oklch(63% 0.146 49.0)", "oklch(75% 0.146 49.0)", "oklch(87% 0.146 49.0)", "oklch(95% 0.146 49.0)"]
+      },
+      "danger": {
+        "role": "semantic",
+        "displayName": "阻断玫红",
+        "canonical": "#e11d48",
+        "tonalRamp": ["oklch(15% 0.220 17.6)", "oklch(27% 0.220 17.6)", "oklch(39% 0.220 17.6)", "oklch(51% 0.220 17.6)", "oklch(63% 0.220 17.6)", "oklch(75% 0.220 17.6)", "oklch(87% 0.220 17.6)", "oklch(95% 0.220 17.6)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "状态页主标题", "purpose": "加载、错误与其他居中状态页的主标题。" },
+      "headline": { "displayName": "空状态标题", "purpose": "空项目或首次使用引导的主标题。" },
+      "title": { "displayName": "面板标题", "purpose": "Pane、Dialog 与 Drawer 的局部标题。" },
+      "body": { "displayName": "叙事正文", "purpose": "Narration、说明与主要界面文字。" },
+      "label": { "displayName": "机器元数据", "purpose": "编号、路径、时间码、表头与技术状态。" },
+      "control": { "displayName": "紧凑控件", "purpose": "按钮、字段标签和 Inspector 控件内容。" }
+    },
+    "shadows": [
+      { "name": "ambient-float", "value": "0 20px 50px rgba(15, 23, 42, 0.1)", "purpose": "Player 画布、Popover、Modal、Drawer 与状态卡的环境悬浮。" },
+      { "name": "structural-outline", "value": "0 0 0 1px #dbe4ee", "purpose": "常驻 Pane 的平面结构描边。" },
+      { "name": "focus-halo", "value": "0 0 0 4px rgba(0, 163, 166, 0.24)", "purpose": "键盘焦点位置的可访问性反馈。" }
+    ],
+    "motion": [
+      { "name": "state-standard", "value": "160ms ease", "purpose": "按钮背景、边框与轻微位移的默认状态变化。" },
+      { "name": "reveal-fast", "value": "120ms ease", "purpose": "Narration 行内扩展按钮的显隐。" },
+      { "name": "loading-spin", "value": "900ms linear", "purpose": "加载状态的持续旋转；减少动态偏好下停用。" }
+    ],
+    "breakpoints": [
+      { "name": "desktop-floor", "value": "1180px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "当前上下文中唯一的主要动作，使用自动化青绿。",
+      "html": "<button class=\"ds-btn-primary\">检查并渲染</button>",
+      "css": ".ds-btn-primary { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 16px; border: 1px solid var(--accent, #00a3a6); border-radius: 9999px; background: var(--accent, #00a3a6); color: #fff; font: 650 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; cursor: pointer; transition: background 160ms, border-color 160ms, transform 160ms; } .ds-btn-primary:hover { border-color: var(--accent-hover, #008f92); background: var(--accent-hover, #008f92); } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-btn-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "默认工具动作，以白色工作面和冷界线维持低优先级。",
+      "html": "<button class=\"ds-btn-secondary\">批量添加</button>",
+      "css": ".ds-btn-secondary { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 16px; border: 1px solid var(--border, #dbe4ee); border-radius: 9999px; background: var(--surface, #fff); color: var(--ink, #0f172a); font: 650 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; cursor: pointer; transition: background 160ms, border-color 160ms, transform 160ms; } .ds-btn-secondary:hover { border-color: var(--ink-secondary, #334155); background: var(--surface-mint, #eef8f6); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-btn-secondary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "filter-selected",
+      "description": "脚本表过滤器的已选与未选状态，不与主动作争夺强调色。",
+      "html": "<div class=\"ds-filter\"><button class=\"ds-filter-active\">全部</button><button>待修复</button></div>",
+      "css": ".ds-filter { display: inline-flex; gap: 4px; padding: 4px; border-radius: 9999px; background: var(--canvas, #f6f8fb); } .ds-filter button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 9999px; background: transparent; color: var(--muted, #64748b); font: 400 12px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; cursor: pointer; } .ds-filter .ds-filter-active { background: var(--surface, #fff); color: var(--ink, #0f172a); box-shadow: 0 0 0 1px var(--border, #dbe4ee); } .ds-filter button:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; }"
+    },
+    {
+      "name": "Inspector Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Inspector 中用于结构化字段的紧凑输入控件。",
+      "html": "<label class=\"ds-field\">Visual Type<input value=\"Video + Caption\" readonly></label>",
+      "css": ".ds-field { display: grid; gap: 8px; color: var(--ink-secondary, #334155); font: 650 12px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-field input { width: 100%; min-height: 44px; padding: 12px; border: 1px solid var(--border, #dbe4ee); border-radius: 12px; background: var(--surface, #fff); color: var(--ink-secondary, #334155); font: inherit; } .ds-field input:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); }"
+    },
+    {
+      "name": "Pane Container",
+      "kind": "card",
+      "refersTo": "pane",
+      "description": "脚本表、Player 与 Inspector 共用的常驻工作面。",
+      "html": "<section class=\"ds-pane\"><header><strong>Inspector</strong><span>Video + Caption</span></header><div class=\"ds-pane-body\">结构化编辑内容</div></section>",
+      "css": ".ds-pane { overflow: hidden; border: 1px solid var(--border, #dbe4ee); border-radius: 18px; background: var(--surface, #fff); color: var(--ink, #0f172a); box-shadow: 0 0 0 1px var(--border, #dbe4ee); font: 400 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-pane header { min-height: 54px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--border, #dbe4ee); background: #f9fbfd; } .ds-pane header strong { font-size: 16px; } .ds-pane header span { color: var(--muted, #64748b); font-size: 12px; } .ds-pane-body { min-height: 96px; padding: 16px; }"
+    },
+    {
+      "name": "Selected Scene Row",
+      "kind": "custom",
+      "description": "Scene 表的签名选中状态，以薄荷雾面和墨蓝黑内侧标记定位当前叙事单元。",
+      "html": "<div class=\"ds-scene-row\"><span class=\"ds-scene-index\">01</span><div><strong>取 100 毫升生理盐水</strong><span>Video + Caption · 缺少 Speech</span></div><span class=\"ds-scene-status\">可编辑草稿</span></div>",
+      "css": ".ds-scene-row { min-height: 88px; display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 12px 8px 8px; background: var(--surface-mint, #eef8f6); color: var(--ink, #0f172a); box-shadow: inset 3px 0 var(--ink, #0f172a); font: 400 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-scene-index { color: var(--muted, #64748b); font: 650 12px \"SF Mono\", ui-monospace, Menlo, monospace; text-align: center; } .ds-scene-row strong, .ds-scene-row div span { display: block; } .ds-scene-row div span { color: var(--muted, #64748b); font-size: 12px; } .ds-scene-status { padding: 6px 8px; border-radius: 12px; background: #eefbf2; color: var(--success, #15803d); font-size: 12px; }"
+    },
+    {
+      "name": "Warning Note",
+      "kind": "card",
+      "description": "不阻断编辑但必须被理解的 Render-ready 提示。",
+      "html": "<div class=\"ds-warning-note\">缺少 Speech 时使用 Draft Duration；最终渲染前仍需补齐。</div>",
+      "css": ".ds-warning-note { display: flex; gap: 8px; padding: 12px; border-radius: 12px; background: #fff7ed; color: var(--warning, #b45309); font: 400 12px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; }"
+    },
+    {
+      "name": "Player Control",
+      "kind": "button",
+      "description": "Player 的墨蓝黑圆形播放控制，与青绿色主动作保持职责分离。",
+      "html": "<button class=\"ds-play\" aria-label=\"播放\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 5v14l11-7z\" fill=\"currentColor\"/></svg></button>",
+      "css": ".ds-play { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--ink, #0f172a); color: #fff; cursor: pointer; } .ds-play svg { width: 20px; height: 20px; } .ds-play:hover { background: var(--ink-secondary, #334155); } .ds-play:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-play:active { transform: translateY(1px); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "精密叙事台",
+    "overview": "Narracut 的界面是一张为脚本、画面和 Speech 精确装配而设的工作台。冷纸灰承托纯净工作面，墨蓝黑建立清晰的信息骨架，自动化青绿只在需要行动与聚焦的位置出现；整体克制、可靠、精密、平静。\n\n系统以高密度但有秩序的操作空间为主，而不是营销式展示空间。边框、轻微色调差和稳定的网格帮助创作者同时掌握脚本表、Player 与 Inspector；圆润的组件削弱传统专业软件的生硬感，但不牺牲状态辨识和工作效率。它明确避免炫技式 AI 科幻感，也避免传统专业剪辑软件的视觉噪声。",
+    "keyCharacteristics": [
+      "冷灰白工作面、墨蓝黑信息骨架与稀少的青绿色行动信号。",
+      "脚本表优先的高密度布局，Player 与 Inspector 作为并列工作上下文。",
+      "中文正文与等宽元数据组成双重信息声音。",
+      "圆润、稳健、直接的控件，以及清楚但克制的状态反馈。",
+      "分层为主、悬浮为辅；常驻界面保持平整，临时层才获得明显深度。"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "自动化青绿只用于行动、焦点和进度；不要把它铺成大面积背景或装饰色。", "section": "colors" },
+      { "name": "The Semantic Status Rule", "body": "绿、琥珀和玫红只表达状态含义，不承担品牌装饰或布局分区。", "section": "colors" },
+      { "name": "The Dual Voice Rule", "body": "叙事内容使用中文无衬线体，结构与机器状态使用等宽体；不要用更多字体制造层级。", "section": "typography" },
+      { "name": "The Workspace First Rule", "body": "新功能优先进入脚本表、Player、Inspector 或任务抽屉的既有职责，不为单一功能轻易增加新的顶层导航或独立画布。", "section": "layout" },
+      { "name": "The Flat-by-Default Rule", "body": "常驻工作面保持平整；只有真正覆盖、浮出或承载预览内容的元素才能使用环境阴影。", "section": "elevation" },
+      { "name": "The Radius Hierarchy Rule", "body": "圆角大小随容器层级增加；不要随机混用圆角，也不要把常驻大面板做成胶囊形。", "section": "shapes" }
+    ],
+    "dos": [
+      "Do 保留脚本表优先、Player 与 Inspector 并列的工作台结构。",
+      "Do 用自动化青绿标识主要动作、焦点与进度，并让它在每个视图中保持稀少。",
+      "Do 用等宽字体区分路径、编号、时间码、表头和机器状态。",
+      "Do 保持 44px 最小操作高度，并通过 8 / 12 / 16px 节奏组织高密度界面。",
+      "Do 用边框和色调建立常驻层次，只在浮层、预览与关键状态卡上使用环境阴影。"
+    ],
+    "donts": [
+      "Don't 引入霓虹渐变、发光装饰或炫技式 AI 科幻视觉。",
+      "Don't 模仿传统多轨剪辑器，把 Scene 工作流重新视觉化为复杂时间线。",
+      "Don't 用多个高彩度品牌色争夺注意力，或把状态色当作装饰色。",
+      "Don't 给每个面板和控件增加阴影；常驻工作面必须保持平整。",
+      "Don't 为了“简洁”隐藏关键的 Asset、Speech、状态或 Render-ready 上下文。"
+    ]
+  }
+}
