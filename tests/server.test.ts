@@ -145,6 +145,31 @@ describe("Narracut 本地服务", () => {
     expect(JSON.parse(persisted)).toBeTypeOf("object");
     const successful = responses.find((response) => response.status === 204)!;
     expect(successful.headers.get("etag")).toBe(etagFor(persisted));
+
+    const idempotentRetry = await fetch(`${server.url}/api/project`, {
+      method: "PUT",
+      headers: {
+        "if-match": initialEtag!,
+        "x-narracut-session-id": "session-a",
+      },
+      body: persisted,
+    });
+    expect(idempotentRetry.status).toBe(204);
+    expect(idempotentRetry.headers.get("etag")).toBe(etagFor(persisted));
+
+    const differentBytes = persisted === first ? second : first;
+    const staleDifferentWrite = await fetch(`${server.url}/api/project`, {
+      method: "PUT",
+      headers: {
+        "if-match": initialEtag!,
+        "x-narracut-session-id": "session-a",
+      },
+      body: differentBytes,
+    });
+    expect(staleDifferentWrite.status).toBe(412);
+    expect(await readFile(join(projectDirectory, "project.json"), "utf8")).toBe(
+      persisted,
+    );
   });
 
   it("保存前与冲突处理都会生成不可覆盖的原始字节备份", async () => {

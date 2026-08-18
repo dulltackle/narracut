@@ -404,7 +404,9 @@ export async function startNarracutServer({
             throw new HttpError(423, "项目编辑权正由另一个浏览器会话持有。");
           }
           const currentBytes = await readFile(projectFile);
-          if (projectEtag(currentBytes) !== ifMatch) {
+          const currentEtag = projectEtag(currentBytes);
+          if (currentBytes.equals(bytes)) return currentEtag;
+          if (currentEtag !== ifMatch) {
             throw new HttpError(412, "Project DSL 已在磁盘上改变。");
           }
           if (backupKind !== undefined) {

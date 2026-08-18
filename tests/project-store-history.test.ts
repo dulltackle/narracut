@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useProjectStore } from "../src/client/project-store";
 import type { Project, Speech } from "../src/shared/project";
@@ -96,7 +96,170 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("Project DSL 事务历史", () => {
+  it("保存请求超过 5 秒会中止并进入重试", async () => {
+    vi.useFakeTimers();
+    let putAttempt = 0;
+    const fetchMock = vi.fn(
+      (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        if (String(input).endsWith("/api/project") && init?.method === "PUT") {
+          putAttempt += 1;
+          if (putAttempt === 1) {
+            return new Promise<Response>((_resolve, reject) => {
+              init.signal?.addEventListener(
+                "abort",
+                () => reject(init.signal?.reason),
+                { once: true },
+              );
+            });
+          }
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+              headers: { etag: '"timeout-retry-etag"' },
+            }),
+          );
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const savePromise = useProjectStore
+      .getState()
+      .updateVisual(sceneId, { type: "image", caption: { text: "超时重试" } });
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(useProjectStore.getState().saveStatus).toBe("saving");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(useProjectStore.getState()).toMatchObject({
+      saveStatus: "retrying",
+      saveRetryAttempt: 1,
+      saveErrorMessage: "写入失败，将在 1 秒后重试。",
+      dirty: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await savePromise;
+    expect(putAttempt).toBe(2);
+    expect(useProjectStore.getState()).toMatchObject({
+      saveStatus: "saved",
+      dirty: false,
+    });
+  });
+
+  it("超时重试先确认原快照，再保存期间产生的最新 DSL", async () => {
+    vi.useFakeTimers();
+    const savedCaptions: string[] = [];
+    const fetchMock = vi.fn(
+      (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        if (String(input).endsWith("/api/project") && init?.method === "PUT") {
+          const project = JSON.parse(String(init.body)) as Project;
+          const visual = project.scenes[0].visual;
+          const caption =
+            visual.type === "image" || visual.type === "video"
+              ? visual.caption?.text
+              : undefined;
+          savedCaptions.push(caption ?? "");
+          if (savedCaptions.length === 1) {
+            return new Promise<Response>((_resolve, reject) => {
+              init.signal?.addEventListener(
+                "abort",
+                () => reject(init.signal?.reason),
+                { once: true },
+              );
+            });
+          }
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+              headers: { etag: `"timeout-retry-${savedCaptions.length}"` },
+            }),
+          );
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstSave = useProjectStore
+      .getState()
+      .updateVisual(sceneId, { type: "image", caption: { text: "待确认快照" } });
+    const latestSave = useProjectStore
+      .getState()
+      .updateVisual(sceneId, { type: "image", caption: { text: "最新 pending DSL" } });
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.all([firstSave, latestSave]);
+
+    expect(savedCaptions).toEqual([
+      "待确认快照",
+      "待确认快照",
+      "最新 pending DSL",
+    ]);
+    expect(useProjectStore.getState()).toMatchObject({
+      saveStatus: "saved",
+      dirty: false,
+    });
+  });
+
+  it("连续四次超时后保留内存 DSL，手动重试可恢复", async () => {
+    vi.useFakeTimers();
+    let putAttempt = 0;
+    const fetchMock = vi.fn(
+      (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        if (String(input).endsWith("/api/project") && init?.method === "PUT") {
+          putAttempt += 1;
+          if (putAttempt <= 4) {
+            return new Promise<Response>((_resolve, reject) => {
+              init.signal?.addEventListener(
+                "abort",
+                () => reject(init.signal?.reason),
+                { once: true },
+              );
+            });
+          }
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+              headers: { etag: '"manual-timeout-retry-etag"' },
+            }),
+          );
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const savePromise = useProjectStore
+      .getState()
+      .updateVisual(sceneId, { type: "image", caption: { text: "内存保留版本" } });
+    await vi.advanceTimersByTimeAsync(27_000);
+    await savePromise;
+
+    expect(putAttempt).toBe(4);
+    expect(useProjectStore.getState()).toMatchObject({
+      saveStatus: "error",
+      saveErrorMessage: "本地项目服务超过 5 秒未响应。",
+      dirty: true,
+    });
+    expect(useProjectStore.getState().project?.scenes[0].visual).toMatchObject({
+      caption: { text: "内存保留版本" },
+    });
+
+    await useProjectStore.getState().retrySave();
+    expect(putAttempt).toBe(5);
+    expect(useProjectStore.getState()).toMatchObject({
+      saveStatus: "saved",
+      dirty: false,
+    });
+  });
+
   it("Asset 绑定独立成事务，并保存完整不可变快照", async () => {
     await useProjectStore.getState().bindAsset(sceneId, imageAssetId);
 

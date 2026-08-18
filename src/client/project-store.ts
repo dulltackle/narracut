@@ -171,6 +171,7 @@ const TEXT_TRANSACTION_IDLE_MS = 750;
 const HISTORY_LIMIT = 100;
 const SAVE_DEBOUNCE_MS = 800;
 const SAVE_MAX_WAIT_MS = 1_000;
+const SAVE_REQUEST_TIMEOUT_MS = 5_000;
 const SAVE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const;
 const LEASE_RENEW_MS = 1_000;
 
@@ -261,7 +262,7 @@ type GetProjectState = () => ProjectState;
 
 class PersistenceError extends Error {
   constructor(
-    readonly kind: "io" | "conflict" | "lease" | "permanent",
+    readonly kind: "io" | "timeout" | "conflict" | "lease" | "permanent",
     message: string,
   ) {
     super(message);
@@ -390,18 +391,33 @@ async function putProject(
     "if-match": expectedProjectEtag ?? '"untracked"',
   };
   if (backupKind !== undefined) headers["x-narracut-backup-kind"] = backupKind;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, SAVE_REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch("/api/project", {
       method: "PUT",
       headers,
       body: serializeProject(project),
+      signal: controller.signal,
     });
   } catch (error) {
+    if (timedOut) {
+      throw new PersistenceError(
+        "timeout",
+        "本地项目服务超过 5 秒未响应。",
+      );
+    }
     throw new PersistenceError(
       "io",
       error instanceof Error ? error.message : "无法连接本地项目服务。",
     );
+  } finally {
+    clearTimeout(timeout);
   }
   if (response.status === 412) {
     throw new PersistenceError("conflict", "Project DSL 已在磁盘上改变。");
@@ -585,6 +601,7 @@ async function runSaveQueue(
       let snapshot = pendingSave;
       pendingSave = undefined;
       let succeeded = false;
+      let preserveSnapshotForRetry = false;
       for (let attempt = 0; attempt <= SAVE_RETRY_DELAYS_MS.length; attempt += 1) {
         if (attempt > 0) {
           const delay = SAVE_RETRY_DELAYS_MS[attempt - 1];
@@ -601,7 +618,7 @@ async function runSaveQueue(
             pendingSave = get().project;
             return;
           }
-          if (pendingSave !== undefined) {
+          if (!preserveSnapshotForRetry && pendingSave !== undefined) {
             snapshot = pendingSave;
             pendingSave = undefined;
           }
@@ -643,6 +660,7 @@ async function runSaveQueue(
           break;
         } catch (error) {
           if (!(error instanceof PersistenceError)) throw error;
+          preserveSnapshotForRetry = error.kind === "timeout";
           if (error.kind === "conflict") {
             pendingSave = get().project;
             await prepareExternalConflict(set, get);

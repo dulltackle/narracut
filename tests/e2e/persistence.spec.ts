@@ -174,6 +174,37 @@ test("I/O 失败按 1s、2s、4s 重试，永久失败可就地立即重试", as
   await expect(page.getByTestId("save-status")).toContainText("已保存");
 });
 
+test("写盘成功但响应超时时，幂等重试会收敛到已保存", async ({ page }) => {
+  let delayFirstPutResponse = true;
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() !== "PUT" || !delayFirstPutResponse) {
+      await route.continue();
+      return;
+    }
+    delayFirstPutResponse = false;
+    const response = await route.fetch();
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 6_200));
+    await route.fulfill({ response }).catch(() => undefined);
+  });
+  await page.goto(server.url);
+
+  await page.getByRole("button", { name: "编辑项目名" }).click();
+  await page.getByRole("textbox", { name: "项目名" }).fill("响应超时后幂等保存");
+  await page.getByRole("textbox", { name: "项目名" }).press("Enter");
+
+  await expect(page.getByTestId("save-status")).toContainText("保存中");
+  await expect(page.getByTestId("save-status")).toContainText("保存重试 1/3", {
+    timeout: 6_000,
+  });
+  await expect(page.getByTestId("save-status")).toContainText("已保存", {
+    timeout: 4_000,
+  });
+  await expect(page.getByRole("alertdialog", { name: "项目文件已在外部更改" })).toHaveCount(0);
+  await expect.poll(
+    async () => JSON.parse(await readFile(projectFile, "utf8")).metadata.name,
+  ).toBe("响应超时后幂等保存");
+});
+
 test("外部修订必须显式选择，并分别备份被覆盖的内存或磁盘版本", async ({ page }) => {
   await page.goto(server.url);
   const narration = page.getByRole("textbox", { name: "Scene 1 Narration" });
