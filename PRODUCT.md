@@ -30,13 +30,13 @@ Narracut 不是在传统时间线上附加 AI 功能，而是把脚本句子对�
 ## Capabilities and Constraints
 
 - Scene 是稳定的编辑与渲染单位；重排或修改不改变其身份，复制会创建新的 Scene。
-- 当前 V1 的 Visual Type 是封闭清单：`Title`、`Image`、`Image+Caption`、`Video`、`Video+Caption`、`EndCard`。
+- 当前 Project DSL V3 的 Visual Type 是封闭清单：`Card`、`Image`、`Video`；Image 与 Video 可带 Caption，文字表现由版本化 Preset 控制。
 - Narration 对应的 Speech 是 Scene Duration 的唯一主人；缺少 Speech 时只能使用不落盘的 Draft Duration 预览。
 - Scene 之间仅使用硬切；视频长于 Duration 时截断，短于 Duration 时冻住最后一帧。
 - Preview 与最终 Render 必须逐帧一致，这是技术选择的核心约束。
 - Asset、Speech 和项目数据保留在本机；项目不依赖当前机器上的绝对路径。
 - Node 服务只代理文件系统和外部能力，不理解 DSL；前端内存持有编辑期的权威副本。
-- 当前面向中文工作流，V1 TTS profile 为 `narracut-mandarin-news-v1`；未来支持哪些语言、内容类型与 AI 提供商仍是开放决定。
+- 当前面向中文工作流，TTS profile ID 为 `narracut-mandarin-news-v1`；未来支持哪些语言、内容类型与 AI 提供商仍是开放决定。
 
 ## Brand Commitments
 
@@ -47,7 +47,7 @@ Narracut 不是在传统时间线上附加 AI 功能，而是把脚本句子对�
 ## Evidence on Hand
 
 - `CONTEXT.md`：领域语言、时间模型、Asset 规范和 Preview = Render 约束。
-- `docs/spec/project-v1.md`、`docs/spec/project.example.json` 与 `docs/spec/project.ai-example.json`：可执行 DSL 规格、真实文案示例和 AI 一次生成结构化草稿的验收样本。
+- `docs/spec/project-v3.md`、`docs/spec/text-presentation-presets-v1.md`、`docs/spec/project.example.json` 与 `docs/spec/project.ai-example.json`：当前 DSL 与文字表现规格、真实文案示例和 AI 结构化草稿验收样本。
 - `docs/adr/`：本地项目寻址、浏览器运行形态、前后端边界和 Speech 驱动时长的已确认架构决策。
 - `src/client/` 与 `src/server/`：现有本地工作台、项目读写、校验、草稿编辑和媒体探测实现。
 - 当前没有已确认的客户证言、公开案例、性能基准、商业数据或行业背书；未来界面不得自行编造。

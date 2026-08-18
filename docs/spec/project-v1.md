@@ -1,8 +1,8 @@
 # Project DSL V1 技术规格
 
-> 本规格仅用于读取与迁移历史项目。当前写入格式见 [`project-v2.md`](./project-v2.md)。
+> 本规格仅用于读取与迁移历史项目。当前写入格式见 [`project-v3.md`](./project-v3.md)。
 
-本文件是 [DSL schema 定稿](https://github.com/dulltackle/narracut/issues/11) 的可执行参考规格。结构定义见 [`project-schema-v1.ts`](./project-schema-v1.ts)，真实文案示例见 [`project.example.json`](./project.example.json)，AI 可生成性样本见 [`project.ai-example.json`](./project.ai-example.json)。
+本文件是 [DSL schema 定稿](https://github.com/dulltackle/narracut/issues/11) 的 V1 兼容与迁移参考。历史结构定义见 [`project-schema-v1.ts`](./project-schema-v1.ts)；当前示例与验收脚本均已升级到 V3，见 [`project-v3.md`](./project-v3.md)。
 
 ## 边界
 
@@ -140,6 +140,6 @@ Caption 再以 `kind` 判别：`{kind:"step", number, name}` 或 `{kind:"alert",
 
 验收输入由以下三部分组成：由 `projectV1Schema` 经 Zod 4 `z.toJSONSchema(..., {target:"draft-2020-12"})` 生成的完整 JSON Schema、固定项目元信息，以及真实 13 项 Asset catalog。要求模型一次输出 20 Scene 草稿：Asset 登记表不得改变，Scene UUID 必须唯一，所有引用必须存在，六种 Visual 与两种 Caption 分支都至少出现一次，全部省略 Speech。
 
-本次生成的原始结果直接保存为 [`project.ai-example.json`](./project.ai-example.json)，不做程序性修补。验证脚本 [`verify-project-examples.ts`](./verify-project-examples.ts) 同时检查结构、内部一致性和上述覆盖条件。AI 样本是“可保存草稿”，不是 Render-ready 成片；缺 Speech 是题目明确要求。
+最初的 V1 验收曾将模型原始结果直接保存为 `project.ai-example.json`，不做程序性修补。此后同一路径下的示例已随 DSL 连续升级到 V3；当前 [`project.ai-example.json`](./project.ai-example.json) 与 [`verify-project-examples.ts`](./verify-project-examples.ts) 不再是 V1 验收材料。本节仅保留当时的验收条件作为历史背景。
 
 参考 Schema 使用 Zod 4，因为其官方稳定 API 原生提供 `z.toJSONSchema()`；生成给模型的结构 Schema 不包含无法由 JSON Schema 表达的跨引用检查，引用完整性由同一次验收中的内部一致性校验补齐。

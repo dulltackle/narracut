@@ -1,6 +1,8 @@
 # Project DSL V2 技术规格
 
-V2 将内容用途从核心数据模型中移除。可执行结构见 [`project-schema-v2.ts`](./project-schema-v2.ts)，当前项目示例见 [`project.example.json`](./project.example.json)，迁移决策见 [ADR-0005](../adr/0005-content-neutral-visual-model.md)。
+> 本规格仅用于读取与迁移历史项目。当前写入格式见 [`project-v3.md`](./project-v3.md)。
+
+V2 将内容用途从核心数据模型中移除。历史结构定义见 [`project-schema-v2.ts`](./project-schema-v2.ts)，迁移决策见 [ADR-0005](../adr/0005-content-neutral-visual-model.md)；当前示例已升级到 V3。
 
 ## 边界与根结构
 
@@ -43,7 +45,7 @@ Caption = { text }
 - Subtitle 始终由 `narration.text` 派生，不重复持久化。
 - Image 只能引用 image Asset，Video 只能引用 video Asset；未绑定 Asset 的草稿省略 `assetId`。
 
-视觉样式和动效不由 Visual Type 决定。后续版本将按 [ADR-0006](../adr/0006-versioned-text-presentation-presets.md) 引入独立、版本化的 Project Theme、Text Style 与 Text Motion preset；V2 不提前保存这些字段。
+视觉样式和动效不由 Visual Type 决定。V3 已按 [ADR-0006](../adr/0006-versioned-text-presentation-presets.md) 引入独立、版本化的 Project Theme、Text Style 与 Text Motion Preset；V2 本身不保存这些字段。
 
 ## 编辑事务
 
@@ -54,7 +56,7 @@ Caption = { text }
 
 ## V1 → V2 迁移
 
-打开 V1 项目时先严格解析 V1，再用纯函数在内存中迁移并校验 V2；打开本身不写文件，第一次正常保存才写出 `schemaVersion: 2`。
+连续迁移中的 V1 → V2 步骤会先严格解析 V1，再用纯函数在内存中迁移并校验 V2。当前应用随后继续执行 V2 → V3，打开本身不写文件，第一次正常保存才写出当前的 `schemaVersion: 3`。
 
 | V1 | V2 |
 | --- | --- |
@@ -75,4 +77,4 @@ V1 曾允许完全空白的 Title 与 EndCard 草稿，而 V2 禁止空 Card。�
 
 保存前依次执行 V2 结构校验和内部一致性校验；任一 error 都阻止保存。空 Scene 数组、空 Narration、未绑定 Asset 和缺 Speech 仍是可保存草稿。渲染前再执行媒体、Speech、字体覆盖和 Render-ready 校验。
 
-[`verify-project-examples.ts`](./verify-project-examples.ts) 验证两个 V2 示例覆盖 Card、Image、Video 与通用 Caption，并验证严格字段、路径及引用约束。JSON Schema 由 `projectV2Schema` 通过 Zod 4 生成。
+V2 结构与迁移行为由 [`project-schema-v2.test.ts`](../../tests/project-schema-v2.test.ts) 覆盖。当前 [`verify-project-examples.ts`](./verify-project-examples.ts) 验证的是两个 V3 示例；V2 JSON Schema 仍可由 `projectV2Schema` 通过 Zod 4 生成。
