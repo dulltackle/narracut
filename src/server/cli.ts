@@ -1,15 +1,12 @@
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import open from "open";
-
 import { startNarracutServer, type RunningServer } from "./server";
 
 type CliOptions = {
   args: string[];
   staticDirectory?: string;
   initialPort?: number;
-  openUrl?: (url: string) => Promise<unknown>;
   log?: (message: string) => void;
 };
 
@@ -21,7 +18,6 @@ export async function runCli({
   args,
   staticDirectory = DEFAULT_STATIC_DIRECTORY,
   initialPort = 3579,
-  openUrl = (url) => open(url, { wait: false }),
   log = console.log,
 }: CliOptions): Promise<RunningServer> {
   const [projectPath, ...unexpectedArguments] = args;
@@ -35,13 +31,6 @@ export async function runCli({
     staticDirectory,
     initialPort,
   });
-
-  try {
-    await openUrl(server.url);
-  } catch (error) {
-    await server.close();
-    throw error;
-  }
 
   log(`Narracut 已打开 ${projectDirectory}`);
   log(`本地工作台：${server.url}`);
