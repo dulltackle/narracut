@@ -190,11 +190,75 @@ function PaneHeading({ title, meta, actions }: { title: string; meta: string; ac
   return <div className="pane-head"><div className="pane-title"><h2>{title}</h2><span>{meta}</span></div>{actions}</div>;
 }
 
+const saveStatusCopy: Record<import("./project-store").SaveStatus, string> = {
+  saved: "已保存",
+  pending: "待保存",
+  saving: "保存中",
+  retrying: "保存重试",
+  error: "保存失败",
+  "blocked-validation": "无法保存",
+  migrated: "已升级 · 待保存",
+  occupied: "只读占用",
+  conflict: "外部冲突",
+};
+
+function SaveStateControl() {
+  const saveStatus = useProjectStore((state) => state.saveStatus);
+  const saveErrorMessage = useProjectStore((state) => state.saveErrorMessage);
+  const retryAttempt = useProjectStore((state) => state.saveRetryAttempt);
+  const saveDiagnostics = useProjectStore((state) => state.saveDiagnostics);
+  const retrySave = useProjectStore((state) => state.retrySave);
+  const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const hasDetails = saveStatus === "error" || saveStatus === "blocked-validation";
+  const label =
+    saveStatus === "retrying"
+      ? `保存重试 ${retryAttempt ?? 1}/3`
+      : saveStatus === "blocked-validation"
+        ? `无法保存 · ${saveDiagnostics.length} 项问题`
+        : saveStatusCopy[saveStatus];
+  const icon =
+    saveStatus === "saved" ? <CheckCircle weight="fill" />
+      : saveStatus === "saving" || saveStatus === "retrying" ? <CircleNotch className="spinner-inline" />
+        : saveStatus === "error" || saveStatus === "blocked-validation" || saveStatus === "conflict" ? <WarningCircle weight="fill" />
+          : saveStatus === "occupied" ? <LockSimple weight="fill" />
+            : <CircleNotch weight="bold" />;
+
+  useEffect(() => {
+    if (!hasDetails) setDetailsOpen(false);
+  }, [hasDetails]);
+
+  return (
+    <div className="save-control">
+      <button
+        type="button"
+        className={`save-state ${saveStatus}`}
+        data-testid="save-status"
+        aria-expanded={hasDetails ? detailsOpen : undefined}
+        aria-haspopup={hasDetails ? "dialog" : undefined}
+        onClick={() => hasDetails && setDetailsOpen((open) => !open)}
+      >
+        <span role={saveStatus === "error" ? "alert" : undefined} aria-live={saveStatus === "error" ? "assertive" : "polite"} aria-atomic="true">{icon}{label}</span>
+      </button>
+      {detailsOpen ? (
+        <section className="save-details" role="dialog" aria-label={label}>
+          <strong>{saveStatus === "blocked-validation" ? "Project DSL 尚未写入" : "自动保存已暂停"}</strong>
+          <p>{saveErrorMessage ?? "本地项目服务暂时无法完成写入。"}</p>
+          <p>当前修改仍安全保留在内存中。</p>
+          {saveStatus === "blocked-validation" ? (
+            <button className="btn" type="button" onClick={() => { setTaskDrawerOpen(true); setDetailsOpen(false); }}>查看问题</button>
+          ) : (
+            <button className="btn primary" type="button" onClick={() => { setDetailsOpen(false); void retrySave(); }}>立即重试</button>
+          )}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 function Topbar({ projectName, readOnly = false, controlsDisabled = false, renderDiagnostics }: { projectName: string; readOnly?: boolean; controlsDisabled?: boolean; renderDiagnostics?: import("../shared/project").Diagnostic[] }) {
   const info = useProjectStore((state) => state.info);
   const persistedProjectName = useProjectStore((state) => state.project?.metadata.name);
-  const saveStatus = useProjectStore((state) => state.saveStatus);
-  const saveErrorMessage = useProjectStore((state) => state.saveErrorMessage);
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
   const projectDiagnostics = useProjectStore((state) => state.diagnostics);
   const diagnostics = renderDiagnostics ?? projectDiagnostics;
@@ -251,7 +315,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   };
   return (
     <header className="topbar">
-      <div className="brand"><BrandMark /><div className="project-title">{editingProjectName ? <input autoFocus className="project-name-editor" aria-label="项目名" value={projectNameDraft} onChange={(event) => setProjectNameDraft(event.target.value)} onBlur={finishProjectNameEdit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.preventDefault(); cancelProjectNameEdit(); } }} /> : readOnly ? <strong>{projectName}</strong> : <button ref={projectNameButtonRef} className="project-name-button" type="button" aria-label="编辑项目名" onClick={beginProjectNameEdit}>{projectName}</button>}<small>{info?.projectDirectory}</small></div>{readOnly ? <span className="readonly-pill">只读模式</span> : <span className={`save-state ${saveStatus}`} title={saveErrorMessage} aria-label={saveErrorMessage ?? undefined}>{saveStatus === "saved" ? "已保存" : saveStatus === "saving" ? "保存中" : "保存失败"}</span>}</div>
+      <div className="brand"><BrandMark /><div className="project-title">{editingProjectName ? <input autoFocus className="project-name-editor" aria-label="项目名" value={projectNameDraft} onChange={(event) => setProjectNameDraft(event.target.value)} onBlur={finishProjectNameEdit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.preventDefault(); cancelProjectNameEdit(); } }} /> : actionsDisabled ? <strong>{projectName}</strong> : <button ref={projectNameButtonRef} className="project-name-button" type="button" aria-label="编辑项目名" onClick={beginProjectNameEdit}>{projectName}</button>}<small>{info?.projectDirectory}</small></div>{readOnly ? <span className="readonly-pill">只读模式</span> : <SaveStateControl />}</div>
       <div className="history-cluster">
         <div className="history">
           <button className="btn icon" type="button" aria-label={undoLabel} title={undoLabel} disabled={actionsDisabled || undoEntry === undefined} onClick={() => void undo()}><ArrowUUpLeft /></button>
@@ -317,23 +381,27 @@ function ModalFrame({
   onCancel,
   children,
   footer,
+  dismissible = true,
+  dialogRole = "dialog",
 }: {
   title: string;
   description: string;
-  onCancel: () => void;
+  onCancel?: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  dismissible?: boolean;
+  dialogRole?: "dialog" | "alertdialog";
 }) {
   const dialogRef = useRef<HTMLElement>(null);
   const titleId = `dialog-${title.replace(/\s+/gu, "-")}`;
   const descriptionId = `${titleId}-description`;
   useEffect(() => {
-    const preferred = dialogRef.current?.querySelector<HTMLElement>("[data-autofocus]");
+    const preferred = dialogRef.current?.querySelector<HTMLElement>("[data-autofocus]:not(:disabled)");
     const first = dialogRef.current?.querySelector<HTMLElement>("button, input, select, textarea");
     (preferred ?? first)?.focus();
   }, []);
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && dismissible && onCancel !== undefined) {
       event.preventDefault();
       onCancel();
       return;
@@ -357,9 +425,9 @@ function ModalFrame({
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={onCancel}>
-      <section ref={dialogRef} className="transaction-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><h2 id={titleId}>{title}</h2><p id={descriptionId}>{description}</p></div><button className="btn icon" type="button" aria-label="关闭" onClick={onCancel}><X /></button></header>
+    <div className="modal-backdrop" onMouseDown={dismissible ? onCancel : undefined}>
+      <section ref={dialogRef} className="transaction-dialog" role={dialogRole} aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><h2 id={titleId}>{title}</h2><p id={descriptionId}>{description}</p></div>{dismissible && onCancel !== undefined ? <button className="btn icon" type="button" aria-label="关闭" onClick={onCancel}><X /></button> : null}</header>
         <div className="transaction-dialog-body">{children}</div>
         {footer === undefined ? null : <footer>{footer}</footer>}
       </section>
@@ -638,7 +706,49 @@ function BatchCreateDialog({
   );
 }
 
-function Workspace() {
+function WorkspaceBanner({ kind }: { kind: "lease" | "migration" | "migration-saved" }) {
+  const recheckLease = useProjectStore((state) => state.recheckLease);
+  if (kind === "lease") {
+    return (
+      <section className="workspace-banner lease-banner" data-testid="lease-banner" role="status">
+        <div><LockSimple weight="fill" /><span><strong>此项目正在另一个标签页中编辑</strong><small>工作台保持可见，但所有编辑、Undo/Redo、渲染与写文件任务均已暂停。</small></span></div>
+        <button className="btn" type="button" onClick={() => void recheckLease()}>重新检查编辑权</button>
+      </section>
+    );
+  }
+  return (
+    <section className={`workspace-banner ${kind}`} data-testid="migration-banner" role="status">
+      <div><CheckCircle weight="fill" /><span><strong>{kind === "migration-saved" ? "项目已升级并保存" : "项目已升级到当前 DSL 版本"}</strong><small>{kind === "migration-saved" ? "原始项目文件已保留为不可覆盖的迁移备份。" : "首次正常保存前会备份原始项目文件。"}</small></span></div>
+    </section>
+  );
+}
+
+function ExternalConflictDialog() {
+  const conflict = useProjectStore((state) => state.externalConflict);
+  const resolving = useProjectStore((state) => state.conflictResolving);
+  const loadDiskVersion = useProjectStore((state) => state.loadDiskVersion);
+  const keepCurrentVersion = useProjectStore((state) => state.keepCurrentVersion);
+  if (conflict === undefined) return null;
+  const loadDisabled = resolving || conflict.diskProject === undefined;
+  return (
+    <ModalFrame
+      title="项目文件已在外部更改"
+      description="当前页面与磁盘版本都包含修改。继续前必须选择保留哪一份。"
+      dismissible={false}
+      dialogRole="alertdialog"
+      footer={<><button className="btn" type="button" disabled={resolving} onClick={() => void keepCurrentVersion()}>保留当前版本</button><button className="btn primary" type="button" data-autofocus disabled={loadDisabled} onClick={() => void loadDiskVersion()}>载入磁盘版本</button></>}
+    >
+      <div className="conflict-choices">
+        <div><strong>载入磁盘版本</strong><p>先把当前页面的内存 DSL 备份为 external-conflict 文件，再载入并校验磁盘版本；Undo/Redo 历史会清空。</p></div>
+        <div><strong>保留当前版本</strong><p>先把磁盘 DSL 备份为 external-conflict 文件，再用当前内存 DSL 覆盖；现有编辑历史会保留。</p></div>
+      </div>
+      {conflict.errorMessage || conflict.resolutionError ? <div className="conflict-error" role="alert"><WarningCircle weight="fill" /><span><strong>暂时无法完成选择</strong>{conflict.resolutionError ?? conflict.errorMessage}</span></div> : null}
+      {resolving ? <div className="conflict-progress" role="status"><CircleNotch className="spinner-inline" />正在备份并核对项目文件…</div> : null}
+    </ModalFrame>
+  );
+}
+
+function Workspace({ occupied = false }: { occupied?: boolean }) {
   const project = useProjectStore((state) => state.project);
   const info = useProjectStore((state) => state.info);
   const selectedSceneId = useProjectStore((state) => state.selectedSceneId);
@@ -653,7 +763,12 @@ function Workspace() {
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
   const mediaAvailability = useProjectStore((state) => state.mediaAvailability);
   const diagnostics = useProjectStore((state) => state.diagnostics);
+  const saveDiagnostics = useProjectStore((state) => state.saveDiagnostics);
   const historyFocusRequest = useProjectStore((state) => state.historyFocusRequest);
+  const externalConflict = useProjectStore((state) => state.externalConflict);
+  const migrationPending = useProjectStore((state) => state.migrationPending);
+  const migrationSavedNotice = useProjectStore((state) => state.migrationSavedNotice);
+  const workspaceDisabled = occupied || externalConflict !== undefined;
   const [playing, setPlaying] = useState(false);
   const [inspectorMode, setInspectorMode] = useState<"scene" | "project">("scene");
   const [safeAreaVisible, setSafeAreaVisible] = useState(false);
@@ -851,13 +966,17 @@ function Workspace() {
   };
 
   if (project.scenes.length === 0) {
-    return <EmptyWorkspace project={project} projectName={projectName} diagnostics={diagnostics} onThemeChange={(theme) => void updateTheme(theme)} onAddScene={addSingleScene} />;
+    return <EmptyWorkspace project={project} projectName={projectName} diagnostics={diagnostics} controlsDisabled={workspaceDisabled} occupied={occupied} onThemeChange={(theme) => void updateTheme(theme)} onAddScene={addSingleScene} />;
   }
 
+  const bannerKind = occupied ? "lease" : migrationSavedNotice ? "migration-saved" : migrationPending ? "migration" : undefined;
+
   return (
-    <div className="app-shell">
-      <Topbar projectName={projectName} renderDiagnostics={renderDiagnostics} />
-      <main className="workspace" data-testid="global-workbench">
+    <div className={`app-shell ${bannerKind === undefined ? "" : "has-banner"}`}>
+      <Topbar projectName={projectName} controlsDisabled={workspaceDisabled} renderDiagnostics={renderDiagnostics} />
+      {bannerKind === undefined ? null : <WorkspaceBanner kind={bannerKind} />}
+      <fieldset className="workspace-lock" disabled={workspaceDisabled}>
+      <main className="workspace" data-testid={occupied ? "readonly-workbench" : "global-workbench"}>
         <section className="pane script-pane">
           <PaneHeading title="脚本表" meta={`${project.scenes.length} 个 Scene`} actions={<div className="filter"><button aria-pressed="true">全部</button><button aria-pressed="false">待修复</button></div>} />
           <div className="table-wrap" ref={tableScrollRef}>
@@ -930,25 +1049,36 @@ function Workspace() {
           </div>
         </section>
       </main>
-      <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}><header><h2>渲染前检查</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <div key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断" : "提醒"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></div>)}</div>}</aside>
+      <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}>
+        <header><h2>渲染前检查</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>
+        <div className="task-groups">
+          {saveDiagnostics.length > 0 ? <section><h3>保存问题</h3><div className="task-diagnostics">{saveDiagnostics.map((diagnostic) => <div key={`save-${diagnostic.code}-${diagnostic.path.join(".")}`} className="error"><WarningCircle weight="fill" /><span><strong>阻止保存</strong>{diagnostic.message}<code>{diagnostic.path.join(".") || "project.json"}</code></span></div>)}</div></section> : null}
+          <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <div key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断" : "提醒"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></div>)}</div>}</section>
+        </div>
+      </aside>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={project.scenes.length} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
       {cardChoice ? <CardContentDialog onCancel={() => { const trigger = cardChoice.trigger; setCardChoice(undefined); restoreVisualTrigger(trigger); }} onCreate={(card) => { const choice = cardChoice; setCardChoice(undefined); stageVisualMigration(choice.sceneId, "card", choice.trigger, card); }} /> : null}
       {pendingVisualChange ? <VisualLossDialog losses={pendingVisualChange.losses} onCancel={() => { const trigger = pendingVisualChange.trigger; setPendingVisualChange(undefined); restoreVisualTrigger(trigger); }} onConfirm={() => { const change = pendingVisualChange; setPendingVisualChange(undefined); void updateVisual(change.sceneId, change.visual); restoreVisualTrigger(change.trigger); }} /> : null}
+      </fieldset>
+      <ExternalConflictDialog />
     </div>
   );
 }
 
-function EmptyWorkspace({ project, projectName, diagnostics, onThemeChange, onAddScene }: { project: import("../shared/project").Project; projectName: string; diagnostics: import("../shared/project").Diagnostic[]; onThemeChange: (theme: import("../shared/project").Project["theme"]) => void; onAddScene: () => void }) {
+function EmptyWorkspace({ project, projectName, diagnostics, controlsDisabled, occupied, onThemeChange, onAddScene }: { project: import("../shared/project").Project; projectName: string; diagnostics: import("../shared/project").Diagnostic[]; controlsDisabled: boolean; occupied: boolean; onThemeChange: (theme: import("../shared/project").Project["theme"]) => void; onAddScene: () => void }) {
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
+  const migrationPending = useProjectStore((state) => state.migrationPending);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const bannerKind = occupied ? "lease" : migrationPending ? "migration" : undefined;
 
   return (
-    <div className="app-shell"><Topbar projectName={projectName} controlsDisabled /><main className="workspace">
+    <div className={`app-shell ${bannerKind === undefined ? "" : "has-banner"}`}><Topbar projectName={projectName} controlsDisabled={controlsDisabled} />{bannerKind === undefined ? null : <WorkspaceBanner kind={bannerKind} />}<fieldset className="workspace-lock" disabled={controlsDisabled}><main className="workspace" data-testid={occupied ? "readonly-workbench" : "global-workbench"}>
       <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setBatchDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行 Narration，我们只按换行拆分，并在真正写入项目之前让你整理完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setBatchDialogOpen(true)}><Plus />粘贴多行 Narration</button><button className="btn" onClick={onAddScene}>新增一条</button></div><small>空白行会被忽略并计数 · Scene 数量不限</small></div></section>
       <section className="pane player-pane"><PaneHeading title="Player" meta="无 Scene" /><div className="stage"><div className="preview-frame empty-preview"><strong>暂无可预览内容</strong><span>创建 Scene 后，这里会显示画面与可储存的字幕层。</span></div></div><div className="player-controls"><button className="play-button" aria-label="播放" disabled><Play weight="fill" /></button><span className="timecode">00:00 / 00:00</span><div className="scrubber"><span /></div></div></section>
       <section className="pane inspector-pane"><PaneHeading title="属性" meta="项目主题" actions={<div className="inspector-tabs" role="tablist" aria-label="属性范围"><button role="tab" aria-selected="false" disabled>场景</button><button role="tab" aria-selected="true">项目</button></div>} /><div className="inspector-scroll" data-testid="inspector-project"><ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={onThemeChange} /></div></section>
     </main>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={0} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
+      </fieldset><ExternalConflictDialog />
     </div>
   );
 }
@@ -960,6 +1090,7 @@ function App() {
   if (phase === "loading") return <LoadingScreen />;
   if (phase === "error") return <ErrorScreen />;
   if (phase === "readonly") return <ReadonlyScreen />;
+  if (phase === "occupied") return <Workspace occupied />;
   return <Workspace />;
 }
 

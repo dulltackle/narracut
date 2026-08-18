@@ -26,6 +26,10 @@ test.afterAll(async () => {
   await server.close();
 });
 
+test.afterEach(async () => {
+  await server.releaseProjectLease();
+});
+
 test("V2 只在内存迁移，Project Theme 与 Scene 覆盖保存为严格 V3", async ({ page }) => {
   const original = `${JSON.stringify({
     schemaVersion: 2,

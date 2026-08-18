@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isAbsolute as isPosixAbsolute } from "node:path/posix";
@@ -9,6 +9,8 @@ import serveHandler from "serve-handler";
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3579;
 const MAX_PROJECT_BYTES = 10 * 1024 * 1024;
+const PROJECT_LEASE_TTL_MS = 3_000;
+const BACKUP_KINDS = new Set(["pre-migration", "external-conflict"]);
 
 class HttpError extends Error {
   constructor(
@@ -28,6 +30,7 @@ export type StartServerOptions = {
 export type RunningServer = {
   url: string;
   port: number;
+  releaseProjectLease: () => Promise<void>;
   close: () => Promise<void>;
 };
 
@@ -36,10 +39,12 @@ function send(
   statusCode: number,
   body: string | Buffer,
   contentType = "text/plain; charset=utf-8",
+  headers: Record<string, string> = {},
 ): void {
   response.writeHead(statusCode, {
     "cache-control": "no-store",
     "content-type": contentType,
+    ...headers,
   });
   response.end(body);
 }
@@ -68,8 +73,80 @@ async function writeProjectAtomically(
     resolve(projectFile, ".."),
     `.${basename(projectFile)}.${randomUUID()}.tmp`,
   );
-  await writeFile(temporaryFile, bytes);
-  await rename(temporaryFile, projectFile);
+  const handle = await open(temporaryFile, "wx");
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await unlink(temporaryFile).catch(() => undefined);
+    throw error;
+  }
+  await handle.close();
+  try {
+    await rename(temporaryFile, projectFile);
+  } catch (error) {
+    await unlink(temporaryFile).catch(() => undefined);
+    throw error;
+  }
+
+  await syncProjectDirectory(projectFile);
+}
+
+async function syncProjectDirectory(projectFile: string): Promise<void> {
+  const directory = await open(resolve(projectFile, ".."), "r");
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+}
+
+function projectEtag(bytes: Buffer): string {
+  return `"sha256-${createHash("sha256").update(bytes).digest("hex")}"`;
+}
+
+async function createProjectBackup(
+  projectFile: string,
+  kind: string,
+  bytes: Buffer,
+): Promise<string> {
+  const timestamp = new Date().toISOString().replaceAll(":", "-");
+  const fileName = `project.${kind}.${timestamp}.${randomUUID()}.json`;
+  const backupFile = join(resolve(projectFile, ".."), fileName);
+  const handle = await open(backupFile, "wx");
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await unlink(backupFile).catch(() => undefined);
+    throw error;
+  }
+  await handle.close();
+  await syncProjectDirectory(projectFile);
+  return fileName;
+}
+
+function readBackupKind(request: IncomingMessage): string | undefined {
+  const value = request.headers["x-narracut-backup-kind"];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !BACKUP_KINDS.has(value)) {
+    throw new HttpError(400, "备份类型无效。");
+  }
+  return value;
+}
+
+function readSessionId(request: IncomingMessage): string {
+  const sessionId = request.headers["x-narracut-session-id"];
+  if (
+    typeof sessionId !== "string" ||
+    sessionId.length === 0 ||
+    sessionId.length > 128
+  ) {
+    throw new HttpError(423, "当前请求没有有效的项目编辑租约。");
+  }
+  return sessionId;
 }
 
 function isProjectRelativePath(path: string): boolean {
@@ -203,26 +280,174 @@ export async function startNarracutServer({
     throw new Error(`${staticIndexFile} 不是有效的 SPA 入口文件。`);
   }
   const projectRealRoot = await realpath(projectRoot);
+  let lease: { sessionId: string; expiresAt: number } | undefined;
+  let projectMutationQueue: Promise<void> = Promise.resolve();
+
+  const withProjectLock = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = projectMutationQueue.then(operation, operation);
+    projectMutationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+
+  const hasLease = (sessionId: string): boolean => {
+    const now = Date.now();
+    if (lease !== undefined && lease.expiresAt <= now) lease = undefined;
+    return lease?.sessionId === sessionId;
+  };
+
+  const requireLease = (request: IncomingMessage): string => {
+    const sessionId = readSessionId(request);
+    if (!hasLease(sessionId)) {
+      throw new HttpError(423, "项目编辑权正由另一个浏览器会话持有。");
+    }
+    return sessionId;
+  };
 
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", `http://${LOOPBACK_HOST}`);
 
       if (url.pathname === "/api/project" && request.method === "GET") {
+        const bytes = await readFile(projectFile);
         send(
           response,
           200,
-          await readFile(projectFile),
+          bytes,
+          "application/json; charset=utf-8",
+          { etag: projectEtag(bytes) },
+        );
+        return;
+      }
+
+      if (url.pathname === "/api/project/lease" && request.method === "POST") {
+        let input: unknown;
+        try {
+          input = JSON.parse((await readRequestBody(request)).toString("utf8"));
+        } catch (error) {
+          if (error instanceof HttpError) throw error;
+          throw new HttpError(400, "租约请求体不是合法的 JSON。");
+        }
+        const sessionId =
+          typeof input === "object" && input !== null
+            ? Reflect.get(input, "sessionId")
+            : undefined;
+        if (
+          typeof sessionId !== "string" ||
+          sessionId.length === 0 ||
+          sessionId.length > 128
+        ) {
+          throw new HttpError(400, "sessionId 必须是 1–128 字符的字符串。");
+        }
+        const leaseResult = await withProjectLock(async () => {
+          const now = Date.now();
+          if (lease !== undefined && lease.expiresAt <= now) lease = undefined;
+          if (lease !== undefined && lease.sessionId !== sessionId) {
+            return { status: "occupied" as const, expiresAt: lease.expiresAt };
+          }
+          lease = { sessionId, expiresAt: now + PROJECT_LEASE_TTL_MS };
+          return { status: "acquired" as const, expiresAt: lease.expiresAt };
+        });
+        if (leaseResult.status === "occupied") {
+          send(
+            response,
+            200,
+            JSON.stringify(leaseResult),
+            "application/json; charset=utf-8",
+          );
+          return;
+        }
+        send(
+          response,
+          200,
+          JSON.stringify(leaseResult),
           "application/json; charset=utf-8",
         );
         return;
       }
 
-      if (url.pathname === "/api/project" && request.method === "PUT") {
-        const bytes = await readRequestBody(request);
-        await writeProjectAtomically(projectFile, bytes);
+      if (url.pathname === "/api/project/lease" && request.method === "DELETE") {
+        const sessionId = readSessionId(request);
+        await withProjectLock(async () => {
+          if (lease?.sessionId === sessionId) lease = undefined;
+        });
         response.writeHead(204, { "cache-control": "no-store" });
         response.end();
+        return;
+      }
+
+      if (url.pathname === "/api/project/lease/release" && request.method === "POST") {
+        const sessionId = (await readRequestBody(request)).toString("utf8");
+        if (sessionId.length === 0 || sessionId.length > 128) {
+          throw new HttpError(400, "sessionId 必须是 1–128 字符的字符串。");
+        }
+        await withProjectLock(async () => {
+          if (lease?.sessionId === sessionId) lease = undefined;
+        });
+        response.writeHead(204, { "cache-control": "no-store" });
+        response.end();
+        return;
+      }
+
+      if (url.pathname === "/api/project" && request.method === "PUT") {
+        const sessionId = readSessionId(request);
+        const ifMatch = request.headers["if-match"];
+        if (typeof ifMatch !== "string" || ifMatch.length === 0) {
+          throw new HttpError(428, "写入 Project DSL 必须携带 If-Match。");
+        }
+        const backupKind = readBackupKind(request);
+        const bytes = await readRequestBody(request);
+        const nextEtag = await withProjectLock(async () => {
+          if (!hasLease(sessionId)) {
+            throw new HttpError(423, "项目编辑权正由另一个浏览器会话持有。");
+          }
+          const currentBytes = await readFile(projectFile);
+          if (projectEtag(currentBytes) !== ifMatch) {
+            throw new HttpError(412, "Project DSL 已在磁盘上改变。");
+          }
+          if (backupKind !== undefined) {
+            await createProjectBackup(projectFile, backupKind, currentBytes);
+          }
+          await writeProjectAtomically(projectFile, bytes);
+          return projectEtag(bytes);
+        });
+        response.writeHead(204, {
+          "cache-control": "no-store",
+          etag: nextEtag,
+        });
+        response.end();
+        return;
+      }
+
+      if (url.pathname === "/api/project/backups" && request.method === "POST") {
+        const sessionId = readSessionId(request);
+        const backupKind = readBackupKind(request);
+        if (backupKind === undefined) {
+          throw new HttpError(400, "备份请求必须声明备份类型。");
+        }
+        const ifMatch = request.headers["if-match"];
+        if (typeof ifMatch !== "string" || ifMatch.length === 0) {
+          throw new HttpError(428, "备份请求必须携带当前磁盘修订的 If-Match。");
+        }
+        const bytes = await readRequestBody(request);
+        const fileName = await withProjectLock(async () => {
+          if (!hasLease(sessionId)) {
+            throw new HttpError(423, "项目编辑权正由另一个浏览器会话持有。");
+          }
+          const currentBytes = await readFile(projectFile);
+          if (projectEtag(currentBytes) !== ifMatch) {
+            throw new HttpError(412, "Project DSL 已在磁盘上再次改变。");
+          }
+          return createProjectBackup(projectFile, backupKind, bytes);
+        });
+        send(
+          response,
+          201,
+          JSON.stringify({ fileName }),
+          "application/json; charset=utf-8",
+        );
         return;
       }
 
@@ -338,6 +563,10 @@ export async function startNarracutServer({
   return {
     port,
     url: `http://${LOOPBACK_HOST}:${port}`,
+    releaseProjectLease: () =>
+      withProjectLock(async () => {
+        lease = undefined;
+      }),
     close: () =>
       new Promise<void>((resolvePromise, rejectPromise) => {
         server.close((error) => (error ? rejectPromise(error) : resolvePromise()));

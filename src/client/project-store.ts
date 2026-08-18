@@ -22,6 +22,28 @@ export type ProjectInfo = {
 
 type UnknownProject = Record<string, unknown>;
 
+export type SaveStatus =
+  | "saved"
+  | "pending"
+  | "saving"
+  | "retrying"
+  | "error"
+  | "blocked-validation"
+  | "migrated"
+  | "occupied"
+  | "conflict";
+
+type ExternalConflict = {
+  diskRaw: string;
+  diskEtag: string;
+  diskProject?: Project;
+  diskSavedCanonical?: string;
+  diskDiagnostics: Diagnostic[];
+  migrated: boolean;
+  errorMessage?: string;
+  resolutionError?: string;
+};
+
 type HistoryFocusTarget = "narration" | "visual-type" | "reorder";
 
 type HistoryEntry = {
@@ -51,7 +73,7 @@ export type ProjectJobResult =
     };
 
 type ProjectState = {
-  phase: "loading" | "ready" | "readonly" | "error";
+  phase: "loading" | "ready" | "readonly" | "occupied" | "error";
   project?: Project;
   unknownProject?: UnknownProject;
   unknownVersion?: number;
@@ -60,8 +82,17 @@ type ProjectState = {
   mediaAvailability: Record<string, boolean>;
   errorMessage?: string;
   selectedSceneId?: string;
-  saveStatus: "saved" | "saving" | "error";
+  saveStatus: SaveStatus;
   saveErrorMessage?: string;
+  saveRetryAttempt?: number;
+  saveDiagnostics: Diagnostic[];
+  dirty: boolean;
+  migrationPending: boolean;
+  migrationSavedNotice: boolean;
+  leaseStatus: "none" | "acquired" | "occupied";
+  leaseLostWhileEditing: boolean;
+  externalConflict?: ExternalConflict;
+  conflictResolving: boolean;
   undoStack: HistoryEntry[];
   redoStack: HistoryEntry[];
   historyNotice?: string;
@@ -73,6 +104,12 @@ type ProjectState = {
   };
   taskDrawerOpen: boolean;
   load: () => Promise<void>;
+  flushSave: () => Promise<void>;
+  retrySave: () => Promise<void>;
+  checkDiskRevision: () => Promise<void>;
+  recheckLease: () => Promise<void>;
+  loadDiskVersion: () => Promise<void>;
+  keepCurrentVersion: () => Promise<void>;
   selectScene: (sceneId: string) => void;
   setTaskDrawerOpen: (open: boolean) => void;
   updateProjectName: (name: string) => Promise<void>;
@@ -111,9 +148,19 @@ function hasSaveBlockingError(diagnostics: Diagnostic[]): boolean {
   );
 }
 
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-let saveQueue: Promise<void> = Promise.resolve();
-let latestSaveRevision = 0;
+let trailingSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let maxWaitSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingSave: Project | undefined;
+let inFlightSave: Promise<void> | undefined;
+let inFlightCanonical: string | undefined;
+let expectedProjectEtag: string | undefined;
+let lastSavedCanonical: string | undefined;
+let preMigrationBackupPending = false;
+let leaseRenewTimer: ReturnType<typeof setInterval> | undefined;
+let leaseRecheckTimer: ReturnType<typeof setTimeout> | undefined;
+let loadGeneration = 0;
+let lifecycleListenersInstalled = false;
+const sessionId = globalThis.crypto.randomUUID();
 let nextHistoryEntryId = 0;
 let textTransaction:
   | { key: string; entryId: number; lastEditAt: number }
@@ -122,6 +169,10 @@ let textTransactionTimer: ReturnType<typeof setTimeout> | undefined;
 
 const TEXT_TRANSACTION_IDLE_MS = 750;
 const HISTORY_LIMIT = 100;
+const SAVE_DEBOUNCE_MS = 800;
+const SAVE_MAX_WAIT_MS = 1_000;
+const SAVE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const;
+const LEASE_RENEW_MS = 1_000;
 
 function freezeDeep<T>(value: T): T {
   if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
@@ -138,6 +189,48 @@ function immutableProject(project: Project): Project {
 
 function sameSerializableValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, canonicalize(child)]),
+  );
+}
+
+function canonicalProject(value: unknown): string {
+  return JSON.stringify(canonicalize(value));
+}
+
+function canMutateProject(get: GetProjectState): boolean {
+  const state = get();
+  return (
+    state.phase === "ready" &&
+    state.leaseStatus === "acquired" &&
+    state.externalConflict === undefined &&
+    !state.conflictResolving
+  );
+}
+
+function serializeProject(project: Project): string {
+  return `${JSON.stringify(project, null, 2)}\n`;
+}
+
+function clearSaveTimers(): void {
+  if (trailingSaveTimer !== undefined) clearTimeout(trailingSaveTimer);
+  if (maxWaitSaveTimer !== undefined) clearTimeout(maxWaitSaveTimer);
+  trailingSaveTimer = undefined;
+  maxWaitSaveTimer = undefined;
+}
+
+function clearLeaseRenewal(): void {
+  if (leaseRenewTimer !== undefined) clearInterval(leaseRenewTimer);
+  if (leaseRecheckTimer !== undefined) clearTimeout(leaseRecheckTimer);
+  leaseRenewTimer = undefined;
+  leaseRecheckTimer = undefined;
 }
 
 function finishTextTransaction(): void {
@@ -163,38 +256,542 @@ function asUnknownProject(input: unknown): UnknownProject {
     : {};
 }
 
-async function saveProject(project: Project): Promise<void> {
-  const response = await fetch("/api/project", {
-    method: "PUT",
-    headers: { "content-type": "application/json; charset=utf-8" },
-    body: `${JSON.stringify(project, null, 2)}\n`,
-  });
-  if (!response.ok) throw new Error(`保存失败：HTTP ${response.status}`);
+type SetProjectState = (state: Partial<ProjectState>) => void;
+type GetProjectState = () => ProjectState;
+
+class PersistenceError extends Error {
+  constructor(
+    readonly kind: "io" | "conflict" | "lease" | "permanent",
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
-function enqueueSave(
-  project: Project,
-  revision: number,
-  setState: (state: Partial<ProjectState>) => void,
-): Promise<void> {
-  const operation = saveQueue
-    .catch(() => undefined)
-    .then(() => saveProject(project));
-  saveQueue = operation;
-  return operation.then(
-    () => {
-      if (revision === latestSaveRevision) setState({ saveStatus: "saved" });
-    },
-    (error: unknown) => {
-      if (revision === latestSaveRevision) setState({ saveStatus: "error" });
-      if (revision === latestSaveRevision) {
-        setState({
-          saveErrorMessage:
-            error instanceof Error ? error.message : "无法写入 Project DSL。",
-        });
-      }
-    },
+function parseProjectBytes(raw: string): {
+  project?: Project;
+  savedCanonical?: string;
+  migrated: boolean;
+  diagnostics: Diagnostic[];
+  errorMessage?: string;
+} {
+  try {
+    const input: unknown = JSON.parse(raw);
+    const schemaVersion = readSchemaVersion(input);
+    if (schemaVersion > CURRENT_SCHEMA_VERSION) {
+      return {
+        migrated: false,
+        diagnostics: [],
+        errorMessage: `项目使用 schemaVersion ${schemaVersion}，当前应用无法安全写回。`,
+      };
+    }
+    const currentProject = migrateKnownProjectToCurrent(input);
+    const structural = validateProjectStructure(currentProject);
+    if (!structural.success) {
+      return {
+        migrated: schemaVersion < CURRENT_SCHEMA_VERSION,
+        diagnostics: structural.diagnostics,
+        errorMessage: structuralErrorMessage(structural.diagnostics),
+      };
+    }
+    const diagnostics = validateProjectConsistency(structural.project);
+    if (hasSaveBlockingError(diagnostics)) {
+      return {
+        migrated: schemaVersion < CURRENT_SCHEMA_VERSION,
+        diagnostics,
+        errorMessage: structuralErrorMessage(diagnostics),
+      };
+    }
+    return {
+      project: structural.project,
+      savedCanonical: canonicalProject(input),
+      migrated: schemaVersion < CURRENT_SCHEMA_VERSION,
+      diagnostics,
+    };
+  } catch (error) {
+    return {
+      migrated: false,
+      diagnostics:
+        error instanceof ProjectMigrationError ? error.diagnostics : [],
+      errorMessage:
+        error instanceof Error ? error.message : "Project DSL 不是合法的 JSON。",
+    };
+  }
+}
+
+async function probeMediaAvailability(project: Project): Promise<Record<string, boolean>> {
+  const paths = [
+    ...project.assets.map((asset) => asset.path),
+    ...project.scenes.flatMap((scene) =>
+      scene.speech === undefined ? [] : [scene.speech.path],
+    ),
+  ];
+  const uniquePaths = [...new Set(paths)];
+  if (uniquePaths.length === 0) return {};
+  const response = await fetch("/api/assets/probe", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ paths: uniquePaths }),
+  });
+  if (!response.ok) return {};
+  const payload = (await response.json()) as {
+    results: Array<{ path: string; exists: boolean }>;
+  };
+  return Object.fromEntries(
+    payload.results.map((result) => [result.path, result.exists]),
   );
+}
+
+async function requestLease(): Promise<{
+  status: "acquired" | "occupied";
+  expiresAt?: number;
+}> {
+  const response = await fetch("/api/project/lease", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId }),
+  });
+  if (response.status === 409) {
+    const payload = (await response.json()) as { expiresAt?: number };
+    return { status: "occupied", expiresAt: payload.expiresAt };
+  }
+  if (!response.ok) throw new Error("无法取得项目编辑权。");
+  const payload = (await response.json()) as {
+    status?: "acquired" | "occupied";
+    expiresAt?: number;
+  };
+  return {
+    status: payload.status === "occupied" ? "occupied" : "acquired",
+    expiresAt: payload.expiresAt,
+  };
+}
+
+function saveBlockingDiagnostics(project: Project): Diagnostic[] {
+  const structural = validateProjectStructure(project);
+  if (!structural.success) return structural.diagnostics;
+  return validateProjectConsistency(structural.project).filter(
+    (diagnostic) =>
+      diagnostic.severity === "error" &&
+      !renderOnlyDiagnosticCodes.has(diagnostic.code),
+  );
+}
+
+async function putProject(
+  project: Project,
+  backupKind?: "pre-migration" | "external-conflict",
+): Promise<string | undefined> {
+  const diagnostics = saveBlockingDiagnostics(project);
+  if (diagnostics.length > 0) {
+    throw new PersistenceError("permanent", structuralErrorMessage(diagnostics));
+  }
+  const headers: Record<string, string> = {
+    "content-type": "application/json; charset=utf-8",
+    "x-narracut-session-id": sessionId,
+    "if-match": expectedProjectEtag ?? '"untracked"',
+  };
+  if (backupKind !== undefined) headers["x-narracut-backup-kind"] = backupKind;
+  let response: Response;
+  try {
+    response = await fetch("/api/project", {
+      method: "PUT",
+      headers,
+      body: serializeProject(project),
+    });
+  } catch (error) {
+    throw new PersistenceError(
+      "io",
+      error instanceof Error ? error.message : "无法连接本地项目服务。",
+    );
+  }
+  if (response.status === 412) {
+    throw new PersistenceError("conflict", "Project DSL 已在磁盘上改变。");
+  }
+  if (response.status === 423) {
+    throw new PersistenceError("lease", "当前页面已失去项目编辑权。");
+  }
+  if (!response.ok) {
+    const detail = (await response.text()).trim();
+    const message = detail || `保存失败：HTTP ${response.status}`;
+    throw new PersistenceError(
+      response.status >= 500 ? "io" : "permanent",
+      message,
+    );
+  }
+  return response.headers.get("etag") ?? undefined;
+}
+
+function markLeaseLost(set: SetProjectState, get: GetProjectState): void {
+  clearLeaseRenewal();
+  clearSaveTimers();
+  set({
+    phase: "occupied",
+    leaseStatus: "occupied",
+    leaseLostWhileEditing: get().project !== undefined,
+    saveStatus: "occupied",
+    saveErrorMessage: "当前页面已失去项目编辑权，内存修改尚未被覆盖。",
+  });
+}
+
+async function readDiskRevision(): Promise<{
+  raw: string;
+  etag: string;
+  parsed: ReturnType<typeof parseProjectBytes>;
+}> {
+  const response = await fetch("/api/project", { cache: "no-store" });
+  if (!response.ok) throw new Error("无法检查磁盘上的 Project DSL。");
+  const raw = await response.text();
+  const etag = response.headers.get("etag");
+  if (etag === null) throw new Error("本地服务没有返回 Project DSL 修订标识。");
+  return { raw, etag, parsed: parseProjectBytes(raw) };
+}
+
+async function backupMemoryVersion(
+  project: Project,
+  diskEtag: string,
+): Promise<"created" | "stale"> {
+  const response = await fetch("/api/project/backups", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "x-narracut-session-id": sessionId,
+      "x-narracut-backup-kind": "external-conflict",
+      "if-match": diskEtag,
+    },
+    body: serializeProject(project),
+  });
+  if (response.status === 412) return "stale";
+  if (!response.ok) {
+    throw new Error((await response.text()) || "无法备份内存版本。");
+  }
+  return "created";
+}
+
+async function installDiskProject(
+  disk: Awaited<ReturnType<typeof readDiskRevision>>,
+  set: SetProjectState,
+): Promise<void> {
+  const { project, diagnostics, migrated, savedCanonical } = disk.parsed;
+  if (project === undefined || savedCanonical === undefined) {
+    throw new Error(disk.parsed.errorMessage ?? "磁盘 Project DSL 无法安全载入。");
+  }
+  expectedProjectEtag = disk.etag;
+  lastSavedCanonical = savedCanonical;
+  preMigrationBackupPending = migrated;
+  pendingSave = undefined;
+  clearSaveTimers();
+  set({
+    phase: "ready",
+    project,
+    diagnostics,
+    mediaAvailability: await probeMediaAvailability(project),
+    selectedSceneId: project.scenes[0]?.id,
+    undoStack: [],
+    redoStack: [],
+    historyNotice: undefined,
+    historyFocusRequest: undefined,
+    saveStatus: migrated ? "migrated" : "saved",
+    saveErrorMessage: undefined,
+    saveRetryAttempt: undefined,
+    saveDiagnostics: [],
+    dirty: migrated,
+    migrationPending: migrated,
+    externalConflict: undefined,
+    conflictResolving: false,
+    leaseStatus: "acquired",
+    leaseLostWhileEditing: false,
+  });
+}
+
+async function prepareExternalConflict(
+  set: SetProjectState,
+  get: GetProjectState,
+  disk?: Awaited<ReturnType<typeof readDiskRevision>>,
+): Promise<void> {
+  try {
+    const revision = disk ?? (await readDiskRevision());
+    if (revision.etag === expectedProjectEtag) return;
+    const currentProject = get().project;
+    const currentDirty =
+      currentProject !== undefined &&
+      canonicalProject(currentProject) !== lastSavedCanonical;
+    if (!currentDirty && revision.parsed.project !== undefined) {
+      if (currentProject === undefined) return;
+      const backupResult = await backupMemoryVersion(currentProject, revision.etag);
+      if (backupResult === "stale") {
+        const latest = await readDiskRevision();
+        clearSaveTimers();
+        set({
+          saveStatus: "conflict",
+          externalConflict: {
+            diskRaw: latest.raw,
+            diskEtag: latest.etag,
+            diskProject: latest.parsed.project,
+            diskSavedCanonical: latest.parsed.savedCanonical,
+            diskDiagnostics: latest.parsed.diagnostics,
+            migrated: latest.parsed.migrated,
+            errorMessage: latest.parsed.errorMessage,
+            resolutionError: "备份期间磁盘版本再次改变，请明确选择要保留的版本。",
+          },
+          conflictResolving: false,
+        });
+        return;
+      }
+      await installDiskProject(revision, set);
+      return;
+    }
+    clearSaveTimers();
+    set({
+      saveStatus: "conflict",
+      saveErrorMessage: undefined,
+      externalConflict: {
+        diskRaw: revision.raw,
+        diskEtag: revision.etag,
+        diskProject: revision.parsed.project,
+        diskSavedCanonical: revision.parsed.savedCanonical,
+        diskDiagnostics: revision.parsed.diagnostics,
+        migrated: revision.parsed.migrated,
+        errorMessage: revision.parsed.errorMessage,
+      },
+      conflictResolving: false,
+    });
+  } catch (error) {
+    set({
+      saveStatus: "error",
+      saveErrorMessage:
+        error instanceof Error ? error.message : "无法检查磁盘修订。",
+    });
+  }
+}
+
+async function runSaveQueue(
+  set: SetProjectState,
+  get: GetProjectState,
+): Promise<void> {
+  if (inFlightSave !== undefined) return inFlightSave;
+  if (
+    pendingSave === undefined ||
+    get().leaseStatus !== "acquired" ||
+    get().externalConflict !== undefined
+  ) {
+    return;
+  }
+
+  const operation = (async () => {
+    while (
+      pendingSave !== undefined &&
+      get().leaseStatus === "acquired" &&
+      get().externalConflict === undefined
+    ) {
+      let snapshot = pendingSave;
+      pendingSave = undefined;
+      let succeeded = false;
+      for (let attempt = 0; attempt <= SAVE_RETRY_DELAYS_MS.length; attempt += 1) {
+        if (attempt > 0) {
+          const delay = SAVE_RETRY_DELAYS_MS[attempt - 1];
+          set({
+            saveStatus: "retrying",
+            saveRetryAttempt: attempt,
+            saveErrorMessage: `写入失败，将在 ${delay / 1_000} 秒后重试。`,
+          });
+          await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, delay));
+          if (
+            get().leaseStatus !== "acquired" ||
+            get().externalConflict !== undefined
+          ) {
+            pendingSave = get().project;
+            return;
+          }
+          if (pendingSave !== undefined) {
+            snapshot = pendingSave;
+            pendingSave = undefined;
+          }
+        }
+
+        const diagnostics = saveBlockingDiagnostics(snapshot);
+        if (diagnostics.length > 0) {
+          pendingSave = snapshot;
+          set({
+            saveStatus: "blocked-validation",
+            saveDiagnostics: diagnostics,
+            saveErrorMessage: structuralErrorMessage(diagnostics),
+            saveRetryAttempt: undefined,
+            dirty: true,
+          });
+          return;
+        }
+
+        inFlightCanonical = canonicalProject(snapshot);
+        set({
+          saveStatus: attempt === 0 ? "saving" : "retrying",
+          saveRetryAttempt: attempt === 0 ? undefined : attempt,
+          saveErrorMessage: undefined,
+        });
+        try {
+          const usedMigrationBackup = preMigrationBackupPending;
+          const nextEtag = await putProject(
+            snapshot,
+            usedMigrationBackup ? "pre-migration" : undefined,
+          );
+          if (nextEtag !== undefined) expectedProjectEtag = nextEtag;
+          lastSavedCanonical = inFlightCanonical;
+          if (usedMigrationBackup) {
+            preMigrationBackupPending = false;
+            set({ migrationPending: false, migrationSavedNotice: true });
+            setTimeout(() => set({ migrationSavedNotice: false }), 2_500);
+          }
+          succeeded = true;
+          break;
+        } catch (error) {
+          if (!(error instanceof PersistenceError)) throw error;
+          if (error.kind === "conflict") {
+            pendingSave = get().project;
+            await prepareExternalConflict(set, get);
+            return;
+          }
+          if (error.kind === "lease") {
+            pendingSave = get().project;
+            markLeaseLost(set, get);
+            return;
+          }
+          if (error.kind === "permanent") {
+            pendingSave = get().project;
+            set({
+              saveStatus: "error",
+              saveErrorMessage: error.message,
+              saveRetryAttempt: undefined,
+              dirty: true,
+            });
+            return;
+          }
+          if (attempt === SAVE_RETRY_DELAYS_MS.length) {
+            pendingSave = get().project;
+            set({
+              saveStatus: "error",
+              saveErrorMessage: error.message,
+              saveRetryAttempt: undefined,
+              dirty: true,
+            });
+            return;
+          }
+        } finally {
+          inFlightCanonical = undefined;
+        }
+      }
+
+      if (!succeeded) return;
+      const current = get().project;
+      if (current === undefined) return;
+      const currentCanonical = canonicalProject(current);
+      const dirty = currentCanonical !== lastSavedCanonical;
+      if (dirty && pendingSave === undefined) pendingSave = immutableProject(current);
+      set({
+        saveStatus: dirty ? "pending" : "saved",
+        saveErrorMessage: undefined,
+        saveRetryAttempt: undefined,
+        saveDiagnostics: [],
+        dirty,
+      });
+    }
+  })();
+  inFlightSave = operation.finally(() => {
+    inFlightSave = undefined;
+  });
+  return inFlightSave;
+}
+
+function scheduleProjectSave(
+  project: Project,
+  mode: "text" | "immediate",
+  set: SetProjectState,
+  get: GetProjectState,
+): Promise<void> {
+  const currentCanonical = canonicalProject(project);
+  const dirty = currentCanonical !== lastSavedCanonical;
+  if (!dirty && inFlightCanonical === undefined) {
+    pendingSave = undefined;
+    clearSaveTimers();
+    set({
+      saveStatus: "saved",
+      saveErrorMessage: undefined,
+      saveRetryAttempt: undefined,
+      saveDiagnostics: [],
+      dirty: false,
+    });
+    return Promise.resolve();
+  }
+  pendingSave = immutableProject(project);
+  set({
+    saveStatus: inFlightSave === undefined ? "pending" : get().saveStatus,
+    saveErrorMessage: undefined,
+    saveRetryAttempt: undefined,
+    saveDiagnostics: [],
+    dirty,
+  });
+  if (mode === "immediate") {
+    clearSaveTimers();
+    return runSaveQueue(set, get);
+  }
+  if (trailingSaveTimer !== undefined) clearTimeout(trailingSaveTimer);
+  trailingSaveTimer = setTimeout(() => {
+    clearSaveTimers();
+    void runSaveQueue(set, get);
+  }, SAVE_DEBOUNCE_MS);
+  if (maxWaitSaveTimer === undefined) {
+    maxWaitSaveTimer = setTimeout(() => {
+      clearSaveTimers();
+      void runSaveQueue(set, get);
+    }, SAVE_MAX_WAIT_MS);
+  }
+  return Promise.resolve();
+}
+
+function startLeaseRenewal(set: SetProjectState, get: GetProjectState): void {
+  clearLeaseRenewal();
+  leaseRenewTimer = setInterval(() => {
+    void requestLease()
+      .then(({ status }) => {
+        if (status === "occupied") markLeaseLost(set, get);
+      })
+      .catch(() => markLeaseLost(set, get));
+  }, LEASE_RENEW_MS);
+}
+
+function scheduleLeaseRecheck(
+  expiresAt: number | undefined,
+  get: GetProjectState,
+): void {
+  if (expiresAt === undefined) return;
+  if (leaseRecheckTimer !== undefined) clearTimeout(leaseRecheckTimer);
+  const waitMs = Math.max(0, Math.min(3_100, expiresAt - Date.now() + 50));
+  leaseRecheckTimer = setTimeout(() => {
+    leaseRecheckTimer = undefined;
+    if (get().phase !== "occupied" || get().leaseLostWhileEditing) return;
+    void requestLease().then((result) => {
+      if (result.status === "acquired") void get().load();
+    });
+  }, waitMs);
+}
+
+function installLifecycleListeners(get: GetProjectState): void {
+  if (lifecycleListenersInstalled || typeof window === "undefined") return;
+  lifecycleListenersInstalled = true;
+  window.addEventListener("focus", () => void get().checkDiskRevision());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") void get().flushSave();
+  });
+  window.addEventListener("pagehide", () => {
+    void get().flushSave();
+    if (get().dirty) return;
+    if (typeof navigator.sendBeacon === "function") {
+      navigator.sendBeacon("/api/project/lease/release", sessionId);
+      return;
+    }
+    void fetch("/api/project/lease", {
+      method: "DELETE",
+      headers: { "x-narracut-session-id": sessionId },
+      keepalive: true,
+    });
+  });
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -202,15 +799,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   diagnostics: [],
   mediaAvailability: {},
   saveStatus: "saved",
+  saveDiagnostics: [],
+  dirty: false,
+  migrationPending: false,
+  migrationSavedNotice: false,
+  leaseStatus: "none",
+  leaseLostWhileEditing: false,
+  conflictResolving: false,
   undoStack: [],
   redoStack: [],
   historyEventId: 0,
   taskDrawerOpen: false,
   load: async () => {
+    const generation = ++loadGeneration;
     finishTextTransaction();
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    saveTimer = undefined;
-    latestSaveRevision += 1;
+    clearSaveTimers();
+    clearLeaseRenewal();
+    pendingSave = undefined;
     set({
       phase: "loading",
       diagnostics: [],
@@ -220,13 +825,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       mediaAvailability: {},
       saveStatus: "saved",
       saveErrorMessage: undefined,
+      saveRetryAttempt: undefined,
+      saveDiagnostics: [],
+      dirty: false,
+      migrationPending: false,
+      migrationSavedNotice: false,
+      leaseStatus: "none",
+      leaseLostWhileEditing: false,
+      externalConflict: undefined,
+      conflictResolving: false,
       undoStack: [],
       redoStack: [],
       historyNotice: undefined,
       historyFocusRequest: undefined,
     });
 
-    await saveQueue.catch(() => undefined);
+    await inFlightSave?.catch(() => undefined);
 
     try {
       const [projectResponse, infoResponse] = await Promise.all([
@@ -241,6 +855,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         projectResponse.text(),
         infoResponse.json() as Promise<ProjectInfo>,
       ]);
+      if (generation !== loadGeneration) return;
+      const etag = projectResponse.headers.get("etag");
+      if (etag === null) {
+        throw new Error("本地服务没有返回 Project DSL 修订标识。");
+      }
       const input: unknown = JSON.parse(projectText);
       const schemaVersion = readSchemaVersion(input);
 
@@ -252,6 +871,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           unknownVersion: schemaVersion,
           selectedSceneId: undefined,
           saveStatus: "saved",
+          leaseStatus: "none",
         });
         return;
       }
@@ -279,40 +899,37 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return;
       }
 
-      const projectPaths = [
-        ...structural.project.assets.map((asset) => asset.path),
-        ...structural.project.scenes.flatMap((scene) =>
-          scene.speech === undefined ? [] : [scene.speech.path],
-        ),
-      ];
-      const uniquePaths = [...new Set(projectPaths)];
-      let mediaAvailability: Record<string, boolean> = {};
-      if (uniquePaths.length > 0) {
-        const probeResponse = await fetch("/api/assets/probe", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ paths: uniquePaths }),
-        });
-        if (probeResponse.ok) {
-          const payload = (await probeResponse.json()) as {
-            results: Array<{ path: string; exists: boolean }>;
-          };
-          mediaAvailability = Object.fromEntries(
-            payload.results.map((result) => [result.path, result.exists]),
-          );
-        }
-      }
+      const mediaAvailability = await probeMediaAvailability(structural.project);
+      const leaseResponse = await requestLease();
+      const leaseResult = leaseResponse.status;
+      if (generation !== loadGeneration) return;
+      expectedProjectEtag = etag;
+      lastSavedCanonical = canonicalProject(input);
+      preMigrationBackupPending = schemaVersion < CURRENT_SCHEMA_VERSION;
 
       set({
-        phase: "ready",
+        phase: leaseResult === "acquired" ? "ready" : "occupied",
         info,
         project: structural.project,
         diagnostics,
         mediaAvailability,
         selectedSceneId: structural.project.scenes[0]?.id,
-        saveStatus: "saved",
+        saveStatus:
+          leaseResult === "occupied"
+            ? "occupied"
+            : preMigrationBackupPending
+              ? "migrated"
+              : "saved",
+        dirty: preMigrationBackupPending,
+        migrationPending: preMigrationBackupPending,
+        leaseStatus: leaseResult,
+        leaseLostWhileEditing: false,
       });
+      installLifecycleListeners(get);
+      if (leaseResult === "acquired") startLeaseRenewal(set, get);
+      else scheduleLeaseRecheck(leaseResponse.expiresAt, get);
     } catch (error) {
+      if (generation !== loadGeneration) return;
       set({
         phase: "error",
         diagnostics:
@@ -322,11 +939,176 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
     }
   },
+  flushSave: async () => {
+    clearSaveTimers();
+    await runSaveQueue(set, get);
+  },
+  retrySave: async () => {
+    const project = get().project;
+    if (project === undefined || get().leaseStatus !== "acquired") return;
+    pendingSave = immutableProject(project);
+    set({
+      saveStatus: "pending",
+      saveErrorMessage: undefined,
+      saveRetryAttempt: undefined,
+    });
+    await runSaveQueue(set, get);
+  },
+  checkDiskRevision: async () => {
+    if (
+      get().phase !== "ready" ||
+      get().leaseStatus !== "acquired" ||
+      get().externalConflict !== undefined
+    ) {
+      return;
+    }
+    const disk = await readDiskRevision();
+    if (disk.etag !== expectedProjectEtag) {
+      await prepareExternalConflict(set, get, disk);
+    }
+  },
+  recheckLease: async () => {
+    if (!get().leaseLostWhileEditing) {
+      let leaseResult = await requestLease();
+      if (leaseResult.status === "occupied" && leaseResult.expiresAt !== undefined) {
+        const waitMs = Math.max(0, Math.min(8_100, leaseResult.expiresAt - Date.now() + 50));
+        await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, waitMs));
+        leaseResult = await requestLease();
+      }
+      if (leaseResult.status === "occupied") return;
+      await get().load();
+      return;
+    }
+    try {
+      let leaseResult = await requestLease();
+      if (leaseResult.status === "occupied" && leaseResult.expiresAt !== undefined) {
+        const waitMs = Math.max(0, Math.min(8_100, leaseResult.expiresAt - Date.now() + 50));
+        await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, waitMs));
+        leaseResult = await requestLease();
+      }
+      if (leaseResult.status === "occupied") return;
+      set({ phase: "ready", leaseStatus: "acquired" });
+      startLeaseRenewal(set, get);
+      const disk = await readDiskRevision();
+      if (disk.etag !== expectedProjectEtag) {
+        await prepareExternalConflict(set, get, disk);
+        return;
+      }
+      set({
+        leaseLostWhileEditing: false,
+        saveStatus: get().dirty ? "pending" : "saved",
+        saveErrorMessage: undefined,
+      });
+      if (get().dirty && get().project !== undefined) {
+        pendingSave = immutableProject(get().project!);
+        await runSaveQueue(set, get);
+      }
+    } catch (error) {
+      set({
+        saveErrorMessage:
+          error instanceof Error ? error.message : "无法重新检查编辑权。",
+      });
+    }
+  },
+  loadDiskVersion: async () => {
+    const conflict = get().externalConflict;
+    const current = get().project;
+    if (conflict === undefined || current === undefined) return;
+    set({ conflictResolving: true });
+    try {
+      const latest = await readDiskRevision();
+      if (latest.etag !== conflict.diskEtag) {
+        set({
+          externalConflict: {
+            diskRaw: latest.raw,
+            diskEtag: latest.etag,
+            diskProject: latest.parsed.project,
+            diskSavedCanonical: latest.parsed.savedCanonical,
+            diskDiagnostics: latest.parsed.diagnostics,
+            migrated: latest.parsed.migrated,
+            errorMessage: latest.parsed.errorMessage,
+            resolutionError: "磁盘版本再次改变，请重新确认选择。",
+          },
+          conflictResolving: false,
+        });
+        return;
+      }
+      if (latest.parsed.project === undefined) {
+        throw new Error(latest.parsed.errorMessage ?? "磁盘版本无法安全载入。");
+      }
+      const backupResult = await backupMemoryVersion(current, latest.etag);
+      if (backupResult === "stale") {
+        const refreshed = await readDiskRevision();
+        set({
+          externalConflict: {
+            diskRaw: refreshed.raw,
+            diskEtag: refreshed.etag,
+            diskProject: refreshed.parsed.project,
+            diskSavedCanonical: refreshed.parsed.savedCanonical,
+            diskDiagnostics: refreshed.parsed.diagnostics,
+            migrated: refreshed.parsed.migrated,
+            errorMessage: refreshed.parsed.errorMessage,
+            resolutionError: "备份期间磁盘版本再次改变，请重新确认选择。",
+          },
+          conflictResolving: false,
+        });
+        return;
+      }
+      await installDiskProject(latest, set);
+    } catch (error) {
+      set({
+        externalConflict: {
+          ...conflict,
+          resolutionError:
+            error instanceof Error ? error.message : "无法载入磁盘版本。",
+        },
+        conflictResolving: false,
+      });
+    }
+  },
+  keepCurrentVersion: async () => {
+    const conflict = get().externalConflict;
+    const current = get().project;
+    if (conflict === undefined || current === undefined) return;
+    set({ conflictResolving: true });
+    expectedProjectEtag = conflict.diskEtag;
+    try {
+      const nextEtag = await putProject(current, "external-conflict");
+      if (nextEtag !== undefined) expectedProjectEtag = nextEtag;
+      lastSavedCanonical = canonicalProject(current);
+      const latestProject = get().project;
+      const latestCanonical =
+        latestProject === undefined ? lastSavedCanonical : canonicalProject(latestProject);
+      const dirty = latestCanonical !== lastSavedCanonical;
+      pendingSave = dirty && latestProject !== undefined
+        ? immutableProject(latestProject)
+        : undefined;
+      set({
+        saveStatus: dirty ? "pending" : "saved",
+        saveErrorMessage: undefined,
+        saveRetryAttempt: undefined,
+        saveDiagnostics: [],
+        dirty,
+        externalConflict: undefined,
+        conflictResolving: false,
+      });
+      if (dirty) await runSaveQueue(set, get);
+    } catch (error) {
+      set({
+        externalConflict: {
+          ...conflict,
+          resolutionError:
+            error instanceof Error ? error.message : "无法保留当前版本。",
+        },
+        conflictResolving: false,
+      });
+    }
+  },
   selectScene: (selectedSceneId) => set({ selectedSceneId }),
   setTaskDrawerOpen: (taskDrawerOpen) => set({ taskDrawerOpen }),
   updateProjectName: async (name) => {
     const project = get().project;
-    if (project === undefined || get().phase !== "ready") return;
+    if (project === undefined || !canMutateProject(get)) return;
 
     const metadata = { ...project.metadata };
     if (name === "") delete metadata.name;
@@ -340,20 +1122,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       after: immutableProject(nextProject),
       label: "重命名项目",
     };
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    const revision = ++latestSaveRevision;
     set({
       project: nextProject,
       undoStack: [...get().undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     });
-    await enqueueSave(nextProject, revision, set);
+    await scheduleProjectSave(nextProject, "immediate", set, get);
   },
   updateTheme: async (theme) => {
     const project = get().project;
-    if (project === undefined || get().phase !== "ready") return;
+    if (project === undefined || !canMutateProject(get)) return;
     const nextProject: Project = { ...project, theme };
     const structural = validateProjectStructure(nextProject);
     if (!structural.success) {
@@ -371,21 +1149,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       after: immutableProject(structural.project),
       label: "编辑 Project Theme",
     };
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    const revision = ++latestSaveRevision;
     set({
       project: structural.project,
       diagnostics,
       undoStack: [...get().undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     });
-    await enqueueSave(structural.project, revision, set);
+    await scheduleProjectSave(structural.project, "immediate", set, get);
   },
   updateNarration: (sceneId, text) => {
     const project = get().project;
-    if (project === undefined || get().phase !== "ready") return;
+    if (project === undefined || !canMutateProject(get)) return;
 
     const nextProject: Project = {
       ...project,
@@ -426,22 +1200,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       textTransaction = { key: textKey, entryId: entry.id, lastEditAt: now };
     }
     scheduleTextTransactionBoundary(textTransaction.entryId);
-    const revision = ++latestSaveRevision;
     set({
       project: nextProject,
       undoStack,
       redoStack: [],
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     });
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      void enqueueSave(nextProject, revision, set);
-    }, 500);
+    void scheduleProjectSave(nextProject, "text", set, get);
   },
-  endTextTransaction: finishTextTransaction,
+  endTextTransaction: () => {
+    finishTextTransaction();
+    void get().flushSave();
+  },
   undo: async () => {
     finishTextTransaction();
+    if (!canMutateProject(get)) return;
     const { undoStack, redoStack } = get();
     const entry = undoStack.at(-1);
     if (entry === undefined) {
@@ -451,8 +1223,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
       return;
     }
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    const revision = ++latestSaveRevision;
     const project = entry.before;
     const selectedSceneId = get().selectedSceneId;
     set((state) => ({
@@ -473,13 +1243,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               sceneId: entry.sceneId,
               target: entry.focusTarget,
             },
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     }));
-    await enqueueSave(project, revision, set);
+    await scheduleProjectSave(project, "immediate", set, get);
   },
   redo: async () => {
     finishTextTransaction();
+    if (!canMutateProject(get)) return;
     const { undoStack, redoStack } = get();
     const entry = redoStack.at(-1);
     if (entry === undefined) {
@@ -489,8 +1258,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
       return;
     }
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    const revision = ++latestSaveRevision;
     const project = entry.after;
     const selectedSceneId = get().selectedSceneId;
     set((state) => ({
@@ -511,15 +1278,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               sceneId: entry.sceneId,
               target: entry.focusTarget,
             },
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     }));
-    await enqueueSave(project, revision, set);
+    await scheduleProjectSave(project, "immediate", set, get);
   },
   clearHistoryNotice: () => set({ historyNotice: undefined }),
   bindAsset: async (sceneId, assetId) => {
     const project = get().project;
-    if (project === undefined || get().phase !== "ready") return false;
+    if (project === undefined || !canMutateProject(get)) return false;
     const sceneIndex = project.scenes.findIndex((scene) => scene.id === sceneId);
     const scene = project.scenes[sceneIndex];
     const asset = project.assets.find((candidate) => candidate.id === assetId);
@@ -556,22 +1321,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       sceneId,
       focusTarget: "visual-type",
     };
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    const revision = ++latestSaveRevision;
     set({
       project: structural.project,
       diagnostics,
       undoStack: [...get().undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     });
-    await enqueueSave(structural.project, revision, set);
+    await scheduleProjectSave(structural.project, "immediate", set, get);
     return true;
   },
   applyJobResult: async (result) => {
     const project = get().project;
-    if (project === undefined || get().phase !== "ready") return false;
+    if (project === undefined || !canMutateProject(get)) return false;
     const sceneIndex = project.scenes.findIndex(
       (scene) => scene.id === result.sceneId,
     );
@@ -647,8 +1408,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       sceneId: result.sceneId,
       focusTarget: result.kind === "speech" ? "narration" : "visual-type",
     };
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    const revision = ++latestSaveRevision;
     set((state) => ({
       project: structural.project,
       diagnostics,
@@ -656,15 +1415,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       redoStack: [],
       historyNotice: notice,
       historyEventId: state.historyEventId + 1,
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     }));
-    await enqueueSave(structural.project, revision, set);
+    await scheduleProjectSave(structural.project, "immediate", set, get);
     return true;
   },
   updateVisual: async (sceneId, visual) => {
     const project = get().project;
-    if (project === undefined || get().phase !== "ready") return;
+    if (project === undefined || !canMutateProject(get)) return;
 
     const nextProject: Project = {
       ...project,
@@ -693,21 +1450,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       sceneId,
       focusTarget: "visual-type",
     };
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    const revision = ++latestSaveRevision;
     set({
       project: structural.project,
       diagnostics,
       undoStack: [...get().undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     });
-    await enqueueSave(structural.project, revision, set);
+    await scheduleProjectSave(structural.project, "immediate", set, get);
   },
   reorderScene: async (sceneId, targetIndex) => {
     const project = get().project;
-    if (project === undefined || get().phase !== "ready") return;
+    if (project === undefined || !canMutateProject(get)) return;
     const sourceIndex = project.scenes.findIndex((scene) => scene.id === sceneId);
     if (
       sourceIndex < 0 ||
@@ -738,21 +1491,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       sceneId,
       focusTarget: "reorder",
     };
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    const revision = ++latestSaveRevision;
     set({
       project: structural.project,
       diagnostics,
       undoStack: [...get().undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     });
-    await enqueueSave(structural.project, revision, set);
+    await scheduleProjectSave(structural.project, "immediate", set, get);
   },
   addScenesFromLines: async (lines, visualType = "video") => {
     const project = get().project;
-    if (project === undefined || get().phase !== "ready" || lines.length === 0) {
+    if (project === undefined || !canMutateProject(get) || lines.length === 0) {
       return;
     }
 
@@ -784,17 +1533,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       sceneId: newScenes[0]?.id,
       focusTarget: "narration",
     };
-    if (saveTimer !== undefined) clearTimeout(saveTimer);
-    const revision = ++latestSaveRevision;
     set({
       project: structural.project,
       diagnostics,
       selectedSceneId: newScenes[0]?.id,
       undoStack: [...get().undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
-      saveStatus: "saving",
-      saveErrorMessage: undefined,
     });
-    await enqueueSave(structural.project, revision, set);
+    await scheduleProjectSave(structural.project, "immediate", set, get);
   },
 }));

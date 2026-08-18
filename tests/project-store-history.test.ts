@@ -45,7 +45,12 @@ function externalProjectFixture(): Project {
 
 function projectLoadResponse(url: string, init?: RequestInit): Response {
   if (url.endsWith("/api/project") && init?.method !== "PUT") {
-    return new Response(JSON.stringify(externalProjectFixture()));
+    return new Response(JSON.stringify(externalProjectFixture()), {
+      headers: { etag: '"history-test-etag"' },
+    });
+  }
+  if (url.endsWith("/api/project/lease")) {
+    return Response.json({ status: "acquired", expiresAt: Date.now() + 8_000 });
   }
   if (url.endsWith("/api/project-info")) {
     return Response.json({
@@ -57,7 +62,10 @@ function projectLoadResponse(url: string, init?: RequestInit): Response {
   if (url.endsWith("/api/assets/probe")) {
     return Response.json({ results: [] });
   }
-  return new Response(null, { status: 204 });
+  return new Response(null, {
+    status: 204,
+    headers: { etag: '"history-test-next-etag"' },
+  });
 }
 
 beforeEach(() => {
@@ -73,6 +81,13 @@ beforeEach(() => {
     selectedSceneId: sceneId,
     saveStatus: "saved",
     saveErrorMessage: undefined,
+    saveDiagnostics: [],
+    dirty: false,
+    migrationPending: false,
+    leaseStatus: "acquired",
+    leaseLostWhileEditing: false,
+    externalConflict: undefined,
+    conflictResolving: false,
     undoStack: [],
     redoStack: [],
     historyNotice: undefined,
@@ -132,6 +147,61 @@ describe("Project DSL 事务历史", () => {
     expect(staleAccepted).toBe(false);
     expect(useProjectStore.getState().undoStack).toHaveLength(historySize);
     expect(useProjectStore.getState().project?.scenes[0].speech).toBeUndefined();
+  });
+
+  it("外部冲突处理期间拒绝 Job 回填与所有 DSL 编辑", async () => {
+    const projectBeforeConflict = useProjectStore.getState().project!;
+    useProjectStore.setState({
+      saveStatus: "conflict",
+      conflictResolving: true,
+      externalConflict: {
+        diskRaw: JSON.stringify(externalProjectFixture()),
+        diskEtag: '"external-etag"',
+        diskProject: externalProjectFixture(),
+        diskSavedCanonical: JSON.stringify(externalProjectFixture()),
+        diskDiagnostics: [],
+        migrated: false,
+      },
+    });
+
+    const accepted = await useProjectStore.getState().applyJobResult({
+      kind: "speech",
+      sceneId,
+      expected: { narrationText: "原始旁白", speech: undefined },
+      speech: {
+        path: `speech/${sceneId}.mp3`,
+        durationMs: 1500,
+        sourceTextHash: `sha256:${"3".repeat(64)}`,
+        ttsProfileId: "narracut-mandarin-news-v1",
+      },
+    });
+    useProjectStore.getState().updateNarration(sceneId, "不应应用的编辑");
+    await useProjectStore.getState().undo();
+
+    expect(accepted).toBe(false);
+    expect(useProjectStore.getState().project).toBe(projectBeforeConflict);
+    expect(useProjectStore.getState().undoStack).toHaveLength(0);
+  });
+
+  it("保存级校验失败会阻断 PUT 且不进入 I/O 重试", async () => {
+    const invalidProject = {
+      ...projectFixture(),
+      scenes: [
+        {
+          ...projectFixture().scenes[0],
+          id: "不是稳定 ID",
+        },
+      ],
+    } as Project;
+    useProjectStore.setState({ project: invalidProject, dirty: true });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
+
+    await useProjectStore.getState().retrySave();
+
+    expect(useProjectStore.getState().saveStatus).toBe("blocked-validation");
+    expect(useProjectStore.getState().saveDiagnostics).not.toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("Asset Job 以稳定 Scene ID 和 Visual 前提原子回填 catalog 与绑定", async () => {

@@ -64,6 +64,10 @@ test.afterAll(async () => {
   await server.close();
 });
 
+test.afterEach(async () => {
+  await server.releaseProjectLease();
+});
+
 test.beforeEach(async ({ page }) => {
   await writeFile(projectFile, `${JSON.stringify(projectFixture())}\n`);
   await page.goto(server.url);

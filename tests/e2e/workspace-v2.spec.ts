@@ -24,6 +24,10 @@ test.afterAll(async () => {
   await server.close();
 });
 
+test.afterEach(async () => {
+  await server.releaseProjectLease();
+});
+
 test("V1 打开时只在内存连续迁移，首次正常保存后写为当前 V3", async ({ page }) => {
   const sceneIds = [
     "20000000-0000-4000-8000-000000000001",

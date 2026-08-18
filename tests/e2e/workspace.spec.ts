@@ -41,6 +41,7 @@ test.beforeEach(async ({ page }) => {
 
 test.afterEach(async () => {
   expect(consoleProblems).toEqual([]);
+  await server.releaseProjectLease();
 });
 
 test("现有 13 Scene 示例进入完整三栏工作台并显示当前 Scene 列表", async ({
@@ -414,7 +415,7 @@ test("未知新 schemaVersion 进入只读阻断并保持原始字节不变", as
   expect(await readFile(projectFile, "utf8")).toBe(originalBytes);
 });
 
-test("连续编辑按顺序保存，较旧请求不会覆盖最新 Narration", async ({ page }) => {
+test("800ms 防抖窗口内只写最新 Narration", async ({ page }) => {
   await writeFile(
     projectFile,
     await readFile(resolve("docs/spec/project.example.json")),
@@ -442,5 +443,5 @@ test("连续编辑按顺序保存，较旧请求不会覆盖最新 Narration", a
       return project.scenes[0].narration.text;
     })
     .toBe("最新的 Narration");
-  expect(putCount).toBe(2);
+  expect(putCount).toBe(1);
 });
