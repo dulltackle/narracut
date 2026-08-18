@@ -1,5 +1,6 @@
 import {
   evaluateTextLayout,
+  getFontPreset,
   resolveTextPresentation,
   validateProjectConsistency,
   validateProjectStructure,
@@ -24,18 +25,31 @@ export type ResolvedScene = {
   };
 };
 
-export type RenderSnapshot = {
-  snapshotVersion: 1;
-  project: Project;
-  mediaBaseUrl: string;
+export type RenderPlan = {
   width: number;
   height: number;
   fps: number;
   safeInset: number;
-  mediaAvailability: Record<string, boolean>;
+  fontFamily?: string;
   durationInFrames: number;
   scenes: ResolvedScene[];
 };
+
+export type RenderSnapshot = RenderPlan & {
+  snapshotVersion: 1;
+  mode: "preview" | "render";
+  project: Project;
+  mediaBaseUrl: string;
+  mediaAvailability: Record<string, boolean>;
+  previewBlockers: Diagnostic[];
+};
+
+const PREVIEW_BLOCKING_CODES = new Set([
+  "PROJECT_THEME_PRESET_MISSING",
+  "TEXT_STYLE_PRESET_MISSING",
+  "TEXT_MOTION_PRESET_MISSING",
+  "THEME_FONT_MISSING",
+]);
 
 function sceneDurationInFrames(scene: Scene): number {
   const durationMs = scene.speech?.durationMs ?? DRAFT_SCENE_DURATION_MS;
@@ -74,7 +88,7 @@ export function createRenderSnapshot(
   return createSnapshot(
     projectInput,
     mediaBaseUrl,
-    false,
+    "render",
     assumedAvailability,
   );
 }
@@ -84,21 +98,23 @@ export function createPreviewSnapshot(
   mediaBaseUrl: string,
   mediaAvailability: Record<string, boolean> = {},
 ): RenderSnapshot {
-  return createSnapshot(projectInput, mediaBaseUrl, true, mediaAvailability);
+  return createSnapshot(projectInput, mediaBaseUrl, "preview", mediaAvailability);
 }
 
 function createSnapshot(
   projectInput: Project,
   mediaBaseUrl: string,
-  allowRenderBlockingDiagnostics: boolean,
+  mode: "preview" | "render",
   mediaAvailability: Record<string, boolean>,
 ): RenderSnapshot {
+  const allowRenderBlockingDiagnostics = mode === "preview";
   const projectCopy = structuredClone(projectInput);
   const structure = validateProjectStructure(projectCopy);
   if (!structure.success) {
     throw new Error(structure.diagnostics[0]?.message ?? "渲染快照结构无效。 ");
   }
-  const errors = validateProjectConsistency(structure.project).filter(
+  const consistencyDiagnostics = validateProjectConsistency(structure.project);
+  const errors = consistencyDiagnostics.filter(
     (diagnostic) => diagnostic.severity === "error",
   );
   if (!allowRenderBlockingDiagnostics) {
@@ -142,16 +158,56 @@ function createSnapshot(
 
   return {
     snapshotVersion: 1,
+    mode,
     project: structure.project,
     mediaBaseUrl,
     width: VIDEO_WIDTH,
     height: VIDEO_HEIGHT,
     fps: VIDEO_FPS,
     safeInset: VIDEO_SAFE_INSET,
+    fontFamily: getFontPreset(structure.project.theme.fontId)?.family,
     mediaAvailability: { ...mediaAvailability },
+    previewBlockers:
+      mode === "preview"
+        ? consistencyDiagnostics.filter(
+            (diagnostic) =>
+              diagnostic.severity === "error" &&
+              PREVIEW_BLOCKING_CODES.has(diagnostic.code),
+          )
+        : [],
     durationInFrames: Math.max(1, startFrame),
     scenes,
   };
+}
+
+export function findSceneAtFrame(
+  plan: Pick<RenderPlan, "durationInFrames" | "scenes">,
+  frame: number,
+): ResolvedScene | undefined {
+  if (plan.scenes.length === 0) return undefined;
+  const normalizedFrame = Math.min(
+    plan.durationInFrames - 1,
+    Math.max(0, Math.floor(frame)),
+  );
+  return plan.scenes.find(
+    (resolved) =>
+      normalizedFrame >= resolved.startFrame &&
+      normalizedFrame < resolved.startFrame + resolved.durationInFrames,
+  );
+}
+
+export function frameForSceneOffset(
+  plan: Pick<RenderPlan, "scenes">,
+  sceneId: string,
+  offsetInFrames: number,
+): number | undefined {
+  const resolved = plan.scenes.find((candidate) => candidate.scene.id === sceneId);
+  if (resolved === undefined) return undefined;
+  const offset = Math.min(
+    resolved.durationInFrames - 1,
+    Math.max(0, Math.floor(offsetInFrames)),
+  );
+  return resolved.startFrame + offset;
 }
 
 export function validateRenderReadiness(

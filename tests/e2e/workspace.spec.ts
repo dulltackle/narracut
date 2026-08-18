@@ -63,7 +63,7 @@ test("现有 13 Scene 示例进入完整三栏工作台并显示当前 Scene 列
   await expect(page.getByTestId("scene-row")).toHaveCount(13);
   await expect(page.getByText("宫腔通液治疗仪操作演示")).toBeVisible();
 
-  await page.getByTestId("scene-row").nth(1).click();
+  await page.getByRole("button", { name: "选择并预览 Scene 2" }).click();
   const inspector = page.getByTestId("inspector-scene");
   await expect(inspector).toContainText("场景 02");
   await expect(inspector.getByRole("textbox", { name: "旁白文稿（同时作为底部字幕）" })).toBeVisible();
@@ -277,7 +277,9 @@ test("已有 Scene 后可整批选择 Image 且不会截断大量 Narration", as
   await dialog.getByRole("button", { name: "创建 Scene", exact: true }).click();
 
   await expect(page.getByTestId("scene-row")).toHaveCount(121);
-  await expect(page.getByTestId("player-subtitle")).toHaveText("Image Scene 1");
+  await expect(page.getByTestId("player-selected-scene")).toHaveText("选中 02");
+  await expect(page.getByTestId("player-playing-scene")).toHaveText("播放 01");
+  await expect(page.getByTestId("player-subtitle")).toHaveText("首条 Video");
   await expect
     .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes.length)
     .toBe(121);

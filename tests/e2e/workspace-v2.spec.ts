@@ -69,7 +69,7 @@ test("V1 打开时只在内存连续迁移，首次正常保存后写为当前 V
   await expect(page.getByTestId("scene-row")).toHaveCount(3);
   expect(await readFile(projectFile, "utf8")).toBe(originalBytes);
   await expect(page.getByRole("combobox", { name: "Scene 1 Visual Type" })).toHaveValue("card");
-  await page.getByTestId("scene-row").nth(1).click();
+  await page.getByRole("button", { name: "选择并预览 Scene 2" }).click();
   await expect(page.getByRole("textbox", { name: "说明文字" })).toHaveValue("准备连接管");
   await expect(page.getByText("步骤编号", { exact: true })).toHaveCount(0);
 

@@ -1,5 +1,3 @@
-import "@fontsource-variable/noto-sans-sc";
-
 import { Audio, Video } from "@remotion/media";
 import { useEffect, useState, type CSSProperties } from "react";
 import {
@@ -20,36 +18,194 @@ import {
   type RenderSnapshot,
   type ResolvedScene,
 } from "./render-snapshot";
+import { loadNarracutFont } from "./font-loading";
 
-const FONT_FAMILY = '"Noto Sans SC Variable", sans-serif';
+type FontLoadState = "blocked" | "loading" | "ready" | "error";
 
-function useNarracutFont() {
+function useNarracutFont(fontFamily: string, mode: RenderSnapshot["mode"]): FontLoadState {
+  const [state, setState] = useState<FontLoadState>("loading");
   const [handle] = useState(() => delayRender("等待 Narracut 内置字体"));
   useEffect(() => {
     let active = true;
-    void Promise.all([
-      document.fonts.load(`400 1em ${FONT_FAMILY}`),
-      document.fonts.load(`700 1em ${FONT_FAMILY}`),
-      document.fonts.load(`900 1em ${FONT_FAMILY}`),
-    ])
-      .then((loadedFonts) => {
-        if (loadedFonts.some((fonts) => fonts.length === 0)) {
-          throw new Error("Narracut 内置字体未能加载。");
-        }
-        if (active) continueRender(handle);
+    let settled = false;
+    void loadNarracutFont(fontFamily)
+      .then(() => {
+        if (!active) return;
+        settled = true;
+        setState("ready");
+        continueRender(handle);
       })
       .catch((error: unknown) => {
         if (!active) return;
-        cancelRender(
+        const renderError =
           error instanceof Error
             ? error
-            : new Error("Narracut 内置字体未能加载。"),
-        );
+            : new Error("Narracut 内置字体未能加载。");
+        settled = true;
+        if (mode === "preview") {
+          setState("error");
+          continueRender(handle);
+        } else {
+          cancelRender(renderError);
+        }
       });
     return () => {
       active = false;
+      if (!settled) continueRender(handle);
     };
-  }, [handle]);
+  }, [fontFamily, handle, mode]);
+  return state;
+}
+
+function CompositionState({
+  label,
+  title,
+  detail,
+  tone = "neutral",
+}: {
+  label: string;
+  title: string;
+  detail: string;
+  tone?: "neutral" | "danger";
+}) {
+  return (
+    <AbsoluteFill
+      style={{
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 120,
+        backgroundColor: "#0f172a",
+        color: "#ffffff",
+        textAlign: "center",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1100,
+          padding: "52px 64px",
+          border: `2px solid ${tone === "danger" ? "#fb7185" : "#334155"}`,
+          borderRadius: 28,
+          background: "rgba(15, 23, 42, 0.96)",
+        }}
+      >
+        <div
+          style={{
+            color: tone === "danger" ? "#fda4af" : "#5eead4",
+            fontSize: 28,
+            fontWeight: 700,
+            marginBottom: 18,
+          }}
+        >
+          {label}
+        </div>
+        <div style={{ fontSize: 58, fontWeight: 900, lineHeight: 1.2 }}>{title}</div>
+        <div
+          style={{
+            color: "#cbd5e1",
+            fontSize: 32,
+            lineHeight: 1.5,
+            marginTop: 22,
+          }}
+        >
+          {detail}
+        </div>
+      </div>
+    </AbsoluteFill>
+  );
+}
+
+function AssetPlaceholder({
+  visualType,
+  reason,
+}: {
+  visualType: "image" | "video";
+  reason: string;
+}) {
+  const label = visualType === "image" ? "Image" : "Video";
+  return (
+    <AbsoluteFill
+      data-testid="asset-placeholder"
+      data-asset-kind={visualType}
+      style={{
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#111827",
+        color: "#e2e8f0",
+      }}
+    >
+      <div style={{ maxWidth: 1200, textAlign: "center" }}>
+        <div
+          style={{
+            display: "inline-block",
+            padding: "10px 18px",
+            border: "2px solid #475569",
+            borderRadius: 12,
+            color: "#94a3b8",
+            fontSize: 38,
+            fontWeight: 700,
+          }}
+        >
+          {label} Asset 不可用
+        </div>
+        <div style={{ marginTop: 28, fontSize: 62, fontWeight: 700 }}>{reason}</div>
+        <div style={{ marginTop: 20, color: "#94a3b8", fontSize: 38 }}>
+          请在 Inspector 中重新绑定或恢复项目文件
+        </div>
+      </div>
+    </AbsoluteFill>
+  );
+}
+
+function MediaAsset({
+  src,
+  visualType,
+}: {
+  src: string;
+  visualType: "image" | "video";
+}) {
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const markError = () => setStatus("error");
+  if (status === "error") {
+    return <AssetPlaceholder visualType={visualType} reason="当前文件无法读取或解码" />;
+  }
+  return (
+    <AbsoluteFill data-testid="media-asset" data-media-kind={visualType} data-media-muted={visualType === "video" ? "true" : undefined} data-media-status={status}>
+      {visualType === "image" ? (
+        <Img
+          src={src}
+          onLoad={() => setStatus("ready")}
+          onError={markError}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+            background: "#0f172a",
+          }}
+        />
+      ) : (
+        <Video
+          src={src}
+          muted
+          loop={false}
+          disallowFallbackToOffthreadVideo
+          onVideoFrame={() => setStatus("ready")}
+          onError={() => {
+            markError();
+            return "fail";
+          }}
+          objectFit="contain"
+          style={{ width: "100%", height: "100%", background: "#0f172a" }}
+        />
+      )}
+      {status === "loading" ? (
+        <CompositionState
+          label={`正在加载 ${visualType === "image" ? "IMAGE" : "VIDEO"}`}
+          title="正在准备当前 Asset"
+          detail="画面就绪前不会显示上一 Scene 或旧文件。"
+        />
+      ) : null}
+    </AbsoluteFill>
+  );
 }
 
 function AssetLayer({ snapshot, resolved }: { snapshot: RenderSnapshot; resolved: ResolvedScene }) {
@@ -69,35 +225,16 @@ function AssetLayer({ snapshot, resolved }: { snapshot: RenderSnapshot; resolved
       ? undefined
       : snapshot.project.assets.find((candidate) => candidate.id === visual.assetId);
   if (asset === undefined) {
-    return (
-      <AbsoluteFill
-        style={{
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#111827",
-          color: "#94a3b8",
-          fontSize: 38,
-        }}
-      >
-        尚未绑定 {visual.type === "image" ? "Image" : "Video"} Asset
-      </AbsoluteFill>
-    );
+    return <AssetPlaceholder visualType={visual.type} reason="尚未绑定 Asset" />;
   }
   const src = projectMediaUrl(snapshot, asset.path);
   if (snapshot.mediaAvailability[asset.path] === false) {
-    return (
-      <AbsoluteFill
-        style={{ alignItems: "center", justifyContent: "center", backgroundColor: "#111827", color: "#94a3b8", fontSize: 38 }}
-      >
-        项目中的 Asset 文件不可用
-      </AbsoluteFill>
-    );
+    return <AssetPlaceholder visualType={visual.type} reason="项目中的文件不存在" />;
   }
-  return visual.type === "image" ? (
-    <Img src={src} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#0f172a" }} />
-  ) : (
-    <Video src={src} muted objectFit="contain" style={{ width: "100%", height: "100%", background: "#0f172a" }} />
-  );
+  if (asset.kind !== visual.type) {
+    return <AssetPlaceholder visualType={visual.type} reason="绑定的 Asset 类型不匹配" />;
+  }
+  return <MediaAsset key={src} src={src} visualType={visual.type} />;
 }
 
 function textContent(resolved: ResolvedScene): TextBlockContent | undefined {
@@ -205,9 +342,11 @@ function Logo({ snapshot }: { snapshot: RenderSnapshot }) {
 function SceneComposition({ snapshot, resolved }: { snapshot: RenderSnapshot; resolved: ResolvedScene }) {
   const speech = resolved.scene.speech;
   return (
-    <AbsoluteFill style={{ overflow: "hidden", fontFamily: FONT_FAMILY }} data-scene-id={resolved.scene.id} data-testid="player-visual">
+    <AbsoluteFill style={{ overflow: "hidden", fontFamily: snapshot.fontFamily }} data-scene-id={resolved.scene.id} data-testid="player-visual">
       <AssetLayer snapshot={snapshot} resolved={resolved} />
-      {speech === undefined ? null : <Audio src={projectMediaUrl(snapshot, speech.path)} />}
+      {speech === undefined || snapshot.mediaAvailability[speech.path] === false ? null : (
+        <Audio src={projectMediaUrl(snapshot, speech.path)} />
+      )}
       <TextBlock snapshot={snapshot} resolved={resolved} />
       <Logo snapshot={snapshot} />
       <div
@@ -234,10 +373,33 @@ function SceneComposition({ snapshot, resolved }: { snapshot: RenderSnapshot; re
   );
 }
 
-export function ProjectComposition({ snapshot }: { snapshot: RenderSnapshot }) {
-  useNarracutFont();
+function ReadyProjectComposition({ snapshot, fontFamily }: { snapshot: RenderSnapshot; fontFamily: string }) {
+  const fontState = useNarracutFont(fontFamily, snapshot.mode);
+  if (fontState === "loading") {
+    return (
+      <AbsoluteFill style={{ fontFamily: snapshot.fontFamily }} data-testid="composition-loading">
+        <CompositionState
+          label="正在加载 FONT"
+          title="正在准备内置字体"
+          detail="Player 与 renderer 共用同一份本地字体加载结果。"
+        />
+      </AbsoluteFill>
+    );
+  }
+  if (fontState === "error") {
+    return (
+      <AbsoluteFill style={{ fontFamily: snapshot.fontFamily }} data-testid="composition-blocker">
+        <CompositionState
+          tone="danger"
+          label="PREVIEW 已阻断"
+          title="内置字体加载失败"
+          detail="请重新打开项目；Narracut 不会改用系统字体或在线字体。"
+        />
+      </AbsoluteFill>
+    );
+  }
   return (
-    <AbsoluteFill style={{ backgroundColor: "#0f172a" }}>
+    <AbsoluteFill style={{ backgroundColor: "#0f172a", fontFamily }}>
       {snapshot.scenes.map((resolved) => (
         <Sequence
           key={resolved.scene.id}
@@ -249,5 +411,28 @@ export function ProjectComposition({ snapshot }: { snapshot: RenderSnapshot }) {
         </Sequence>
       ))}
     </AbsoluteFill>
+  );
+}
+
+export function ProjectComposition({ snapshot }: { snapshot: RenderSnapshot }) {
+  const previewBlocker = snapshot.previewBlockers[0];
+  if (previewBlocker !== undefined || snapshot.fontFamily === undefined) {
+    return (
+      <AbsoluteFill style={{ fontFamily: snapshot.fontFamily }} data-testid="composition-blocker">
+        <CompositionState
+          tone="danger"
+          label="PREVIEW 已阻断"
+          title="字体或文字 Preset 无法解析"
+          detail={`${previewBlocker?.message ?? "项目字体无法解析。"} 请在项目主题或 Scene 文字表现中恢复内置版本。`}
+        />
+      </AbsoluteFill>
+    );
+  }
+  return (
+    <ReadyProjectComposition
+      key={`${snapshot.mode}:${snapshot.fontFamily}`}
+      snapshot={snapshot}
+      fontFamily={snapshot.fontFamily}
+    />
   );
 }

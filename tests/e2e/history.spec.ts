@@ -204,7 +204,7 @@ test("Visual 分支完整恢复，Undo 后的新编辑清空 Redo，重新加载
 
 test("快捷键提供事务反馈，并在中文输入法组合期间让出全局 Undo", async ({ page }) => {
   await page.keyboard.press("Control+z");
-  await expect(page.getByRole("status")).toHaveText("没有可撤销的编辑");
+  await expect(page.locator(".history-feedback")).toHaveText("没有可撤销的编辑");
 
   const narration = page.getByRole("textbox", { name: "Scene 1 Narration" });
   await narration.fill("组合输入后的旁白");
@@ -222,7 +222,7 @@ test("快捷键提供事务反馈，并在中文输入法组合期间让出全�
 
   await narration.press("Control+z");
   await expect(narration).toHaveValue("原始旁白");
-  await expect(page.getByRole("status")).toHaveText("已撤销：编辑 Scene 01 旁白");
+  await expect(page.locator(".history-feedback")).toHaveText("已撤销：编辑 Scene 01 旁白");
   await page.keyboard.press("Control+y");
   await expect(narration).toHaveValue("组合输入后的旁白");
 });

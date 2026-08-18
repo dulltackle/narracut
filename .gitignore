@@ -4,6 +4,10 @@ dist/
 *.log
 .env
 fixtures/
+!tests/fixtures/
+!tests/fixtures/short-video.mp4.b64
+.playwright-cli/
+output/playwright/
 .claude/settings.local.json
 .claude/.cc-writes/
 .od-skills/
@@ -31,4 +35,5 @@ project.json
 .impeccable/live/pending-manual-edits.json
 .impeccable/live/deferred-svelte-component-accepts.json
 .impeccable/live/*.png
+.impeccable/review/
 # impeccable-ignore-end

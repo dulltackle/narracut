@@ -150,7 +150,7 @@ export const FONT_PRESETS = Object.freeze([
   {
     id: "narracut/noto-sans-cjk-sc@1",
     name: "Noto Sans CJK SC",
-    family: "Narracut Noto Sans CJK SC",
+    family: '"Noto Sans SC Variable"',
     weights: [400, 700, 900] as const,
   },
 ]);
@@ -219,6 +219,10 @@ export type TextBlockContent = {
 
 export function getTextStylePreset(id: string): TextStylePreset | undefined {
   return stylesById.get(id);
+}
+
+export function getFontPreset(id: string) {
+  return FONT_PRESETS.find((preset) => preset.id === id);
 }
 
 function visualUnits(value: string): number {
