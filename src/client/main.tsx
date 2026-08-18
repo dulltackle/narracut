@@ -199,11 +199,44 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   const projectDiagnostics = useProjectStore((state) => state.diagnostics);
   const diagnostics = renderDiagnostics ?? projectDiagnostics;
   const updateProjectName = useProjectStore((state) => state.updateProjectName);
+  const undoStack = useProjectStore((state) => state.undoStack);
+  const redoStack = useProjectStore((state) => state.redoStack);
+  const undo = useProjectStore((state) => state.undo);
+  const redo = useProjectStore((state) => state.redo);
+  const historyNotice = useProjectStore((state) => state.historyNotice);
+  const historyEventId = useProjectStore((state) => state.historyEventId);
+  const clearHistoryNotice = useProjectStore((state) => state.clearHistoryNotice);
   const [editingProjectName, setEditingProjectName] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState("");
   const projectNameButtonRef = useRef<HTMLButtonElement>(null);
   const actionsDisabled = readOnly || controlsDisabled;
   const renderBlockers = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const undoEntry = undoStack.at(-1);
+  const redoEntry = redoStack.at(-1);
+  const undoLabel = undoEntry === undefined ? "撤销" : `撤销：${undoEntry.label}`;
+  const redoLabel = redoEntry === undefined ? "重做" : `重做：${redoEntry.label}`;
+  useEffect(() => {
+    if (historyNotice === undefined) return;
+    const timer = window.setTimeout(clearHistoryNotice, 2200);
+    return () => window.clearTimeout(timer);
+  }, [historyEventId, historyNotice, clearHistoryNotice]);
+  useEffect(() => {
+    if (actionsDisabled) return;
+    const handleHistoryShortcut = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return;
+      const key = event.key.toLowerCase();
+      const wantsUndo = (event.metaKey || event.ctrlKey) && key === "z" && !event.shiftKey;
+      const wantsRedo =
+        ((event.metaKey || event.ctrlKey) && key === "z" && event.shiftKey) ||
+        (event.ctrlKey && !event.metaKey && key === "y");
+      if (!wantsUndo && !wantsRedo) return;
+      event.preventDefault();
+      if (wantsUndo) void undo();
+      else void redo();
+    };
+    window.addEventListener("keydown", handleHistoryShortcut);
+    return () => window.removeEventListener("keydown", handleHistoryShortcut);
+  }, [actionsDisabled, redo, undo]);
   const beginProjectNameEdit = () => {
     setProjectNameDraft(persistedProjectName ?? "");
     setEditingProjectName(true);
@@ -219,7 +252,13 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   return (
     <header className="topbar">
       <div className="brand"><BrandMark /><div className="project-title">{editingProjectName ? <input autoFocus className="project-name-editor" aria-label="项目名" value={projectNameDraft} onChange={(event) => setProjectNameDraft(event.target.value)} onBlur={finishProjectNameEdit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.preventDefault(); cancelProjectNameEdit(); } }} /> : readOnly ? <strong>{projectName}</strong> : <button ref={projectNameButtonRef} className="project-name-button" type="button" aria-label="编辑项目名" onClick={beginProjectNameEdit}>{projectName}</button>}<small>{info?.projectDirectory}</small></div>{readOnly ? <span className="readonly-pill">只读模式</span> : <span className={`save-state ${saveStatus}`} title={saveErrorMessage} aria-label={saveErrorMessage ?? undefined}>{saveStatus === "saved" ? "已保存" : saveStatus === "saving" ? "保存中" : "保存失败"}</span>}</div>
-      <div className="history"><button className="btn icon" aria-label="撤销" disabled><ArrowUUpLeft /></button><button className="btn icon" aria-label="重做" disabled><ArrowCounterClockwise /></button></div>
+      <div className="history-cluster">
+        <div className="history">
+          <button className="btn icon" type="button" aria-label={undoLabel} title={undoLabel} disabled={actionsDisabled || undoEntry === undefined} onClick={() => void undo()}><ArrowUUpLeft /></button>
+          <button className="btn icon" type="button" aria-label={redoLabel} title={redoLabel} disabled={actionsDisabled || redoEntry === undefined} onClick={() => void redo()}><ArrowCounterClockwise /></button>
+        </div>
+        {historyNotice === undefined ? null : <div key={historyEventId} className="history-feedback" role="status" aria-live="polite">{historyNotice}</div>}
+      </div>
       <div className="top-actions"><button className="btn" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length}</span></button><button className="btn primary" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><FilmSlate />{readOnly ? "检查并渲染" : renderBlockers.length > 0 ? `检查并渲染 · ${renderBlockers.length}` : "渲染 MP4"}</button></div>
     </header>
   );
@@ -605,6 +644,7 @@ function Workspace() {
   const selectedSceneId = useProjectStore((state) => state.selectedSceneId);
   const selectScene = useProjectStore((state) => state.selectScene);
   const updateNarration = useProjectStore((state) => state.updateNarration);
+  const endTextTransaction = useProjectStore((state) => state.endTextTransaction);
   const updateVisual = useProjectStore((state) => state.updateVisual);
   const updateTheme = useProjectStore((state) => state.updateTheme);
   const reorderScene = useProjectStore((state) => state.reorderScene);
@@ -613,6 +653,7 @@ function Workspace() {
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
   const mediaAvailability = useProjectStore((state) => state.mediaAvailability);
   const diagnostics = useProjectStore((state) => state.diagnostics);
+  const historyFocusRequest = useProjectStore((state) => state.historyFocusRequest);
   const [playing, setPlaying] = useState(false);
   const [inspectorMode, setInspectorMode] = useState<"scene" | "project">("scene");
   const [safeAreaVisible, setSafeAreaVisible] = useState(false);
@@ -671,6 +712,18 @@ function Workspace() {
     }
     selectedNarrationRef.current?.focus({ preventScroll: true });
   }, [sceneCount, selectedSceneId]);
+  useEffect(() => {
+    if (historyFocusRequest === undefined) return;
+    const activeElement = document.activeElement;
+    if (activeElement !== document.body && activeElement?.isConnected) return;
+    const selector =
+      historyFocusRequest.target === "narration"
+        ? `[data-narration-scene-id="${historyFocusRequest.sceneId}"]`
+        : historyFocusRequest.target === "reorder"
+          ? `[data-reorder-handle="${historyFocusRequest.sceneId}"]`
+          : `[data-visual-type-scene-id="${historyFocusRequest.sceneId}"]`;
+    document.querySelector<HTMLElement>(selector)?.focus();
+  }, [historyFocusRequest]);
   if (project === undefined) return null;
 
   const addSingleScene = () => {
@@ -823,15 +876,15 @@ function Workspace() {
                   <tr key={scene.id} className={`${selected ? "selected" : ""} ${dropTargetIndex === index ? "drop-target" : ""}`} data-testid="scene-row" data-scene-id={scene.id} onPointerDownCapture={() => selectScene(scene.id)} onClick={() => selectScene(scene.id)} onDragOver={(event) => { if (draggedSceneId === undefined) return; event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTargetIndex(index); }} onDrop={(event) => { event.preventDefault(); const sceneId = draggedSceneId ?? event.dataTransfer.getData("text/plain"); setDraggedSceneId(undefined); setDropTargetIndex(undefined); if (sceneId !== "") commitReorder(sceneId, index); }}>
                     <td><div className="order-cell"><button className="reorder-handle" type="button" draggable data-reorder-handle={scene.id} aria-label={`重排 Scene ${index + 1}`} aria-pressed={keyboardReorder?.sceneId === scene.id} onClick={(event) => event.stopPropagation()} onDragStart={(event: ReactDragEvent<HTMLButtonElement>) => { setDraggedSceneId(scene.id); setDropTargetIndex(index); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", scene.id); }} onDragEnd={() => { setDraggedSceneId(undefined); setDropTargetIndex(undefined); }} onKeyDown={(event) => handleReorderKeyDown(event, scene, index)}><DotsSixVertical weight="bold" /></button><span className="scene-number">{String(index + 1).padStart(2, "0")}</span></div></td>
                     <td><div className="narration-cell">
-                      <textarea ref={selected ? selectedNarrationRef : undefined} className="narration" aria-label={`Scene ${index + 1} Narration`} value={scene.narration.text} onClick={(event) => event.stopPropagation()} onChange={(event) => updateNarration(scene.id, event.target.value)} />
+                      <textarea ref={selected ? selectedNarrationRef : undefined} data-narration-scene-id={scene.id} className="narration" aria-label={`Scene ${index + 1} Narration`} value={scene.narration.text} onClick={(event) => event.stopPropagation()} onChange={(event) => updateNarration(scene.id, event.target.value)} onBlur={endTextTransaction} />
                       <button className="narration-expand" type="button" aria-label={`扩大编辑 Scene ${index + 1} Narration`} onClick={(event) => { event.stopPropagation(); openNarrationPopover(narrationPopoverId, expandedNarrationId); }}><ArrowsOutSimple /></button>
                       <section id={narrationPopoverId} className="narration-popover" popover="auto" role="dialog" aria-label={`扩大编辑 Scene ${index + 1} Narration`} onClick={(event) => event.stopPropagation()}>
                         <header><div><p className="eyebrow">Scene {String(index + 1).padStart(2, "0")}</p><h2>扩大编辑 Narration</h2></div><button className="btn icon" type="button" aria-label="关闭扩大编辑" onClick={() => closeNarrationPopover(narrationPopoverId)}><X /></button></header>
-                        <textarea id={expandedNarrationId} aria-label={`Scene ${index + 1} Narration 扩大编辑`} value={scene.narration.text} onChange={(event) => updateNarration(scene.id, event.target.value)} />
+                        <textarea id={expandedNarrationId} aria-label={`Scene ${index + 1} Narration 扩大编辑`} value={scene.narration.text} onChange={(event) => updateNarration(scene.id, event.target.value)} onBlur={endTextTransaction} />
                         <small>内容会直接写回当前 Scene</small>
                       </section>
                     </div></td>
-                    <td><div className="table-cell visual-type-cell"><select aria-label={`Scene ${index + 1} Visual Type`} value={scene.visual.type} onClick={(event) => event.stopPropagation()} onChange={(event) => requestVisualChange(scene, event.target.value as VisualType, event.currentTarget)}>{(Object.keys(visualLabels) as VisualType[]).map((type) => <option key={type} value={type}>{visualLabels[type]}</option>)}</select><span>{captionForVisual(scene.visual) ?? (scene.visual.type === "card" ? "结构化文字画面" : "标准画面")}</span></div></td>
+                    <td><div className="table-cell visual-type-cell"><select data-visual-type-scene-id={scene.id} aria-label={`Scene ${index + 1} Visual Type`} value={scene.visual.type} onClick={(event) => event.stopPropagation()} onChange={(event) => requestVisualChange(scene, event.target.value as VisualType, event.currentTarget)}>{(Object.keys(visualLabels) as VisualType[]).map((type) => <option key={type} value={type}>{visualLabels[type]}</option>)}</select><span>{captionForVisual(scene.visual) ?? (scene.visual.type === "card" ? "结构化文字画面" : "标准画面")}</span></div></td>
                     <td><div className="table-cell"><strong>{assetCopy.primary}</strong><span>{assetCopy.secondary}</span></div></td>
                     <td><div className="table-cell"><strong>{scene.speech ? "已生成" : "缺少 Speech"}</strong><span>{scene.speech ? `${(scene.speech.durationMs / 1000).toFixed(1)} 秒` : "使用 Draft Duration"}</span></div></td>
                     <td><span className={assetStatus.className}>{assetStatus.label}</span></td>
@@ -873,7 +926,7 @@ function Workspace() {
           <div className="inspector-scroll" data-testid={inspectorMode === "project" ? "inspector-project" : "inspector-scene"}>
             {inspectorMode === "project" ? (
               <ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={(theme) => void updateTheme(theme)} />
-            ) : selectedScene ? <><h3>场景 {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>旁白文稿（同时作为底部字幕）<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} /><SceneTextPresentationInspector sceneIndex={selectedSceneIndex} visual={selectedScene.visual} theme={project.theme} diagnostics={diagnostics} onChange={(visual) => void updateVisual(selectedScene.id, visual)} onMotionChange={(visual) => { void updateVisual(selectedScene.id, visual).then(() => { const resolved = previewSnapshot?.scenes.find((candidate) => candidate.scene.id === selectedScene.id); if (resolved) playerRef.current?.seekTo(resolved.startFrame); playerRef.current?.play(); setPlaying(true); }); }} /><label>素材项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label><div className="inspector-note"><WarningCircle weight="fill" />缺少旁白音频时，预览使用 5 秒草稿时长；最终渲染前仍需生成。</div></> : null}
+            ) : selectedScene ? <><h3>场景 {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>旁白文稿（同时作为底部字幕）<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} onBlur={endTextTransaction} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} /><SceneTextPresentationInspector sceneIndex={selectedSceneIndex} visual={selectedScene.visual} theme={project.theme} diagnostics={diagnostics} onChange={(visual) => void updateVisual(selectedScene.id, visual)} onMotionChange={(visual) => { void updateVisual(selectedScene.id, visual).then(() => { const resolved = previewSnapshot?.scenes.find((candidate) => candidate.scene.id === selectedScene.id); if (resolved) playerRef.current?.seekTo(resolved.startFrame); playerRef.current?.play(); setPlaying(true); }); }} /><label>素材项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label><div className="inspector-note"><WarningCircle weight="fill" />缺少旁白音频时，预览使用 5 秒草稿时长；最终渲染前仍需生成。</div></> : null}
           </div>
         </section>
       </main>
