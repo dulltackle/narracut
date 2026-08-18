@@ -14,16 +14,22 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource-variable/noto-sans-sc": "5.3.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@remotion/media": "4.0.512",
+    "@remotion/player": "4.0.512",
     "open": "^11.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "remotion": "4.0.512",
     "serve-handler": "^6.1.7",
     "zod": "^4.4.3",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@remotion/bundler": "4.0.512",
+    "@remotion/renderer": "4.0.512",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

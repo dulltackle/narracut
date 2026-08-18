@@ -1,1 +1,2 @@
-export * from "../../docs/spec/project-schema-v2";
+export * from "../../docs/spec/project-schema-v3";
+export * from "./text-presets";

@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { Player, type PlayerRef } from "@remotion/player";
 import { ArrowCounterClockwise } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ArrowDown } from "@phosphor-icons/react/ArrowDown";
 import { ArrowUp } from "@phosphor-icons/react/ArrowUp";
@@ -10,7 +11,6 @@ import { CircleNotch } from "@phosphor-icons/react/CircleNotch";
 import { ClipboardText } from "@phosphor-icons/react/ClipboardText";
 import { DotsSixVertical } from "@phosphor-icons/react/DotsSixVertical";
 import { FilmSlate } from "@phosphor-icons/react/FilmSlate";
-import { FolderOpen } from "@phosphor-icons/react/FolderOpen";
 import { ListChecks } from "@phosphor-icons/react/ListChecks";
 import { LockSimple } from "@phosphor-icons/react/LockSimple";
 import { Pause } from "@phosphor-icons/react/Pause";
@@ -22,7 +22,13 @@ import { X } from "@phosphor-icons/react/X";
 
 import type { Asset, Scene, Visual } from "../shared/project";
 import { CURRENT_SCHEMA_VERSION } from "../shared/project";
+import { ProjectComposition } from "../remotion/ProjectComposition";
+import { createPreviewSnapshot, validateRenderReadiness } from "../remotion/render-snapshot";
 import { useProjectStore } from "./project-store";
+import {
+  ProjectThemeInspector,
+  SceneTextPresentationInspector,
+} from "./text-presentation-controls";
 import {
   hasCaption,
   migrateVisual,
@@ -178,17 +184,20 @@ function PaneHeading({ title, meta, actions }: { title: string; meta: string; ac
   return <div className="pane-head"><div className="pane-title"><h2>{title}</h2><span>{meta}</span></div>{actions}</div>;
 }
 
-function Topbar({ projectName, readOnly = false, controlsDisabled = false }: { projectName: string; readOnly?: boolean; controlsDisabled?: boolean }) {
+function Topbar({ projectName, readOnly = false, controlsDisabled = false, renderDiagnostics }: { projectName: string; readOnly?: boolean; controlsDisabled?: boolean; renderDiagnostics?: import("../shared/project").Diagnostic[] }) {
   const info = useProjectStore((state) => state.info);
   const persistedProjectName = useProjectStore((state) => state.project?.metadata.name);
   const saveStatus = useProjectStore((state) => state.saveStatus);
   const saveErrorMessage = useProjectStore((state) => state.saveErrorMessage);
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
+  const projectDiagnostics = useProjectStore((state) => state.diagnostics);
+  const diagnostics = renderDiagnostics ?? projectDiagnostics;
   const updateProjectName = useProjectStore((state) => state.updateProjectName);
   const [editingProjectName, setEditingProjectName] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState("");
   const projectNameButtonRef = useRef<HTMLButtonElement>(null);
   const actionsDisabled = readOnly || controlsDisabled;
+  const renderBlockers = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   const beginProjectNameEdit = () => {
     setProjectNameDraft(persistedProjectName ?? "");
     setEditingProjectName(true);
@@ -205,7 +214,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false }: { p
     <header className="topbar">
       <div className="brand"><BrandMark /><div className="project-title">{editingProjectName ? <input autoFocus className="project-name-editor" aria-label="项目名" value={projectNameDraft} onChange={(event) => setProjectNameDraft(event.target.value)} onBlur={finishProjectNameEdit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.preventDefault(); cancelProjectNameEdit(); } }} /> : readOnly ? <strong>{projectName}</strong> : <button ref={projectNameButtonRef} className="project-name-button" type="button" aria-label="编辑项目名" onClick={beginProjectNameEdit}>{projectName}</button>}<small>{info?.projectDirectory}</small></div>{readOnly ? <span className="readonly-pill">只读模式</span> : <span className={`save-state ${saveStatus}`} title={saveErrorMessage} aria-label={saveErrorMessage ?? undefined}>{saveStatus === "saved" ? "已保存" : saveStatus === "saving" ? "保存中" : "保存失败"}</span>}</div>
       <div className="history"><button className="btn icon" aria-label="撤销" disabled><ArrowUUpLeft /></button><button className="btn icon" aria-label="重做" disabled><ArrowCounterClockwise /></button></div>
-      <div className="top-actions"><button className="btn" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">0</span></button><button className="btn primary" disabled={actionsDisabled}><FilmSlate />检查并渲染</button></div>
+      <div className="top-actions"><button className="btn" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length}</span></button><button className="btn primary" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><FilmSlate />{readOnly ? "检查并渲染" : renderBlockers.length > 0 ? `检查并渲染 · ${renderBlockers.length}` : "渲染 MP4"}</button></div>
     </header>
   );
 }
@@ -219,63 +228,15 @@ function captionForVisual(visual: Visual): string | undefined {
   return visual.type === "card" ? undefined : visual.caption?.text;
 }
 
-function PlayerMedia({
-  asset,
-  exists,
-}: {
-  asset: Asset | undefined;
-  exists: boolean;
-}) {
-  if (asset !== undefined && exists && asset.kind === "image") {
-    return <img src={`/media/${asset.path}`} alt="当前 Scene Asset" />;
-  }
-  if (asset !== undefined && exists && asset.kind === "video") {
-    return <video src={`/media/${asset.path}`} muted playsInline />;
-  }
-  return (
-    <div className="media-fallback">
-      <FolderOpen size={56} />
-      <span>{asset ? "项目中的 Asset 文件不可用" : "尚未绑定可预览的 Asset"}</span>
-    </div>
-  );
-}
-
-function PlayerVisual({
-  scene,
-  asset,
-  exists,
-}: {
-  scene: Scene;
-  asset: Asset | undefined;
-  exists: boolean;
-}) {
-  if (scene.visual.type === "card") {
-    return (
-      <div className="visual-layer card-visual" data-testid="player-visual">
-        <div className="card-content">
-          {scene.visual.label ? <span>{scene.visual.label}</span> : null}
-          {scene.visual.title ? <strong>{scene.visual.title}</strong> : null}
-          {scene.visual.body ? <p>{scene.visual.body}</p> : null}
-          {scene.visual.items ? <ul>{scene.visual.items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : null}
-        </div>
-        <div className="subtitle" data-testid="player-subtitle">{scene.narration.text || "请输入 Narration"}</div>
-      </div>
-    );
-  }
-  return (
-    <div className="visual-layer" data-testid="player-visual">
-      <PlayerMedia asset={asset} exists={exists} />
-      <div className="caption">{captionForVisual(scene.visual)}</div>
-      <div className="subtitle" data-testid="player-subtitle">{scene.narration.text || "请输入 Narration"}</div>
-    </div>
-  );
-}
-
 function sceneAssetStatus(
   scene: Scene,
   asset: Asset | undefined,
   mediaAvailability: Record<string, boolean>,
+  diagnostics: import("../shared/project").Diagnostic[],
 ) {
+  if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return { className: "status-error", label: "渲染阻断" };
+  }
   if ("assetId" in scene.visual && asset === undefined) {
     return { className: "status-error", label: "缺少 Asset" };
   }
@@ -459,17 +420,6 @@ function cardHasContent(card: CardVisual): boolean {
   );
 }
 
-function textLayoutNeedsReview(visual: Visual): boolean {
-  if (visual.type === "card") {
-    const characterCount = [visual.label, visual.title, visual.body, ...(visual.items ?? [])]
-      .filter((value): value is string => value !== undefined)
-      .join("")
-      .length;
-    return characterCount > 180 || (visual.items?.length ?? 0) > 5;
-  }
-  return (visual.caption?.text.length ?? 0) > 100;
-}
-
 function CardFields({
   visual,
   onChange,
@@ -540,7 +490,7 @@ function MediaFields({
             const { caption: _caption, ...next } = visual;
             onChange(next);
           } else {
-            onChange({ ...visual, caption: { text } });
+            onChange({ ...visual, caption: { ...visual.caption, text } });
           }
         }} />
       ) : (
@@ -650,12 +600,16 @@ function Workspace() {
   const selectScene = useProjectStore((state) => state.selectScene);
   const updateNarration = useProjectStore((state) => state.updateNarration);
   const updateVisual = useProjectStore((state) => state.updateVisual);
+  const updateTheme = useProjectStore((state) => state.updateTheme);
   const reorderScene = useProjectStore((state) => state.reorderScene);
   const taskDrawerOpen = useProjectStore((state) => state.taskDrawerOpen);
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
   const mediaAvailability = useProjectStore((state) => state.mediaAvailability);
+  const diagnostics = useProjectStore((state) => state.diagnostics);
   const [playing, setPlaying] = useState(false);
+  const [inspectorMode, setInspectorMode] = useState<"scene" | "project">("scene");
+  const [safeAreaVisible, setSafeAreaVisible] = useState(false);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   const [cardChoice, setCardChoice] = useState<{
     sceneId: string;
@@ -678,11 +632,26 @@ function Workspace() {
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const selectedNarrationRef = useRef<HTMLTextAreaElement>(null);
   const singleSceneFocusPendingRef = useRef(false);
+  const playerRef = useRef<PlayerRef>(null);
   const assets = useMemo(
     () => new Map(project?.assets.map((asset) => [asset.id, asset]) ?? []),
     [project?.assets],
   );
   const sceneCount = project?.scenes.length ?? 0;
+  const previewSnapshot = useMemo(
+    () =>
+      project === undefined
+        ? undefined
+        : createPreviewSnapshot(project, `${window.location.origin}/media/`, mediaAvailability),
+    [project, mediaAvailability],
+  );
+  const renderDiagnostics = useMemo(
+    () =>
+      project === undefined
+        ? diagnostics
+        : [...diagnostics, ...validateRenderReadiness(project, mediaAvailability)],
+    [project, diagnostics, mediaAvailability],
+  );
   useEffect(() => {
     if (!singleSceneFocusPendingRef.current || sceneCount === 0) return;
     singleSceneFocusPendingRef.current = false;
@@ -706,9 +675,17 @@ function Workspace() {
   const selectedScene =
     project.scenes.find((scene) => scene.id === selectedSceneId) ?? project.scenes[0];
   const selectedAsset = selectedScene ? assetForScene(selectedScene, assets) : undefined;
-  const selectedMediaExists =
-    selectedAsset !== undefined && mediaAvailability[selectedAsset.path] === true;
   const projectName = project.metadata.name || info?.fallbackName || "未命名项目";
+  const selectedSceneIndex = selectedScene ? project.scenes.indexOf(selectedScene) : -1;
+
+  useEffect(() => {
+    if (selectedScene === undefined || previewSnapshot === undefined) return;
+    const resolved = previewSnapshot.scenes.find(
+      (candidate) => candidate.scene.id === selectedScene.id,
+    );
+    if (resolved === undefined) return;
+    playerRef.current?.seekTo(resolved.startFrame);
+  }, [selectedScene?.id, previewSnapshot]);
 
   const restoreVisualTrigger = (trigger: HTMLSelectElement) => {
     requestAnimationFrame(() => trigger.focus());
@@ -815,12 +792,12 @@ function Workspace() {
   };
 
   if (project.scenes.length === 0) {
-    return <EmptyWorkspace projectName={projectName} onAddScene={addSingleScene} />;
+    return <EmptyWorkspace project={project} projectName={projectName} diagnostics={diagnostics} onThemeChange={(theme) => void updateTheme(theme)} onAddScene={addSingleScene} />;
   }
 
   return (
     <div className="app-shell">
-      <Topbar projectName={projectName} />
+      <Topbar projectName={projectName} renderDiagnostics={renderDiagnostics} />
       <main className="workspace" data-testid="global-workbench">
         <section className="pane script-pane">
           <PaneHeading title="脚本表" meta={`${project.scenes.length} 个 Scene`} actions={<div className="filter"><button aria-pressed="true">全部</button><button aria-pressed="false">待修复</button></div>} />
@@ -829,7 +806,10 @@ function Workspace() {
               {project.scenes.map((scene, index) => {
                 const asset = assetForScene(scene, assets);
                 const assetCopy = sceneAssetCopy(scene, asset);
-                const assetStatus = sceneAssetStatus(scene, asset, mediaAvailability);
+                const sceneDiagnostics = renderDiagnostics.filter(
+                  (diagnostic) => diagnostic.sceneId === scene.id,
+                );
+                const assetStatus = sceneAssetStatus(scene, asset, mediaAvailability, sceneDiagnostics);
                 const selected = scene.id === selectedScene?.id;
                 const narrationPopoverId = `narration-popover-${scene.id}`;
                 const expandedNarrationId = `narration-expanded-${scene.id}`;
@@ -860,21 +840,38 @@ function Workspace() {
         </section>
 
         <section className="pane player-pane">
-          <PaneHeading title="Player" meta={selectedScene ? `选中 Scene ${String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}` : "未选择 Scene"} actions={<button className="btn compact">适合画面</button>} />
-          <div className="stage"><div className="preview-frame">
-            {selectedScene ? <PlayerVisual scene={selectedScene} asset={selectedAsset} exists={selectedMediaExists} /> : null}
+          <PaneHeading title="Player" meta={selectedScene ? `选中 Scene ${String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}` : "未选择 Scene"} actions={<button className="btn compact safe-area-toggle" aria-pressed={safeAreaVisible} onClick={() => setSafeAreaVisible((visible) => !visible)}>安全区</button>} />
+          <div className="stage"><div className="preview-frame remotion-preview">
+            {previewSnapshot ? (
+              <Player
+                ref={playerRef}
+                component={ProjectComposition}
+                inputProps={{ snapshot: previewSnapshot }}
+                durationInFrames={previewSnapshot.durationInFrames}
+                compositionWidth={previewSnapshot.width}
+                compositionHeight={previewSnapshot.height}
+                fps={previewSnapshot.fps}
+                controls={false}
+                clickToPlay={false}
+                acknowledgeRemotionLicense
+                style={{ width: "100%", height: "100%" }}
+              />
+            ) : null}
+            {safeAreaVisible ? <div className="safe-area-overlay" data-testid="safe-area-overlay"><span>80px SAFE</span></div> : null}
           </div></div>
-          <div className="player-controls"><button className="play-button" aria-label={playing ? "暂停" : "播放"} onClick={() => setPlaying((value) => !value)}>{playing ? <Pause weight="fill" /> : <Play weight="fill" />}</button><span className="timecode">00:00 / --:--</span><div className="scrubber"><span /></div></div>
+          <div className="player-controls"><button className="play-button" aria-label={playing ? "暂停" : "播放"} onClick={() => { if (playing) playerRef.current?.pause(); else playerRef.current?.play(); setPlaying((value) => !value); }}>{playing ? <Pause weight="fill" /> : <Play weight="fill" />}</button><span className="timecode">{selectedScene?.speech ? `${(selectedScene.speech.durationMs / 1000).toFixed(1)}s` : "Draft 5.0s"}</span><div className="scrubber"><span /></div></div>
         </section>
 
         <section className="pane inspector-pane">
-          <PaneHeading title="Inspector" meta={selectedScene ? visualLabels[selectedScene.visual.type] : "未选择 Scene"} />
-          <div className="inspector-scroll" data-testid="inspector-scene">
-            {selectedScene ? <><h3>Scene {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>Narration<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} />{textLayoutNeedsReview(selectedScene.visual) ? <div className="inspector-note"><WarningCircle weight="fill" /><span>文字较多，可能超出成片安全版面；请在 Player 中检查，是否调整由作者决定。</span></div> : null}<label>项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label><div className="inspector-note"><WarningCircle weight="fill" />缺少 Speech 时使用 Draft Duration；最终渲染前仍需补齐。</div></> : null}
+          <PaneHeading title="Inspector" meta={inspectorMode === "project" ? "Project Theme" : selectedScene ? visualLabels[selectedScene.visual.type] : "未选择 Scene"} actions={<div className="inspector-tabs" role="tablist" aria-label="Inspector 范围"><button role="tab" aria-selected={inspectorMode === "scene"} onClick={() => setInspectorMode("scene")}>Scene</button><button role="tab" aria-selected={inspectorMode === "project"} onClick={() => setInspectorMode("project")}>项目</button></div>} />
+          <div className="inspector-scroll" data-testid={inspectorMode === "project" ? "inspector-project" : "inspector-scene"}>
+            {inspectorMode === "project" ? (
+              <ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={(theme) => void updateTheme(theme)} />
+            ) : selectedScene ? <><h3>Scene {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>Narration<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} /><SceneTextPresentationInspector sceneIndex={selectedSceneIndex} visual={selectedScene.visual} theme={project.theme} diagnostics={diagnostics} onChange={(visual) => void updateVisual(selectedScene.id, visual)} onMotionChange={(visual) => { void updateVisual(selectedScene.id, visual).then(() => { const resolved = previewSnapshot?.scenes.find((candidate) => candidate.scene.id === selectedScene.id); if (resolved) playerRef.current?.seekTo(resolved.startFrame); playerRef.current?.play(); setPlaying(true); }); }} /><label>项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label><div className="inspector-note"><WarningCircle weight="fill" />缺少 Speech 时使用 Draft Duration；最终渲染前仍需补齐。</div></> : null}
           </div>
         </section>
       </main>
-      <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}><header><h2>任务</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header><div className="task-empty"><ListChecks size={48} /><strong>暂无运行中的任务</strong><span>转码、Speech 与渲染任务会显示在这里。</span></div></aside>
+      <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}><header><h2>渲染前检查</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <div key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断" : "提醒"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></div>)}</div>}</aside>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={project.scenes.length} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
       {cardChoice ? <CardContentDialog onCancel={() => { const trigger = cardChoice.trigger; setCardChoice(undefined); restoreVisualTrigger(trigger); }} onCreate={(card) => { const choice = cardChoice; setCardChoice(undefined); stageVisualMigration(choice.sceneId, "card", choice.trigger, card); }} /> : null}
       {pendingVisualChange ? <VisualLossDialog losses={pendingVisualChange.losses} onCancel={() => { const trigger = pendingVisualChange.trigger; setPendingVisualChange(undefined); restoreVisualTrigger(trigger); }} onConfirm={() => { const change = pendingVisualChange; setPendingVisualChange(undefined); void updateVisual(change.sceneId, change.visual); restoreVisualTrigger(change.trigger); }} /> : null}
@@ -882,7 +879,7 @@ function Workspace() {
   );
 }
 
-function EmptyWorkspace({ projectName, onAddScene }: { projectName: string; onAddScene: () => void }) {
+function EmptyWorkspace({ project, projectName, diagnostics, onThemeChange, onAddScene }: { project: import("../shared/project").Project; projectName: string; diagnostics: import("../shared/project").Diagnostic[]; onThemeChange: (theme: import("../shared/project").Project["theme"]) => void; onAddScene: () => void }) {
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
 
@@ -890,7 +887,7 @@ function EmptyWorkspace({ projectName, onAddScene }: { projectName: string; onAd
     <div className="app-shell"><Topbar projectName={projectName} controlsDisabled /><main className="workspace">
       <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setBatchDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行 Narration，我们只按换行拆分，并在真正写入项目之前让你整理完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setBatchDialogOpen(true)}><Plus />粘贴多行 Narration</button><button className="btn" onClick={onAddScene}>新增一条</button></div><small>空白行会被忽略并计数 · Scene 数量不限</small></div></section>
       <section className="pane player-pane"><PaneHeading title="Player" meta="无 Scene" /><div className="stage"><div className="preview-frame empty-preview"><strong>暂无可预览内容</strong><span>创建 Scene 后，这里会显示画面与可储存的字幕层。</span></div></div><div className="player-controls"><button className="play-button" aria-label="播放" disabled><Play weight="fill" /></button><span className="timecode">00:00 / 00:00</span><div className="scrubber"><span /></div></div></section>
-      <section className="pane inspector-pane"><PaneHeading title="Inspector" meta="项目" /><div className="inspector-scroll"><h3>Project DSL</h3><div className="readonly-note neutral-note"><span><strong>结构有效</strong><br />scenes[] 为空。草稿操作不会写入项目。</span></div><h3 className="project-dsl-heading">创建规则</h3><div className="readonly-note neutral-note">Narration 只按换行拆分；非空行保留原始空格与 Unicode。至少创建一个 Scene 后才离开空状态。</div></div></section>
+      <section className="pane inspector-pane"><PaneHeading title="Inspector" meta="Project Theme" actions={<div className="inspector-tabs" role="tablist" aria-label="Inspector 范围"><button role="tab" aria-selected="false" disabled>Scene</button><button role="tab" aria-selected="true">项目</button></div>} /><div className="inspector-scroll" data-testid="inspector-project"><ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={onThemeChange} /></div></section>
     </main>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={0} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
     </div>

@@ -1,7 +1,14 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "metadata": {
     "name": "宫腔通液治疗仪操作演示"
+  },
+  "theme": {
+    "presetId": "narracut/default@1",
+    "defaultTextStyleId": "narracut/panel@1",
+    "defaultTextMotionId": "narracut/fade@1",
+    "accentColor": "#00A3A6",
+    "fontId": "narracut/noto-sans-cjk-sc@1"
   },
   "assets": [
     {
@@ -91,7 +98,9 @@
         "type": "video",
         "assetId": "10000000-0000-4000-8000-000000000002",
         "caption": {
-          "text": "准备连接管"
+          "text": "准备连接管",
+          "textStyleId": "narracut/lower-third@1",
+          "textMotionId": "narracut/rise@1"
         }
       },
       "transition": "cut"

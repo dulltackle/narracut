@@ -24,7 +24,7 @@ test.afterAll(async () => {
   await server.close();
 });
 
-test("V1 打开时只在内存迁移，首次正常保存后写为 V2", async ({ page }) => {
+test("V1 打开时只在内存连续迁移，首次正常保存后写为当前 V3", async ({ page }) => {
   const sceneIds = [
     "20000000-0000-4000-8000-000000000001",
     "20000000-0000-4000-8000-000000000002",
@@ -75,8 +75,13 @@ test("V1 打开时只在内存迁移，首次正常保存后写为 V2", async ({
 
   await expect
     .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).schemaVersion)
-    .toBe(2);
+    .toBe(3);
   const saved = JSON.parse(await readFile(projectFile, "utf8"));
+  expect(saved.theme).toMatchObject({
+    presetId: "narracut/default@1",
+    defaultTextStyleId: "narracut/panel@1",
+    defaultTextMotionId: "narracut/fade@1",
+  });
   expect(saved.scenes.map((scene: { id: string }) => scene.id)).toEqual(sceneIds);
   expect(saved.scenes.map((scene: { visual: unknown }) => scene.visual)).toEqual([
     { type: "card", label: "NC", title: "操作主题" },

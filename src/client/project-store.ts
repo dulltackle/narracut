@@ -37,6 +37,7 @@ type ProjectState = {
   selectScene: (sceneId: string) => void;
   setTaskDrawerOpen: (open: boolean) => void;
   updateProjectName: (name: string) => Promise<void>;
+  updateTheme: (theme: Project["theme"]) => Promise<void>;
   updateNarration: (sceneId: string, text: string) => void;
   updateVisual: (sceneId: string, visual: Visual) => Promise<void>;
   reorderScene: (sceneId: string, targetIndex: number) => Promise<void>;
@@ -45,6 +46,25 @@ type ProjectState = {
     visualType?: "video" | "image",
   ) => Promise<void>;
 };
+
+const renderOnlyDiagnosticCodes = new Set([
+  "PROJECT_THEME_PRESET_MISSING",
+  "TEXT_STYLE_PRESET_MISSING",
+  "TEXT_MOTION_PRESET_MISSING",
+  "THEME_FONT_MISSING",
+  "THEME_ACCENT_CONTRAST_LOW",
+  "TEXT_SAFE_AREA_OVERFLOW",
+  "LOGO_ASSET_MISSING",
+  "LOGO_ASSET_KIND_MISMATCH",
+]);
+
+function hasSaveBlockingError(diagnostics: Diagnostic[]): boolean {
+  return diagnostics.some(
+    (diagnostic) =>
+      diagnostic.severity === "error" &&
+      !renderOnlyDiagnosticCodes.has(diagnostic.code),
+  );
+}
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let saveQueue: Promise<void> = Promise.resolve();
@@ -153,7 +173,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }
 
       const diagnostics = validateProjectConsistency(structural.project);
-      if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+      if (hasSaveBlockingError(diagnostics)) {
         set({
           phase: "error",
           info,
@@ -225,6 +245,28 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
     await enqueueSave(nextProject, revision, set);
   },
+  updateTheme: async (theme) => {
+    const project = get().project;
+    if (project === undefined || get().phase !== "ready") return;
+    const nextProject: Project = { ...project, theme };
+    const structural = validateProjectStructure(nextProject);
+    if (!structural.success) {
+      throw new Error(structuralErrorMessage(structural.diagnostics));
+    }
+    const diagnostics = validateProjectConsistency(structural.project);
+    if (hasSaveBlockingError(diagnostics)) {
+      throw new Error(structuralErrorMessage(diagnostics));
+    }
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
+    const revision = ++latestSaveRevision;
+    set({
+      project: structural.project,
+      diagnostics,
+      saveStatus: "saving",
+      saveErrorMessage: undefined,
+    });
+    await enqueueSave(structural.project, revision, set);
+  },
   updateNarration: (sceneId, text) => {
     const project = get().project;
     if (project === undefined || get().phase !== "ready") return;
@@ -262,10 +304,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const diagnostics = structural.success
       ? validateProjectConsistency(structural.project)
       : structural.diagnostics;
-    if (
-      !structural.success ||
-      diagnostics.some((diagnostic) => diagnostic.severity === "error")
-    ) {
+    if (!structural.success || hasSaveBlockingError(diagnostics)) {
       throw new Error(structuralErrorMessage(diagnostics));
     }
     if (saveTimer !== undefined) clearTimeout(saveTimer);
@@ -299,10 +338,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const diagnostics = structural.success
       ? validateProjectConsistency(structural.project)
       : structural.diagnostics;
-    if (
-      !structural.success ||
-      diagnostics.some((diagnostic) => diagnostic.severity === "error")
-    ) {
+    if (!structural.success || hasSaveBlockingError(diagnostics)) {
       throw new Error(structuralErrorMessage(diagnostics));
     }
     if (saveTimer !== undefined) clearTimeout(saveTimer);
@@ -334,10 +370,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const diagnostics = structural.success
       ? validateProjectConsistency(structural.project)
       : structural.diagnostics;
-    if (
-      !structural.success ||
-      diagnostics.some((diagnostic) => diagnostic.severity === "error")
-    ) {
+    if (!structural.success || hasSaveBlockingError(diagnostics)) {
       throw new Error(structuralErrorMessage(diagnostics));
     }
     if (saveTimer !== undefined) clearTimeout(saveTimer);

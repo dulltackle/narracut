@@ -2,17 +2,17 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import {
-  projectV2JsonSchema,
+  projectV3JsonSchema,
   validateProjectConsistency,
   validateProjectStructure,
-  type ProjectV2,
-} from "./project-schema-v2.ts";
+  type ProjectV3,
+} from "./project-schema-v3.ts";
 
 async function readJson(name: string): Promise<unknown> {
   return JSON.parse(await readFile(new URL(name, import.meta.url), "utf8"));
 }
 
-function requireValidProject(input: unknown, name: string): ProjectV2 {
+function requireValidProject(input: unknown, name: string): ProjectV3 {
   const structure = validateProjectStructure(input);
   assert.equal(
     structure.success,
@@ -73,11 +73,11 @@ async function main(): Promise<void> {
   );
 
   assert.equal(
-    projectV2JsonSchema.$schema,
+    projectV3JsonSchema.$schema,
     "https://json-schema.org/draft/2020-12/schema",
   );
   assert.equal(
-    projectV2JsonSchema.additionalProperties,
+    projectV3JsonSchema.additionalProperties,
     false,
     "顶层必须拒绝未知键。",
   );
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
         assetsPreserved: ai.assets.length,
         visualTypes: [...visualTypes].sort(),
         captions: captions.length,
-        jsonSchemaDraft: projectV2JsonSchema.$schema,
+        jsonSchemaDraft: projectV3JsonSchema.$schema,
         negativeCases: 5,
         diagnostics: 0,
       },

@@ -1,0 +1,211 @@
+import {
+  evaluateTextLayout,
+  resolveTextPresentation,
+  validateProjectConsistency,
+  validateProjectStructure,
+  type Project,
+  type Scene,
+  type Diagnostic,
+  type TextBlockContent,
+} from "../shared/project";
+
+export const VIDEO_WIDTH = 1920;
+export const VIDEO_HEIGHT = 1080;
+export const VIDEO_FPS = 30;
+export const VIDEO_SAFE_INSET = 80;
+export const DRAFT_SCENE_DURATION_MS = 5000;
+
+export type ResolvedScene = {
+  scene: Scene;
+  durationInFrames: number;
+  startFrame: number;
+  textPresentation?: ReturnType<typeof resolveTextPresentation> & {
+    scale: number;
+  };
+};
+
+export type RenderSnapshot = {
+  snapshotVersion: 1;
+  project: Project;
+  mediaBaseUrl: string;
+  width: number;
+  height: number;
+  fps: number;
+  safeInset: number;
+  mediaAvailability: Record<string, boolean>;
+  durationInFrames: number;
+  scenes: ResolvedScene[];
+};
+
+function sceneDurationInFrames(scene: Scene): number {
+  const durationMs = scene.speech?.durationMs ?? DRAFT_SCENE_DURATION_MS;
+  return Math.max(1, Math.ceil((durationMs / 1000) * VIDEO_FPS));
+}
+
+function textBlock(scene: Scene): {
+  content: TextBlockContent;
+  overrides: { textStyleId?: string; textMotionId?: string };
+} | undefined {
+  if (scene.visual.type === "card") {
+    return { content: scene.visual, overrides: scene.visual };
+  }
+  if (scene.visual.caption !== undefined) {
+    return {
+      content: { body: scene.visual.caption.text },
+      overrides: scene.visual.caption,
+    };
+  }
+  return undefined;
+}
+
+export function createRenderSnapshot(
+  projectInput: Project,
+  mediaBaseUrl: string,
+  mediaAvailability?: Record<string, boolean>,
+): RenderSnapshot {
+  const assumedAvailability =
+    mediaAvailability ??
+    Object.fromEntries([
+      ...projectInput.assets.map((asset) => [asset.path, true] as const),
+      ...projectInput.scenes.flatMap((scene) =>
+        scene.speech === undefined ? [] : [[scene.speech.path, true] as const],
+      ),
+    ]);
+  return createSnapshot(
+    projectInput,
+    mediaBaseUrl,
+    false,
+    assumedAvailability,
+  );
+}
+
+export function createPreviewSnapshot(
+  projectInput: Project,
+  mediaBaseUrl: string,
+  mediaAvailability: Record<string, boolean> = {},
+): RenderSnapshot {
+  return createSnapshot(projectInput, mediaBaseUrl, true, mediaAvailability);
+}
+
+function createSnapshot(
+  projectInput: Project,
+  mediaBaseUrl: string,
+  allowRenderBlockingDiagnostics: boolean,
+  mediaAvailability: Record<string, boolean>,
+): RenderSnapshot {
+  const projectCopy = structuredClone(projectInput);
+  const structure = validateProjectStructure(projectCopy);
+  if (!structure.success) {
+    throw new Error(structure.diagnostics[0]?.message ?? "渲染快照结构无效。 ");
+  }
+  const errors = validateProjectConsistency(structure.project).filter(
+    (diagnostic) => diagnostic.severity === "error",
+  );
+  if (!allowRenderBlockingDiagnostics) {
+    errors.push(...validateRenderReadiness(structure.project, mediaAvailability));
+  }
+  if (!allowRenderBlockingDiagnostics && errors.length > 0) {
+    throw new Error(errors[0].message);
+  }
+
+  let startFrame = 0;
+  const scenes = structure.project.scenes.map((scene): ResolvedScene => {
+    const durationInFrames = sceneDurationInFrames(scene);
+    const block = textBlock(scene);
+    const resolved =
+      block === undefined
+        ? undefined
+        : resolveTextPresentation(structure.project.theme, block.overrides);
+    if (
+      !allowRenderBlockingDiagnostics &&
+      resolved !== undefined &&
+      (resolved.style === undefined || resolved.motion === undefined)
+    ) {
+      throw new Error("渲染快照包含无法解析的文字 Preset。");
+    }
+    const result: ResolvedScene = {
+      scene,
+      durationInFrames,
+      startFrame,
+      ...(block === undefined || resolved === undefined || resolved.style === undefined
+        ? {}
+        : {
+            textPresentation: {
+              ...resolved,
+              scale: evaluateTextLayout(resolved.style, block.content).scale,
+            },
+          }),
+    };
+    startFrame += durationInFrames;
+    return result;
+  });
+
+  return {
+    snapshotVersion: 1,
+    project: structure.project,
+    mediaBaseUrl,
+    width: VIDEO_WIDTH,
+    height: VIDEO_HEIGHT,
+    fps: VIDEO_FPS,
+    safeInset: VIDEO_SAFE_INSET,
+    mediaAvailability: { ...mediaAvailability },
+    durationInFrames: Math.max(1, startFrame),
+    scenes,
+  };
+}
+
+export function validateRenderReadiness(
+  project: Project,
+  mediaAvailability: Record<string, boolean> = {},
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  project.scenes.forEach((scene, index) => {
+    if (scene.speech === undefined) {
+      diagnostics.push({
+        code: "SPEECH_MISSING",
+        severity: "error",
+        path: ["scenes", index, "speech"],
+        message: `Scene ${String(index + 1).padStart(2, "0")} 缺少 Speech；Draft Duration 仅用于 Preview。`,
+        sceneId: scene.id,
+      });
+    } else if (mediaAvailability[scene.speech.path] === false) {
+      diagnostics.push({
+        code: "SPEECH_FILE_MISSING",
+        severity: "error",
+        path: ["scenes", index, "speech", "path"],
+        message: `Speech 文件不存在：${scene.speech.path}`,
+        sceneId: scene.id,
+      });
+    }
+    if (scene.visual.type !== "card" && scene.visual.assetId !== undefined) {
+      const assetId = scene.visual.assetId;
+      const asset = project.assets.find((candidate) => candidate.id === assetId);
+      if (asset !== undefined && mediaAvailability[asset.path] === false) {
+        diagnostics.push({
+          code: "MEDIA_FILE_MISSING",
+          severity: "error",
+          path: ["scenes", index, "visual", "assetId"],
+          message: `Visual 文件不存在：${asset.path}`,
+          sceneId: scene.id,
+        });
+      }
+    }
+  });
+  const logo = project.assets.find((asset) => asset.id === project.theme.logoAssetId);
+  if (logo !== undefined && mediaAvailability[logo.path] === false) {
+    diagnostics.push({
+      code: "LOGO_FILE_MISSING",
+      severity: "error",
+      path: ["theme", "logoAssetId"],
+      message: `Logo 文件不存在：${logo.path}`,
+    });
+  }
+  return diagnostics;
+}
+
+export function projectMediaUrl(snapshot: RenderSnapshot, path: string): string {
+  return `${snapshot.mediaBaseUrl}${path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")}`;
+}

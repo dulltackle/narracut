@@ -1,7 +1,14 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "metadata": {
     "name": "宫腔通液治疗仪操作演示"
+  },
+  "theme": {
+    "presetId": "narracut/default@1",
+    "defaultTextStyleId": "narracut/panel@1",
+    "defaultTextMotionId": "narracut/fade@1",
+    "accentColor": "#00A3A6",
+    "fontId": "narracut/noto-sans-cjk-sc@1"
   },
   "assets": [
     {
@@ -80,7 +87,9 @@
         "type": "card",
         "label": "宫腔通液治疗仪",
         "title": "宫腔通液规范操作",
-        "body": "连接、排气、治疗与退出"
+        "body": "连接、排气、治疗与退出",
+        "textStyleId": "narracut/spotlight@1",
+        "textMotionId": "narracut/none@1"
       },
       "transition": "cut"
     },

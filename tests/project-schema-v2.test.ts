@@ -5,7 +5,7 @@ import {
   migrateKnownProjectToCurrent,
   validateProjectConsistency,
   validateProjectStructure,
-} from "../src/shared/project";
+} from "../docs/spec/project-schema-v2";
 
 const ids = {
   image: "10000000-0000-4000-8000-000000000001",
