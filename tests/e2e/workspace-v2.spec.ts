@@ -66,7 +66,7 @@ test("V1 打开时只在内存连续迁移，首次正常保存后写为当前 V
   expect(await readFile(projectFile, "utf8")).toBe(originalBytes);
   await expect(page.getByRole("combobox", { name: "Scene 1 Visual Type" })).toHaveValue("card");
   await page.getByTestId("scene-row").nth(1).click();
-  await expect(page.getByRole("textbox", { name: "Caption 正文" })).toHaveValue("准备连接管");
+  await expect(page.getByRole("textbox", { name: "说明文字" })).toHaveValue("准备连接管");
   await expect(page.getByText("步骤编号", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "编辑项目名" }).click();
@@ -111,18 +111,18 @@ test("Image 与 Video 直接添加、编辑和移除通用 Caption", async ({ pa
 
   const visualType = page.getByRole("combobox", { name: "Scene 1 Visual Type" });
   await expect(visualType.locator("option")).toHaveText(["Card", "Image", "Video"]);
-  await page.getByRole("button", { name: "添加 Caption" }).click();
-  const dialog = page.getByRole("dialog", { name: "添加 Caption" });
-  await expect(dialog.getByRole("button", { name: "添加 Caption" })).toBeDisabled();
-  await dialog.getByRole("textbox", { name: "Caption 正文" }).fill("准备连接管");
-  await dialog.getByRole("button", { name: "添加 Caption" }).click();
+  await page.getByRole("button", { name: "添加画面说明" }).click();
+  const dialog = page.getByRole("dialog", { name: "添加画面说明" });
+  await expect(dialog.getByRole("button", { name: "添加画面说明" })).toBeDisabled();
+  await dialog.getByRole("textbox", { name: "说明文字" }).fill("准备连接管");
+  await dialog.getByRole("button", { name: "添加画面说明" }).click();
 
   await expect
     .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual)
     .toEqual({ type: "image", caption: { text: "准备连接管" } });
   await expect(page.getByTestId("player-visual")).toContainText("准备连接管");
 
-  const caption = page.getByRole("textbox", { name: "Caption 正文" });
+  const caption = page.getByRole("textbox", { name: "说明文字" });
   await caption.fill("更新后的 Caption");
   await caption.blur();
   await expect
@@ -134,7 +134,7 @@ test("Image 与 Video 直接添加、编辑和移除通用 Caption", async ({ pa
   await expect
     .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual.caption)
     .toBeUndefined();
-  await expect(page.getByRole("button", { name: "添加 Caption" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "添加画面说明" })).toBeVisible();
 });
 
 test("Card 原子创建并在切换媒体时逐项确认结构化文字损失", async ({ page }) => {
@@ -159,11 +159,11 @@ test("Card 原子创建并在切换媒体时逐项确认结构化文字损失", 
   const visualType = page.getByRole("combobox", { name: "Scene 1 Visual Type" });
 
   await visualType.selectOption("card");
-  const cardDialog = page.getByRole("dialog", { name: "填写 Card 内容" });
+  const cardDialog = page.getByRole("dialog", { name: "填写文字卡片内容" });
   expect(JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual).toEqual({ type: "video", assetId: videoAssetId });
-  await expect(cardDialog.getByRole("button", { name: "创建 Card" })).toBeDisabled();
-  await cardDialog.getByRole("textbox", { name: "Card 标题" }).fill("章节标题");
-  await cardDialog.getByRole("button", { name: "创建 Card" }).click();
+  await expect(cardDialog.getByRole("button", { name: "创建文字卡片" })).toBeDisabled();
+  await cardDialog.getByRole("textbox", { name: "卡片标题" }).fill("章节标题");
+  await cardDialog.getByRole("button", { name: "创建文字卡片" }).click();
   const assetConfirm = page.getByRole("dialog", { name: "确认 Visual 切换" });
   await expect(assetConfirm).toContainText("当前 Scene 的 Asset 绑定“demo.mp4”");
   await expect(assetConfirm).toContainText("项目中的文件不会删除");
@@ -173,10 +173,10 @@ test("Card 原子创建并在切换媒体时逐项确认结构化文字损失", 
     .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual)
     .toEqual({ type: "card", title: "章节标题" });
 
-  await page.getByRole("textbox", { name: "Card 标签" }).fill("第一章");
-  await page.getByRole("textbox", { name: "Card 标签" }).blur();
-  await page.getByRole("textbox", { name: "Card 正文" }).fill("准备工作");
-  await page.getByRole("textbox", { name: "Card 正文" }).blur();
+  await page.getByRole("textbox", { name: "卡片标签" }).fill("第一章");
+  await page.getByRole("textbox", { name: "卡片标签" }).blur();
+  await page.getByRole("textbox", { name: "卡片正文" }).fill("准备工作");
+  await page.getByRole("textbox", { name: "卡片正文" }).blur();
   await page.getByRole("button", { name: "添加列表项" }).click();
   await page.getByRole("textbox", { name: "列表项 1" }).fill("移除我");
   await page.getByRole("textbox", { name: "列表项 1" }).blur();

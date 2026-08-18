@@ -35,15 +35,15 @@ function PresetSelector({ kind, label, value, inheritedId, onChange }: PresetSel
           onClick={() => onChange(undefined)}
         >
           <span>跟随项目</span>
-          <small>当前解析为 {inheritedId}</small>
+          <small>当前使用 {inheritedId}</small>
         </button>
       )}
       {unknown ? (
         <div className="preset-missing" role="alert">
           <WarningCircle weight="fill" />
-          <span><strong>Preset 不可用</strong><code>{activeId}</code></span>
+          <span><strong>预设不可用</strong><code>{activeId}</code></span>
           <button type="button" className="btn compact" onClick={() => onChange(inheritedId === undefined ? presets[0].id : undefined)}>
-            {inheritedId === undefined ? "更换为首个内置 Preset" : "恢复项目默认"}
+            {inheritedId === undefined ? "更换为首个内置预设" : "恢复项目默认"}
           </button>
         </div>
       ) : null}
@@ -109,8 +109,8 @@ export function ProjectThemeInspector({
   return (
     <>
       <div className="theme-identity">
-        <span>Project Theme</span>
-        <strong>{themeMissing ? "Theme 不可用" : "Narracut Default"}</strong>
+        <span>项目主题</span>
+        <strong>{themeMissing ? "主题不可用" : "Narracut 默认主题"}</strong>
         <code>{theme.presetId}</code>
         {themeMissing ? (
           <button
@@ -118,20 +118,20 @@ export function ProjectThemeInspector({
             className="btn compact"
             onClick={() => onChange({ ...theme, presetId: DEFAULT_PROJECT_THEME.presetId })}
           >
-            恢复内置 Theme
+            恢复内置主题
           </button>
         ) : null}
       </div>
       <h3>默认文字</h3>
       <PresetSelector
         kind="style"
-        label="项目默认 Text Style"
+        label="项目默认文字样式"
         value={theme.defaultTextStyleId}
         onChange={(defaultTextStyleId) => onChange({ ...theme, defaultTextStyleId: defaultTextStyleId ?? DEFAULT_PROJECT_THEME.defaultTextStyleId })}
       />
       <PresetSelector
         kind="motion"
-        label="项目默认 Text Motion"
+        label="项目默认入场动画"
         value={theme.defaultTextMotionId}
         onChange={(defaultTextMotionId) => onChange({ ...theme, defaultTextMotionId: defaultTextMotionId ?? DEFAULT_PROJECT_THEME.defaultTextMotionId })}
       />
@@ -157,9 +157,9 @@ export function ProjectThemeInspector({
           {FONT_PRESETS.map((font) => <option key={font.id} value={font.id}>{font.name}</option>)}
         </select>
       </label>
-      <label>项目 Logo
+      <label>项目标志
         <select
-          aria-label="项目 Logo"
+          aria-label="项目标志"
           value={theme.logoAssetId ?? ""}
           onChange={(event) => {
             const next = { ...theme };
@@ -168,13 +168,13 @@ export function ProjectThemeInspector({
             onChange(next);
           }}
         >
-          <option value="">不使用 Logo</option>
+          <option value="">不使用标志</option>
           {logo !== undefined && !imageAssets.some((asset) => asset.id === logo.id) ? <option value={logo.id}>{logo.path}（不可用）</option> : null}
           {imageAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.path}</option>)}
         </select>
       </label>
       {logo?.kind === "image" ? (
-        <div className="logo-preview"><img src={`/media/${logo.path}`} alt="当前项目 Logo 缩略图" /><code>{logo.path}</code></div>
+        <div className="logo-preview"><img src={`/media/${logo.path}`} alt="当前项目标志缩略图" /><code>{logo.path}</code></div>
       ) : null}
       <DiagnosticList diagnostics={diagnosticsForPrefix(diagnostics, ["theme"])} />
     </>
@@ -226,7 +226,7 @@ export function SceneTextPresentationInspector({
     <>
       <h3>文字表现</h3>
       <div className="resolution-status">
-        <span>{hasOverride ? "Scene 显式覆盖" : "继承项目默认"}</span>
+        <span>{hasOverride ? "当前场景单独设置" : "继承项目默认"}</span>
         <code>{resolved.styleId} · {resolved.motionId}</code>
         {hasOverride ? (
           <button type="button" className="btn compact" onClick={() => onChange(withOverride(withOverride(visual, "textStyleId", undefined), "textMotionId", undefined))}>
@@ -236,14 +236,14 @@ export function SceneTextPresentationInspector({
       </div>
       <PresetSelector
         kind="style"
-        label="Scene Text Style"
+        label="场景文字样式"
         value={overrides.textStyleId}
         inheritedId={theme.defaultTextStyleId}
         onChange={(value) => onChange(withOverride(visual, "textStyleId", value))}
       />
       <PresetSelector
         kind="motion"
-        label="Scene Text Motion"
+        label="场景入场动画"
         value={overrides.textMotionId}
         inheritedId={theme.defaultTextMotionId}
         onChange={(value) => onMotionChange(withOverride(visual, "textMotionId", value))}

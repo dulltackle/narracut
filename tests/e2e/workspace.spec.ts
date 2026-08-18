@@ -50,7 +50,7 @@ test("现有 13 Scene 示例进入完整三栏工作台并显示当前 Scene 列
 
   await expect(page.getByRole("heading", { name: "脚本表" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Player" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Inspector" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "属性" })).toBeVisible();
   await expect(page.locator(".scene-table thead th")).toHaveText([
     "顺序",
     "Narration",
@@ -63,7 +63,11 @@ test("现有 13 Scene 示例进入完整三栏工作台并显示当前 Scene 列
   await expect(page.getByText("宫腔通液治疗仪操作演示")).toBeVisible();
 
   await page.getByTestId("scene-row").nth(1).click();
-  await expect(page.getByTestId("inspector-scene")).toContainText("Scene 02");
+  const inspector = page.getByTestId("inspector-scene");
+  await expect(inspector).toContainText("场景 02");
+  await expect(inspector.getByRole("textbox", { name: "旁白文稿（同时作为底部字幕）" })).toBeVisible();
+  await expect(inspector.getByRole("heading", { name: "画面说明" })).toBeVisible();
+  await expect(inspector.getByRole("heading", { name: "画面素材" })).toBeVisible();
   await expect(page.getByTestId("player-subtitle")).toHaveText(
     "从球囊连接管套装中取出连接管",
   );
@@ -304,12 +308,12 @@ test("点击新增一条直接创建空 Narration 的 Video Scene", async ({ pag
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("scene-row")).toHaveCount(1);
   await expect(page.getByTestId("player-subtitle")).toHaveText("请输入 Narration");
-  await expect(page.getByTestId("inspector-scene")).toContainText("Scene 01");
+  await expect(page.getByTestId("inspector-scene")).toContainText("场景 01");
   await expect(page.getByRole("textbox", { name: "Scene 1 Narration" })).toBeFocused();
 
   await page.getByRole("button", { name: "新增一条", exact: true }).click();
   await expect(page.getByTestId("scene-row")).toHaveCount(2);
-  await expect(page.getByTestId("inspector-scene")).toContainText("Scene 02");
+  await expect(page.getByTestId("inspector-scene")).toContainText("场景 02");
   await expect(page.getByRole("textbox", { name: "Scene 2 Narration" })).toBeFocused();
   await expect.poll(() => savedBodies.length).toBe(2);
   expect(savedBodies[0].scenes).toMatchObject([
@@ -341,7 +345,7 @@ test("新增一条后自动滚动到新增 Scene 并聚焦其 Narration", async 
   await page.getByRole("button", { name: "新增一条", exact: true }).click();
 
   await expect(sceneRows).toHaveCount(14);
-  await expect(page.getByTestId("inspector-scene")).toContainText("Scene 14");
+  await expect(page.getByTestId("inspector-scene")).toContainText("场景 14");
   await expect(page.getByRole("textbox", { name: "Scene 14 Narration" })).toBeFocused();
   await expect(sceneRows.last()).toBeInViewport();
   await expect(sceneRows.first()).not.toBeInViewport();

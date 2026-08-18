@@ -47,7 +47,7 @@ test("V2 只在内存迁移，Project Theme 与 Scene 覆盖保存为严格 V3",
   expect(await readFile(projectFile, "utf8")).toBe(original);
   await page.getByRole("tab", { name: "项目" }).click();
   await expect(page.getByTestId("inspector-project")).toContainText("narracut/default@1");
-  await page.getByRole("button", { name: "项目默认 Text Style：聚焦" }).click();
+  await page.getByRole("button", { name: "项目默认文字样式：聚焦" }).click();
 
   await expect.poll(async () => JSON.parse(await readFile(projectFile, "utf8"))).toMatchObject({
     schemaVersion: 3,
@@ -60,10 +60,10 @@ test("V2 只在内存迁移，Project Theme 与 Scene 覆盖保存为严格 V3",
     },
   });
 
-  await page.getByRole("tab", { name: "Scene" }).click();
+  await page.getByRole("tab", { name: "场景" }).click();
   await expect(page.getByText("继承项目默认", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Scene Text Style：下部标题" }).click();
-  await page.getByRole("button", { name: "Scene Text Motion：横向进入" }).click();
+  await page.getByRole("button", { name: "场景文字样式：下部标题" }).click();
+  await page.getByRole("button", { name: "场景入场动画：横向进入" }).click();
 
   await expect.poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual).toMatchObject({
     textStyleId: "narracut/lower-third@1",
@@ -106,12 +106,12 @@ test("Caption 创建后才显示文字表现，并独立于 Card 与 Subtitle", 
   await page.goto(server.url);
 
   await expect(page.getByRole("heading", { name: "文字表现" })).toHaveCount(0);
-  await page.getByRole("button", { name: "添加 Caption" }).click();
-  await page.getByRole("dialog", { name: "添加 Caption" }).getByRole("textbox", { name: "Caption 正文" }).fill("独立 Caption");
-  await page.getByRole("dialog", { name: "添加 Caption" }).getByRole("button", { name: "添加 Caption" }).click();
+  await page.getByRole("button", { name: "添加画面说明" }).click();
+  await page.getByRole("dialog", { name: "添加画面说明" }).getByRole("textbox", { name: "说明文字" }).fill("独立 Caption");
+  await page.getByRole("dialog", { name: "添加画面说明" }).getByRole("button", { name: "添加画面说明" }).click();
 
   await expect(page.getByRole("heading", { name: "文字表现" })).toBeVisible();
-  await page.getByRole("button", { name: "Scene Text Style：聚焦" }).click();
+  await page.getByRole("button", { name: "场景文字样式：聚焦" }).click();
   await expect.poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual.caption).toEqual({
     text: "独立 Caption",
     textStyleId: "narracut/spotlight@1",
@@ -149,12 +149,12 @@ test("未知 Preset ID 原样可见，并可从相关字段恢复", async ({ pag
   await expect(page.getByTestId("scene-row").first().locator(".status-error")).toHaveText("渲染阻断");
   await page.getByRole("tab", { name: "项目" }).click();
   await expect(page.getByText("vendor/missing-theme@4", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "恢复内置 Theme" }).click();
+  await page.getByRole("button", { name: "恢复内置主题" }).click();
   await expect(page.getByText("vendor/missing-style@7", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "更换为首个内置 Preset" }).click();
-  await page.getByRole("tab", { name: "Scene" }).click();
+  await page.getByRole("button", { name: "更换为首个内置预设" }).click();
+  await page.getByRole("tab", { name: "场景" }).click();
   await expect(page.getByText("vendor/missing-motion@2", { exact: true }).first()).toBeVisible();
-  await page.getByRole("button", { name: "Scene Text Motion：无进场" }).click();
+  await page.getByRole("button", { name: "场景入场动画：无进场" }).click();
 
   await page.getByRole("button", { name: /^检查并渲染/ }).click();
   await expect(page.getByRole("heading", { name: "渲染前检查" })).toBeVisible();

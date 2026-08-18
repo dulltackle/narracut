@@ -43,6 +43,12 @@ const visualLabels: Record<Visual["type"], string> = {
   video: "Video",
 };
 
+const inspectorVisualLabels: Record<Visual["type"], string> = {
+  card: "文字卡片",
+  image: "图片",
+  video: "视频",
+};
+
 function BrandMark() {
   return (
     <div className="mark" aria-hidden="true">
@@ -174,7 +180,7 @@ function ReadonlyScreen() {
           </tbody></table></div>
         </section>
         <section className="pane player-pane"><PaneHeading title="Player" meta="预览不可用" /><div className="stage"><div className="preview-frame"><LockSimple size={48} /><p>{selected?.text ?? "无法安全预览此项目"}</p><span className="preview-badge">仅显示已解析内容</span></div></div></section>
-        <section className="pane inspector-pane"><PaneHeading title="Inspector" meta={selected ? `Scene ${String(selected.index + 1).padStart(2, "0")} · 只读` : "只读"} /><div className="inspector-scroll"><h3>Scene</h3>{selected ? <><label>Narration<textarea value={selected.text} disabled /></label><label>Visual Type<input value={selected.visualType} disabled /></label></> : null}<h3>阻断原因</h3><div className="readonly-note">未知的新 schemaVersion 可能包含当前应用无法安全解释的字段，因此编辑、写入、Job 与渲染均已阻止。</div></div></section>
+        <section className="pane inspector-pane"><PaneHeading title="属性" meta={selected ? `场景 ${String(selected.index + 1).padStart(2, "0")} · 只读` : "只读"} /><div className="inspector-scroll"><h3>场景</h3>{selected ? <><label>旁白文稿<textarea value={selected.text} disabled /></label><label>画面类型<input value={inspectorVisualLabels[selected.visualType as Visual["type"]] ?? selected.visualType} disabled /></label></> : null}<h3>阻断原因</h3><div className="readonly-note">未知的项目格式版本可能包含当前应用无法安全解释的字段，因此编辑、写入、后台任务与渲染均已阻止。</div></div></section>
       </main>
     </div>
   );
@@ -331,8 +337,8 @@ function AddCaptionDialog({
 }) {
   const [text, setText] = useState("");
   return (
-    <ModalFrame title="添加 Caption" description="Caption 是一段不分类用途的正文；提交前 Project DSL 保持不变。" onCancel={onCancel} footer={<><button className="btn" type="button" onClick={onCancel}>取消</button><button className="btn primary" type="button" disabled={text.trim() === ""} onClick={() => onAdd(text)}>添加 Caption</button></>}>
-      <label>Caption 正文<textarea data-autofocus aria-label="Caption 正文" value={text} onChange={(event) => setText(event.target.value)} /></label>
+    <ModalFrame title="添加画面说明" description="画面说明是叠加在图片或视频上的独立文字，不会替换旁白或底部字幕；提交前项目文件保持不变。" onCancel={onCancel} footer={<><button className="btn" type="button" onClick={onCancel}>取消</button><button className="btn primary" type="button" disabled={text.trim() === ""} onClick={() => onAdd(text)}>添加画面说明</button></>}>
+      <label>说明文字<textarea data-autofocus aria-label="说明文字" value={text} onChange={(event) => setText(event.target.value)} /></label>
     </ModalFrame>
   );
 }
@@ -364,11 +370,11 @@ function CardContentDialog({
     });
   };
   return (
-    <ModalFrame title="填写 Card 内容" description="Card 至少需要标签、标题、正文或列表中的一项；提交前 Project DSL 保持不变。" onCancel={onCancel} footer={<><button className="btn" type="button" onClick={onCancel}>取消</button><button className="btn primary" type="button" disabled={!hasContent} onClick={create}>创建 Card</button></>}>
-      <label>Card 标签<input data-autofocus aria-label="Card 标签" value={label} onChange={(event) => setLabel(event.target.value)} /></label>
-      <label>Card 标题<input aria-label="Card 标题" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-      <label>Card 正文<textarea aria-label="Card 正文" value={body} onChange={(event) => setBody(event.target.value)} /></label>
-      <label>Card 列表（每行一项）<textarea aria-label="Card 列表（每行一项）" value={itemsText} onChange={(event) => setItemsText(event.target.value)} /></label>
+    <ModalFrame title="填写文字卡片内容" description="文字卡片至少需要标签、标题、正文或列表中的一项；提交前项目文件保持不变。" onCancel={onCancel} footer={<><button className="btn" type="button" onClick={onCancel}>取消</button><button className="btn primary" type="button" disabled={!hasContent} onClick={create}>创建文字卡片</button></>}>
+      <label>卡片标签<input data-autofocus aria-label="卡片标签" value={label} onChange={(event) => setLabel(event.target.value)} /></label>
+      <label>卡片标题<input aria-label="卡片标题" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+      <label>卡片正文<textarea aria-label="卡片正文" value={body} onChange={(event) => setBody(event.target.value)} /></label>
+      <label>卡片列表（每行一项）<textarea aria-label="卡片列表（每行一项）" value={itemsText} onChange={(event) => setItemsText(event.target.value)} /></label>
     </ModalFrame>
   );
 }
@@ -455,10 +461,10 @@ function CardFields({
   };
   return (
     <>
-      <h3>Card</h3>
-      <CommittedTextField label="Card 标签" value={visual.label ?? ""} onCommit={(value) => commitField("label", value)} />
-      <CommittedTextField label="Card 标题" value={visual.title ?? ""} onCommit={(value) => commitField("title", value)} />
-      <CommittedTextField label="Card 正文" value={visual.body ?? ""} multiline onCommit={(value) => commitField("body", value)} />
+      <h3>文字卡片</h3>
+      <CommittedTextField label="卡片标签" value={visual.label ?? ""} onCommit={(value) => commitField("label", value)} />
+      <CommittedTextField label="卡片标题" value={visual.title ?? ""} onCommit={(value) => commitField("title", value)} />
+      <CommittedTextField label="卡片正文" value={visual.body ?? ""} multiline onCommit={(value) => commitField("body", value)} />
       <div className="bullet-heading"><strong>列表</strong><button className="btn compact" type="button" aria-label="添加列表项" onClick={() => setItemDrafts((items) => [...items, ""])}><Plus />添加</button></div>
       <div className="bullet-list">
         {itemDrafts.map((item, index) => (
@@ -468,7 +474,7 @@ function CardFields({
           </div>
         ))}
       </div>
-      <div className="inspector-note neutral-note">Card 至少保留标签、标题、正文或列表中的一项。</div>
+      <div className="inspector-note neutral-note">文字卡片至少保留标签、标题、正文或列表中的一项。</div>
     </>
   );
 }
@@ -483,9 +489,9 @@ function MediaFields({
   const [addingCaption, setAddingCaption] = useState(false);
   return (
     <>
-      <h3>Caption</h3>
+      <h3>画面说明</h3>
       {hasCaption(visual) ? (
-        <CommittedTextField label="Caption 正文" value={visual.caption.text} multiline onCommit={(text) => {
+        <CommittedTextField label="说明文字" value={visual.caption.text} multiline onCommit={(text) => {
           if (text.trim() === "") {
             const { caption: _caption, ...next } = visual;
             onChange(next);
@@ -494,10 +500,10 @@ function MediaFields({
           }
         }} />
       ) : (
-        <div className="inspector-note neutral-note"><span>当前 Visual 没有 Caption。</span><button className="btn compact" type="button" onClick={() => setAddingCaption(true)}><Plus />添加 Caption</button></div>
+        <div className="inspector-note neutral-note"><span>当前画面没有说明文字；旁白仍会显示为底部字幕。</span><button className="btn compact" type="button" onClick={() => setAddingCaption(true)}><Plus />添加画面说明</button></div>
       )}
-      <h3>Asset</h3>
-      <div className="inspector-note neutral-note">此 Visual 使用现有 Asset 上下文；本票不扩展导入流程。</div>
+      <h3>画面素材</h3>
+      <div className="inspector-note neutral-note">当前画面使用脚本表中已绑定的项目素材。</div>
       {addingCaption ? <AddCaptionDialog onCancel={() => setAddingCaption(false)} onAdd={(text) => { onChange({ ...visual, caption: { text } }); setAddingCaption(false); }} /> : null}
     </>
   );
@@ -863,11 +869,11 @@ function Workspace() {
         </section>
 
         <section className="pane inspector-pane">
-          <PaneHeading title="Inspector" meta={inspectorMode === "project" ? "Project Theme" : selectedScene ? visualLabels[selectedScene.visual.type] : "未选择 Scene"} actions={<div className="inspector-tabs" role="tablist" aria-label="Inspector 范围"><button role="tab" aria-selected={inspectorMode === "scene"} onClick={() => setInspectorMode("scene")}>Scene</button><button role="tab" aria-selected={inspectorMode === "project"} onClick={() => setInspectorMode("project")}>项目</button></div>} />
+          <PaneHeading title="属性" meta={inspectorMode === "project" ? "项目主题" : selectedScene ? inspectorVisualLabels[selectedScene.visual.type] : "未选择场景"} actions={<div className="inspector-tabs" role="tablist" aria-label="属性范围"><button role="tab" aria-selected={inspectorMode === "scene"} onClick={() => setInspectorMode("scene")}>场景</button><button role="tab" aria-selected={inspectorMode === "project"} onClick={() => setInspectorMode("project")}>项目</button></div>} />
           <div className="inspector-scroll" data-testid={inspectorMode === "project" ? "inspector-project" : "inspector-scene"}>
             {inspectorMode === "project" ? (
               <ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={(theme) => void updateTheme(theme)} />
-            ) : selectedScene ? <><h3>Scene {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>Narration<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} /><SceneTextPresentationInspector sceneIndex={selectedSceneIndex} visual={selectedScene.visual} theme={project.theme} diagnostics={diagnostics} onChange={(visual) => void updateVisual(selectedScene.id, visual)} onMotionChange={(visual) => { void updateVisual(selectedScene.id, visual).then(() => { const resolved = previewSnapshot?.scenes.find((candidate) => candidate.scene.id === selectedScene.id); if (resolved) playerRef.current?.seekTo(resolved.startFrame); playerRef.current?.play(); setPlaying(true); }); }} /><label>项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label><div className="inspector-note"><WarningCircle weight="fill" />缺少 Speech 时使用 Draft Duration；最终渲染前仍需补齐。</div></> : null}
+            ) : selectedScene ? <><h3>场景 {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>旁白文稿（同时作为底部字幕）<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} /><SceneTextPresentationInspector sceneIndex={selectedSceneIndex} visual={selectedScene.visual} theme={project.theme} diagnostics={diagnostics} onChange={(visual) => void updateVisual(selectedScene.id, visual)} onMotionChange={(visual) => { void updateVisual(selectedScene.id, visual).then(() => { const resolved = previewSnapshot?.scenes.find((candidate) => candidate.scene.id === selectedScene.id); if (resolved) playerRef.current?.seekTo(resolved.startFrame); playerRef.current?.play(); setPlaying(true); }); }} /><label>素材项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label><div className="inspector-note"><WarningCircle weight="fill" />缺少旁白音频时，预览使用 5 秒草稿时长；最终渲染前仍需生成。</div></> : null}
           </div>
         </section>
       </main>
@@ -887,7 +893,7 @@ function EmptyWorkspace({ project, projectName, diagnostics, onThemeChange, onAd
     <div className="app-shell"><Topbar projectName={projectName} controlsDisabled /><main className="workspace">
       <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setBatchDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行 Narration，我们只按换行拆分，并在真正写入项目之前让你整理完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setBatchDialogOpen(true)}><Plus />粘贴多行 Narration</button><button className="btn" onClick={onAddScene}>新增一条</button></div><small>空白行会被忽略并计数 · Scene 数量不限</small></div></section>
       <section className="pane player-pane"><PaneHeading title="Player" meta="无 Scene" /><div className="stage"><div className="preview-frame empty-preview"><strong>暂无可预览内容</strong><span>创建 Scene 后，这里会显示画面与可储存的字幕层。</span></div></div><div className="player-controls"><button className="play-button" aria-label="播放" disabled><Play weight="fill" /></button><span className="timecode">00:00 / 00:00</span><div className="scrubber"><span /></div></div></section>
-      <section className="pane inspector-pane"><PaneHeading title="Inspector" meta="Project Theme" actions={<div className="inspector-tabs" role="tablist" aria-label="Inspector 范围"><button role="tab" aria-selected="false" disabled>Scene</button><button role="tab" aria-selected="true">项目</button></div>} /><div className="inspector-scroll" data-testid="inspector-project"><ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={onThemeChange} /></div></section>
+      <section className="pane inspector-pane"><PaneHeading title="属性" meta="项目主题" actions={<div className="inspector-tabs" role="tablist" aria-label="属性范围"><button role="tab" aria-selected="false" disabled>场景</button><button role="tab" aria-selected="true">项目</button></div>} /><div className="inspector-scroll" data-testid="inspector-project"><ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={onThemeChange} /></div></section>
     </main>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={0} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
     </div>
