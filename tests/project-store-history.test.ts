@@ -392,6 +392,39 @@ describe("Project DSL 事务历史", () => {
     expect(useProjectStore.getState().undoStack.at(-1)?.label).toBe(
       "应用 Scene 01 Asset",
     );
+
+    await useProjectStore.getState().undo();
+    expect(useProjectStore.getState().project?.scenes[0].visual).toEqual({
+      type: "image",
+    });
+    expect(useProjectStore.getState().project?.assets).toContainEqual(
+      expect.objectContaining({ id: importedAssetId, kind: "image" }),
+    );
+  });
+
+  it("失效提案可先登记为未绑定 Asset，清除绑定只形成一次可撤销事务", async () => {
+    const imported = {
+      id: importedAssetId,
+      kind: "image" as const,
+      path: `assets/${importedAssetId}.png`,
+    };
+    expect(await useProjectStore.getState().registerAsset(imported)).toBe(true);
+    expect(useProjectStore.getState().undoStack).toHaveLength(0);
+    expect(useProjectStore.getState().project?.assets).toContainEqual(imported);
+
+    await useProjectStore.getState().bindAsset(sceneId, importedAssetId);
+    expect(await useProjectStore.getState().clearAsset(sceneId)).toBe(true);
+    expect(useProjectStore.getState().project?.scenes[0].visual).toEqual({
+      type: "image",
+    });
+    expect(useProjectStore.getState().historyNotice).toBe("已清除绑定 · 可撤销");
+
+    await useProjectStore.getState().undo();
+    expect(useProjectStore.getState().project?.scenes[0].visual).toEqual({
+      type: "image",
+      assetId: importedAssetId,
+    });
+    expect(useProjectStore.getState().project?.assets).toContainEqual(imported);
   });
 
   it("运行态不进入历史，Undo 回填只写 Project DSL", async () => {

@@ -6,9 +6,12 @@ import { isAbsolute as isPosixAbsolute } from "node:path/posix";
 
 import serveHandler from "serve-handler";
 
+import { ImageImportJobError, ImageImportJobs } from "./image-import-jobs";
+
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3579;
 const MAX_PROJECT_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_IMPORT_BYTES = 100 * 1024 * 1024;
 const PROJECT_LEASE_TTL_MS = 3_000;
 const BACKUP_KINDS = new Set(["pre-migration", "external-conflict"]);
 
@@ -49,15 +52,19 @@ function send(
   response.end(body);
 }
 
-async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
+async function readRequestBody(
+  request: IncomingMessage,
+  limit = MAX_PROJECT_BYTES,
+  tooLargeMessage = "Project DSL 超过 10 MiB 上限。",
+): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
 
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.byteLength;
-    if (size > MAX_PROJECT_BYTES) {
-      throw new HttpError(413, "Project DSL 超过 10 MiB 上限。");
+    if (size > limit) {
+      throw new HttpError(413, tooLargeMessage);
     }
     chunks.push(buffer);
   }
@@ -280,6 +287,8 @@ export async function startNarracutServer({
     throw new Error(`${staticIndexFile} 不是有效的 SPA 入口文件。`);
   }
   const projectRealRoot = await realpath(projectRoot);
+  const imageImportJobs = new ImageImportJobs(projectRoot);
+  const eventStreams = new Set<ServerResponse>();
   let lease: { sessionId: string; expiresAt: number } | undefined;
   let projectMutationQueue: Promise<void> = Promise.resolve();
 
@@ -501,6 +510,83 @@ export async function startNarracutServer({
         return;
       }
 
+      if (url.pathname === "/api/jobs/events" && request.method === "GET") {
+        response.writeHead(200, {
+          "cache-control": "no-store",
+          connection: "keep-alive",
+          "content-type": "text/event-stream; charset=utf-8",
+          "x-accel-buffering": "no",
+        });
+        response.write(": connected\n\n");
+        eventStreams.add(response);
+        for (const job of imageImportJobs.list()) {
+          response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
+        }
+        const unsubscribe = imageImportJobs.subscribe((job) => {
+          if (!response.destroyed) {
+            response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
+          }
+        });
+        request.once("close", () => {
+          unsubscribe();
+          eventStreams.delete(response);
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/jobs/image-import" && request.method === "POST") {
+        requireLease(request);
+        const rawFileName = request.headers["x-narracut-file-name"];
+        const sceneId = request.headers["x-narracut-scene-id"];
+        if (typeof rawFileName !== "string" || typeof sceneId !== "string") {
+          throw new HttpError(400, "图片导入必须包含文件名与目标 Scene ID。");
+        }
+        let fileName: string;
+        try {
+          fileName = decodeURIComponent(rawFileName);
+        } catch {
+          throw new HttpError(400, "图片文件名无效。");
+        }
+        if (
+          fileName.length === 0 ||
+          fileName.length > 512 ||
+          /[\0\r\n]/u.test(fileName) ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+            sceneId,
+          )
+        ) {
+          throw new HttpError(400, "图片文件名或目标 Scene ID 无效。");
+        }
+        const source = await readRequestBody(
+          request,
+          MAX_IMAGE_IMPORT_BYTES,
+          "图片导入源超过 100 MiB 上限。",
+        );
+        if (source.byteLength === 0) throw new HttpError(400, "图片导入源为空。");
+        send(
+          response,
+          202,
+          JSON.stringify({ job: imageImportJobs.create({ sceneId, fileName, source }) }),
+          "application/json; charset=utf-8",
+        );
+        return;
+      }
+
+      const jobMatch = /^\/api\/jobs\/([0-9a-f-]+)$/iu.exec(url.pathname);
+      if (jobMatch !== null && request.method === "GET") {
+        const job = imageImportJobs.get(jobMatch[1]);
+        if (job === undefined) throw new HttpError(404, "找不到这个 Job。");
+        send(response, 200, JSON.stringify(job), "application/json; charset=utf-8");
+        return;
+      }
+      if (jobMatch !== null && request.method === "DELETE") {
+        requireLease(request);
+        const job = imageImportJobs.cancel(jobMatch[1]);
+        if (job === undefined) throw new HttpError(404, "找不到这个 Job。");
+        send(response, 200, JSON.stringify(job), "application/json; charset=utf-8");
+        return;
+      }
+
       if (url.pathname.startsWith("/api/")) {
         send(response, 404, "未知项目 API。");
         return;
@@ -557,7 +643,11 @@ export async function startNarracutServer({
     } catch (error) {
       if (response.headersSent) return;
       const message = error instanceof Error ? error.message : "未知本地服务错误。";
-      send(response, error instanceof HttpError ? error.statusCode : 500, message);
+      const statusCode =
+        error instanceof HttpError || error instanceof ImageImportJobError
+          ? error.statusCode
+          : 500;
+      send(response, statusCode, message);
     }
   });
 
@@ -569,9 +659,12 @@ export async function startNarracutServer({
       withProjectLock(async () => {
         lease = undefined;
       }),
-    close: () =>
-      new Promise<void>((resolvePromise, rejectPromise) => {
+    close: () => {
+      for (const stream of eventStreams) stream.end();
+      eventStreams.clear();
+      return new Promise<void>((resolvePromise, rejectPromise) => {
         server.close((error) => (error ? rejectPromise(error) : resolvePromise()));
-      }),
+      });
+    },
   };
 }

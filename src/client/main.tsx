@@ -11,12 +11,14 @@ import { CircleNotch } from "@phosphor-icons/react/CircleNotch";
 import { ClipboardText } from "@phosphor-icons/react/ClipboardText";
 import { DotsSixVertical } from "@phosphor-icons/react/DotsSixVertical";
 import { FilmSlate } from "@phosphor-icons/react/FilmSlate";
+import { ImageSquare } from "@phosphor-icons/react/ImageSquare";
 import { ListChecks } from "@phosphor-icons/react/ListChecks";
 import { LockSimple } from "@phosphor-icons/react/LockSimple";
 import { Pause } from "@phosphor-icons/react/Pause";
 import { Play } from "@phosphor-icons/react/Play";
 import { Plus } from "@phosphor-icons/react/Plus";
 import { Trash } from "@phosphor-icons/react/Trash";
+import { UploadSimple } from "@phosphor-icons/react/UploadSimple";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { X } from "@phosphor-icons/react/X";
 
@@ -30,6 +32,12 @@ import {
   validateRenderReadiness,
 } from "../remotion/render-snapshot";
 import { useProjectStore } from "./project-store";
+import {
+  imageImportStageCopy,
+  latestImageJobForScene,
+  useImageImportStore,
+  type ClientImageImportJob,
+} from "./image-import-store";
 import {
   ProjectThemeInspector,
   SceneTextPresentationInspector,
@@ -266,6 +274,9 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   const persistedProjectName = useProjectStore((state) => state.project?.metadata.name);
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
   const projectDiagnostics = useProjectStore((state) => state.diagnostics);
+  const imageJobCount = useImageImportStore(
+    (state) => Object.keys(state.jobs).length,
+  );
   const diagnostics = renderDiagnostics ?? projectDiagnostics;
   const updateProjectName = useProjectStore((state) => state.updateProjectName);
   const undoStack = useProjectStore((state) => state.undoStack);
@@ -328,7 +339,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
         </div>
         {historyNotice === undefined ? null : <div key={historyEventId} className="history-feedback" role="status" aria-live="polite">{historyNotice}</div>}
       </div>
-      <div className="top-actions"><button className="btn" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length}</span></button><button className="btn primary" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><FilmSlate />{readOnly ? "检查并渲染" : renderBlockers.length > 0 ? `检查并渲染 · ${renderBlockers.length}` : "渲染 MP4"}</button></div>
+      <div className="top-actions"><button className="btn" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length + imageJobCount}</span></button><button className="btn primary" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><FilmSlate />{readOnly ? "检查并渲染" : renderBlockers.length > 0 ? `检查并渲染 · ${renderBlockers.length}` : "渲染 MP4"}</button></div>
     </header>
   );
 }
@@ -360,14 +371,255 @@ function sceneAssetStatus(
   return { className: "status-ready", label: "可编辑草稿" };
 }
 
-function sceneAssetCopy(scene: Scene, asset: Asset | undefined) {
-  if (scene.visual.type === "card") {
-    return { primary: "不适用", secondary: "生成型画面" };
+function mediaUrl(path: string): string {
+  return `/media/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function AssetThumbnail({ asset, label }: { asset: Asset; label: string }) {
+  const available = useProjectStore(
+    (state) => state.mediaAvailability[asset.path] === true,
+  );
+  if (!available) {
+    return (
+      <span className="asset-thumbnail asset-thumbnail-missing" role="img" aria-label={`${label}（文件不可用）`}>
+        <ImageSquare aria-hidden="true" />
+      </span>
+    );
   }
-  return {
-    primary: asset?.path.split("/").at(-1) ?? "尚未绑定",
-    secondary: asset ? "项目相对路径" : "需要 Asset",
+  return (
+    <img
+      className="asset-thumbnail"
+      src={mediaUrl(asset.path)}
+      alt=""
+      aria-label={label}
+    />
+  );
+}
+
+function AssetCell({
+  scene,
+  sceneIndex,
+  asset,
+}: {
+  scene: Scene;
+  sceneIndex: number;
+  asset: Asset | undefined;
+}) {
+  const jobs = useImageImportStore((state) => state.jobs);
+  const startImport = useImageImportStore((state) => state.startImport);
+  const cancel = useImageImportStore((state) => state.cancel);
+  const retry = useImageImportStore((state) => state.retry);
+  const showPending = useImageImportStore((state) => state.showPending);
+  const clearAsset = useProjectStore((state) => state.clearAsset);
+  const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const job = latestImageJobForScene(jobs, scene.id);
+  const active =
+    job?.status === "queued" ||
+    job?.status === "processing" ||
+    job?.status === "cancelling";
+  const sourceName = Object.values(jobs).find(
+    (candidate) => candidate.result?.asset.id === asset?.id,
+  )?.fileName;
+  const assetName = sourceName ?? asset?.path.split("/").at(-1) ?? "";
+  const chooseFile = () => inputRef.current?.click();
+  const input =
+    scene.visual.type === "image" ? (
+      <input
+        ref={inputRef}
+        className="asset-file-input"
+        type="file"
+        accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+        aria-label={`为 Scene ${sceneIndex + 1} 选择图片`}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (file !== undefined) void startImport(scene.id, file);
+        }}
+      />
+    ) : null;
+
+  if (scene.visual.type === "card") {
+    return (
+      <div className="asset-cell asset-not-applicable" data-asset-cell-scene-id={scene.id}>
+        <ImageSquare aria-hidden="true" />
+        <span><strong>不适用</strong><small>生成型画面</small></span>
+      </div>
+    );
+  }
+
+  if (scene.visual.type !== "image") {
+    return (
+      <div className="asset-cell asset-not-applicable" data-asset-cell-scene-id={scene.id}>
+        <ImageSquare aria-hidden="true" />
+        <span><strong>视频 Asset</strong><small>本票不提供导入</small></span>
+      </div>
+    );
+  }
+
+  if (active && job !== undefined) {
+    return (
+      <div className="asset-cell asset-job" data-asset-cell-scene-id={scene.id} role="status">
+        {input}
+        <div className="asset-job-copy">
+          <strong title={job.cancelError ?? job.fileName} tabIndex={0} role={job.cancelError ? "alert" : undefined}>{job.cancelError ?? job.fileName}</strong>
+          <small>{job.cancelError ? `${job.fileName} · 可再次取消` : imageImportStageCopy[job.stage]}</small>
+          {job.status === "processing" ? <span className="asset-progress" aria-hidden="true"><i /></span> : null}
+        </div>
+        <button className="asset-icon-button" type="button" aria-label={`取消导入 ${job.fileName}`} disabled={job.status === "cancelling"} onClick={() => void cancel(job.id)}><X /></button>
+      </div>
+    );
+  }
+
+  if (job?.status === "failed" || job?.resolution === "registration-failed") {
+    return (
+      <div className="asset-cell asset-job asset-job-failed" data-asset-cell-scene-id={scene.id}>
+        {input}
+        <div className="asset-job-copy">
+          <strong title={job.fileName} tabIndex={0}>{job.error?.message ?? "图片导入失败"}</strong>
+          <small>{asset ? "旧绑定保持不变" : job.resolution === "registration-failed" ? "尚未建立绑定" : job.fileName}</small>
+        </div>
+        <div className="asset-actions">
+          <button className="asset-icon-button" type="button" aria-label={`重试导入 ${job.fileName}`} onClick={() => void retry(job.id)}><ArrowCounterClockwise /></button>
+          <button className="asset-icon-button" type="button" aria-label="重新选择图片" onClick={chooseFile}><UploadSimple /></button>
+        </div>
+      </div>
+    );
+  }
+
+  if (job?.resolution === "changed" || job?.resolution === "incompatible") {
+    return (
+      <div className="asset-cell asset-pending" data-asset-cell-scene-id={scene.id}>
+        {input}
+        {asset ? <AssetThumbnail asset={asset} label={`Scene ${sceneIndex + 1} 当前图片`} /> : <ImageSquare aria-hidden="true" />}
+        <span><strong>导入结果待确认</strong><small>{job.resolution === "changed" ? "Scene 已发生变化" : "Visual 已不兼容"}</small></span>
+        <button className="asset-icon-button" type="button" aria-label="查看并确认图片导入结果" onClick={() => { showPending(job.id); setTaskDrawerOpen(true); }}><ListChecks /></button>
+      </div>
+    );
+  }
+
+  if (asset !== undefined) {
+  const enlarged =
+      job?.result?.asset.id === asset.id && job.result.facts.enlarged;
+    const cleanupFailed = job?.error?.cleanupFailed === true;
+    return (
+      <div className="asset-cell asset-bound" data-asset-cell-scene-id={scene.id}>
+        {input}
+        <AssetThumbnail asset={asset} label={`Scene ${sceneIndex + 1} 已绑定图片`} />
+        <span className="asset-bound-copy">
+          <strong title={assetName} tabIndex={0}>{assetName}</strong>
+          <small className={enlarged || cleanupFailed ? "asset-warning" : undefined}>{cleanupFailed ? "临时文件清理失败 · 查看任务" : enlarged ? "已放大到 1080p" : "PNG · 1920×1080"}</small>
+        </span>
+        <div className="asset-actions">
+          <button className="asset-icon-button" type="button" aria-label={`替换 Scene ${sceneIndex + 1} 图片`} onClick={chooseFile}><UploadSimple /></button>
+          <button className="asset-icon-button danger-button" type="button" aria-label={`清除 Scene ${sceneIndex + 1} 图片绑定`} onClick={() => void clearAsset(scene.id)}><Trash /></button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="asset-cell asset-empty" data-asset-cell-scene-id={scene.id}>
+      {input}
+      <button className="asset-import-button" type="button" onClick={chooseFile}><UploadSimple />导入图片</button>
+      <small>{job?.status === "cancelled" ? "已取消 · PNG、JPEG 或 WebP" : "PNG、JPEG 或 WebP"}</small>
+    </div>
+  );
+}
+
+function ImageProposalDialog({ job }: { job: ClientImageImportJob }) {
+  const project = useProjectStore((state) => state.project);
+  const applyPending = useImageImportStore((state) => state.applyPending);
+  const keepPending = useImageImportStore((state) => state.keepPending);
+  const hidePending = useImageImportStore((state) => state.hidePending);
+  const currentScene = project?.scenes.find((scene) => scene.id === job.sceneId);
+  const currentAsset = project?.assets.find(
+    (asset) =>
+      currentScene?.visual.type === "image" && asset.id === currentScene.visual.assetId,
+  );
+  const newAsset = job.result?.asset;
+  const restoreFocus = () =>
+    requestAnimationFrame(() => {
+      const cell = document.querySelector<HTMLElement>(
+        `[data-asset-cell-scene-id="${job.sceneId}"]`,
+      );
+      cell?.setAttribute("tabindex", "-1");
+      cell?.focus();
+    });
+  const keep = () => {
+    keepPending(job.id);
+    restoreFocus();
   };
+  const close = () => {
+    hidePending(job.id);
+    restoreFocus();
+  };
+  const apply = async () => {
+    if (await applyPending(job.id)) restoreFocus();
+  };
+  const compatible = job.resolution === "changed";
+  return (
+    <ModalFrame
+      title={compatible ? "图片已导入，Scene 已发生变化" : "图片已导入，但 Visual 已不兼容"}
+      description={compatible ? "导入期间当前绑定发生了变化。请明确选择保留哪张图片。" : "新图片已作为未绑定 Asset 保留，但不能应用到当前 Visual。"}
+      onCancel={close}
+      footer={compatible ? <><button className="btn" type="button" data-autofocus onClick={keep}>保留当前绑定</button><button className="btn primary" type="button" onClick={() => void apply()}>应用新图片</button></> : <button className="btn primary" type="button" data-autofocus onClick={keep}>保留为未绑定 Asset</button>}
+    >
+      {job.proposalError ? <div className="asset-proposal-error" role="alert"><WarningCircle weight="fill" />{job.proposalError}</div> : null}
+      <div className="asset-comparison">
+        <section><span>当前绑定</span>{currentAsset ? <AssetThumbnail asset={currentAsset} label="当前绑定图片" /> : <div className="asset-comparison-empty"><ImageSquare /><small>未绑定</small></div>}<strong>{currentAsset?.path.split("/").at(-1) ?? "未绑定"}</strong></section>
+        <section><span>新图片</span>{newAsset ? <AssetThumbnail asset={newAsset} label="新导入图片" /> : null}<strong>{job.fileName}</strong></section>
+      </div>
+    </ModalFrame>
+  );
+}
+
+function ImageJobTask({ job }: { job: ClientImageImportJob }) {
+  const cancel = useImageImportStore((state) => state.cancel);
+  const retry = useImageImportStore((state) => state.retry);
+  const showPending = useImageImportStore((state) => state.showPending);
+  const active =
+    job.status === "queued" ||
+    job.status === "processing" ||
+    job.status === "cancelling";
+  const visiblyFailed =
+    job.status === "failed" ||
+    job.resolution === "registration-failed" ||
+    job.cancelError !== undefined ||
+    job.error?.cleanupFailed === true;
+  const resolutionCopy =
+    job.cancelError ??
+    (job.error?.cleanupFailed ? job.error.message : undefined) ??
+    (job.resolution === "registration-failed"
+      ? `${job.error?.message ?? "无法登记导入后的 Asset"} · ${job.expected.assetId ? "旧绑定保持不变" : "尚未建立绑定"}`
+      : job.resolution === "orphaned"
+      ? "图片已导入，但目标 Scene 已删除"
+      : job.resolution === "changed" || job.resolution === "incompatible"
+        ? "导入结果待确认"
+        : job.resolution === "kept"
+          ? "已保留为未绑定 Asset"
+          : job.resolution === "applied" || job.resolution === "auto-applied"
+            ? job.result?.facts.enlarged
+              ? "已应用 · 已放大到 1080p"
+              : "已导入并应用"
+            : job.error?.message ?? imageImportStageCopy[job.stage]);
+  return (
+    <article className={`image-job-task ${job.status}${visiblyFailed ? " is-error" : ""}`} data-testid="image-import-task">
+      <div className="image-job-icon" aria-hidden="true">
+        {visiblyFailed ? <WarningCircle weight="fill" /> : job.status === "processing" || job.status === "queued" || job.status === "cancelling" ? <CircleNotch className="spinner-inline" /> : <ImageSquare weight="fill" />}
+      </div>
+      <div className="image-job-detail">
+        <strong title={job.fileName}>{job.fileName}</strong>
+        <span>{resolutionCopy}</span>
+        <code>Scene · {job.sceneId.slice(0, 8)}</code>
+      </div>
+      <div className="image-job-actions">
+        {active && job.status !== "cancelling" ? <button className="btn compact" type="button" onClick={() => void cancel(job.id)}>{job.cancelError ? "再次取消" : "取消"}</button> : null}
+        {job.status === "failed" || job.resolution === "registration-failed" ? <button className="btn compact" type="button" onClick={() => void retry(job.id)}>{job.resolution === "registration-failed" ? "重新登记" : "重试"}</button> : null}
+        {job.resolution === "changed" || job.resolution === "incompatible" ? <button className="btn compact" type="button" onClick={() => showPending(job.id)}>查看并确认</button> : null}
+      </div>
+    </article>
+  );
 }
 
 function openNarrationPopover(popoverId: string, editorId: string) {
@@ -782,6 +1034,9 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const externalConflict = useProjectStore((state) => state.externalConflict);
   const migrationPending = useProjectStore((state) => state.migrationPending);
   const migrationSavedNotice = useProjectStore((state) => state.migrationSavedNotice);
+  const imageJobs = useImageImportStore((state) => state.jobs);
+  const imageJobAnnouncement = useImageImportStore((state) => state.announcement);
+  const connectImageJobs = useImageImportStore((state) => state.connect);
   const workspaceDisabled = occupied || externalConflict !== undefined;
   const [playing, setPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(0);
@@ -834,6 +1089,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     [project, mediaAvailability],
   );
   const previousPreviewSnapshotRef = useRef(previewSnapshot);
+  useEffect(() => connectImageJobs(), [connectImageJobs]);
   useEffect(() => {
     if (
       previousPreviewSnapshotRef.current !== previewSnapshot &&
@@ -940,6 +1196,14 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     project.scenes.find((scene) => scene.id === selectedSceneId) ?? project.scenes[0];
   const selectedAsset = selectedScene ? assetForScene(selectedScene, assets) : undefined;
   const projectName = project.metadata.name || info?.fallbackName || "未命名项目";
+  const imageJobList = Object.values(imageJobs).sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  );
+  const pendingImageProposal = imageJobList.find(
+    (job) =>
+      job.proposalDialogOpen &&
+      (job.resolution === "changed" || job.resolution === "incompatible"),
+  );
   const selectedSceneIndex = selectedScene ? project.scenes.indexOf(selectedScene) : -1;
   const playingResolved =
     previewSnapshot === undefined
@@ -1150,7 +1414,6 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
             <table className="scene-table"><thead><tr><th>顺序</th><th>Narration</th><th>Visual Type</th><th>Asset</th><th>Speech</th><th>状态</th></tr></thead><tbody>
               {project.scenes.map((scene, index) => {
                 const asset = assetForScene(scene, assets);
-                const assetCopy = sceneAssetCopy(scene, asset);
                 const sceneDiagnostics = renderDiagnostics.filter(
                   (diagnostic) => diagnostic.sceneId === scene.id,
                 );
@@ -1171,7 +1434,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
                       </section>
                     </div></td>
                     <td><div className="table-cell visual-type-cell"><select data-visual-type-scene-id={scene.id} aria-label={`Scene ${index + 1} Visual Type`} value={scene.visual.type} onClick={(event) => event.stopPropagation()} onChange={(event) => requestVisualChange(scene, event.target.value as VisualType, event.currentTarget)}>{(Object.keys(visualLabels) as VisualType[]).map((type) => <option key={type} value={type}>{visualLabels[type]}</option>)}</select><span>{captionForVisual(scene.visual) ?? (scene.visual.type === "card" ? "结构化文字画面" : "标准画面")}</span></div></td>
-                    <td><div className="table-cell"><strong>{assetCopy.primary}</strong><span>{assetCopy.secondary}</span></div></td>
+                    <td><AssetCell scene={scene} sceneIndex={index} asset={asset} /></td>
                     <td><div className="table-cell"><strong>{scene.speech ? "已生成" : "缺少 Speech"}</strong><span>{scene.speech ? `${(scene.speech.durationMs / 1000).toFixed(1)} 秒` : "使用 Draft Duration"}</span></div></td>
                     <td><span className={assetStatus.className}>{assetStatus.label}</span></td>
                   </tr>
@@ -1286,6 +1549,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}>
         <header><h2>渲染前检查</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>
         <div className="task-groups">
+          {imageJobList.length > 0 ? <section><h3>图片导入</h3><div className="image-job-list">{imageJobList.map((job) => <ImageJobTask key={job.id} job={job} />)}</div></section> : null}
           {saveDiagnostics.length > 0 ? <section><h3>保存问题</h3><div className="task-diagnostics">{saveDiagnostics.map((diagnostic) => <div key={`save-${diagnostic.code}-${diagnostic.path.join(".")}`} className="error"><WarningCircle weight="fill" /><span><strong>阻止保存</strong>{diagnostic.message}<code>{diagnostic.path.join(".") || "project.json"}</code></span></div>)}</div></section> : null}
           <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <div key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断" : "提醒"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></div>)}</div>}</section>
         </div>
@@ -1294,6 +1558,8 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       {cardChoice ? <CardContentDialog onCancel={() => { const trigger = cardChoice.trigger; setCardChoice(undefined); restoreVisualTrigger(trigger); }} onCreate={(card) => { const choice = cardChoice; setCardChoice(undefined); stageVisualMigration(choice.sceneId, "card", choice.trigger, card); }} /> : null}
       {pendingVisualChange ? <VisualLossDialog losses={pendingVisualChange.losses} onCancel={() => { const trigger = pendingVisualChange.trigger; setPendingVisualChange(undefined); restoreVisualTrigger(trigger); }} onConfirm={() => { const change = pendingVisualChange; setPendingVisualChange(undefined); void updateVisual(change.sceneId, change.visual); restoreVisualTrigger(change.trigger); }} /> : null}
       </fieldset>
+      <div className="sr-only" aria-live="polite">{imageJobAnnouncement}</div>
+      {pendingImageProposal ? <ImageProposalDialog job={pendingImageProposal} /> : null}
       <ExternalConflictDialog />
     </div>
   );

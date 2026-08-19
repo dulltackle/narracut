@@ -119,7 +119,9 @@ type ProjectState = {
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   clearHistoryNotice: () => void;
+  registerAsset: (asset: Asset) => Promise<boolean>;
   bindAsset: (sceneId: string, assetId: string) => Promise<boolean>;
+  clearAsset: (sceneId: string) => Promise<boolean>;
   applyJobResult: (result: ProjectJobResult) => Promise<boolean>;
   updateVisual: (sceneId: string, visual: Visual) => Promise<void>;
   reorderScene: (sceneId: string, targetIndex: number) => Promise<void>;
@@ -161,6 +163,7 @@ let leaseRecheckTimer: ReturnType<typeof setTimeout> | undefined;
 let loadGeneration = 0;
 let lifecycleListenersInstalled = false;
 const sessionId = globalThis.crypto.randomUUID();
+export const getProjectSessionId = (): string => sessionId;
 let nextHistoryEntryId = 0;
 let textTransaction:
   | { key: string; entryId: number; lastEditAt: number }
@@ -1300,6 +1303,31 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await scheduleProjectSave(project, "immediate", set, get);
   },
   clearHistoryNotice: () => set({ historyNotice: undefined }),
+  registerAsset: async (asset) => {
+    const project = get().project;
+    if (project === undefined || !canMutateProject(get)) return false;
+    const existing = project.assets.find((candidate) => candidate.id === asset.id);
+    if (existing !== undefined) return sameSerializableValue(existing, asset);
+    const nextProject: Project = {
+      ...project,
+      assets: [...project.assets, asset],
+    };
+    const structural = validateProjectStructure(nextProject);
+    const diagnostics = structural.success
+      ? validateProjectConsistency(structural.project)
+      : structural.diagnostics;
+    if (!structural.success || hasSaveBlockingError(diagnostics)) {
+      throw new Error(structuralErrorMessage(diagnostics));
+    }
+    finishTextTransaction();
+    set((state) => ({
+      project: structural.project,
+      diagnostics,
+      mediaAvailability: { ...state.mediaAvailability, [asset.path]: true },
+    }));
+    await scheduleProjectSave(structural.project, "immediate", set, get);
+    return true;
+  },
   bindAsset: async (sceneId, assetId) => {
     const project = get().project;
     if (project === undefined || !canMutateProject(get)) return false;
@@ -1348,6 +1376,55 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await scheduleProjectSave(structural.project, "immediate", set, get);
     return true;
   },
+  clearAsset: async (sceneId) => {
+    const project = get().project;
+    if (project === undefined || !canMutateProject(get)) return false;
+    const sceneIndex = project.scenes.findIndex((scene) => scene.id === sceneId);
+    const scene = project.scenes[sceneIndex];
+    if (
+      scene === undefined ||
+      scene.visual.type === "card" ||
+      scene.visual.assetId === undefined
+    ) {
+      return false;
+    }
+    const nextProject: Project = {
+      ...project,
+      scenes: project.scenes.map((candidate) => {
+        if (candidate.id !== sceneId || candidate.visual.type === "card") {
+          return candidate;
+        }
+        const { assetId: _assetId, ...visual } = candidate.visual;
+        return { ...candidate, visual };
+      }),
+    };
+    const structural = validateProjectStructure(nextProject);
+    const diagnostics = structural.success
+      ? validateProjectConsistency(structural.project)
+      : structural.diagnostics;
+    if (!structural.success || hasSaveBlockingError(diagnostics)) {
+      throw new Error(structuralErrorMessage(diagnostics));
+    }
+    finishTextTransaction();
+    const entry: HistoryEntry = {
+      id: ++nextHistoryEntryId,
+      before: immutableProject(project),
+      after: immutableProject(structural.project),
+      label: `清除 Scene ${String(sceneIndex + 1).padStart(2, "0")} Asset 绑定`,
+      sceneId,
+      focusTarget: "visual-type",
+    };
+    set((state) => ({
+      project: structural.project,
+      diagnostics,
+      undoStack: [...state.undoStack, entry].slice(-HISTORY_LIMIT),
+      redoStack: [],
+      historyNotice: "已清除绑定 · 可撤销",
+      historyEventId: state.historyEventId + 1,
+    }));
+    await scheduleProjectSave(structural.project, "immediate", set, get);
+    return true;
+  },
   applyJobResult: async (result) => {
     const project = get().project;
     if (project === undefined || !canMutateProject(get)) return false;
@@ -1358,6 +1435,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (scene === undefined) return false;
 
     let nextProject: Project;
+    let historyBefore = project;
     let label: string;
     let notice: string;
     if (result.kind === "speech") {
@@ -1391,12 +1469,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ) {
         return false;
       }
+      const projectWithAsset: Project =
+        existingAsset === undefined
+          ? { ...project, assets: [...project.assets, result.asset] }
+          : project;
+      historyBefore = projectWithAsset;
       nextProject = {
-        ...project,
-        assets:
-          existingAsset === undefined
-            ? [...project.assets, result.asset]
-            : project.assets,
+        ...projectWithAsset,
         scenes: project.scenes.map((candidate) =>
           candidate.id === result.sceneId && candidate.visual.type !== "card"
             ? {
@@ -1420,7 +1499,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     finishTextTransaction();
     const entry: HistoryEntry = {
       id: ++nextHistoryEntryId,
-      before: immutableProject(project),
+      before: immutableProject(historyBefore),
       after: immutableProject(structural.project),
       label,
       sceneId: result.sceneId,
@@ -1429,6 +1508,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((state) => ({
       project: structural.project,
       diagnostics,
+      mediaAvailability:
+        result.kind === "asset"
+          ? { ...state.mediaAvailability, [result.asset.path]: true }
+          : state.mediaAvailability,
       undoStack: [...state.undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
       historyNotice: notice,
