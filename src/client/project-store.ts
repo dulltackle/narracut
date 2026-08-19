@@ -142,11 +142,25 @@ const renderOnlyDiagnosticCodes = new Set([
   "LOGO_ASSET_KIND_MISMATCH",
 ]);
 
+const inspectableProjectDiagnosticCodes = new Set([
+  "SCENE_ASSET_MISSING",
+  "SCENE_ASSET_KIND_MISMATCH",
+]);
+
 function hasSaveBlockingError(diagnostics: Diagnostic[]): boolean {
   return diagnostics.some(
     (diagnostic) =>
       diagnostic.severity === "error" &&
       !renderOnlyDiagnosticCodes.has(diagnostic.code),
+  );
+}
+
+function hasLoadBlockingError(diagnostics: Diagnostic[]): boolean {
+  return diagnostics.some(
+    (diagnostic) =>
+      diagnostic.severity === "error" &&
+      !renderOnlyDiagnosticCodes.has(diagnostic.code) &&
+      !inspectableProjectDiagnosticCodes.has(diagnostic.code),
   );
 }
 
@@ -299,7 +313,7 @@ function parseProjectBytes(raw: string): {
       };
     }
     const diagnostics = validateProjectConsistency(structural.project);
-    if (hasSaveBlockingError(diagnostics)) {
+    if (hasLoadBlockingError(diagnostics)) {
       return {
         migrated: schemaVersion < CURRENT_SCHEMA_VERSION,
         diagnostics,
@@ -910,7 +924,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }
 
       const diagnostics = validateProjectConsistency(structural.project);
-      if (hasSaveBlockingError(diagnostics)) {
+      if (hasLoadBlockingError(diagnostics)) {
         set({
           phase: "error",
           info,

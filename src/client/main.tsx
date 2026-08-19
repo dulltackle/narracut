@@ -161,7 +161,28 @@ function safeUnknownScenes(project: Record<string, unknown> | undefined) {
       typeof Reflect.get(visual, "type") === "string"
         ? String(Reflect.get(visual, "type"))
         : "未知";
-    return [{ index, text, visualType }];
+    const assetId =
+      typeof visual === "object" && visual !== null &&
+      typeof Reflect.get(visual, "assetId") === "string"
+        ? String(Reflect.get(visual, "assetId"))
+        : undefined;
+    return [{ index, text, visualType, assetId }];
+  });
+}
+
+function safeUnknownAssets(project: Record<string, unknown> | undefined): Asset[] {
+  if (!Array.isArray(project?.assets)) return [];
+  return project.assets.flatMap((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+    const id = Reflect.get(value, "id");
+    const kind = Reflect.get(value, "kind");
+    const path = Reflect.get(value, "path");
+    if (
+      typeof id !== "string" ||
+      (kind !== "image" && kind !== "video") ||
+      typeof path !== "string"
+    ) return [];
+    return [{ id, kind, path }];
   });
 }
 
@@ -170,6 +191,40 @@ function ReadonlyScreen() {
   const project = useProjectStore((state) => state.unknownProject);
   const version = useProjectStore((state) => state.unknownVersion);
   const scenes = safeUnknownScenes(project);
+  const readonlyAssets = useMemo(() => safeUnknownAssets(project), [project]);
+  const assets = useMemo(
+    () => new Map(readonlyAssets.map((asset) => [asset.id, asset])),
+    [readonlyAssets],
+  );
+  const [mediaAvailability, setMediaAvailability] = useState<Record<string, boolean>>({});
+  const [assetPreview, setAssetPreview] = useState<{
+    asset: Asset;
+    displayName: string;
+    trigger: HTMLElement;
+  }>();
+  useEffect(() => {
+    const paths = [...new Set(readonlyAssets.map((asset) => asset.path))];
+    let cancelled = false;
+    setMediaAvailability({});
+    if (paths.length === 0) return () => { cancelled = true; };
+    void fetch("/api/assets/probe", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths }),
+    })
+      .then(async (response) => response.ok
+        ? response.json() as Promise<{ results: Array<{ path: string; exists: boolean }> }>
+        : { results: [] })
+      .then(({ results }) => {
+        if (!cancelled) {
+          setMediaAvailability(Object.fromEntries(
+            results.map((result) => [result.path, result.exists]),
+          ));
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [readonlyAssets]);
   const metadata = project?.metadata;
   const projectName =
     typeof metadata === "object" && metadata !== null &&
@@ -177,6 +232,11 @@ function ReadonlyScreen() {
       ? String(Reflect.get(metadata, "name"))
       : info?.fallbackName ?? "未命名项目";
   const selected = scenes[0];
+  const closeAssetPreview = () => {
+    const trigger = assetPreview?.trigger;
+    setAssetPreview(undefined);
+    requestAnimationFrame(() => trigger?.focus());
+  };
 
   return (
     <div className="readonly-shell">
@@ -188,13 +248,18 @@ function ReadonlyScreen() {
       <main className="workspace">
         <section className="pane script-pane readonly-script">
           <PaneHeading title="脚本表" meta={`${scenes.length} 个 Scene · 仅查看`} />
-          <div className="table-wrap"><table><thead><tr><th>顺序</th><th>Narration</th><th>Visual Type</th><th>状态</th></tr></thead><tbody>
-            {scenes.map((scene) => <tr key={scene.index}><td>{String(scene.index + 1).padStart(2, "0")}</td><td>{scene.text}</td><td>{scene.visualType}</td><td>需新版应用验证</td></tr>)}
+          <div className="table-wrap"><table><thead><tr><th>顺序</th><th>Narration</th><th>Visual Type</th><th>Asset</th><th>状态</th></tr></thead><tbody>
+            {scenes.map((scene) => {
+              const asset = scene.assetId === undefined ? undefined : assets.get(scene.assetId);
+              const displayName = asset?.path.split("/").at(-1) ?? "";
+              return <tr key={scene.index}><td>{String(scene.index + 1).padStart(2, "0")}</td><td>{scene.text}</td><td>{scene.visualType}</td><td>{asset === undefined ? <span className="readonly-asset-empty">{scene.assetId === undefined ? "未绑定" : "缺少 Asset"}</span> : <div className="asset-cell asset-bound"><AssetSummaryButton asset={asset} sceneIndex={scene.index} displayName={displayName} detail={`${asset.kind === "image" ? "Image" : "Video"} · 只读检查`} thumbnailAvailable={mediaAvailability[asset.path] ?? false} onOpen={(trigger) => setAssetPreview({ asset, displayName, trigger })} /></div>}</td><td>需新版应用验证</td></tr>;
+            })}
           </tbody></table></div>
         </section>
         <section className="pane player-pane"><PaneHeading title="Player" meta="预览不可用" /><div className="stage"><div className="preview-frame"><LockSimple size={48} /><p>{selected?.text ?? "无法安全预览此项目"}</p><span className="preview-badge">仅显示已解析内容</span></div></div></section>
         <section className="pane inspector-pane"><PaneHeading title="属性" meta={selected ? `场景 ${String(selected.index + 1).padStart(2, "0")} · 只读` : "只读"} /><div className="inspector-scroll"><h3>场景</h3>{selected ? <><label>旁白文稿<textarea value={selected.text} disabled /></label><label>画面类型<input value={inspectorVisualLabels[selected.visualType as Visual["type"]] ?? selected.visualType} disabled /></label></> : null}<h3>阻断原因</h3><div className="readonly-note">未知的项目格式版本可能包含当前应用无法安全解释的字段，因此编辑、写入、后台任务与渲染均已阻止。</div></div></section>
       </main>
+      {assetPreview ? <AssetPreviewDialog asset={assetPreview.asset} displayName={assetPreview.displayName} available={undefined} onClose={closeAssetPreview} /> : null}
     </div>
   );
 }
@@ -359,11 +424,11 @@ function sceneAssetStatus(
   mediaAvailability: Record<string, boolean>,
   diagnostics: import("../shared/project").Diagnostic[],
 ) {
-  if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    return { className: "status-error", label: "渲染阻断" };
-  }
   if ("assetId" in scene.visual && asset === undefined) {
     return { className: "status-error", label: "缺少 Asset" };
+  }
+  if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return { className: "status-error", label: "渲染阻断" };
   }
   if (asset !== undefined && mediaAvailability[asset.path] === false) {
     return { className: "status-error", label: "文件缺失" };
@@ -375,15 +440,28 @@ function mediaUrl(path: string): string {
   return `/media/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-function AssetThumbnail({ asset, label }: { asset: Asset; label: string }) {
-  const available = useProjectStore(
-    (state) => state.mediaAvailability[asset.path] === true,
+function AssetThumbnail({ asset, label, available: availableOverride }: { asset: Asset; label: string; available?: boolean }) {
+  const storedAvailable = useProjectStore(
+    (state) => state.mediaAvailability[asset.path] !== false,
   );
+  const available = availableOverride ?? storedAvailable;
   if (!available) {
     return (
       <span className="asset-thumbnail asset-thumbnail-missing" role="img" aria-label={`${label}（文件不可用）`}>
         <ImageSquare aria-hidden="true" />
       </span>
+    );
+  }
+  if (asset.kind === "video") {
+    return (
+      <video
+        className="asset-thumbnail"
+        src={mediaUrl(asset.path)}
+        preload="metadata"
+        muted
+        tabIndex={-1}
+        aria-hidden="true"
+      />
     );
   }
   return (
@@ -396,14 +474,58 @@ function AssetThumbnail({ asset, label }: { asset: Asset; label: string }) {
   );
 }
 
+function AssetSummaryButton({
+  asset,
+  sceneIndex,
+  displayName,
+  detail,
+  thumbnailAvailable,
+  onOpen,
+}: {
+  asset: Asset;
+  sceneIndex: number;
+  displayName: string;
+  detail: string;
+  thumbnailAvailable?: boolean;
+  onOpen: (trigger: HTMLElement) => void;
+}) {
+  return (
+    <span
+      className="asset-preview-trigger"
+      role="button"
+      tabIndex={0}
+      aria-label={`预览 Scene ${sceneIndex + 1} ${asset.kind === "image" ? "Image" : "Video"} Asset ${displayName}`}
+      onClick={(event) => onOpen(event.currentTarget)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onOpen(event.currentTarget);
+      }}
+    >
+      <AssetThumbnail asset={asset} label={`Scene ${sceneIndex + 1} 已绑定${asset.kind === "image" ? "图片" : "视频"}`} available={thumbnailAvailable} />
+      <span className="asset-bound-copy">
+        <strong title={displayName}>{displayName}</strong>
+        <small>{detail}</small>
+      </span>
+    </span>
+  );
+}
+
 function AssetCell({
   scene,
   sceneIndex,
   asset,
+  onPreview,
 }: {
   scene: Scene;
   sceneIndex: number;
   asset: Asset | undefined;
+  onPreview: (
+    asset: Asset,
+    sceneIndex: number,
+    displayName: string,
+    trigger: HTMLElement,
+  ) => void;
 }) {
   const jobs = useImageImportStore((state) => state.jobs);
   const startImport = useImageImportStore((state) => state.startImport);
@@ -448,11 +570,70 @@ function AssetCell({
     );
   }
 
-  if (scene.visual.type !== "image") {
+  if (scene.visual.type !== "image" && asset === undefined) {
     return (
       <div className="asset-cell asset-not-applicable" data-asset-cell-scene-id={scene.id}>
         <ImageSquare aria-hidden="true" />
         <span><strong>视频 Asset</strong><small>本票不提供导入</small></span>
+      </div>
+    );
+  }
+
+  if (asset !== undefined) {
+    const enlarged =
+      job?.result?.asset.id === asset.id && job.result.facts.enlarged;
+    const cleanupFailed = job?.error?.cleanupFailed === true;
+    const operation = active && job !== undefined
+      ? {
+          tone: "progress",
+          copy: job.cancelError ?? imageImportStageCopy[job.stage],
+          detail: job.cancelError ? `${job.fileName} · 可再次取消` : job.fileName,
+          role: job.cancelError ? "alert" as const : "status" as const,
+        }
+      : job?.status === "failed" || job?.resolution === "registration-failed"
+        ? {
+            tone: "error",
+            copy: job.error?.message ?? "图片导入失败",
+            detail: "旧绑定保持不变",
+            role: "alert" as const,
+          }
+        : job?.resolution === "changed" || job?.resolution === "incompatible"
+          ? {
+              tone: "pending",
+              copy: "导入结果待确认",
+              detail: job.resolution === "changed" ? "当前绑定保持不变" : "Visual 已不兼容",
+              role: "status" as const,
+            }
+          : cleanupFailed
+            ? {
+                tone: "error",
+                copy: "临时文件清理失败",
+                detail: "当前绑定保持不变 · 查看任务",
+                role: "alert" as const,
+              }
+            : undefined;
+    return (
+      <div className={`asset-cell asset-bound${operation === undefined ? "" : " has-operation"}`} data-asset-cell-scene-id={scene.id}>
+        {input}
+        <AssetSummaryButton
+          asset={asset}
+          sceneIndex={sceneIndex}
+          displayName={assetName}
+          detail={enlarged ? "Image · 已放大到 1080p" : asset.kind === "image" ? "Image · 1920×1080" : "Video · 原始媒体"}
+          onOpen={(trigger) => onPreview(asset, sceneIndex, assetName, trigger)}
+        />
+        <div className="asset-actions">
+          {active && job !== undefined ? (
+            <button className="asset-icon-button" type="button" aria-label={`取消导入 ${job.fileName}`} disabled={job.status === "cancelling"} onClick={() => void cancel(job.id)}><X /></button>
+          ) : job?.status === "failed" || job?.resolution === "registration-failed" ? (
+            <><button className="asset-icon-button" type="button" aria-label={`重试导入 ${job.fileName}`} onClick={() => void retry(job.id)}><ArrowCounterClockwise /></button><button className="asset-icon-button" type="button" aria-label="重新选择图片" onClick={chooseFile}><UploadSimple /></button></>
+          ) : job?.resolution === "changed" || job?.resolution === "incompatible" ? (
+            <button className="asset-icon-button" type="button" aria-label="查看并确认图片导入结果" onClick={() => { showPending(job.id); setTaskDrawerOpen(true); }}><ListChecks /></button>
+          ) : (
+            <>{asset.kind === "image" ? <button className="asset-icon-button" type="button" aria-label={`替换 Scene ${sceneIndex + 1} 图片`} onClick={chooseFile}><UploadSimple /></button> : null}<button className="asset-icon-button danger-button" type="button" aria-label={`清除 Scene ${sceneIndex + 1} ${asset.kind === "image" ? "图片" : "视频"}绑定`} onClick={() => void clearAsset(scene.id)}><Trash /></button></>
+          )}
+        </div>
+        {operation === undefined ? null : <div className={`asset-bound-operation ${operation.tone}`} role={operation.role}><strong>{operation.copy}</strong><span>{operation.detail}</span>{active && job?.status === "processing" ? <span className="asset-progress" aria-hidden="true"><i /></span> : null}</div>}
       </div>
     );
   }
@@ -494,26 +675,6 @@ function AssetCell({
         {asset ? <AssetThumbnail asset={asset} label={`Scene ${sceneIndex + 1} 当前图片`} /> : <ImageSquare aria-hidden="true" />}
         <span><strong>导入结果待确认</strong><small>{job.resolution === "changed" ? "Scene 已发生变化" : "Visual 已不兼容"}</small></span>
         <button className="asset-icon-button" type="button" aria-label="查看并确认图片导入结果" onClick={() => { showPending(job.id); setTaskDrawerOpen(true); }}><ListChecks /></button>
-      </div>
-    );
-  }
-
-  if (asset !== undefined) {
-  const enlarged =
-      job?.result?.asset.id === asset.id && job.result.facts.enlarged;
-    const cleanupFailed = job?.error?.cleanupFailed === true;
-    return (
-      <div className="asset-cell asset-bound" data-asset-cell-scene-id={scene.id}>
-        {input}
-        <AssetThumbnail asset={asset} label={`Scene ${sceneIndex + 1} 已绑定图片`} />
-        <span className="asset-bound-copy">
-          <strong title={assetName} tabIndex={0}>{assetName}</strong>
-          <small className={enlarged || cleanupFailed ? "asset-warning" : undefined}>{cleanupFailed ? "临时文件清理失败 · 查看任务" : enlarged ? "已放大到 1080p" : "PNG · 1920×1080"}</small>
-        </span>
-        <div className="asset-actions">
-          <button className="asset-icon-button" type="button" aria-label={`替换 Scene ${sceneIndex + 1} 图片`} onClick={chooseFile}><UploadSimple /></button>
-          <button className="asset-icon-button danger-button" type="button" aria-label={`清除 Scene ${sceneIndex + 1} 图片绑定`} onClick={() => void clearAsset(scene.id)}><Trash /></button>
-        </div>
       </div>
     );
   }
@@ -640,6 +801,7 @@ function ModalFrame({
   footer,
   dismissible = true,
   dialogRole = "dialog",
+  className,
 }: {
   title: string;
   description: string;
@@ -648,6 +810,7 @@ function ModalFrame({
   footer?: ReactNode;
   dismissible?: boolean;
   dialogRole?: "dialog" | "alertdialog";
+  className?: string;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
   const titleId = `dialog-${title.replace(/\s+/gu, "-")}`;
@@ -666,7 +829,7 @@ function ModalFrame({
     if (event.key !== "Tab") return;
     const focusable = Array.from(
       dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), video[controls], [tabindex]:not([tabindex="-1"])',
       ) ?? [],
     );
     if (focusable.length === 0) return;
@@ -683,12 +846,92 @@ function ModalFrame({
 
   return (
     <div className="modal-backdrop" onMouseDown={dismissible ? onCancel : undefined}>
-      <section ref={dialogRef} className="transaction-dialog" role={dialogRole} aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} className={`transaction-dialog${className === undefined ? "" : ` ${className}`}`} role={dialogRole} aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
         <header><div><h2 id={titleId}>{title}</h2><p id={descriptionId}>{description}</p></div>{dismissible && onCancel !== undefined ? <button className="btn icon" type="button" aria-label="关闭" onClick={onCancel}><X /></button> : null}</header>
         <div className="transaction-dialog-body">{children}</div>
         {footer === undefined ? null : <footer>{footer}</footer>}
       </section>
     </div>
+  );
+}
+
+function AssetPreviewDialog({
+  asset,
+  displayName,
+  available,
+  onClose,
+}: {
+  asset: Asset;
+  displayName: string;
+  available: boolean | undefined;
+  onClose: () => void;
+}) {
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(
+    available === false ? "error" : "loading",
+  );
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    setStatus(available === false ? "error" : "loading");
+  }, [asset.id, available]);
+  useEffect(() => {
+    const video = videoRef.current;
+    return () => video?.pause();
+  }, [asset.id]);
+
+  const markUnavailable = () => setStatus("error");
+  const kindLabel = asset.kind === "image" ? "Image" : "Video";
+  const close = () => {
+    videoRef.current?.pause();
+    onClose();
+  };
+  return (
+    <ModalFrame
+      title={displayName}
+      description={`只读检查 ${kindLabel} Asset 本体；不会叠加 Caption、Subtitle 或改变 Player。`}
+      onCancel={close}
+      className="asset-preview-dialog"
+    >
+      <div className="asset-preview-canvas" data-testid="asset-preview-canvas">
+        {status === "loading" ? (
+          <div className="asset-preview-state" role="status">
+            <CircleNotch className="spinner-inline" aria-hidden="true" />
+            <strong>正在载入 Asset</strong>
+            <span>从项目媒体读取原始内容…</span>
+          </div>
+        ) : null}
+        {status === "error" ? (
+          <div className="asset-preview-state asset-preview-error" role="alert">
+            <WarningCircle weight="fill" aria-hidden="true" />
+            <strong>Asset 文件不可用</strong>
+            <span>文件缺失、HTTP 读取失败或媒体无法解码。</span>
+            <code>{asset.path}</code>
+          </div>
+        ) : null}
+        {available === false || status === "error" ? null : asset.kind === "image" ? (
+          <img
+            src={mediaUrl(asset.path)}
+            alt={displayName}
+            onLoad={() => setStatus("ready")}
+            onError={markUnavailable}
+          />
+        ) : (
+          <video
+            ref={videoRef}
+            src={mediaUrl(asset.path)}
+            aria-label={displayName}
+            controls
+            preload="auto"
+            onLoadedData={() => setStatus("ready")}
+            onError={markUnavailable}
+          />
+        )}
+      </div>
+      <dl className="asset-preview-meta">
+        <div><dt>Kind</dt><dd>{kindLabel}</dd></div>
+        <div><dt>项目相对路径</dt><dd><code>{asset.path}</code></dd></div>
+      </dl>
+    </ModalFrame>
   );
 }
 
@@ -1065,6 +1308,11 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   }>();
   const [reorderNotice, setReorderNotice] = useState("");
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
+  const [assetPreview, setAssetPreview] = useState<{
+    asset: Asset;
+    displayName: string;
+    trigger: HTMLElement;
+  }>();
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const selectedNarrationRef = useRef<HTMLTextAreaElement>(null);
   const singleSceneFocusPendingRef = useRef(false);
@@ -1241,6 +1489,12 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     setCurrentFrame(resolved.startFrame);
     if (wasPlaying) playerRef.current?.play();
     else playerRef.current?.pause();
+  };
+
+  const closeAssetPreview = () => {
+    const trigger = assetPreview?.trigger;
+    setAssetPreview(undefined);
+    requestAnimationFrame(() => trigger?.focus());
   };
 
   const seekProjectFrame = (frame: number) => {
@@ -1434,7 +1688,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
                       </section>
                     </div></td>
                     <td><div className="table-cell visual-type-cell"><select data-visual-type-scene-id={scene.id} aria-label={`Scene ${index + 1} Visual Type`} value={scene.visual.type} onClick={(event) => event.stopPropagation()} onChange={(event) => requestVisualChange(scene, event.target.value as VisualType, event.currentTarget)}>{(Object.keys(visualLabels) as VisualType[]).map((type) => <option key={type} value={type}>{visualLabels[type]}</option>)}</select><span>{captionForVisual(scene.visual) ?? (scene.visual.type === "card" ? "结构化文字画面" : "标准画面")}</span></div></td>
-                    <td><AssetCell scene={scene} sceneIndex={index} asset={asset} /></td>
+                    <td><AssetCell scene={scene} sceneIndex={index} asset={asset} onPreview={(previewAsset, _sceneIndex, displayName, trigger) => setAssetPreview({ asset: previewAsset, displayName, trigger })} /></td>
                     <td><div className="table-cell"><strong>{scene.speech ? "已生成" : "缺少 Speech"}</strong><span>{scene.speech ? `${(scene.speech.durationMs / 1000).toFixed(1)} 秒` : "使用 Draft Duration"}</span></div></td>
                     <td><span className={assetStatus.className}>{assetStatus.label}</span></td>
                   </tr>
@@ -1559,6 +1813,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       {pendingVisualChange ? <VisualLossDialog losses={pendingVisualChange.losses} onCancel={() => { const trigger = pendingVisualChange.trigger; setPendingVisualChange(undefined); restoreVisualTrigger(trigger); }} onConfirm={() => { const change = pendingVisualChange; setPendingVisualChange(undefined); void updateVisual(change.sceneId, change.visual); restoreVisualTrigger(change.trigger); }} /> : null}
       </fieldset>
       <div className="sr-only" aria-live="polite">{imageJobAnnouncement}</div>
+      {assetPreview ? <AssetPreviewDialog asset={assetPreview.asset} displayName={assetPreview.displayName} available={mediaAvailability[assetPreview.asset.path]} onClose={closeAssetPreview} /> : null}
       {pendingImageProposal ? <ImageProposalDialog job={pendingImageProposal} /> : null}
       <ExternalConflictDialog />
     </div>

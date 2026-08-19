@@ -84,6 +84,13 @@ test("逐 Scene 导入图片、显示放大提醒，并可清除与撤销绑定"
   await expect(row.getByText("透明产品图.png")).toBeVisible();
   await expect(row.getByText("已放大到 1080p")).toBeVisible();
   await expect(row.getByRole("img", { name: "Scene 1 已绑定图片" })).toBeVisible();
+  const preview = row.getByRole("button", {
+    name: "预览 Scene 1 Image Asset 透明产品图.png",
+  });
+  await preview.click();
+  await expect(page.getByRole("dialog", { name: "透明产品图.png" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(preview).toBeFocused();
   await expect.poll(async () => JSON.parse(await readFile(projectFile, "utf8"))).toMatchObject({
     assets: [{ kind: "image" }],
     scenes: [{ visual: { type: "image", assetId: expect.any(String) } }],
@@ -131,6 +138,11 @@ test("替换失败保留旧绑定，重新选择成功后才切换", async ({ pa
   await page.getByLabel("为 Scene 1 选择图片").setInputFiles(broken);
   await expect(row.getByText("图片内容损坏或无法读取")).toBeVisible();
   await expect(row.getByText("旧绑定保持不变")).toBeVisible();
+  const preview = row.getByRole("button", { name: /预览 Scene 1 Image Asset/ });
+  await expect(preview).toBeVisible();
+  await preview.click();
+  await expect(page.getByRole("dialog", { name: `${originalAssetId}.png` })).toBeVisible();
+  await page.keyboard.press("Escape");
   expect(JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual.assetId).toBe(
     originalAssetId,
   );
@@ -138,6 +150,116 @@ test("替换失败保留旧绑定，重新选择成功后才切换", async ({ pa
   await page.getByLabel("为 Scene 1 选择图片").setInputFiles(replacement);
   await expect(row.getByText("替换照片.jpg")).toBeVisible();
   await expect.poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes[0].visual.assetId).not.toBe(originalAssetId);
+});
+
+test("替换任务处理中及待确认时始终预览当前绑定", async ({ page }) => {
+  await writeFile(projectFile, `${JSON.stringify(projectWithImage(originalAssetId))}\n`);
+  await sharp({
+    create: {
+      width: 1920,
+      height: 1080,
+      channels: 3,
+      background: { r: 42, g: 34, b: 38 },
+    },
+  })
+    .png()
+    .toFile(join(projectDirectory, "assets", `${originalAssetId}.png`));
+
+  const pendingAssetId = "90000000-0000-4000-8000-000000000002";
+  const pendingAssetPath = `assets/${pendingAssetId}.png`;
+  await sharp({
+    create: {
+      width: 1920,
+      height: 1080,
+      channels: 3,
+      background: { r: 190, g: 80, b: 40 },
+    },
+  })
+    .png()
+    .toFile(join(projectDirectory, pendingAssetPath));
+  const source = join(sourceDirectory, "待确认替换.png");
+  await writeFile(source, "intercepted by the test");
+
+  await page.goto(server.url);
+  const row = page.getByTestId("scene-row");
+  await row.getByRole("button", { name: "清除 Scene 1 图片绑定" }).click();
+  await expect(row.getByRole("button", { name: "导入图片" })).toBeVisible();
+
+  const now = new Date().toISOString();
+  const queuedJob = {
+    id: "pending-preview-job",
+    type: "image-import" as const,
+    sceneId,
+    fileName: "待确认替换.png",
+    status: "queued" as const,
+    stage: "waiting" as const,
+    createdAt: now,
+    updatedAt: now,
+  };
+  let notifyLatestRequested!: () => void;
+  let releaseLatestResponse!: () => void;
+  const latestRequested = new Promise<void>((resolvePromise) => {
+    notifyLatestRequested = resolvePromise;
+  });
+  const latestResponseReleased = new Promise<void>((resolvePromise) => {
+    releaseLatestResponse = resolvePromise;
+  });
+  await page.route("**/api/jobs/image-import", async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({ job: queuedJob }),
+    });
+  });
+  await page.route("**/api/jobs/pending-preview-job", async (route) => {
+    notifyLatestRequested();
+    await latestResponseReleased;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...queuedJob,
+        status: "succeeded",
+        stage: "completed",
+        result: {
+          asset: { id: pendingAssetId, kind: "image", path: pendingAssetPath },
+          facts: {
+            sourceWidth: 1920,
+            sourceHeight: 1080,
+            width: 1920,
+            height: 1080,
+            enlarged: false,
+          },
+        },
+      }),
+    });
+  });
+
+  await page.getByLabel("为 Scene 1 选择图片").setInputFiles(source);
+  await latestRequested;
+  await page.getByRole("button", { name: /撤销：清除 Scene 01 Asset 绑定/ }).click();
+
+  const currentPreview = row.getByRole("button", {
+    name: new RegExp(`预览 Scene 1 Image Asset ${originalAssetId}\\.png`),
+  });
+  await expect(currentPreview).toBeVisible();
+  await expect(row.getByText("等待处理")).toBeVisible();
+  await currentPreview.click();
+  await expect(page.getByRole("dialog", { name: `${originalAssetId}.png` })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  releaseLatestResponse();
+  const proposal = page.getByRole("dialog", {
+    name: "图片已导入，Scene 已发生变化",
+  });
+  await expect(proposal).toBeVisible();
+  await proposal.getByRole("button", { name: "关闭" }).click();
+  await expect(row.getByText("导入结果待确认")).toBeVisible();
+  await expect(row.getByText("当前绑定保持不变")).toBeVisible();
+  await expect(currentPreview).toBeVisible();
+  await currentPreview.click();
+  await expect(page.getByRole("dialog", { name: `${originalAssetId}.png` })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(row.getByRole("button", { name: "查看并确认图片导入结果" })).toBeVisible();
 });
 
 test("Visual 在导入期间改变时保留未绑定 Asset，并可从任务抽屉返回确认", async ({ page }) => {
