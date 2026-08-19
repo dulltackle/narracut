@@ -17,6 +17,7 @@ import { LockSimple } from "@phosphor-icons/react/LockSimple";
 import { Pause } from "@phosphor-icons/react/Pause";
 import { Play } from "@phosphor-icons/react/Play";
 import { Plus } from "@phosphor-icons/react/Plus";
+import { SpeakerHigh } from "@phosphor-icons/react/SpeakerHigh";
 import { Trash } from "@phosphor-icons/react/Trash";
 import { UploadSimple } from "@phosphor-icons/react/UploadSimple";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
@@ -38,6 +39,12 @@ import {
   useImageImportStore,
   type ClientImageImportJob,
 } from "./image-import-store";
+import {
+  latestSpeechJobForScene,
+  speechGenerationStageCopy,
+  useSpeechGenerationStore,
+  type ClientSpeechGenerationJob,
+} from "./speech-generation-store";
 import {
   ProjectThemeInspector,
   SceneTextPresentationInspector,
@@ -342,6 +349,9 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   const imageJobCount = useImageImportStore(
     (state) => Object.keys(state.jobs).length,
   );
+  const speechJobCount = useSpeechGenerationStore(
+    (state) => Object.keys(state.jobs).length,
+  );
   const diagnostics = renderDiagnostics ?? projectDiagnostics;
   const updateProjectName = useProjectStore((state) => state.updateProjectName);
   const undoStack = useProjectStore((state) => state.undoStack);
@@ -404,7 +414,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
         </div>
         {historyNotice === undefined ? null : <div key={historyEventId} className="history-feedback" role="status" aria-live="polite">{historyNotice}</div>}
       </div>
-      <div className="top-actions"><button className="btn" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length + imageJobCount}</span></button><button className="btn primary" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><FilmSlate />{readOnly ? "检查并渲染" : renderBlockers.length > 0 ? `检查并渲染 · ${renderBlockers.length}` : "渲染 MP4"}</button></div>
+      <div className="top-actions"><button className="btn" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length + imageJobCount + speechJobCount}</span></button><button className="btn primary" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><FilmSlate />{readOnly ? "检查并渲染" : renderBlockers.length > 0 ? `检查并渲染 · ${renderBlockers.length}` : "渲染 MP4"}</button></div>
     </header>
   );
 }
@@ -778,6 +788,151 @@ function ImageJobTask({ job }: { job: ClientImageImportJob }) {
         {active && job.status !== "cancelling" ? <button className="btn compact" type="button" onClick={() => void cancel(job.id)}>{job.cancelError ? "再次取消" : "取消"}</button> : null}
         {job.status === "failed" || job.resolution === "registration-failed" ? <button className="btn compact" type="button" onClick={() => void retry(job.id)}>{job.resolution === "registration-failed" ? "重新登记" : "重试"}</button> : null}
         {job.resolution === "changed" || job.resolution === "incompatible" ? <button className="btn compact" type="button" onClick={() => showPending(job.id)}>查看并确认</button> : null}
+      </div>
+    </article>
+  );
+}
+
+function SpeechCell({ scene, sceneIndex }: { scene: Scene; sceneIndex: number }) {
+  const jobs = useSpeechGenerationStore((state) => state.jobs);
+  const startGeneration = useSpeechGenerationStore((state) => state.startGeneration);
+  const cancel = useSpeechGenerationStore((state) => state.cancel);
+  const retry = useSpeechGenerationStore((state) => state.retry);
+  const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
+  const speechAvailable = useProjectStore((state) =>
+    scene.speech === undefined
+      ? false
+      : state.mediaAvailability[scene.speech.path] !== false,
+  );
+  const job = latestSpeechJobForScene(jobs, scene.id);
+  const cellRef = useRef<HTMLDivElement>(null);
+  const previousJobStatusRef = useRef(job?.status);
+  useEffect(() => {
+    const previousStatus = previousJobStatusRef.current;
+    previousJobStatusRef.current = job?.status;
+    if (
+      (previousStatus === "queued" ||
+        previousStatus === "processing" ||
+        previousStatus === "cancelling") &&
+      job?.status === "cancelled"
+    ) {
+      cellRef.current?.focus();
+    }
+  }, [job?.status]);
+  const active =
+    job?.status === "queued" ||
+    job?.status === "processing" ||
+    job?.status === "cancelling" ||
+    (job?.status === "succeeded" && job.handlingResult === true);
+  const canCancel =
+    job?.status === "queued" || job?.status === "processing";
+  const hasSpeech = scene.speech !== undefined && speechAvailable;
+  const duration = hasSpeech
+    ? `${(scene.speech!.durationMs / 1_000).toFixed(1)} 秒`
+    : undefined;
+
+  if (active && job !== undefined) {
+    const regenerating = job.expected.speech !== undefined && hasSpeech;
+    return (
+      <div
+        ref={cellRef}
+        tabIndex={-1}
+        className={`speech-cell speech-active${regenerating ? " keeps-speech" : ""}`}
+        data-speech-cell-scene-id={scene.id}
+      >
+        <span className="speech-state-icon" aria-hidden="true"><CircleNotch className="spinner-inline" /></span>
+        <span className="speech-copy">
+          <strong>{job.status === "cancelling" ? "正在取消" : regenerating ? speechGenerationStageCopy[job.stage].replace("生成", "重新生成") : speechGenerationStageCopy[job.stage]}</strong>
+          <small>{regenerating ? `旧 Speech 继续有效 · ${duration}` : "当前仍使用 Draft Duration"}</small>
+          {job.status === "processing" ? <span className="speech-progress" aria-hidden="true"><i /></span> : null}
+        </span>
+        {canCancel ? <button className="speech-icon-button" type="button" aria-label={`取消 Scene ${sceneIndex + 1} Speech 生成`} onClick={() => void cancel(job.id)}><X /></button> : null}
+      </div>
+    );
+  }
+
+  if (job?.status === "failed" || job?.resolution === "apply-failed") {
+    return (
+      <div ref={cellRef} tabIndex={-1} className="speech-cell speech-failed" data-speech-cell-scene-id={scene.id}>
+        <span className="speech-state-icon" aria-hidden="true"><WarningCircle weight="fill" /></span>
+        <span className="speech-copy">
+          <strong>Speech 生成失败</strong>
+          <small>{hasSpeech ? `旧 Speech 仍有效 · ${duration}` : "仍使用 Draft Duration"}</small>
+        </span>
+        <span className="speech-actions">
+          <button className="speech-icon-button" type="button" aria-label={`重试 Scene ${sceneIndex + 1} Speech`} onClick={() => void retry(job.id)}><ArrowCounterClockwise /></button>
+          <button className="speech-icon-button" type="button" aria-label={`查看 Scene ${sceneIndex + 1} Speech 失败详情`} onClick={() => setTaskDrawerOpen(true)}><ListChecks /></button>
+        </span>
+      </div>
+    );
+  }
+
+  if (hasSpeech) {
+    const staleResult =
+      job?.resolution === "narration-changed" ||
+      job?.resolution === "profile-changed" ||
+      job?.resolution === "speech-changed" ||
+      job?.resolution === "scene-deleted";
+    return (
+      <div ref={cellRef} tabIndex={-1} className="speech-cell speech-ready" data-speech-cell-scene-id={scene.id}>
+        <span className="speech-state-icon" aria-hidden="true"><CheckCircle weight="fill" /></span>
+        <span className="speech-copy">
+          <strong>{job?.status === "cancelled" ? "已取消 · Speech 未变" : job?.resolution === "applied" ? "已生成 · 可撤销" : "Speech 已生成"}</strong>
+          <small>{job?.status === "cancelled" ? `旧 Speech 保持有效 · ${duration}` : staleResult ? `当前版本 ${duration} · 旧结果未应用` : duration}</small>
+        </span>
+        <button className="speech-icon-button" type="button" aria-label={`重新生成 Scene ${sceneIndex + 1} Speech`} onClick={() => void startGeneration(scene.id)}><ArrowCounterClockwise /></button>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={cellRef} tabIndex={-1} className="speech-cell speech-empty" data-speech-cell-scene-id={scene.id}>
+      <button className="speech-generate-button" type="button" disabled={scene.narration.text.trim().length === 0} onClick={() => void startGeneration(scene.id)}><SpeakerHigh />生成 Speech</button>
+      <small>{job?.status === "cancelled" ? "已取消 · 使用 Draft Duration" : job?.resolution !== undefined ? "旧任务结果未应用 · 使用 Draft Duration" : "使用 Draft Duration · 仅供预览"}</small>
+    </div>
+  );
+}
+
+function SpeechJobTask({ job }: { job: ClientSpeechGenerationJob }) {
+  const project = useProjectStore((state) => state.project);
+  const cancel = useSpeechGenerationStore((state) => state.cancel);
+  const retry = useSpeechGenerationStore((state) => state.retry);
+  const sceneIndex = project?.scenes.findIndex((scene) => scene.id === job.sceneId) ?? -1;
+  const active =
+    job.status === "queued" ||
+    job.status === "processing" ||
+    job.status === "cancelling";
+  const failed = job.status === "failed" || job.resolution === "apply-failed";
+  const kept = job.expected.speech !== undefined;
+  const resolution =
+    job.cancelError ??
+    (job.resolution === "scene-deleted"
+      ? "结果未应用 · 目标 Scene 已删除"
+      : job.resolution === "narration-changed"
+        ? "结果未应用 · Narration 已改变"
+        : job.resolution === "profile-changed"
+          ? "结果未应用 · TTS profile 已改变"
+        : job.resolution === "speech-changed"
+          ? "结果未应用 · 当前 Speech 已改变"
+          : job.resolution === "apply-failed"
+            ? "Speech 已落盘，但 Project DSL 更新失败"
+            : job.resolution === "applied"
+              ? "Speech 已应用 · 可撤销"
+              : job.error?.message ?? speechGenerationStageCopy[job.stage]);
+  return (
+    <article className={`speech-job-task ${job.status}${failed ? " is-error" : ""}`} data-testid="speech-generation-task">
+      <div className="speech-job-icon" aria-hidden="true">
+        {failed ? <WarningCircle weight="fill" /> : active ? <CircleNotch className="spinner-inline" /> : <SpeakerHigh weight="fill" />}
+      </div>
+      <div className="speech-job-detail">
+        <strong title={job.narrationText} tabIndex={0}>{job.narrationText}</strong>
+        <span>{resolution}</span>
+        <code>{sceneIndex >= 0 ? `Scene ${String(sceneIndex + 1).padStart(2, "0")}` : `Scene · ${job.sceneId.slice(0, 8)}`} · {kept && job.resolution !== "applied" ? "旧 Speech 保持有效" : kept ? "重新生成" : "Draft Duration"}</code>
+        {job.error ? <small>{job.error.code} · {job.error.retryable ? "可重试" : "需要检查配置"}</small> : null}
+      </div>
+      <div className="speech-job-actions">
+        {active && job.status !== "cancelling" ? <button className="btn compact" type="button" onClick={() => void cancel(job.id)}>{job.cancelError ? "再次取消" : "取消"}</button> : null}
+        {failed ? <button className="btn compact" type="button" onClick={() => void retry(job.id)}>重试</button> : null}
       </div>
     </article>
   );
@@ -1271,16 +1426,22 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
   const mediaAvailability = useProjectStore((state) => state.mediaAvailability);
+  const mediaRevisions = useProjectStore((state) => state.mediaRevisions);
   const diagnostics = useProjectStore((state) => state.diagnostics);
   const saveDiagnostics = useProjectStore((state) => state.saveDiagnostics);
   const historyFocusRequest = useProjectStore((state) => state.historyFocusRequest);
   const externalConflict = useProjectStore((state) => state.externalConflict);
+  const speechCommitInFlight = useProjectStore((state) => state.speechCommitInFlight);
   const migrationPending = useProjectStore((state) => state.migrationPending);
   const migrationSavedNotice = useProjectStore((state) => state.migrationSavedNotice);
   const imageJobs = useImageImportStore((state) => state.jobs);
   const imageJobAnnouncement = useImageImportStore((state) => state.announcement);
   const connectImageJobs = useImageImportStore((state) => state.connect);
-  const workspaceDisabled = occupied || externalConflict !== undefined;
+  const speechJobs = useSpeechGenerationStore((state) => state.jobs);
+  const speechJobAnnouncement = useSpeechGenerationStore((state) => state.announcement);
+  const connectSpeechJobs = useSpeechGenerationStore((state) => state.connect);
+  const workspaceDisabled =
+    occupied || externalConflict !== undefined || speechCommitInFlight;
   const [playing, setPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [playerBuffering, setPlayerBuffering] = useState(false);
@@ -1333,11 +1494,18 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     () =>
       project === undefined
         ? undefined
-        : createPreviewSnapshot(project, `${window.location.origin}/media/`, mediaAvailability),
-    [project, mediaAvailability],
+        : createPreviewSnapshot(
+            project,
+            `${window.location.origin}/media/`,
+            mediaAvailability,
+            mediaRevisions,
+          ),
+    [project, mediaAvailability, mediaRevisions],
   );
   const previousPreviewSnapshotRef = useRef(previewSnapshot);
+  const durationSnapshotRef = useRef(previewSnapshot);
   useEffect(() => connectImageJobs(), [connectImageJobs]);
+  useEffect(() => connectSpeechJobs(), [connectSpeechJobs]);
   useEffect(() => {
     if (
       previousPreviewSnapshotRef.current !== previewSnapshot &&
@@ -1349,6 +1517,38 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     }
     previousPreviewSnapshotRef.current = previewSnapshot;
   }, [playerError, previewSnapshot]);
+  useEffect(() => {
+    const previous = durationSnapshotRef.current;
+    durationSnapshotRef.current = previewSnapshot;
+    if (previous === undefined || previewSnapshot === undefined) return;
+    const sameSceneOrder =
+      previous.scenes.length === previewSnapshot.scenes.length &&
+      previous.scenes.every(
+        (scene, index) => scene.scene.id === previewSnapshot.scenes[index]?.scene.id,
+      );
+    const durationChanged =
+      sameSceneOrder &&
+      previous.scenes.some(
+        (scene, index) =>
+          scene.durationInFrames !== previewSnapshot.scenes[index]?.durationInFrames,
+      );
+    if (!durationChanged) return;
+    const previousResolved = findSceneAtFrame(previous, currentFrame);
+    if (previousResolved === undefined) return;
+    const restoredFrame = frameForSceneOffset(
+      previewSnapshot,
+      previousResolved.scene.id,
+      currentFrame - previousResolved.startFrame,
+    );
+    if (restoredFrame === undefined) return;
+    const wasPlaying = playerRef.current?.isPlaying() ?? playing;
+    requestAnimationFrame(() => {
+      playerRef.current?.seekTo(restoredFrame);
+      setCurrentFrame(restoredFrame);
+      if (wasPlaying) playerRef.current?.play();
+      else playerRef.current?.pause();
+    });
+  }, [previewSnapshot]);
   const renderDiagnostics = useMemo(
     () =>
       project === undefined
@@ -1445,6 +1645,9 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const selectedAsset = selectedScene ? assetForScene(selectedScene, assets) : undefined;
   const projectName = project.metadata.name || info?.fallbackName || "未命名项目";
   const imageJobList = Object.values(imageJobs).sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  );
+  const speechJobList = Object.values(speechJobs).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
   );
   const pendingImageProposal = imageJobList.find(
@@ -1645,16 +1848,28 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const maxFrame = Math.max(0, (previewSnapshot?.durationInFrames ?? 1) - 1);
   const progressPercent = maxFrame === 0 ? 0 : (currentFrame / maxFrame) * 100;
   const playingScene = playingResolved?.scene;
+  const playingSpeechJob =
+    playingScene === undefined
+      ? undefined
+      : latestSpeechJobForScene(speechJobs, playingScene.id);
+  const playingSpeechActive =
+    playingSpeechJob?.status === "queued" ||
+    playingSpeechJob?.status === "processing" ||
+    playingSpeechJob?.status === "cancelling";
   const playingSceneStatus =
     playingScene?.speech === undefined
-      ? { tone: "draft", label: "Draft · 5.0s", detail: "仅供预览" }
+      ? {
+          tone: "draft",
+          label: "Draft · 5.0s",
+          detail: playingSpeechActive ? "正在生成 · 仅供预览" : "仅供预览",
+        }
       : mediaAvailability[playingScene.speech.path] === false
         ? { tone: "error", label: "Speech 缺失", detail: "预览静音" }
-      : {
-          tone: "ready",
-          label: `Speech · ${(playingScene.speech.durationMs / 1000).toFixed(1)}s`,
-          detail: "逐帧可信",
-        };
+        : {
+            tone: "ready",
+            label: `Speech · ${(playingScene.speech.durationMs / 1000).toFixed(1)}s`,
+            detail: playingSpeechActive ? "正在重新生成 · 当前版本仍有效" : "逐帧可信",
+          };
 
   return (
     <div className={`app-shell ${bannerKind === undefined ? "" : "has-banner"}`}>
@@ -1689,7 +1904,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
                     </div></td>
                     <td><div className="table-cell visual-type-cell"><select data-visual-type-scene-id={scene.id} aria-label={`Scene ${index + 1} Visual Type`} value={scene.visual.type} onClick={(event) => event.stopPropagation()} onChange={(event) => requestVisualChange(scene, event.target.value as VisualType, event.currentTarget)}>{(Object.keys(visualLabels) as VisualType[]).map((type) => <option key={type} value={type}>{visualLabels[type]}</option>)}</select><span>{captionForVisual(scene.visual) ?? (scene.visual.type === "card" ? "结构化文字画面" : "标准画面")}</span></div></td>
                     <td><AssetCell scene={scene} sceneIndex={index} asset={asset} onPreview={(previewAsset, _sceneIndex, displayName, trigger) => setAssetPreview({ asset: previewAsset, displayName, trigger })} /></td>
-                    <td><div className="table-cell"><strong>{scene.speech ? "已生成" : "缺少 Speech"}</strong><span>{scene.speech ? `${(scene.speech.durationMs / 1000).toFixed(1)} 秒` : "使用 Draft Duration"}</span></div></td>
+                    <td><SpeechCell scene={scene} sceneIndex={index} /></td>
                     <td><span className={assetStatus.className}>{assetStatus.label}</span></td>
                   </tr>
                 );
@@ -1803,6 +2018,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}>
         <header><h2>渲染前检查</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>
         <div className="task-groups">
+          {speechJobList.length > 0 ? <section><h3>Speech 生成</h3><div className="speech-job-list">{speechJobList.map((job) => <SpeechJobTask key={job.id} job={job} />)}</div></section> : null}
           {imageJobList.length > 0 ? <section><h3>图片导入</h3><div className="image-job-list">{imageJobList.map((job) => <ImageJobTask key={job.id} job={job} />)}</div></section> : null}
           {saveDiagnostics.length > 0 ? <section><h3>保存问题</h3><div className="task-diagnostics">{saveDiagnostics.map((diagnostic) => <div key={`save-${diagnostic.code}-${diagnostic.path.join(".")}`} className="error"><WarningCircle weight="fill" /><span><strong>阻止保存</strong>{diagnostic.message}<code>{diagnostic.path.join(".") || "project.json"}</code></span></div>)}</div></section> : null}
           <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <div key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断" : "提醒"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></div>)}</div>}</section>
@@ -1813,6 +2029,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       {pendingVisualChange ? <VisualLossDialog losses={pendingVisualChange.losses} onCancel={() => { const trigger = pendingVisualChange.trigger; setPendingVisualChange(undefined); restoreVisualTrigger(trigger); }} onConfirm={() => { const change = pendingVisualChange; setPendingVisualChange(undefined); void updateVisual(change.sceneId, change.visual); restoreVisualTrigger(change.trigger); }} /> : null}
       </fieldset>
       <div className="sr-only" aria-live="polite">{imageJobAnnouncement}</div>
+      <div className="sr-only" aria-live="polite">{speechJobAnnouncement}</div>
       {assetPreview ? <AssetPreviewDialog asset={assetPreview.asset} displayName={assetPreview.displayName} available={mediaAvailability[assetPreview.asset.path]} onClose={closeAssetPreview} /> : null}
       {pendingImageProposal ? <ImageProposalDialog job={pendingImageProposal} /> : null}
       <ExternalConflictDialog />

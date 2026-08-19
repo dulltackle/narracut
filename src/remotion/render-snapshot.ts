@@ -41,6 +41,7 @@ export type RenderSnapshot = RenderPlan & {
   project: Project;
   mediaBaseUrl: string;
   mediaAvailability: Record<string, boolean>;
+  mediaRevisions: Record<string, string>;
   previewBlockers: Diagnostic[];
 };
 
@@ -51,8 +52,14 @@ const PREVIEW_BLOCKING_CODES = new Set([
   "THEME_FONT_MISSING",
 ]);
 
-function sceneDurationInFrames(scene: Scene): number {
-  const durationMs = scene.speech?.durationMs ?? DRAFT_SCENE_DURATION_MS;
+function sceneDurationInFrames(
+  scene: Scene,
+  mediaAvailability: Record<string, boolean>,
+): number {
+  const durationMs =
+    scene.speech === undefined || mediaAvailability[scene.speech.path] === false
+      ? DRAFT_SCENE_DURATION_MS
+      : scene.speech.durationMs;
   return Math.max(1, Math.ceil((durationMs / 1000) * VIDEO_FPS));
 }
 
@@ -76,6 +83,7 @@ export function createRenderSnapshot(
   projectInput: Project,
   mediaBaseUrl: string,
   mediaAvailability?: Record<string, boolean>,
+  mediaRevisions: Record<string, string> = {},
 ): RenderSnapshot {
   const assumedAvailability =
     mediaAvailability ??
@@ -90,6 +98,7 @@ export function createRenderSnapshot(
     mediaBaseUrl,
     "render",
     assumedAvailability,
+    mediaRevisions,
   );
 }
 
@@ -97,8 +106,15 @@ export function createPreviewSnapshot(
   projectInput: Project,
   mediaBaseUrl: string,
   mediaAvailability: Record<string, boolean> = {},
+  mediaRevisions: Record<string, string> = {},
 ): RenderSnapshot {
-  return createSnapshot(projectInput, mediaBaseUrl, "preview", mediaAvailability);
+  return createSnapshot(
+    projectInput,
+    mediaBaseUrl,
+    "preview",
+    mediaAvailability,
+    mediaRevisions,
+  );
 }
 
 function createSnapshot(
@@ -106,6 +122,7 @@ function createSnapshot(
   mediaBaseUrl: string,
   mode: "preview" | "render",
   mediaAvailability: Record<string, boolean>,
+  mediaRevisions: Record<string, string>,
 ): RenderSnapshot {
   const allowRenderBlockingDiagnostics = mode === "preview";
   const projectCopy = structuredClone(projectInput);
@@ -126,7 +143,7 @@ function createSnapshot(
 
   let startFrame = 0;
   const scenes = structure.project.scenes.map((scene): ResolvedScene => {
-    const durationInFrames = sceneDurationInFrames(scene);
+    const durationInFrames = sceneDurationInFrames(scene, mediaAvailability);
     const block = textBlock(scene);
     const resolved =
       block === undefined
@@ -167,6 +184,7 @@ function createSnapshot(
     safeInset: VIDEO_SAFE_INSET,
     fontFamily: getFontPreset(structure.project.theme.fontId)?.family,
     mediaAvailability: { ...mediaAvailability },
+    mediaRevisions: { ...mediaRevisions },
     previewBlockers:
       mode === "preview"
         ? consistencyDiagnostics.filter(
@@ -260,8 +278,12 @@ export function validateRenderReadiness(
 }
 
 export function projectMediaUrl(snapshot: RenderSnapshot, path: string): string {
-  return `${snapshot.mediaBaseUrl}${path
+  const base = `${snapshot.mediaBaseUrl}${path
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/")}`;
+  const revision = snapshot.mediaRevisions[path];
+  return revision === undefined
+    ? base
+    : `${base}?revision=${encodeURIComponent(revision)}`;
 }

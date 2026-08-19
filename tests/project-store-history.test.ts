@@ -71,13 +71,19 @@ function projectLoadResponse(url: string, init?: RequestInit): Response {
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(null, { status: 204 })),
+    vi.fn(async () =>
+      new Response(null, {
+        status: 204,
+        headers: { etag: '"history-test-next-etag"' },
+      })),
   );
   useProjectStore.getState().endTextTransaction();
   useProjectStore.setState({
     phase: "ready",
     project: projectFixture(),
     diagnostics: [],
+    mediaAvailability: {},
+    mediaRevisions: {},
     selectedSceneId: sceneId,
     saveStatus: "saved",
     saveErrorMessage: undefined,
@@ -288,9 +294,11 @@ describe("Project DSL 事务历史", () => {
     };
     const accepted = await useProjectStore.getState().applyJobResult({
       kind: "speech",
+      jobId: "speech-job-accepted",
       sceneId,
       expected: { narrationText: "原始旁白", speech: undefined },
       speech,
+      fileRevision: `sha256:${"4".repeat(64)}`,
     });
 
     expect(accepted).toBe(true);
@@ -302,9 +310,11 @@ describe("Project DSL 事务历史", () => {
     const historySize = useProjectStore.getState().undoStack.length;
     const staleAccepted = await useProjectStore.getState().applyJobResult({
       kind: "speech",
+      jobId: "speech-job-stale",
       sceneId,
       expected: { narrationText: "原始旁白", speech: undefined },
       speech,
+      fileRevision: `sha256:${"4".repeat(64)}`,
     });
 
     expect(staleAccepted).toBe(false);
@@ -329,6 +339,7 @@ describe("Project DSL 事务历史", () => {
 
     const accepted = await useProjectStore.getState().applyJobResult({
       kind: "speech",
+      jobId: "speech-job-conflict",
       sceneId,
       expected: { narrationText: "原始旁白", speech: undefined },
       speech: {
@@ -337,6 +348,7 @@ describe("Project DSL 事务历史", () => {
         sourceTextHash: `sha256:${"3".repeat(64)}`,
         ttsProfileId: "narracut-mandarin-news-v1",
       },
+      fileRevision: `sha256:${"5".repeat(64)}`,
     });
     useProjectStore.getState().updateNarration(sceneId, "不应应用的编辑");
     await useProjectStore.getState().undo();
@@ -450,9 +462,11 @@ describe("Project DSL 事务历史", () => {
     };
     await useProjectStore.getState().applyJobResult({
       kind: "speech",
+      jobId: "speech-job-runtime",
       sceneId,
       expected: { narrationText: "原始旁白", speech: undefined },
       speech,
+      fileRevision: `sha256:${"6".repeat(64)}`,
     });
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockClear();
@@ -465,6 +479,107 @@ describe("Project DSL 事务历史", () => {
       expect.objectContaining({ method: "PUT" }),
     );
     expect(useProjectStore.getState().project?.scenes[0].speech).toBeUndefined();
+  });
+
+  it("Undo/Redo 只恢复仍与磁盘修订一致的 Speech 引用", async () => {
+    const speechA: Speech = {
+      path: `speech/${sceneId}.mp3`,
+      durationMs: 1200,
+      sourceTextHash: `sha256:${"a".repeat(64)}`,
+      ttsProfileId: "narracut-mandarin-news-v1",
+    };
+    const speechB: Speech = {
+      ...speechA,
+      durationMs: 1800,
+      sourceTextHash: `sha256:${"b".repeat(64)}`,
+    };
+    const revisionA = `sha256:${"1".repeat(64)}`;
+    const revisionB = `sha256:${"2".repeat(64)}`;
+
+    await useProjectStore.getState().applyJobResult({
+      kind: "speech",
+      jobId: "speech-job-a",
+      sceneId,
+      expected: { narrationText: "原始旁白", speech: undefined },
+      speech: speechA,
+      fileRevision: revisionA,
+    });
+    await useProjectStore.getState().applyJobResult({
+      kind: "speech",
+      jobId: "speech-job-b",
+      sceneId,
+      expected: { narrationText: "原始旁白", speech: speechA },
+      speech: speechB,
+      fileRevision: revisionB,
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/api/speech/revisions")) {
+        return Response.json({
+          results: [{ path: speechA.path, exists: true, revision: revisionB }],
+        });
+      }
+      return new Response(null, {
+        status: 204,
+        headers: { etag: '"speech-history-next"' },
+      });
+    }));
+
+    await useProjectStore.getState().undo();
+    expect(useProjectStore.getState().project?.scenes[0].speech).toBeUndefined();
+    expect(useProjectStore.getState().historyNotice).toContain("文件修订已改变");
+
+    await useProjectStore.getState().redo();
+    expect(useProjectStore.getState().project?.scenes[0].speech).toEqual(speechB);
+  });
+
+  it("普通历史项也不会在 Speech 被覆盖后复活旧文件修订", async () => {
+    const speechA: Speech = {
+      path: `speech/${sceneId}.mp3`,
+      durationMs: 1200,
+      sourceTextHash: `sha256:${"a".repeat(64)}`,
+      ttsProfileId: "narracut-mandarin-news-v1",
+    };
+    const speechB: Speech = {
+      ...speechA,
+      durationMs: 1800,
+      sourceTextHash: `sha256:${"b".repeat(64)}`,
+    };
+    const revisionA = `sha256:${"1".repeat(64)}`;
+    const revisionB = `sha256:${"2".repeat(64)}`;
+    await useProjectStore.getState().applyJobResult({
+      kind: "speech",
+      jobId: "speech-chain-a",
+      sceneId,
+      expected: { narrationText: "原始旁白", speech: undefined },
+      speech: speechA,
+      fileRevision: revisionA,
+    });
+    await useProjectStore.getState().updateProjectName("中间普通编辑");
+    await useProjectStore.getState().applyJobResult({
+      kind: "speech",
+      jobId: "speech-chain-b",
+      sceneId,
+      expected: { narrationText: "原始旁白", speech: speechA },
+      speech: speechB,
+      fileRevision: revisionB,
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/api/speech/revisions")) {
+        return Response.json({
+          results: [{ path: speechA.path, exists: true, revision: revisionB }],
+        });
+      }
+      return new Response(null, {
+        status: 204,
+        headers: { etag: '"speech-chain-next"' },
+      });
+    }));
+
+    await useProjectStore.getState().undo();
+    expect(useProjectStore.getState().project?.scenes[0].speech).toBeUndefined();
+    await useProjectStore.getState().undo();
+    expect(useProjectStore.getState().project?.scenes[0].speech).toBeUndefined();
+    expect(useProjectStore.getState().historyNotice).toContain("文件修订已改变");
   });
 
   it("最多保留最近 100 个完整事务", () => {
@@ -498,6 +613,42 @@ describe("Project DSL 事务历史", () => {
     );
     expect(useProjectStore.getState().undoStack).toHaveLength(0);
     vi.useRealTimers();
+  });
+
+  it("加载时立即把 Narration hash 或 TTS profile 过期的 Speech 视为缺失", async () => {
+    const staleProject = projectFixture();
+    staleProject.scenes[0].speech = {
+      path: `speech/${sceneId}.mp3`,
+      durationMs: 1500,
+      sourceTextHash: `sha256:${"0".repeat(64)}`,
+      ttsProfileId: "narracut/legacy-profile@1",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/api/project")) {
+        return new Response(JSON.stringify(staleProject), {
+          headers: { etag: '"stale-speech-etag"' },
+        });
+      }
+      if (url.endsWith("/api/project/lease")) {
+        return Response.json({ status: "acquired", expiresAt: Date.now() + 8_000 });
+      }
+      if (url.endsWith("/api/project-info")) {
+        return Response.json({
+          projectDirectory: "/tmp/narracut-history-test",
+          projectFile: "/tmp/narracut-history-test/project.json",
+          fallbackName: "narracut-history-test",
+        });
+      }
+      if (url.endsWith("/api/assets/probe") || url.endsWith("/api/speech/revisions")) {
+        return Response.json({ results: [] });
+      }
+      return new Response(null, { status: 204 });
+    }));
+
+    await useProjectStore.getState().load();
+
+    expect(useProjectStore.getState().project?.scenes[0].speech).toBeUndefined();
   });
 
   it("重新加载会等待在途 PUT 完成后再读取新 DSL", async () => {

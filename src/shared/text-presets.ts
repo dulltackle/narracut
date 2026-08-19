@@ -284,4 +284,6 @@ export function contrastRatio(foreground: string, background: string): number {
   const darker = Math.min(first, second);
   return (lighter + 0.05) / (darker + 0.05);
 }
-import fontUnicodeRanges from "@fontsource-variable/noto-sans-sc/unicode.json";
+import fontUnicodeRanges from "@fontsource-variable/noto-sans-sc/unicode.json" with {
+  type: "json",
+};

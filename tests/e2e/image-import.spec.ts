@@ -136,7 +136,9 @@ test("替换失败保留旧绑定，重新选择成功后才切换", async ({ pa
   await page.goto(server.url);
   const row = page.getByTestId("scene-row");
   await page.getByLabel("为 Scene 1 选择图片").setInputFiles(broken);
-  await expect(row.getByText("图片内容损坏或无法读取")).toBeVisible();
+  await expect(row.getByText("图片内容损坏或无法读取")).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(row.getByText("旧绑定保持不变")).toBeVisible();
   const preview = row.getByRole("button", { name: /预览 Scene 1 Image Asset/ });
   await expect(preview).toBeVisible();

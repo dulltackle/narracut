@@ -6,7 +6,12 @@ import { isAbsolute as isPosixAbsolute } from "node:path/posix";
 
 import serveHandler from "serve-handler";
 
+import { validateProjectStructure } from "../shared/project";
 import { ImageImportJobError, ImageImportJobs } from "./image-import-jobs";
+import {
+  SpeechGenerationJobError,
+  SpeechGenerationJobs,
+} from "./speech-generation-jobs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3579;
@@ -28,6 +33,8 @@ export type StartServerOptions = {
   projectDirectory: string;
   staticDirectory: string;
   initialPort?: number;
+  ttsFetch?: typeof fetch;
+  environment?: { TOKENDANCE_API_KEY?: string };
 };
 
 export type RunningServer = {
@@ -97,7 +104,8 @@ async function writeProjectAtomically(
     throw error;
   }
 
-  await syncProjectDirectory(projectFile);
+  // rename 已经是提交点；目录 fsync 失败不能把已成功的原子写入反转为失败。
+  await syncProjectDirectory(projectFile).catch(() => undefined);
 }
 
 async function syncProjectDirectory(projectFile: string): Promise<void> {
@@ -195,6 +203,35 @@ async function probeProjectPaths(
   );
 }
 
+async function probeSpeechRevisions(
+  projectRoot: string,
+  projectRealRoot: string,
+  paths: string[],
+): Promise<Array<{ path: string; exists: boolean; revision?: string; error?: string }>> {
+  return Promise.all(
+    paths.map(async (path) => {
+      if (!isProjectRelativePath(path) || !path.startsWith("speech/")) {
+        return { path, exists: false, error: "INVALID_SPEECH_PATH" };
+      }
+      const file = join(projectRoot, ...path.split("/"));
+      try {
+        if (!(await isContainedProjectFile(projectRealRoot, file))) {
+          return { path, exists: false };
+        }
+        return {
+          path,
+          exists: true,
+          revision: `sha256:${createHash("sha256")
+            .update(await readFile(file))
+            .digest("hex")}`,
+        };
+      } catch {
+        return { path, exists: false };
+      }
+    }),
+  );
+}
+
 async function isContainedProjectFile(
   projectRealRoot: string,
   candidate: string,
@@ -264,6 +301,8 @@ export async function startNarracutServer({
   projectDirectory,
   staticDirectory,
   initialPort = DEFAULT_PORT,
+  ttsFetch,
+  environment = process.env,
 }: StartServerOptions): Promise<RunningServer> {
   const projectRoot = resolve(projectDirectory);
   const staticRoot = resolve(staticDirectory);
@@ -288,6 +327,10 @@ export async function startNarracutServer({
   }
   const projectRealRoot = await realpath(projectRoot);
   const imageImportJobs = new ImageImportJobs(projectRoot);
+  const speechGenerationJobs = new SpeechGenerationJobs(projectRoot, {
+    fetchImpl: ttsFetch,
+    apiKey: environment.TOKENDANCE_API_KEY,
+  });
   const eventStreams = new Set<ServerResponse>();
   let lease: { sessionId: string; expiresAt: number } | undefined;
   let projectMutationQueue: Promise<void> = Promise.resolve();
@@ -510,6 +553,41 @@ export async function startNarracutServer({
         return;
       }
 
+      if (url.pathname === "/api/speech/revisions" && request.method === "POST") {
+        let input: unknown;
+        try {
+          input = JSON.parse((await readRequestBody(request)).toString("utf8"));
+        } catch (error) {
+          if (error instanceof HttpError) throw error;
+          throw new HttpError(400, "Speech 修订请求体不是合法的 JSON。");
+        }
+        const paths =
+          typeof input === "object" && input !== null &&
+          Array.isArray(Reflect.get(input, "paths"))
+            ? Reflect.get(input, "paths")
+            : undefined;
+        if (
+          !Array.isArray(paths) ||
+          paths.length > 1_000 ||
+          !paths.every((path: unknown) => typeof path === "string")
+        ) {
+          throw new HttpError(400, "paths 必须是不超过 1000 项的字符串数组。");
+        }
+        send(
+          response,
+          200,
+          JSON.stringify({
+            results: await probeSpeechRevisions(
+              projectRoot,
+              projectRealRoot,
+              paths as string[],
+            ),
+          }),
+          "application/json; charset=utf-8",
+        );
+        return;
+      }
+
       if (url.pathname === "/api/jobs/events" && request.method === "GET") {
         response.writeHead(200, {
           "cache-control": "no-store",
@@ -522,15 +600,74 @@ export async function startNarracutServer({
         for (const job of imageImportJobs.list()) {
           response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
         }
-        const unsubscribe = imageImportJobs.subscribe((job) => {
+        for (const job of speechGenerationJobs.list()) {
+          response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
+        }
+        const writeJob = (job: import("../shared/jobs").NarracutJob) => {
           if (!response.destroyed) {
             response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
           }
-        });
+        };
+        const unsubscribeImage = imageImportJobs.subscribe(writeJob);
+        const unsubscribeSpeech = speechGenerationJobs.subscribe(writeJob);
         request.once("close", () => {
-          unsubscribe();
+          unsubscribeImage();
+          unsubscribeSpeech();
           eventStreams.delete(response);
         });
+        return;
+      }
+
+      if (url.pathname === "/api/jobs/speech" && request.method === "POST") {
+        requireLease(request);
+        let input: unknown;
+        try {
+          input = JSON.parse((await readRequestBody(request)).toString("utf8"));
+        } catch (error) {
+          if (error instanceof HttpError) throw error;
+          throw new HttpError(400, "Speech 请求体不是合法的 JSON。");
+        }
+        const sceneId =
+          typeof input === "object" && input !== null
+            ? Reflect.get(input, "sceneId")
+            : undefined;
+        const narrationText =
+          typeof input === "object" && input !== null
+            ? Reflect.get(input, "narrationText")
+            : undefined;
+        if (
+          typeof sceneId !== "string" ||
+          typeof narrationText !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+            sceneId,
+          )
+        ) {
+          throw new HttpError(400, "Speech 请求必须包含目标 Scene ID 与 Narration。");
+        }
+        send(
+          response,
+          202,
+          JSON.stringify({
+            job: speechGenerationJobs.create({ sceneId, narrationText }),
+          }),
+          "application/json; charset=utf-8",
+        );
+        return;
+      }
+
+      if (
+        url.pathname === "/api/jobs/speech/recover" &&
+        request.method === "POST"
+      ) {
+        requireLease(request);
+        send(
+          response,
+          200,
+          JSON.stringify({
+            jobs: await withProjectLock(() => speechGenerationJobs.recoverOrphans()),
+          }),
+          "application/json; charset=utf-8",
+        );
         return;
       }
 
@@ -573,15 +710,98 @@ export async function startNarracutServer({
       }
 
       const jobMatch = /^\/api\/jobs\/([0-9a-f-]+)$/iu.exec(url.pathname);
+      const speechActionMatch =
+        /^\/api\/jobs\/([0-9a-f-]+)\/(commit|discard)$/iu.exec(
+          url.pathname,
+        );
+      if (speechActionMatch !== null && request.method === "POST") {
+        const [, jobId, action] = speechActionMatch;
+        const sessionId = readSessionId(request);
+        if (action === "discard") {
+          if (!hasLease(sessionId)) {
+            throw new HttpError(423, "项目编辑权正由另一个浏览器会话持有。");
+          }
+          const discarded = await speechGenerationJobs.discard(jobId);
+          if (discarded === undefined) {
+            throw new HttpError(404, "找不到这个 Speech Job。");
+          }
+          send(response, 200, JSON.stringify(discarded), "application/json; charset=utf-8");
+          return;
+        }
+        const ifMatch = request.headers["if-match"];
+        if (typeof ifMatch !== "string" || ifMatch.length === 0) {
+          throw new HttpError(428, "应用 Speech 必须携带 Project If-Match。");
+        }
+        const bytes = await readRequestBody(request, MAX_PROJECT_BYTES);
+        let input: unknown;
+        try {
+          input = JSON.parse(bytes.toString("utf8"));
+        } catch {
+          throw new HttpError(400, "Speech 提交包含无效的 Project DSL。");
+        }
+        const structural = validateProjectStructure(input);
+        if (!structural.success) {
+          throw new HttpError(400, "Speech 提交包含无效的 Project DSL。");
+        }
+        const prepared = speechGenerationJobs.get(jobId);
+        const targetScene = structural.project.scenes.find(
+          (scene) => scene.id === prepared?.sceneId,
+        );
+        if (
+          prepared?.result === undefined ||
+          targetScene?.narration.text !== prepared.narrationText ||
+          JSON.stringify(targetScene.speech) !== JSON.stringify(prepared.result.speech)
+        ) {
+          throw new HttpError(409, "Speech 提交前提已改变，结果未应用。");
+        }
+        const nextEtag = await withProjectLock(async () => {
+          if (!hasLease(sessionId)) {
+            throw new HttpError(423, "项目编辑权正由另一个浏览器会话持有。");
+          }
+          const currentBytes = await readFile(projectFile);
+          if (projectEtag(currentBytes) !== ifMatch) {
+            throw new HttpError(412, "Project DSL 已在磁盘上改变。");
+          }
+          let committed = false;
+          try {
+            const job = await speechGenerationJobs.commit(jobId);
+            if (job === undefined) throw new HttpError(404, "找不到这个 Speech Job。");
+            committed = true;
+            await writeProjectAtomically(projectFile, bytes);
+            await speechGenerationJobs.acknowledge(jobId);
+            return projectEtag(bytes);
+          } catch (error) {
+            if (committed) {
+              try {
+                await speechGenerationJobs.rollback(jobId);
+              } catch {
+                throw new HttpError(500, "Speech 提交失败，且旧音频恢复失败。");
+              }
+            }
+            throw error;
+          }
+        });
+        send(
+          response,
+          200,
+          JSON.stringify({ job: speechGenerationJobs.get(jobId) }),
+          "application/json; charset=utf-8",
+          { etag: nextEtag },
+        );
+        return;
+      }
       if (jobMatch !== null && request.method === "GET") {
-        const job = imageImportJobs.get(jobMatch[1]);
+        const job =
+          imageImportJobs.get(jobMatch[1]) ?? speechGenerationJobs.get(jobMatch[1]);
         if (job === undefined) throw new HttpError(404, "找不到这个 Job。");
         send(response, 200, JSON.stringify(job), "application/json; charset=utf-8");
         return;
       }
       if (jobMatch !== null && request.method === "DELETE") {
         requireLease(request);
-        const job = imageImportJobs.cancel(jobMatch[1]);
+        const job =
+          imageImportJobs.cancel(jobMatch[1]) ??
+          speechGenerationJobs.cancel(jobMatch[1]);
         if (job === undefined) throw new HttpError(404, "找不到这个 Job。");
         send(response, 200, JSON.stringify(job), "application/json; charset=utf-8");
         return;
@@ -644,7 +864,9 @@ export async function startNarracutServer({
       if (response.headersSent) return;
       const message = error instanceof Error ? error.message : "未知本地服务错误。";
       const statusCode =
-        error instanceof HttpError || error instanceof ImageImportJobError
+        error instanceof HttpError ||
+        error instanceof ImageImportJobError ||
+        error instanceof SpeechGenerationJobError
           ? error.statusCode
           : 500;
       send(response, statusCode, message);
@@ -664,6 +886,7 @@ export async function startNarracutServer({
       eventStreams.clear();
       return new Promise<void>((resolvePromise, rejectPromise) => {
         server.close((error) => (error ? rejectPromise(error) : resolvePromise()));
+        server.closeAllConnections();
       });
     },
   };

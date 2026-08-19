@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import {
   CURRENT_SCHEMA_VERSION,
+  CURRENT_TTS_PROFILE_ID,
   migrateKnownProjectToCurrent,
   ProjectMigrationError,
   readSchemaVersion,
@@ -12,6 +13,7 @@ import {
   type Visual,
   validateProjectConsistency,
   validateProjectStructure,
+  validateSpeechFreshness,
 } from "../shared/project";
 
 export type ProjectInfo = {
@@ -53,14 +55,18 @@ type HistoryEntry = {
   label: string;
   sceneId?: string;
   focusTarget?: HistoryFocusTarget;
+  beforeSpeechRevisions: Record<string, string>;
+  afterSpeechRevisions: Record<string, string>;
 };
 
 export type ProjectJobResult =
   | {
       kind: "speech";
+      jobId: string;
       sceneId: string;
       expected: { narrationText: string; speech: Speech | undefined };
       speech: Speech;
+      fileRevision: string;
     }
   | {
       kind: "asset";
@@ -80,6 +86,7 @@ type ProjectState = {
   info?: ProjectInfo;
   diagnostics: Diagnostic[];
   mediaAvailability: Record<string, boolean>;
+  mediaRevisions: Record<string, string>;
   errorMessage?: string;
   selectedSceneId?: string;
   saveStatus: SaveStatus;
@@ -103,6 +110,7 @@ type ProjectState = {
     target: HistoryFocusTarget;
   };
   taskDrawerOpen: boolean;
+  speechCommitInFlight: boolean;
   load: () => Promise<void>;
   flushSave: () => Promise<void>;
   retrySave: () => Promise<void>;
@@ -179,6 +187,8 @@ let lifecycleListenersInstalled = false;
 const sessionId = globalThis.crypto.randomUUID();
 export const getProjectSessionId = (): string => sessionId;
 let nextHistoryEntryId = 0;
+let historyOperationToken = 0;
+let speechCommitTail = Promise.resolve();
 let textTransaction:
   | { key: string; entryId: number; lastEditAt: number }
   | undefined;
@@ -191,6 +201,17 @@ const SAVE_MAX_WAIT_MS = 1_000;
 const SAVE_REQUEST_TIMEOUT_MS = 5_000;
 const SAVE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const;
 const LEASE_RENEW_MS = 1_000;
+
+async function acquireSpeechCommit(): Promise<() => void> {
+  const previous = speechCommitTail;
+  let release!: () => void;
+  const current = new Promise<void>((resolvePromise) => {
+    release = resolvePromise;
+  });
+  speechCommitTail = previous.then(() => current);
+  await previous;
+  return release;
+}
 
 function freezeDeep<T>(value: T): T {
   if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
@@ -229,7 +250,8 @@ function canMutateProject(get: GetProjectState): boolean {
     state.phase === "ready" &&
     state.leaseStatus === "acquired" &&
     state.externalConflict === undefined &&
-    !state.conflictResolving
+    !state.conflictResolving &&
+    !state.speechCommitInFlight
   );
 }
 
@@ -337,6 +359,27 @@ function parseProjectBytes(raw: string): {
   }
 }
 
+async function withoutStaleSpeech(project: Project): Promise<Project> {
+  const diagnostics = await validateSpeechFreshness(
+    project,
+    CURRENT_TTS_PROFILE_ID,
+  );
+  const staleSceneIds = new Set(
+    diagnostics.flatMap((diagnostic) =>
+      diagnostic.sceneId === undefined ? [] : [diagnostic.sceneId],
+    ),
+  );
+  if (staleSceneIds.size === 0) return project;
+  return {
+    ...project,
+    scenes: project.scenes.map((scene) => {
+      if (!staleSceneIds.has(scene.id) || scene.speech === undefined) return scene;
+      const { speech: _speech, ...withoutSpeech } = scene;
+      return withoutSpeech;
+    }),
+  };
+}
+
 async function probeMediaAvailability(project: Project): Promise<Record<string, boolean>> {
   const paths = [
     ...project.assets.map((asset) => asset.path),
@@ -358,6 +401,104 @@ async function probeMediaAvailability(project: Project): Promise<Record<string, 
   return Object.fromEntries(
     payload.results.map((result) => [result.path, result.exists]),
   );
+}
+
+async function probeSpeechRevisions(project: Project): Promise<Record<string, string>> {
+  const paths = [...new Set(project.scenes.flatMap((scene) =>
+    scene.speech === undefined ? [] : [scene.speech.path],
+  ))];
+  if (paths.length === 0) return {};
+  const response = await fetch("/api/speech/revisions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ paths }),
+  });
+  if (!response.ok) return {};
+  const payload = (await response.json()) as {
+    results: Array<{ path: string; exists: boolean; revision?: string }>;
+  };
+  return Object.fromEntries(
+    payload.results.flatMap((result) =>
+      result.exists && result.revision !== undefined
+        ? [[result.path, result.revision] as const]
+        : [],
+    ),
+  );
+}
+
+function revisionsForProject(
+  project: Project,
+  revisions: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    project.scenes.flatMap((scene) => {
+      const path = scene.speech?.path;
+      return path !== undefined && revisions[path] !== undefined
+        ? [[path, revisions[path]] as const]
+        : [];
+    }),
+  );
+}
+
+async function restoreHistorySpeech(
+  project: Project,
+  expectedRevisions: Record<string, string> | undefined,
+): Promise<{
+  project: Project;
+  revisions: Record<string, string>;
+  availability: Record<string, boolean>;
+  discarded: boolean;
+}> {
+  const paths = [...new Set(project.scenes.flatMap((scene) =>
+    scene.speech === undefined ? [] : [scene.speech.path],
+  ))];
+  if (paths.length === 0) {
+    return { project, revisions: {}, availability: {}, discarded: false };
+  }
+  let results: Array<{ path: string; exists: boolean; revision?: string }> = [];
+  try {
+    const response = await fetch("/api/speech/revisions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths }),
+    });
+    if (response.ok) {
+      results = ((await response.json()) as {
+        results: Array<{ path: string; exists: boolean; revision?: string }>;
+      }).results;
+    }
+  } catch {
+    // 无法证明文件修订一致时，下面会安全移除 Speech 引用。
+  }
+  const current = new Map(results.map((result) => [result.path, result]));
+  let discarded = false;
+  const restored: Project = {
+    ...project,
+    scenes: project.scenes.map((scene) => {
+      if (scene.speech === undefined) return scene;
+      const result = current.get(scene.speech.path);
+      if (
+        expectedRevisions?.[scene.speech.path] !== undefined &&
+        result?.exists === true &&
+        result.revision === expectedRevisions[scene.speech.path]
+      ) {
+        return scene;
+      }
+      discarded = true;
+      const { speech: _speech, ...withoutSpeech } = scene;
+      return withoutSpeech;
+    }),
+  };
+  return {
+    project: restored,
+    revisions: Object.fromEntries(results.flatMap((result) =>
+      result.exists && result.revision !== undefined
+        ? [[result.path, result.revision] as const]
+        : [],
+    )),
+    availability: Object.fromEntries(results.map((result) => [result.path, result.exists])),
+    discarded,
+  };
 }
 
 async function requestLease(): Promise<{
@@ -453,6 +594,48 @@ async function putProject(
   return response.headers.get("etag") ?? undefined;
 }
 
+async function commitSpeechProject(jobId: string, project: Project): Promise<string> {
+  const confirmCommittedProject = async (): Promise<string | undefined> => {
+    try {
+      const current = await fetch("/api/project", { cache: "no-store" });
+      const etag = current.headers.get("etag");
+      if (!current.ok || etag === null) return undefined;
+      const raw = await current.text();
+      return canonicalProject(JSON.parse(raw)) === canonicalProject(project)
+        ? etag
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  let response: Response;
+  try {
+    response = await fetch(`/api/jobs/${jobId}/commit`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "x-narracut-session-id": sessionId,
+        "if-match": expectedProjectEtag ?? '"untracked"',
+      },
+      body: serializeProject(project),
+    });
+  } catch (error) {
+    const committedEtag = await confirmCommittedProject();
+    if (committedEtag !== undefined) return committedEtag;
+    throw error;
+  }
+  if (!response.ok) {
+    if (response.status >= 500) {
+      const committedEtag = await confirmCommittedProject();
+      if (committedEtag !== undefined) return committedEtag;
+    }
+    throw new Error((await response.text()) || "无法提交 Speech 与 Project DSL。");
+  }
+  const etag = response.headers.get("etag");
+  if (etag === null) throw new Error("Speech 提交未返回 Project 修订。");
+  return etag;
+}
+
 function markLeaseLost(set: SetProjectState, get: GetProjectState): void {
   clearLeaseRenewal();
   clearSaveTimers();
@@ -503,10 +686,18 @@ async function installDiskProject(
   disk: Awaited<ReturnType<typeof readDiskRevision>>,
   set: SetProjectState,
 ): Promise<void> {
-  const { project, diagnostics, migrated, savedCanonical } = disk.parsed;
-  if (project === undefined || savedCanonical === undefined) {
+  const {
+    project: parsedProject,
+    diagnostics: parsedDiagnostics,
+    migrated,
+    savedCanonical,
+  } = disk.parsed;
+  if (parsedProject === undefined || savedCanonical === undefined) {
     throw new Error(disk.parsed.errorMessage ?? "磁盘 Project DSL 无法安全载入。");
   }
+  const project = await withoutStaleSpeech(parsedProject);
+  const diagnostics =
+    project === parsedProject ? parsedDiagnostics : validateProjectConsistency(project);
   expectedProjectEtag = disk.etag;
   lastSavedCanonical = savedCanonical;
   preMigrationBackupPending = migrated;
@@ -517,6 +708,7 @@ async function installDiskProject(
     project,
     diagnostics,
     mediaAvailability: await probeMediaAvailability(project),
+    mediaRevisions: await probeSpeechRevisions(project),
     selectedSceneId: project.scenes[0]?.id,
     undoStack: [],
     redoStack: [],
@@ -833,6 +1025,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   phase: "loading",
   diagnostics: [],
   mediaAvailability: {},
+  mediaRevisions: {},
   saveStatus: "saved",
   saveDiagnostics: [],
   dirty: false,
@@ -845,6 +1038,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   redoStack: [],
   historyEventId: 0,
   taskDrawerOpen: false,
+  speechCommitInFlight: false,
   load: async () => {
     const generation = ++loadGeneration;
     finishTextTransaction();
@@ -858,6 +1052,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       project: undefined,
       unknownProject: undefined,
       mediaAvailability: {},
+      mediaRevisions: {},
       saveStatus: "saved",
       saveErrorMessage: undefined,
       saveRetryAttempt: undefined,
@@ -911,8 +1106,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return;
       }
 
-      const currentProject = migrateKnownProjectToCurrent(input);
-      const structural = validateProjectStructure(currentProject);
+      const migratedProject = migrateKnownProjectToCurrent(input);
+      const structural = validateProjectStructure(migratedProject);
       if (!structural.success) {
         set({
           phase: "error",
@@ -934,7 +1129,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return;
       }
 
-      const mediaAvailability = await probeMediaAvailability(structural.project);
+      const currentProject = await withoutStaleSpeech(structural.project);
+      const currentDiagnostics =
+        currentProject === structural.project
+          ? diagnostics
+          : validateProjectConsistency(currentProject);
+      const [mediaAvailability, mediaRevisions] = await Promise.all([
+        probeMediaAvailability(currentProject),
+        probeSpeechRevisions(currentProject),
+      ]);
       const leaseResponse = await requestLease();
       const leaseResult = leaseResponse.status;
       if (generation !== loadGeneration) return;
@@ -945,10 +1148,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       set({
         phase: leaseResult === "acquired" ? "ready" : "occupied",
         info,
-        project: structural.project,
-        diagnostics,
+        project: currentProject,
+        diagnostics: currentDiagnostics,
         mediaAvailability,
-        selectedSceneId: structural.project.scenes[0]?.id,
+        mediaRevisions,
+        selectedSceneId: currentProject.scenes[0]?.id,
         saveStatus:
           leaseResult === "occupied"
             ? "occupied"
@@ -1155,6 +1359,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       id: ++nextHistoryEntryId,
       before: immutableProject(project),
       after: immutableProject(nextProject),
+      beforeSpeechRevisions: revisionsForProject(project, get().mediaRevisions),
+      afterSpeechRevisions: revisionsForProject(nextProject, get().mediaRevisions),
       label: "重命名项目",
     };
     set({
@@ -1182,6 +1388,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       id: ++nextHistoryEntryId,
       before: immutableProject(project),
       after: immutableProject(structural.project),
+      beforeSpeechRevisions: revisionsForProject(project, get().mediaRevisions),
+      afterSpeechRevisions: revisionsForProject(structural.project, get().mediaRevisions),
       label: "编辑 Project Theme",
     };
     set({
@@ -1218,7 +1426,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     ) {
       undoStack = [
         ...currentUndoStack.slice(0, -1),
-        { ...activeEntry, after: immutableProject(nextProject) },
+        {
+          ...activeEntry,
+          after: immutableProject(nextProject),
+          afterSpeechRevisions: revisionsForProject(
+            nextProject,
+            get().mediaRevisions,
+          ),
+        },
       ];
       textTransaction.lastEditAt = now;
     } else {
@@ -1230,6 +1445,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         label,
         sceneId,
         focusTarget: "narration",
+        beforeSpeechRevisions: revisionsForProject(project, get().mediaRevisions),
+        afterSpeechRevisions: revisionsForProject(nextProject, get().mediaRevisions),
       };
       undoStack = [...currentUndoStack, entry].slice(-HISTORY_LIMIT);
       textTransaction = { key: textKey, entryId: entry.id, lastEditAt: now };
@@ -1258,17 +1475,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
       return;
     }
-    const project = entry.before;
+    const operationToken = ++historyOperationToken;
+    const projectAtStart = get().project;
+    const restored = await restoreHistorySpeech(entry.before, entry.beforeSpeechRevisions);
+    if (
+      operationToken !== historyOperationToken ||
+      get().project !== projectAtStart ||
+      get().undoStack.at(-1)?.id !== entry.id
+    ) return;
+    const project = restored.project;
     const selectedSceneId = get().selectedSceneId;
     set((state) => ({
       project,
+      mediaRevisions: { ...state.mediaRevisions, ...restored.revisions },
+      mediaAvailability: { ...state.mediaAvailability, ...restored.availability },
       selectedSceneId: project.scenes.some((scene) => scene.id === selectedSceneId)
         ? selectedSceneId
         : project.scenes[0]?.id,
       diagnostics: validateProjectConsistency(project),
       undoStack: undoStack.slice(0, -1),
       redoStack: [...redoStack, entry],
-      historyNotice: `已撤销：${entry.label}`,
+      historyNotice: restored.discarded
+        ? `已撤销：${entry.label}；Speech 文件修订已改变，已恢复为缺 Speech`
+        : `已撤销：${entry.label}`,
       historyEventId: state.historyEventId + 1,
       historyFocusRequest:
         entry.sceneId === undefined || entry.focusTarget === undefined
@@ -1293,17 +1522,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
       return;
     }
-    const project = entry.after;
+    const operationToken = ++historyOperationToken;
+    const projectAtStart = get().project;
+    const restored = await restoreHistorySpeech(entry.after, entry.afterSpeechRevisions);
+    if (
+      operationToken !== historyOperationToken ||
+      get().project !== projectAtStart ||
+      get().redoStack.at(-1)?.id !== entry.id
+    ) return;
+    const project = restored.project;
     const selectedSceneId = get().selectedSceneId;
     set((state) => ({
       project,
+      mediaRevisions: { ...state.mediaRevisions, ...restored.revisions },
+      mediaAvailability: { ...state.mediaAvailability, ...restored.availability },
       selectedSceneId: project.scenes.some((scene) => scene.id === selectedSceneId)
         ? selectedSceneId
         : project.scenes[0]?.id,
       diagnostics: validateProjectConsistency(project),
       undoStack: [...undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: redoStack.slice(0, -1),
-      historyNotice: `已重做：${entry.label}`,
+      historyNotice: restored.discarded
+        ? `已重做：${entry.label}；Speech 文件修订已改变，已恢复为缺 Speech`
+        : `已重做：${entry.label}`,
       historyEventId: state.historyEventId + 1,
       historyFocusRequest:
         entry.sceneId === undefined || entry.focusTarget === undefined
@@ -1377,6 +1618,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       id: ++nextHistoryEntryId,
       before: immutableProject(project),
       after: immutableProject(structural.project),
+      beforeSpeechRevisions: revisionsForProject(project, get().mediaRevisions),
+      afterSpeechRevisions: revisionsForProject(structural.project, get().mediaRevisions),
       label: `绑定 Scene ${String(sceneIndex + 1).padStart(2, "0")} Asset`,
       sceneId,
       focusTarget: "visual-type",
@@ -1424,6 +1667,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       id: ++nextHistoryEntryId,
       before: immutableProject(project),
       after: immutableProject(structural.project),
+      beforeSpeechRevisions: revisionsForProject(project, get().mediaRevisions),
+      afterSpeechRevisions: revisionsForProject(structural.project, get().mediaRevisions),
       label: `清除 Scene ${String(sceneIndex + 1).padStart(2, "0")} Asset 绑定`,
       sceneId,
       focusTarget: "visual-type",
@@ -1440,6 +1685,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     return true;
   },
   applyJobResult: async (result) => {
+    const releaseSpeechCommit =
+      result.kind === "speech" ? await acquireSpeechCommit() : undefined;
+    try {
+      if (result.kind === "speech") await get().flushSave();
     const project = get().project;
     if (project === undefined || !canMutateProject(get)) return false;
     const sceneIndex = project.scenes.findIndex(
@@ -1510,6 +1759,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!structural.success || hasSaveBlockingError(diagnostics)) {
       throw new Error(structuralErrorMessage(diagnostics));
     }
+    let committedEtag: string | undefined;
+    if (result.kind === "speech") {
+      set({ speechCommitInFlight: true });
+      try {
+        committedEtag = await commitSpeechProject(result.jobId, structural.project);
+      } catch (error) {
+        set({ speechCommitInFlight: false });
+        throw error;
+      }
+      expectedProjectEtag = committedEtag;
+      lastSavedCanonical = canonicalProject(structural.project);
+      pendingSave = undefined;
+      clearSaveTimers();
+    }
     finishTextTransaction();
     const entry: HistoryEntry = {
       id: ++nextHistoryEntryId,
@@ -1518,6 +1781,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       label,
       sceneId: result.sceneId,
       focusTarget: result.kind === "speech" ? "narration" : "visual-type",
+      beforeSpeechRevisions: revisionsForProject(
+        historyBefore,
+        get().mediaRevisions,
+      ),
+      afterSpeechRevisions:
+        result.kind === "speech"
+          ? {
+              ...revisionsForProject(structural.project, get().mediaRevisions),
+              [result.speech.path]: result.fileRevision,
+            }
+          : revisionsForProject(structural.project, get().mediaRevisions),
     };
     set((state) => ({
       project: structural.project,
@@ -1525,14 +1799,33 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       mediaAvailability:
         result.kind === "asset"
           ? { ...state.mediaAvailability, [result.asset.path]: true }
-          : state.mediaAvailability,
+          : { ...state.mediaAvailability, [result.speech.path]: true },
+      mediaRevisions:
+        result.kind === "speech"
+          ? { ...state.mediaRevisions, [result.speech.path]: result.fileRevision }
+          : state.mediaRevisions,
       undoStack: [...state.undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
       historyNotice: notice,
       historyEventId: state.historyEventId + 1,
+      ...(result.kind === "speech"
+        ? {
+            speechCommitInFlight: false,
+            saveStatus: "saved" as const,
+            saveErrorMessage: undefined,
+            saveRetryAttempt: undefined,
+            saveDiagnostics: [],
+            dirty: false,
+          }
+        : {}),
     }));
-    await scheduleProjectSave(structural.project, "immediate", set, get);
-    return true;
+    if (result.kind === "asset") {
+      await scheduleProjectSave(structural.project, "immediate", set, get);
+    }
+      return true;
+    } finally {
+      releaseSpeechCommit?.();
+    }
   },
   updateVisual: async (sceneId, visual) => {
     const project = get().project;
@@ -1558,6 +1851,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       id: ++nextHistoryEntryId,
       before: immutableProject(project),
       after: immutableProject(structural.project),
+      beforeSpeechRevisions: revisionsForProject(project, get().mediaRevisions),
+      afterSpeechRevisions: revisionsForProject(structural.project, get().mediaRevisions),
       label:
         previousVisual?.type === visual.type
           ? `编辑 Scene ${String(sceneIndex + 1).padStart(2, "0")} 画面内容`
@@ -1602,6 +1897,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       id: ++nextHistoryEntryId,
       before: immutableProject(project),
       after: immutableProject(structural.project),
+      beforeSpeechRevisions: revisionsForProject(project, get().mediaRevisions),
+      afterSpeechRevisions: revisionsForProject(structural.project, get().mediaRevisions),
       label: `移动 Scene ${String(sourceIndex + 1).padStart(2, "0")} 到第 ${targetIndex + 1} 项`,
       sceneId,
       focusTarget: "reorder",
@@ -1641,6 +1938,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       id: ++nextHistoryEntryId,
       before: immutableProject(project),
       after: immutableProject(structural.project),
+      beforeSpeechRevisions: revisionsForProject(project, get().mediaRevisions),
+      afterSpeechRevisions: revisionsForProject(structural.project, get().mediaRevisions),
       label:
         newScenes.length === 1
           ? "新增 1 个 Scene"

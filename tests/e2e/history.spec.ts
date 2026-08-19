@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -33,7 +34,7 @@ function projectFixture() {
         speech: {
           path: `speech/${sceneIds[0]}.mp3`,
           durationMs: 1200,
-          sourceTextHash: `sha256:${"0".repeat(64)}`,
+          sourceTextHash: `sha256:${createHash("sha256").update("原始旁白").digest("hex")}`,
           ttsProfileId: "narracut-mandarin-news-v1",
         },
         visual: { type: "card", title: "原始卡片" },
@@ -52,6 +53,8 @@ function projectFixture() {
 test.beforeAll(async () => {
   const projectDirectory = await mkdtemp(join(tmpdir(), "narracut-history-e2e-"));
   projectFile = join(projectDirectory, "project.json");
+  await mkdir(join(projectDirectory, "speech"));
+  await writeFile(join(projectDirectory, "speech", `${sceneIds[0]}.mp3`), "history-speech-revision");
   await writeFile(projectFile, `${JSON.stringify(projectFixture())}\n`);
   server = await startNarracutServer({
     projectDirectory,
@@ -69,6 +72,7 @@ test.afterEach(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
+  await writeFile(join(resolve(projectFile, ".."), "speech", `${sceneIds[0]}.mp3`), "history-speech-revision");
   await writeFile(projectFile, `${JSON.stringify(projectFixture())}\n`);
   await page.goto(server.url);
   await expect(page.getByTestId("global-workbench")).toBeVisible();
@@ -90,7 +94,12 @@ test("同一 Narration 在 750ms 内合并，空闲后形成新事务，并与 S
   await expect(undo).toHaveAttribute("title", "撤销：编辑 Scene 01 旁白");
   await undo.click();
   await expect(narration).toHaveValue("第一轮 B");
-  await expect(page.getByTestId("scene-row").first()).toContainText("缺少 Speech");
+  await expect(
+    page.getByTestId("scene-row").first().getByRole("button", { name: "生成 Speech" }),
+  ).toBeVisible();
+  await expect(page.getByTestId("scene-row").first()).toContainText(
+    "Draft Duration",
+  );
   await expect(
     page.getByRole("button", { name: "重做：编辑 Scene 01 旁白" }),
   ).toBeEnabled();

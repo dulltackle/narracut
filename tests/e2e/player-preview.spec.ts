@@ -1,6 +1,9 @@
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 
 import { expect, test } from "@playwright/test";
 
@@ -10,6 +13,7 @@ import type { Project } from "../../src/shared/project";
 let server: RunningServer;
 let projectFile: string;
 let projectDirectory: string;
+const execFileAsync = promisify(execFile);
 
 const sceneIds = [
   "88000000-0000-4000-8000-000000000001",
@@ -25,12 +29,12 @@ const projectTheme = {
   fontId: "narracut/noto-sans-cjk-sc@1",
 };
 
-function speech(sceneId: string, durationMs: number) {
+function speech(sceneId: string, durationMs: number, narrationText: string) {
   return {
     path: `speech/${sceneId}.mp3`,
     durationMs,
-    sourceTextHash: `sha256:${"0".repeat(64)}`,
-    ttsProfileId: "narracut/test@1",
+    sourceTextHash: `sha256:${createHash("sha256").update(narrationText).digest("hex")}`,
+    ttsProfileId: "narracut-mandarin-news-v1",
   };
 }
 
@@ -44,14 +48,14 @@ function playerProject(): Project {
       {
         id: sceneIds[0],
         narration: { text: "第一段 Narration" },
-        speech: speech(sceneIds[0], 500),
+        speech: speech(sceneIds[0], 500, "第一段 Narration"),
         visual: { type: "card", title: "第一张 Card" },
         transition: "cut",
       },
       {
         id: sceneIds[1],
         narration: { text: "第二段 Narration" },
-        speech: speech(sceneIds[1], 1000),
+        speech: speech(sceneIds[1], 1000, "第二段 Narration"),
         visual: { type: "card", title: "第二张 Card" },
         transition: "cut",
       },
@@ -73,6 +77,26 @@ test.beforeAll(async () => {
   projectDirectory = await mkdtemp(join(tmpdir(), "narracut-player-e2e-"));
   projectFile = join(projectDirectory, "project.json");
   await mkdir(join(projectDirectory, "assets"));
+  await mkdir(join(projectDirectory, "speech"));
+  await Promise.all([
+    [sceneIds[0], "0.5"],
+    [sceneIds[1], "1.0"],
+  ].map(([sceneId, duration]) =>
+    execFileAsync("ffmpeg", [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "anullsrc=r=32000:cl=mono",
+      "-t",
+      duration,
+      "-b:a",
+      "64k",
+      join(projectDirectory, "speech", `${sceneId}.mp3`),
+    ]),
+  ));
   const shortVideoBase64 = await readFile(
     resolve("tests/fixtures/short-video.mp4.b64"),
     "utf8",
@@ -181,14 +205,14 @@ test("Image 等待就绪，Video 静音并在短于 Scene 时保持最后画面"
     {
       id: sceneIds[0],
       narration: { text: "Image Scene" },
-      speech: speech(sceneIds[0], 1000),
+      speech: speech(sceneIds[0], 1000, "Image Scene"),
       visual: { type: "image", assetId: imageId, caption: { text: "Image Caption", textMotionId: "narracut/none@1" } },
       transition: "cut",
     },
     {
       id: sceneIds[1],
       narration: { text: "Video Scene" },
-      speech: speech(sceneIds[1], 2000),
+      speech: speech(sceneIds[1], 2000, "Video Scene"),
       visual: { type: "video", assetId: videoId, caption: { text: "Video Caption", textMotionId: "narracut/none@1" } },
       transition: "cut",
     },
@@ -230,7 +254,7 @@ test("损坏 Video 只替换素材层并保留 Caption 与 Subtitle", async ({ p
   project.scenes = [{
     id: sceneIds[0],
     narration: { text: "损坏素材仍可信的 Subtitle" },
-    speech: speech(sceneIds[0], 2000),
+    speech: speech(sceneIds[0], 2000, "损坏素材仍可信的 Subtitle"),
     visual: {
       type: "video",
       assetId: videoId,

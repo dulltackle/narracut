@@ -167,6 +167,21 @@ describe("Remotion 渲染快照", () => {
     );
   });
 
+  it("Speech 文件缺失时回退 Draft 时长，并用文件修订刷新同路径媒体", () => {
+    const speechPath = project.scenes[0].speech!.path;
+    const missing = createPreviewSnapshot(
+      project,
+      "http://127.0.0.1:3579/media/",
+      { [speechPath]: false },
+      { [speechPath]: "sha256:new-revision" },
+    );
+
+    expect(missing.scenes[0].durationInFrames).toBe(150);
+    expect(projectMediaUrl(missing, speechPath)).toBe(
+      `http://127.0.0.1:3579/media/${speechPath}?revision=sha256%3Anew-revision`,
+    );
+  });
+
   it("RenderPlan 重建后按稳定 Scene ID 与 Scene 内帧恢复", () => {
     const before = createPreviewSnapshot(
       project,
