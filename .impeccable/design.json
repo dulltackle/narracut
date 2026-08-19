@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-17T03:21:29Z",
+  "generatedAt": "2026-08-19T07:20:52Z",
   "title": "Design System: Narracut",
   "extensions": {
     "colorMeta": {
@@ -149,9 +149,9 @@
     {
       "name": "Selected Scene Row",
       "kind": "custom",
-      "description": "Scene 表的签名选中状态，以薄荷雾面和墨蓝黑内侧标记定位当前叙事单元。",
-      "html": "<div class=\"ds-scene-row\"><span class=\"ds-scene-index\">01</span><div><strong>取 100 毫升生理盐水</strong><span>Video + Caption · 缺少 Speech</span></div><span class=\"ds-scene-status\">可编辑草稿</span></div>",
-      "css": ".ds-scene-row { min-height: 88px; display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 12px 8px 8px; background: var(--surface-mint, #eef8f6); color: var(--ink, #0f172a); box-shadow: inset 3px 0 var(--ink, #0f172a); font: 400 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-scene-index { color: var(--muted, #64748b); font: 650 12px \"SF Mono\", ui-monospace, Menlo, monospace; text-align: center; } .ds-scene-row strong, .ds-scene-row div span { display: block; } .ds-scene-row div span { color: var(--muted, #64748b); font-size: 12px; } .ds-scene-status { padding: 6px 8px; border-radius: 12px; background: #eefbf2; color: var(--success, #15803d); font-size: 12px; }"
+      "description": "Scene 表的签名选中状态；序号是显式选择并跳转预览的按钮，获得焦点本身不会切换 Scene。",
+      "html": "<div class=\"ds-scene-row\"><button class=\"ds-scene-index\" aria-label=\"选择并预览 Scene 01\">01</button><div><strong>取 100 毫升生理盐水</strong><span>Video + Caption · 缺少 Speech</span></div><span class=\"ds-scene-status\">可编辑草稿</span></div>",
+      "css": ".ds-scene-row { min-height: 88px; display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 12px 8px 8px; background: var(--surface-mint, #eef8f6); color: var(--ink, #0f172a); box-shadow: inset 3px 0 var(--ink, #0f172a); font: 400 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-scene-index { width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--muted, #64748b); font: 650 12px \"SF Mono\", ui-monospace, Menlo, monospace; cursor: pointer; } .ds-scene-index:hover { background: var(--canvas, #f6f8fb); color: var(--ink, #0f172a); } .ds-scene-index:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-scene-index:active { transform: translateY(1px); } .ds-scene-row strong, .ds-scene-row div span { display: block; } .ds-scene-row div span { color: var(--muted, #64748b); font-size: 12px; } .ds-scene-status { padding: 6px 8px; border-radius: 12px; background: #eefbf2; color: var(--success, #15803d); font-size: 12px; }"
     },
     {
       "name": "Warning Note",
@@ -161,11 +161,11 @@
       "css": ".ds-warning-note { display: flex; gap: 8px; padding: 12px; border-radius: 12px; background: #fff7ed; color: var(--warning, #b45309); font: 400 12px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; }"
     },
     {
-      "name": "Player Control",
-      "kind": "button",
-      "description": "Player 的墨蓝黑圆形播放控制，与青绿色主动作保持职责分离。",
-      "html": "<button class=\"ds-play\" aria-label=\"播放\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 5v14l11-7z\" fill=\"currentColor\"/></svg></button>",
-      "css": ".ds-play { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--ink, #0f172a); color: #fff; cursor: pointer; } .ds-play svg { width: 20px; height: 20px; } .ds-play:hover { background: var(--ink-secondary, #334155); } .ds-play:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-play:active { transform: translateY(1px); }"
+      "name": "Player Context and Control",
+      "kind": "custom",
+      "description": "Player 同时展示选中 Scene 与正在播放 Scene，并以墨蓝黑圆形按钮控制项目级预览。",
+      "html": "<div class=\"ds-player-control\"><div class=\"ds-player-context\"><span>选中 Scene <strong>03</strong></span><span>正在播放 <strong>05</strong></span></div><button class=\"ds-play\" aria-label=\"播放\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 5v14l11-7z\" fill=\"currentColor\"/></svg></button><code>00:18 / 01:42</code></div>",
+      "css": ".ds-player-control { display: flex; align-items: center; gap: 12px; color: var(--muted, #64748b); font: 400 12px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-player-context { display: grid; gap: 2px; min-width: 112px; } .ds-player-context strong { color: var(--ink, #0f172a); font: 650 12px \"SF Mono\", ui-monospace, Menlo, monospace; } .ds-play { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--ink, #0f172a); color: #fff; cursor: pointer; } .ds-play svg { width: 20px; height: 20px; } .ds-play:hover { background: var(--ink-secondary, #334155); } .ds-play:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-play:active { transform: translateY(1px); } .ds-player-control code { color: var(--ink-secondary, #334155); font: 12px \"SF Mono\", ui-monospace, Menlo, monospace; }"
     }
   ],
   "narrative": {
@@ -191,14 +191,16 @@
       "Do 用自动化青绿标识主要动作、焦点与进度，并让它在每个视图中保持稀少。",
       "Do 用等宽字体区分路径、编号、时间码、表头和机器状态。",
       "Do 保持 44px 最小操作高度，并通过 8 / 12 / 16px 节奏组织高密度界面。",
-      "Do 用边框和色调建立常驻层次，只在浮层、预览与关键状态卡上使用环境阴影。"
+      "Do 用边框和色调建立常驻层次，只在浮层、预览与关键状态卡上使用环境阴影。",
+      "Do 区分 Scene 的编辑选择与 Player 的播放位置，并让键盘用户通过显式 Scene 序号按钮执行选择和跳转。"
     ],
     "donts": [
       "Don't 引入霓虹渐变、发光装饰或炫技式 AI 科幻视觉。",
       "Don't 模仿传统多轨剪辑器，把 Scene 工作流重新视觉化为复杂时间线。",
       "Don't 用多个高彩度品牌色争夺注意力，或把状态色当作装饰色。",
       "Don't 给每个面板和控件增加阴影；常驻工作面必须保持平整。",
-      "Don't 为了“简洁”隐藏关键的 Asset、Speech、状态或 Render-ready 上下文。"
+      "Don't 为了“简洁”隐藏关键的 Asset、Speech、状态或 Render-ready 上下文。",
+      "Don't 让焦点移动隐式切换 Scene，也不要把 Player 扩展成多轨或完整时间线。"
     ]
   }
 }
