@@ -27,6 +27,10 @@ Visual 的有限种类，只有 `Card`、`Image` 和 `Video`。用户不能自�
 由导入源在本机规范化后进入项目、可被 Scene 引用的静态图片或实拍视频，显式区分为 `image` 与 `video` 两种 kind；它不是项目外的导入源文件。Asset 有稳定身份，移动路径或原位替换内容不会自然变成另一个 Asset；静态图片和视频都全程留在本机，V1 中视频 Asset 不含音轨。
 _Avoid_: 素材文件、媒体、Media
 
+**Asset 预览**：
+对一个 Scene 当前引用且登记表中存在的 Asset 本体的只读检查，不包含所属 Scene 的 Caption、Subtitle 或其他成片表现，也不改变当前 Scene 选择或 Player 状态。预览按 Asset 自身的 kind 呈现；磁盘文件不可用时仍保留检查入口并明确显示不可用状态，悬空 Asset ID 则没有可预览对象。
+_Avoid_: Scene 预览、成片预览
+
 **导入源**：
 用户交给导入流程、但尚未成为 Asset 的外部文件。Narracut 永不修改导入源，也不额外把原件副本保存进项目；DSL 不记录导入源的路径或它与 Asset 的来源关系。即使导入源已经位于项目文件夹内，系统仍另行生成规范化 Asset。
 
