@@ -11,6 +11,7 @@ import { CircleNotch } from "@phosphor-icons/react/CircleNotch";
 import { ClipboardText } from "@phosphor-icons/react/ClipboardText";
 import { DotsSixVertical } from "@phosphor-icons/react/DotsSixVertical";
 import { FilmSlate } from "@phosphor-icons/react/FilmSlate";
+import { FolderOpen } from "@phosphor-icons/react/FolderOpen";
 import { ImageSquare } from "@phosphor-icons/react/ImageSquare";
 import { ListChecks } from "@phosphor-icons/react/ListChecks";
 import { LockSimple } from "@phosphor-icons/react/LockSimple";
@@ -24,6 +25,7 @@ import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { X } from "@phosphor-icons/react/X";
 
 import type { Asset, Scene, Visual } from "../shared/project";
+import type { RenderJob } from "../shared/jobs";
 import { CURRENT_SCHEMA_VERSION } from "../shared/project";
 import { ProjectComposition } from "../remotion/ProjectComposition";
 import {
@@ -46,6 +48,12 @@ import {
   type ClientSpeechGenerationJob,
 } from "./speech-generation-store";
 import { useVideoThumbnail } from "./video-thumbnail-store";
+import {
+  activeRenderJob,
+  latestRenderJob,
+  renderStageCopy,
+  useRenderJobStore,
+} from "./render-job-store";
 import {
   ProjectThemeInspector,
   SceneTextPresentationInspector,
@@ -342,7 +350,7 @@ function SaveStateControl() {
   );
 }
 
-function Topbar({ projectName, readOnly = false, controlsDisabled = false, renderDiagnostics }: { projectName: string; readOnly?: boolean; controlsDisabled?: boolean; renderDiagnostics?: import("../shared/project").Diagnostic[] }) {
+function Topbar({ projectName, readOnly = false, controlsDisabled = false, renderDisabled = false, renderDiagnostics }: { projectName: string; readOnly?: boolean; controlsDisabled?: boolean; renderDisabled?: boolean; renderDiagnostics?: import("../shared/project").Diagnostic[] }) {
   const info = useProjectStore((state) => state.info);
   const persistedProjectName = useProjectStore((state) => state.project?.metadata.name);
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
@@ -353,6 +361,10 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   const speechJobCount = useSpeechGenerationStore(
     (state) => Object.keys(state.jobs).length,
   );
+  const renderJobs = useRenderJobStore((state) => state.jobs);
+  const renderStarting = useRenderJobStore((state) => state.starting);
+  const startRender = useRenderJobStore((state) => state.start);
+  const openOutput = useRenderJobStore((state) => state.openOutput);
   const diagnostics = renderDiagnostics ?? projectDiagnostics;
   const updateProjectName = useProjectStore((state) => state.updateProjectName);
   const undoStack = useProjectStore((state) => state.undoStack);
@@ -364,9 +376,12 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   const clearHistoryNotice = useProjectStore((state) => state.clearHistoryNotice);
   const [editingProjectName, setEditingProjectName] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState("");
+  const [showLatestRenderResult, setShowLatestRenderResult] = useState(false);
   const projectNameButtonRef = useRef<HTMLButtonElement>(null);
   const actionsDisabled = readOnly || controlsDisabled;
   const renderBlockers = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const activeRender = activeRenderJob(renderJobs);
+  const latestRender = latestRenderJob(renderJobs);
   const undoEntry = undoStack.at(-1);
   const redoEntry = redoStack.at(-1);
   const undoLabel = undoEntry === undefined ? "撤销" : `撤销：${undoEntry.label}`;
@@ -376,6 +391,15 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
     const timer = window.setTimeout(clearHistoryNotice, 2200);
     return () => window.clearTimeout(timer);
   }, [historyEventId, historyNotice, clearHistoryNotice]);
+  useEffect(() => {
+    if (latestRender?.status !== "succeeded" && latestRender?.status !== "failed") {
+      setShowLatestRenderResult(false);
+      return;
+    }
+    setShowLatestRenderResult(true);
+    const timer = window.setTimeout(() => setShowLatestRenderResult(false), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [latestRender?.id, latestRender?.status]);
   useEffect(() => {
     if (actionsDisabled) return;
     const handleHistoryShortcut = (event: KeyboardEvent) => {
@@ -405,6 +429,33 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
     setEditingProjectName(false);
     requestAnimationFrame(() => projectNameButtonRef.current?.focus());
   };
+  const renderLabel =
+    renderStarting
+      ? "正在创建快照"
+      : activeRender !== undefined
+        ? activeRender.stage === "encoding" && activeRender.progress !== undefined
+          ? `正在渲染 · ${Math.round(activeRender.progress * 100)}%`
+          : renderStageCopy[activeRender.stage]
+        : showLatestRenderResult && latestRender?.status === "succeeded"
+          ? "渲染完成"
+          : showLatestRenderResult && latestRender?.status === "failed"
+            ? "渲染失败 · 查看"
+            : readOnly
+              ? "检查并渲染"
+              : renderBlockers.length > 0
+                ? `检查并渲染 · ${renderBlockers.length}`
+                : "渲染 MP4";
+  const handleRenderAction = () => {
+    if (showLatestRenderResult && latestRender?.status === "failed") {
+      setTaskDrawerOpen(true);
+      return;
+    }
+    if (renderBlockers.length > 0 || readOnly) {
+      setTaskDrawerOpen(true);
+      return;
+    }
+    void startRender();
+  };
   return (
     <header className="topbar">
       <div className="brand"><BrandMark /><div className="project-title">{editingProjectName ? <input autoFocus className="project-name-editor" aria-label="项目名" value={projectNameDraft} onChange={(event) => setProjectNameDraft(event.target.value)} onBlur={finishProjectNameEdit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.preventDefault(); cancelProjectNameEdit(); } }} /> : actionsDisabled ? <strong>{projectName}</strong> : <button ref={projectNameButtonRef} className="project-name-button" type="button" aria-label="编辑项目名" onClick={beginProjectNameEdit}>{projectName}</button>}<small>{info?.projectDirectory}</small></div>{readOnly ? <span className="readonly-pill">只读模式</span> : <SaveStateControl />}</div>
@@ -415,7 +466,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
         </div>
         {historyNotice === undefined ? null : <div key={historyEventId} className="history-feedback" role="status" aria-live="polite">{historyNotice}</div>}
       </div>
-      <div className="top-actions"><button className="btn" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length + imageJobCount + speechJobCount}</span></button><button className="btn primary" disabled={actionsDisabled} onClick={() => setTaskDrawerOpen(true)}><FilmSlate />{readOnly ? "检查并渲染" : renderBlockers.length > 0 ? `检查并渲染 · ${renderBlockers.length}` : "渲染 MP4"}</button></div>
+      <div className="top-actions"><button className="btn" disabled={readOnly || renderDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length + imageJobCount + speechJobCount + Object.keys(renderJobs).length}</span></button>{showLatestRenderResult && latestRender?.status === "succeeded" ? <button className="btn render-output-shortcut" type="button" onClick={() => void openOutput(latestRender.id)}><FolderOpen />打开产物目录</button> : null}<button className="btn primary render-primary" disabled={readOnly || renderDisabled || renderStarting || activeRender !== undefined || (showLatestRenderResult && latestRender?.status === "succeeded")} onClick={handleRenderAction}><FilmSlate />{renderLabel}</button></div>
     </header>
   );
 }
@@ -947,6 +998,60 @@ function SpeechJobTask({ job }: { job: ClientSpeechGenerationJob }) {
   );
 }
 
+function RenderJobTask({
+  job,
+  onNavigate,
+}: {
+  job: RenderJob;
+  onNavigate: (job: RenderJob) => void;
+}) {
+  const cancel = useRenderJobStore((state) => state.cancel);
+  const openOutput = useRenderJobStore((state) => state.openOutput);
+  const active =
+    job.status === "queued" ||
+    job.status === "processing" ||
+    job.status === "cancelling";
+  const progress = job.progress === undefined ? undefined : Math.round(job.progress * 100);
+  return (
+    <article className={`render-job-task ${job.status}`} data-testid="render-job-task">
+      <div className="render-job-head">
+        <span className="render-job-icon" aria-hidden="true">
+          {active ? <CircleNotch className="spinner-inline" /> : job.status === "succeeded" ? <CheckCircle weight="fill" /> : job.status === "failed" ? <WarningCircle weight="fill" /> : <FilmSlate weight="fill" />}
+        </span>
+        <span>
+          <strong>{renderStageCopy[job.stage]}</strong>
+          <small>{job.snapshotSource === "unsaved" ? "来自未保存版本" : "来自已保存版本"}</small>
+        </span>
+        <time dateTime={job.createdAt}>{new Date(job.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+      </div>
+      {active ? (
+        <div className="render-job-progress" aria-label={progress === undefined ? renderStageCopy[job.stage] : `渲染进度 ${progress}%`}>
+          <span><i style={progress === undefined ? undefined : { width: `${progress}%` }} /></span>
+          <small>{progress === undefined ? "按真实阶段更新" : `${progress}%`}</small>
+        </div>
+      ) : null}
+      {job.status === "succeeded" ? (
+        <div className="render-artifacts">
+          <div><strong>out.mp4</strong><code>{job.artifacts.output}</code></div>
+          <div><strong>project.snapshot.json</strong><code>{job.artifacts.snapshot}</code></div>
+          <div><strong>render.log</strong><code>{job.artifacts.log}</code></div>
+          <div className="render-directory"><strong>结果目录</strong><code>{job.artifacts.directory}</code></div>
+        </div>
+      ) : null}
+      {job.error !== undefined ? (
+        <button className="render-error" type="button" onClick={() => onNavigate(job)}>
+          <WarningCircle weight="fill" />
+          <span><strong>{job.error.message}</strong><code>{job.error.code}{job.error.sceneId ? ` · Scene ${job.error.sceneId.slice(0, 8)}` : ""}</code></span>
+        </button>
+      ) : null}
+      <div className="render-job-actions">
+        {active && job.status !== "cancelling" ? <button className="btn compact" type="button" onClick={() => void cancel(job.id)}>取消渲染</button> : null}
+        {job.status === "succeeded" ? <button className="btn primary compact" type="button" onClick={() => void openOutput(job.id)}><FolderOpen />打开产物目录</button> : null}
+      </div>
+    </article>
+  );
+}
+
 function openNarrationPopover(popoverId: string, editorId: string) {
   const popover = document.getElementById(popoverId);
   popover?.showPopover();
@@ -1401,20 +1506,25 @@ function ExternalConflictDialog() {
   const resolving = useProjectStore((state) => state.conflictResolving);
   const loadDiskVersion = useProjectStore((state) => state.loadDiskVersion);
   const keepCurrentVersion = useProjectStore((state) => state.keepCurrentVersion);
+  const renderJobs = useRenderJobStore((state) => state.jobs);
+  const renderStarting = useRenderJobStore((state) => state.starting);
+  const startRender = useRenderJobStore((state) => state.start);
   if (conflict === undefined) return null;
   const loadDisabled = resolving || conflict.diskProject === undefined;
+  const activeRender = activeRenderJob(renderJobs);
   return (
     <ModalFrame
       title="项目文件已在外部更改"
       description="当前页面与磁盘版本都包含修改。继续前必须选择保留哪一份。"
       dismissible={false}
       dialogRole="alertdialog"
-      footer={<><button className="btn" type="button" disabled={resolving} onClick={() => void keepCurrentVersion()}>保留当前版本</button><button className="btn primary" type="button" data-autofocus disabled={loadDisabled} onClick={() => void loadDiskVersion()}>载入磁盘版本</button></>}
+      footer={<><button className="btn conflict-render" type="button" disabled={renderStarting || activeRender !== undefined} onClick={() => void startRender()}><FilmSlate />{activeRender ? renderStageCopy[activeRender.stage] : renderStarting ? "正在创建快照" : "渲染当前内存版本"}</button><button className="btn" type="button" disabled={resolving} onClick={() => void keepCurrentVersion()}>保留当前版本</button><button className="btn primary" type="button" data-autofocus disabled={loadDisabled} onClick={() => void loadDiskVersion()}>载入磁盘版本</button></>}
     >
       <div className="conflict-choices">
         <div><strong>载入磁盘版本</strong><p>先把当前页面的内存 DSL 备份为 external-conflict 文件，再载入并校验磁盘版本；Undo/Redo 历史会清空。</p></div>
         <div><strong>保留当前版本</strong><p>先把磁盘 DSL 备份为 external-conflict 文件，再用当前内存 DSL 覆盖；现有编辑历史会保留。</p></div>
       </div>
+      <p className="conflict-render-note">无需先解决冲突即可渲染；产物会明确标记为来自当前未保存内存版本。</p>
       {conflict.errorMessage || conflict.resolutionError ? <div className="conflict-error" role="alert"><WarningCircle weight="fill" /><span><strong>暂时无法完成选择</strong>{conflict.resolutionError ?? conflict.errorMessage}</span></div> : null}
       {resolving ? <div className="conflict-progress" role="status"><CircleNotch className="spinner-inline" />正在备份并核对项目文件…</div> : null}
     </ModalFrame>
@@ -1449,6 +1559,11 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const speechJobs = useSpeechGenerationStore((state) => state.jobs);
   const speechJobAnnouncement = useSpeechGenerationStore((state) => state.announcement);
   const connectSpeechJobs = useSpeechGenerationStore((state) => state.connect);
+  const renderJobs = useRenderJobStore((state) => state.jobs);
+  const renderJobAnnouncement = useRenderJobStore((state) => state.announcement);
+  const renderStartError = useRenderJobStore((state) => state.startError);
+  const renderOpenError = useRenderJobStore((state) => state.openError);
+  const connectRenderJobs = useRenderJobStore((state) => state.connect);
   const workspaceDisabled =
     occupied || externalConflict !== undefined || speechCommitInFlight;
   const [playing, setPlaying] = useState(false);
@@ -1485,6 +1600,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   }>();
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const selectedNarrationRef = useRef<HTMLTextAreaElement>(null);
+  const firstRenderBlockerRef = useRef<HTMLButtonElement>(null);
   const singleSceneFocusPendingRef = useRef(false);
   const playerRef = useRef<PlayerRef>(null);
   const scrubWasPlayingRef = useRef(false);
@@ -1519,6 +1635,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const durationSnapshotRef = useRef(previewSnapshot);
   useEffect(() => connectImageJobs(), [connectImageJobs]);
   useEffect(() => connectSpeechJobs(), [connectSpeechJobs]);
+  useEffect(() => connectRenderJobs(), [connectRenderJobs]);
   useEffect(() => {
     if (
       previousPreviewSnapshotRef.current !== previewSnapshot &&
@@ -1569,6 +1686,14 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
         : [...diagnostics, ...validateRenderReadiness(project, mediaAvailability)],
     [project, diagnostics, mediaAvailability],
   );
+  const firstRenderBlocker = renderDiagnostics.find(
+    (diagnostic) => diagnostic.severity === "error",
+  );
+  useEffect(() => {
+    if (!taskDrawerOpen || firstRenderBlocker === undefined) return;
+    const frame = requestAnimationFrame(() => firstRenderBlockerRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [taskDrawerOpen, firstRenderBlocker]);
   useEffect(() => {
     const player = playerRef.current;
     if (player === null || previewSnapshot === undefined) return;
@@ -1663,6 +1788,16 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const speechJobList = Object.values(speechJobs).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
   );
+  const renderJobList = Object.values(renderJobs).sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  );
+  const currentRenderJob = renderJobList.find(
+    (job) =>
+      job.status === "queued" ||
+      job.status === "processing" ||
+      job.status === "cancelling",
+  );
+  const completedRenderJobs = renderJobList.filter((job) => job !== currentRenderJob);
   const pendingImageProposal = imageJobList.find(
     (job) =>
       job.proposalDialogOpen &&
@@ -1705,6 +1840,43 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     setCurrentFrame(resolved.startFrame);
     if (wasPlaying) playerRef.current?.play();
     else playerRef.current?.pause();
+  };
+
+  const navigateToDiagnostic = (
+    sceneId: string | undefined,
+    path: Array<string | number> = [],
+  ) => {
+    if (sceneId === undefined || !project.scenes.some((scene) => scene.id === sceneId)) {
+      setInspectorMode("project");
+      setTaskDrawerOpen(false);
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>("[data-testid='inspector-project'] input, [data-testid='inspector-project'] select")?.focus(),
+      );
+      return;
+    }
+    selectAndSeekScene(sceneId);
+    setInspectorMode("scene");
+    setTaskDrawerOpen(false);
+    const target = path.includes("speech")
+      ? `[data-speech-cell-scene-id="${sceneId}"]`
+      : path.includes("narration")
+        ? `[data-narration-scene-id="${sceneId}"]`
+        : path.includes("visual")
+          ? `[data-visual-type-scene-id="${sceneId}"]`
+          : `[data-scene-select][aria-label*="Scene ${project.scenes.findIndex((scene) => scene.id === sceneId) + 1}"]`;
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(target)?.focus());
+  };
+
+  const navigateRenderJob = (job: RenderJob) => {
+    const frameScene =
+      job.error?.frame === undefined
+        ? undefined
+        : job.snapshotPlan.find(
+            (scene) =>
+              job.error!.frame! >= scene.startFrame &&
+              job.error!.frame! < scene.startFrame + scene.durationInFrames,
+          )?.sceneId;
+    navigateToDiagnostic(job.error?.sceneId ?? frameScene);
   };
 
   const closeAssetPreview = () => {
@@ -1886,7 +2058,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
 
   return (
     <div className={`app-shell ${bannerKind === undefined ? "" : "has-banner"}`}>
-      <Topbar projectName={projectName} controlsDisabled={workspaceDisabled} renderDiagnostics={renderDiagnostics} />
+      <Topbar projectName={projectName} controlsDisabled={workspaceDisabled} renderDisabled={occupied || speechCommitInFlight} renderDiagnostics={renderDiagnostics} />
       {bannerKind === undefined ? null : <WorkspaceBanner kind={bannerKind} />}
       <fieldset className="workspace-lock" disabled={workspaceDisabled}>
       <main className="workspace" data-testid={occupied ? "readonly-workbench" : "global-workbench"}>
@@ -2028,13 +2200,16 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
           </div>
         </section>
       </main>
-      <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen}>
-        <header><h2>渲染前检查</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>
+      <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen} aria-label="任务与渲染">
+        <header><h2>任务与渲染</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>
         <div className="task-groups">
+          {currentRenderJob ? <section><h3>当前渲染</h3><RenderJobTask job={currentRenderJob} onNavigate={navigateRenderJob} /></section> : null}
+          {completedRenderJobs.length > 0 ? <section><h3>渲染结果</h3><div className="render-job-list">{completedRenderJobs.map((job) => <RenderJobTask key={job.id} job={job} onNavigate={navigateRenderJob} />)}</div></section> : null}
+          {renderStartError || renderOpenError ? <section><h3>渲染操作</h3><div className="render-operation-error" role="alert"><WarningCircle weight="fill" /><span><strong>{renderOpenError ? "结果目录无法打开" : "无法创建 Render Job"}</strong>{renderOpenError ?? renderStartError}</span></div></section> : null}
           {speechJobList.length > 0 ? <section><h3>Speech 生成</h3><div className="speech-job-list">{speechJobList.map((job) => <SpeechJobTask key={job.id} job={job} />)}</div></section> : null}
           {imageJobList.length > 0 ? <section><h3>图片导入</h3><div className="image-job-list">{imageJobList.map((job) => <ImageJobTask key={job.id} job={job} />)}</div></section> : null}
           {saveDiagnostics.length > 0 ? <section><h3>保存问题</h3><div className="task-diagnostics">{saveDiagnostics.map((diagnostic) => <div key={`save-${diagnostic.code}-${diagnostic.path.join(".")}`} className="error"><WarningCircle weight="fill" /><span><strong>阻止保存</strong>{diagnostic.message}<code>{diagnostic.path.join(".") || "project.json"}</code></span></div>)}</div></section> : null}
-          <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <div key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断" : "提醒"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></div>)}</div>}</section>
+          <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <button ref={diagnostic === firstRenderBlocker ? firstRenderBlockerRef : undefined} type="button" key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity} onClick={() => navigateToDiagnostic(diagnostic.sceneId, diagnostic.path)}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断 · 前往修复" : "提醒 · 查看"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></button>)}</div>}</section>
         </div>
       </aside>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={project.scenes.length} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
@@ -2043,6 +2218,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       </fieldset>
       <div className="sr-only" aria-live="polite">{imageJobAnnouncement}</div>
       <div className="sr-only" aria-live="polite">{speechJobAnnouncement}</div>
+      <div className="sr-only" aria-live="polite">{renderJobAnnouncement}</div>
       {assetPreview ? <AssetPreviewDialog asset={assetPreview.asset} displayName={assetPreview.displayName} available={mediaAvailability[assetPreview.asset.path]} onClose={closeAssetPreview} /> : null}
       {pendingImageProposal ? <ImageProposalDialog job={pendingImageProposal} /> : null}
       <ExternalConflictDialog />
@@ -2057,7 +2233,7 @@ function EmptyWorkspace({ project, projectName, diagnostics, controlsDisabled, o
   const bannerKind = occupied ? "lease" : migrationPending ? "migration" : undefined;
 
   return (
-    <div className={`app-shell ${bannerKind === undefined ? "" : "has-banner"}`}><Topbar projectName={projectName} controlsDisabled={controlsDisabled} />{bannerKind === undefined ? null : <WorkspaceBanner kind={bannerKind} />}<fieldset className="workspace-lock" disabled={controlsDisabled}><main className="workspace" data-testid={occupied ? "readonly-workbench" : "global-workbench"}>
+    <div className={`app-shell ${bannerKind === undefined ? "" : "has-banner"}`}><Topbar projectName={projectName} controlsDisabled={controlsDisabled} renderDisabled={occupied} />{bannerKind === undefined ? null : <WorkspaceBanner kind={bannerKind} />}<fieldset className="workspace-lock" disabled={controlsDisabled}><main className="workspace" data-testid={occupied ? "readonly-workbench" : "global-workbench"}>
       <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setBatchDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行 Narration，我们只按换行拆分，并在真正写入项目之前让你整理完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setBatchDialogOpen(true)}><Plus />粘贴多行 Narration</button><button className="btn" onClick={onAddScene}>新增一条</button></div><small>空白行会被忽略并计数 · Scene 数量不限</small></div></section>
       <section className="pane player-pane"><PaneHeading title="Player" meta="无 Scene" /><div className="stage"><div className="preview-frame empty-preview"><strong>暂无可预览内容</strong><span>创建 Scene 后，这里会显示画面与可储存的字幕层。</span></div></div><div className="player-controls"><button className="play-button" aria-label="播放" disabled><Play weight="fill" /></button><span className="timecode">00:00 / 00:00</span><div className="scrubber"><span /></div></div></section>
       <section className="pane inspector-pane"><PaneHeading title="属性" meta="项目主题" actions={<div className="inspector-tabs" role="tablist" aria-label="属性范围"><button role="tab" aria-selected="false" disabled>场景</button><button role="tab" aria-selected="true">项目</button></div>} /><div className="inspector-scroll" data-testid="inspector-project"><ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={onThemeChange} /></div></section>

@@ -1,5 +1,10 @@
 import { bundle } from "@remotion/bundler";
-import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
+import {
+  renderMedia,
+  renderStill,
+  selectComposition,
+  type CancelSignal,
+} from "@remotion/renderer";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,6 +43,8 @@ async function selectProjectComposition(snapshot: RenderSnapshot) {
 export async function renderProjectSnapshot(
   snapshot: RenderSnapshot,
   outputLocation: string,
+  onProgress?: (progress: number) => void,
+  cancelSignal?: CancelSignal,
 ): Promise<void> {
   const { serveUrl, inputProps, composition } = await selectProjectComposition(snapshot);
   await renderMedia({
@@ -46,6 +53,8 @@ export async function renderProjectSnapshot(
     codec: "h264",
     outputLocation,
     inputProps,
+    onProgress: ({ progress }) => onProgress?.(progress),
+    cancelSignal,
   });
 }
 

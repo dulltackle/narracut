@@ -90,4 +90,53 @@ export type SpeechGenerationJob = {
   };
 };
 
-export type NarracutJob = ImageImportJob | SpeechGenerationJob;
+export type RenderJobStatus =
+  | "queued"
+  | "processing"
+  | "cancelling"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export type RenderJobStage =
+  | "waiting"
+  | "starting"
+  | "preflight"
+  | "loading-media"
+  | "encoding"
+  | "finalizing"
+  | "completed"
+  | "cancelling"
+  | "cancelled"
+  | "failed";
+
+export type RenderJob = {
+  id: string;
+  type: "render";
+  status: RenderJobStatus;
+  stage: RenderJobStage;
+  progress?: number;
+  createdAt: string;
+  updatedAt: string;
+  snapshotSource: "saved" | "unsaved";
+  artifacts: {
+    directory: string;
+    snapshot: string;
+    output: string;
+    log: string;
+  };
+  snapshotPlan: Array<{
+    sceneId: string;
+    startFrame: number;
+    durationInFrames: number;
+  }>;
+  durationInFrames?: number;
+  error?: {
+    code: string;
+    message: string;
+    sceneId?: string;
+    frame?: number;
+  };
+};
+
+export type NarracutJob = ImageImportJob | SpeechGenerationJob | RenderJob;

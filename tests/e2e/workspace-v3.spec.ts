@@ -161,7 +161,7 @@ test("未知 Preset ID 原样可见，并可从相关字段恢复", async ({ pag
   await page.getByRole("button", { name: "场景入场动画：无进场" }).click();
 
   await page.getByRole("button", { name: /^检查并渲染/ }).click();
-  await expect(page.getByRole("heading", { name: "渲染前检查" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "任务与渲染" })).toBeVisible();
 
   await expect.poll(async () => JSON.parse(await readFile(projectFile, "utf8"))).toMatchObject({
     theme: { presetId: "narracut/default@1", defaultTextStyleId: "narracut/panel@1" },

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -6,12 +7,20 @@ import { isAbsolute as isPosixAbsolute } from "node:path/posix";
 
 import serveHandler from "serve-handler";
 
-import { validateProjectStructure } from "../shared/project";
+import { validateRenderReadiness } from "../remotion/render-snapshot";
+import { validateProjectConsistency, validateProjectStructure } from "../shared/project";
 import { ImageImportJobError, ImageImportJobs } from "./image-import-jobs";
 import {
   SpeechGenerationJobError,
   SpeechGenerationJobs,
 } from "./speech-generation-jobs";
+import {
+  RenderJobError,
+  RenderJobs,
+  type RenderWorkerInput,
+  type RenderWorkerHandle,
+} from "./render-jobs";
+import { preflightRenderMedia, RenderPreflightError } from "./render-preflight";
 import { VideoThumbnailError, VideoThumbnailService } from "./video-thumbnails";
 
 const LOOPBACK_HOST = "127.0.0.1";
@@ -36,6 +45,8 @@ export type StartServerOptions = {
   initialPort?: number;
   ttsFetch?: typeof fetch;
   environment?: { TOKENDANCE_API_KEY?: string };
+  renderWorkerFactory?: (input: RenderWorkerInput) => RenderWorkerHandle;
+  openDirectory?: (directory: string) => Promise<void>;
 };
 
 export type RunningServer = {
@@ -298,12 +309,29 @@ async function listen(
   throw new Error(`端口 ${initialPort}–${initialPort + 99} 均不可用。`);
 }
 
+async function openLocalDirectory(directory: string): Promise<void> {
+  const command =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "explorer"
+        : "xdg-open";
+  const child = spawn(command, [directory], { detached: true, stdio: "ignore" });
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    child.once("spawn", resolvePromise);
+    child.once("error", rejectPromise);
+  });
+  child.unref();
+}
+
 export async function startNarracutServer({
   projectDirectory,
   staticDirectory,
   initialPort = DEFAULT_PORT,
   ttsFetch,
   environment = process.env,
+  renderWorkerFactory,
+  openDirectory = openLocalDirectory,
 }: StartServerOptions): Promise<RunningServer> {
   const projectRoot = resolve(projectDirectory);
   const staticRoot = resolve(staticDirectory);
@@ -331,6 +359,9 @@ export async function startNarracutServer({
   const speechGenerationJobs = new SpeechGenerationJobs(projectRoot, {
     fetchImpl: ttsFetch,
     apiKey: environment.TOKENDANCE_API_KEY,
+  });
+  const renderJobs = new RenderJobs(projectRoot, {
+    workerFactory: renderWorkerFactory,
   });
   const videoThumbnails = new VideoThumbnailService();
   const eventStreams = new Set<ServerResponse>();
@@ -640,18 +671,72 @@ export async function startNarracutServer({
         for (const job of speechGenerationJobs.list()) {
           response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
         }
+        for (const job of renderJobs.list()) {
+          response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
+        }
         const writeJob = (job: import("../shared/jobs").NarracutJob) => {
-          if (!response.destroyed) {
+          if (!response.destroyed && !response.writableEnded) {
             response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
           }
         };
         const unsubscribeImage = imageImportJobs.subscribe(writeJob);
         const unsubscribeSpeech = speechGenerationJobs.subscribe(writeJob);
+        const unsubscribeRender = renderJobs.subscribe(writeJob);
         request.once("close", () => {
           unsubscribeImage();
           unsubscribeSpeech();
+          unsubscribeRender();
           eventStreams.delete(response);
         });
+        return;
+      }
+
+      if (url.pathname === "/api/jobs/render" && request.method === "POST") {
+        requireLease(request);
+        if (!request.headers["content-type"]?.startsWith("application/json")) {
+          throw new HttpError(415, "Render 请求必须使用 application/json。");
+        }
+        let input: unknown;
+        try {
+          input = JSON.parse((await readRequestBody(request)).toString("utf8"));
+        } catch (error) {
+          if (error instanceof HttpError) throw error;
+          throw new HttpError(400, "Render 请求体不是合法的 Project DSL。");
+        }
+        const structure = validateProjectStructure(input);
+        if (!structure.success) {
+          throw new HttpError(
+            400,
+            structure.diagnostics[0]?.message ?? "Render 请求包含无效的 Project DSL。",
+          );
+        }
+        const snapshotSource = request.headers["x-narracut-snapshot-source"] ?? "saved";
+        if (snapshotSource !== "saved" && snapshotSource !== "unsaved") {
+          throw new HttpError(400, "快照版本说明必须是 saved 或 unsaved。");
+        }
+        const availability = await preflightRenderMedia(structure.project, projectRoot);
+        const blocker = [
+          ...validateProjectConsistency(structure.project),
+          ...validateRenderReadiness(structure.project, availability),
+        ].find((diagnostic) => diagnostic.severity === "error");
+        if (blocker !== undefined) throw new HttpError(422, blocker.message);
+        const serverAddress = server.address();
+        if (serverAddress === null || typeof serverAddress === "string") {
+          throw new HttpError(503, "本地服务尚未准备好渲染媒体。");
+        }
+        send(
+          response,
+          202,
+          JSON.stringify({
+            job: await renderJobs.create({
+              project: structure.project,
+              mediaBaseUrl: `http://${LOOPBACK_HOST}:${serverAddress.port}/media/`,
+              snapshotSource,
+              mediaAvailability: availability,
+            }),
+          }),
+          "application/json; charset=utf-8",
+        );
         return;
       }
 
@@ -747,6 +832,9 @@ export async function startNarracutServer({
       }
 
       const jobMatch = /^\/api\/jobs\/([0-9a-f-]+)$/iu.exec(url.pathname);
+      const openOutputMatch = /^\/api\/jobs\/([0-9a-f-]+)\/open-output$/iu.exec(
+        url.pathname,
+      );
       const speechActionMatch =
         /^\/api\/jobs\/([0-9a-f-]+)\/(commit|discard)$/iu.exec(
           url.pathname,
@@ -827,15 +915,34 @@ export async function startNarracutServer({
         );
         return;
       }
+      if (openOutputMatch !== null && request.method === "POST") {
+        requireLease(request);
+        const job = renderJobs.get(openOutputMatch[1]);
+        if (job === undefined) throw new HttpError(404, "找不到这个 Render Job。");
+        if (job.status !== "succeeded") {
+          throw new HttpError(409, "Render Job 尚未成功完成。");
+        }
+        await openDirectory(job.artifacts.directory);
+        response.writeHead(204, { "cache-control": "no-store" });
+        response.end();
+        return;
+      }
       if (jobMatch !== null && request.method === "GET") {
         const job =
-          imageImportJobs.get(jobMatch[1]) ?? speechGenerationJobs.get(jobMatch[1]);
+          imageImportJobs.get(jobMatch[1]) ??
+          speechGenerationJobs.get(jobMatch[1]) ??
+          renderJobs.get(jobMatch[1]);
         if (job === undefined) throw new HttpError(404, "找不到这个 Job。");
         send(response, 200, JSON.stringify(job), "application/json; charset=utf-8");
         return;
       }
       if (jobMatch !== null && request.method === "DELETE") {
         requireLease(request);
+        const renderJob = renderJobs.cancel(jobMatch[1]);
+        if (renderJob !== undefined) {
+          send(response, 200, JSON.stringify(renderJob), "application/json; charset=utf-8");
+          return;
+        }
         const job =
           imageImportJobs.cancel(jobMatch[1]) ??
           speechGenerationJobs.cancel(jobMatch[1]);
@@ -904,6 +1011,8 @@ export async function startNarracutServer({
         error instanceof HttpError ||
         error instanceof ImageImportJobError ||
         error instanceof SpeechGenerationJobError ||
+        error instanceof RenderJobError ||
+        error instanceof RenderPreflightError ||
         error instanceof VideoThumbnailError
           ? error.statusCode
           : 500;
@@ -923,6 +1032,7 @@ export async function startNarracutServer({
       for (const stream of eventStreams) stream.end();
       eventStreams.clear();
       await videoThumbnails.close();
+      renderJobs.close();
       return new Promise<void>((resolvePromise, rejectPromise) => {
         server.close((error) => (error ? rejectPromise(error) : resolvePromise()));
         server.closeAllConnections();
