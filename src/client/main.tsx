@@ -45,6 +45,7 @@ import {
   useSpeechGenerationStore,
   type ClientSpeechGenerationJob,
 } from "./speech-generation-store";
+import { useVideoThumbnail } from "./video-thumbnail-store";
 import {
   ProjectThemeInspector,
   SceneTextPresentationInspector,
@@ -455,6 +456,10 @@ function AssetThumbnail({ asset, label, available: availableOverride }: { asset:
     (state) => state.mediaAvailability[asset.path] !== false,
   );
   const available = availableOverride ?? storedAvailable;
+  const videoThumbnail = useVideoThumbnail(
+    asset.kind === "video" ? asset.path : undefined,
+    available && asset.kind === "video",
+  );
   if (!available) {
     return (
       <span className="asset-thumbnail asset-thumbnail-missing" role="img" aria-label={`${label}（文件不可用）`}>
@@ -464,14 +469,18 @@ function AssetThumbnail({ asset, label, available: availableOverride }: { asset:
   }
   if (asset.kind === "video") {
     return (
-      <video
-        className="asset-thumbnail"
-        src={mediaUrl(asset.path)}
-        preload="metadata"
-        muted
-        tabIndex={-1}
+      <span
+        ref={videoThumbnail.ref}
+        className="asset-thumbnail asset-thumbnail-video"
+        data-thumbnail-status={videoThumbnail.status}
         aria-hidden="true"
-      />
+      >
+        {videoThumbnail.url === undefined ? (
+          <FilmSlate weight="fill" />
+        ) : (
+          <img src={videoThumbnail.url} alt="" decoding="async" />
+        )}
+      </span>
     );
   }
   return (
@@ -1502,6 +1511,10 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
           ),
     [project, mediaAvailability, mediaRevisions],
   );
+  const playerInputProps = useMemo(
+    () => previewSnapshot === undefined ? undefined : { snapshot: previewSnapshot },
+    [previewSnapshot],
+  );
   const previousPreviewSnapshotRef = useRef(previewSnapshot);
   const durationSnapshotRef = useRef(previewSnapshot);
   useEffect(() => connectImageJobs(), [connectImageJobs]);
@@ -1936,12 +1949,12 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
                 <span>{previewBlocker.message}</span>
                 <small>请在项目主题或 Scene 文字表现中恢复内置版本；不会改用系统或在线字体。</small>
               </div>
-            ) : previewSnapshot ? (
+            ) : previewSnapshot && playerInputProps ? (
               <Player
                 key={playerGeneration}
                 ref={playerRef}
                 component={ProjectComposition}
-                inputProps={{ snapshot: previewSnapshot }}
+                inputProps={playerInputProps}
                 durationInFrames={previewSnapshot.durationInFrames}
                 compositionWidth={previewSnapshot.width}
                 compositionHeight={previewSnapshot.height}

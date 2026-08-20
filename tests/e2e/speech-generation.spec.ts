@@ -140,6 +140,24 @@ test("首次生成期间保留 Draft，成功后 Speech 成为 Player 的时长�
   });
 });
 
+test("安全提交无响应时退出等待态并保留 Draft", async ({ page }) => {
+  await page.route("**/api/jobs/*/commit", async () => {
+    await new Promise<void>(() => undefined);
+  });
+  await page.goto(server.url);
+  await page.getByRole("button", { name: "生成 Speech" }).click();
+  resolveProvider?.();
+
+  const row = page.getByTestId("scene-row");
+  await expect(row.getByText("等待安全应用")).toBeVisible();
+  await expect(row.getByText("Speech 生成失败")).toBeVisible({ timeout: 8_000 });
+  await expect(row.getByText("仍使用 Draft Duration")).toBeVisible();
+  await expect(row.getByText("等待安全应用")).toHaveCount(0);
+  await expect(page.getByTestId("player-draft-state")).toContainText("Draft · 5.0s");
+  expect((JSON.parse(await readFile(projectFile, "utf8"))).scenes[0].speech)
+    .toBeUndefined();
+});
+
 test("重新生成失败时旧 Speech、Duration 与恢复动作保持可见", async ({ page }) => {
   await mkdir(join(projectDirectory, "speech"));
   await writeFile(join(projectDirectory, "speech", `${sceneId}.mp3`), providerAudio);

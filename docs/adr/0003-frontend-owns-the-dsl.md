@@ -24,6 +24,7 @@
 - **每个 Job fork 一个独立子进程**。`renderMedia` 会拉起 headless Chromium 并按 `concurrency` 吃掉半数 CPU 线程，同进程会拖死素材服务与 API；更关键的是渲染崩溃或 OOM 不能带崩编辑器，用户手上那份还没存的编辑不能陪葬。
 - **Asset 导入不越过这条边界**。浏览器把一个导入源以 multipart 交给 Node；Node 只负责探测、规范化和返回 `{assetId, kind, path}` 及运行时媒体事实，不读取或修改 DSL。前端只在 Job 成功后把 Asset 写入内存模型。一个导入源对应一个 `transcode` Job，服务端 FIFO 排队且最多运行一个；临时文件经复核后原子改名，失败或取消不产生 Asset。
 - **媒体探测结果不落 DSL**。`frameCount`、编码、分辨率、色彩和帧率都是磁盘文件的运行时事实；前端解析 DSL 后把去重的项目相对路径交给 Node 探测，再由共享校验器关联回 Asset 与 Scene。打开项目不自动转码或修复，render worker 仍在开工前独立复核。
+- **视频首帧缩略图同样不落 DSL**。Node 不读取 Asset 声明或 Scene 结构，只对请求给出的、经过项目根包含校验的相对文件路径抽帧；结果仅进入服务端和标签页内的有界内存缓存，不要求编辑租约。
 - **进度走 SSE**（`GET /api/jobs/:id/events` + 原生 `EventSource`），不轮询。渲染是分钟级且逐帧回调，轮询要么粒度粗到没用、要么请求密到难看。取消走独立的 `POST /api/jobs/:id/cancel`。
 - **接口清单**（单服务单端口，默认 3579，占用则递增；开发期 Vite proxy `/api` 与 `/media`）：
 
@@ -33,6 +34,7 @@
   | PUT | `/api/project` | 整份写盘，防抖 autosave 调用 |
   | POST | `/api/assets/import` | 单文件 multipart 导入源 → 返回 `transcode` Job |
   | POST | `/api/assets/probe` | 项目相对路径列表 → 返回存在性与运行时媒体事实 |
+  | GET | `/api/assets/thumbnail?path=<相对路径>` | 无租约地派生 320×180 JPEG 视频首帧；不读取 DSL，不写项目目录 |
   | POST | `/api/speech` | TTS 代理（key 只在 Node 侧），落 `speech/`，返回 Job |
   | POST | `/api/render` | body 是前端内存里的整份 DSL → 落快照 → 返回 Job |
   | GET | `/api/jobs/:id/events` | SSE 进度流 |

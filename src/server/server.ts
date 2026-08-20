@@ -12,6 +12,7 @@ import {
   SpeechGenerationJobError,
   SpeechGenerationJobs,
 } from "./speech-generation-jobs";
+import { VideoThumbnailError, VideoThumbnailService } from "./video-thumbnails";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3579;
@@ -331,6 +332,7 @@ export async function startNarracutServer({
     fetchImpl: ttsFetch,
     apiKey: environment.TOKENDANCE_API_KEY,
   });
+  const videoThumbnails = new VideoThumbnailService();
   const eventStreams = new Set<ServerResponse>();
   let lease: { sessionId: string; expiresAt: number } | undefined;
   let projectMutationQueue: Promise<void> = Promise.resolve();
@@ -550,6 +552,41 @@ export async function startNarracutServer({
           }),
           "application/json; charset=utf-8",
         );
+        return;
+      }
+
+      if (url.pathname === "/api/assets/thumbnail" && request.method === "GET") {
+        const relativePath = url.searchParams.get("path");
+        if (relativePath === null || !isProjectRelativePath(relativePath)) {
+          throw new HttpError(400, "path 必须是有效的项目相对路径。");
+        }
+        const candidate = join(projectRoot, ...relativePath.split("/"));
+        let mediaFile: string;
+        try {
+          if (!(await isContainedProjectFile(projectRealRoot, candidate))) {
+            throw new HttpError(404, "视频文件不存在。");
+          }
+          mediaFile = await realpath(candidate);
+        } catch (error) {
+          if (error instanceof HttpError) throw error;
+          throw new HttpError(404, "视频文件不存在。");
+        }
+        const thumbnail = await videoThumbnails.get(relativePath, mediaFile);
+        const headers = {
+          "cache-control": "private, no-cache",
+          etag: thumbnail.etag,
+        };
+        if (request.headers["if-none-match"] === thumbnail.etag) {
+          response.writeHead(304, headers);
+          response.end();
+          return;
+        }
+        response.writeHead(200, {
+          ...headers,
+          "content-length": thumbnail.bytes.byteLength,
+          "content-type": "image/jpeg",
+        });
+        response.end(thumbnail.bytes);
         return;
       }
 
@@ -866,7 +903,8 @@ export async function startNarracutServer({
       const statusCode =
         error instanceof HttpError ||
         error instanceof ImageImportJobError ||
-        error instanceof SpeechGenerationJobError
+        error instanceof SpeechGenerationJobError ||
+        error instanceof VideoThumbnailError
           ? error.statusCode
           : 500;
       send(response, statusCode, message);
@@ -881,9 +919,10 @@ export async function startNarracutServer({
       withProjectLock(async () => {
         lease = undefined;
       }),
-    close: () => {
+    close: async () => {
       for (const stream of eventStreams) stream.end();
       eventStreams.clear();
+      await videoThumbnails.close();
       return new Promise<void>((resolvePromise, rejectPromise) => {
         server.close((error) => (error ? rejectPromise(error) : resolvePromise()));
         server.closeAllConnections();

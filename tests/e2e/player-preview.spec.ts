@@ -145,6 +145,42 @@ test("播放跨 Cut 只更新播放 Scene，真实事件驱动播放状态", asy
   await expect(page.getByTestId("player-selected-scene")).toHaveText("选中 01");
 });
 
+test("Speech 连续播放时不暂停 Web Audio 上下文", async ({ page }) => {
+  await page.addInitScript(() => {
+    const transitions: string[] = [];
+    Object.defineProperty(window, "__audioContextTransitions", {
+      value: transitions,
+    });
+    for (const method of ["resume", "suspend"] as const) {
+      const original = AudioContext.prototype[method];
+      AudioContext.prototype[method] = function trackAudioContextTransition() {
+        transitions.push(method);
+        return original.call(this);
+      };
+    }
+  });
+
+  const project = playerProject();
+  project.scenes = [project.scenes[1]];
+  await writeProject(project);
+  await page.goto(server.url);
+
+  await expect(page.getByTestId("player-scene-state")).toContainText("Speech · 1.0s");
+  await page.getByRole("button", { name: "播放" }).click();
+  await page.waitForTimeout(850);
+
+  const transitions = await page.evaluate(() =>
+    (window as typeof window & { __audioContextTransitions: string[] })
+      .__audioContextTransitions,
+  );
+  const firstResume = transitions.indexOf("resume");
+  expect(firstResume, "测试必须经过真实 Web Audio 播放路径").toBeGreaterThanOrEqual(0);
+  expect(
+    transitions.slice(firstResume + 1).filter((event) => event === "suspend"),
+    "Speech 连续播放期间不应暂停 Web Audio 上下文",
+  ).toEqual([]);
+});
+
 test("点击表格行选中并跳到 Scene 开头，同时保留播放或暂停状态", async ({ page }) => {
   await writeProject(playerProject());
   await page.goto(server.url);

@@ -199,6 +199,8 @@ const HISTORY_LIMIT = 100;
 const SAVE_DEBOUNCE_MS = 800;
 const SAVE_MAX_WAIT_MS = 1_000;
 const SAVE_REQUEST_TIMEOUT_MS = 5_000;
+const SPEECH_COMMIT_REQUEST_TIMEOUT_MS = 5_000;
+const SPEECH_RECONCILE_REQUEST_TIMEOUT_MS = 2_000;
 const SAVE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const;
 const LEASE_RENEW_MS = 1_000;
 
@@ -211,6 +213,20 @@ async function acquireSpeechCommit(): Promise<() => void> {
   speechCommitTail = previous.then(() => current);
   await previous;
   return release;
+}
+
+async function fetchWithTimeout(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function freezeDeep<T>(value: T): T {
@@ -597,7 +613,11 @@ async function putProject(
 async function commitSpeechProject(jobId: string, project: Project): Promise<string> {
   const confirmCommittedProject = async (): Promise<string | undefined> => {
     try {
-      const current = await fetch("/api/project", { cache: "no-store" });
+      const current = await fetchWithTimeout(
+        "/api/project",
+        { cache: "no-store" },
+        SPEECH_RECONCILE_REQUEST_TIMEOUT_MS,
+      );
       const etag = current.headers.get("etag");
       if (!current.ok || etag === null) return undefined;
       const raw = await current.text();
@@ -610,15 +630,19 @@ async function commitSpeechProject(jobId: string, project: Project): Promise<str
   };
   let response: Response;
   try {
-    response = await fetch(`/api/jobs/${jobId}/commit`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "x-narracut-session-id": sessionId,
-        "if-match": expectedProjectEtag ?? '"untracked"',
+    response = await fetchWithTimeout(
+      `/api/jobs/${jobId}/commit`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "x-narracut-session-id": sessionId,
+          "if-match": expectedProjectEtag ?? '"untracked"',
+        },
+        body: serializeProject(project),
       },
-      body: serializeProject(project),
-    });
+      SPEECH_COMMIT_REQUEST_TIMEOUT_MS,
+    );
   } catch (error) {
     const committedEtag = await confirmCommittedProject();
     if (committedEtag !== undefined) return committedEtag;

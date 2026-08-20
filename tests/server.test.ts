@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import sharp from "sharp";
 
 import { startNarracutServer, type RunningServer } from "../src/server/server";
 
@@ -76,6 +77,77 @@ describe("Narracut 本地服务", () => {
     expect(await readFile(join(projectDirectory, "project.json"), "utf8")).toBe(
       projectBytes,
     );
+  });
+
+  it("按需生成可缓存的视频首帧且拒绝无效项目路径", async () => {
+    const root = await mkdtemp(join(tmpdir(), "narracut-thumbnail-http-"));
+    const projectDirectory = join(root, "project");
+    const staticDirectory = join(root, "client");
+    await mkdir(join(projectDirectory, "assets"), { recursive: true });
+    await mkdir(staticDirectory, { recursive: true });
+    await writeFile(
+      join(projectDirectory, "project.json"),
+      '{"schemaVersion":3,"metadata":{},"assets":[],"scenes":[]}\n',
+    );
+    await writeFile(join(staticDirectory, "index.html"), "<main>Narracut</main>");
+    const encodedVideo = await readFile(
+      resolve("tests/fixtures/short-video.mp4.b64"),
+      "utf8",
+    );
+    await writeFile(
+      join(projectDirectory, "assets", "short.mp4"),
+      Buffer.from(encodedVideo.trim(), "base64"),
+    );
+    const outsideVideo = join(root, "outside.mp4");
+    await writeFile(outsideVideo, Buffer.from(encodedVideo.trim(), "base64"));
+    await symlink(outsideVideo, join(projectDirectory, "assets", "escape.mp4"));
+    await writeFile(join(projectDirectory, "assets", "broken.mp4"), "not-video");
+
+    const server = await startNarracutServer({
+      projectDirectory,
+      staticDirectory,
+      initialPort: 0,
+    });
+    runningServers.push(server);
+    const thumbnailUrl = `${server.url}/api/assets/thumbnail?${new URLSearchParams({
+      path: "assets/short.mp4",
+    })}`;
+
+    const thumbnail = await fetch(thumbnailUrl);
+    const bytes = Buffer.from(await thumbnail.arrayBuffer());
+    const metadata = await sharp(bytes).metadata();
+    const etag = thumbnail.headers.get("etag");
+
+    expect(thumbnail.status).toBe(200);
+    expect(thumbnail.headers.get("content-type")).toBe("image/jpeg");
+    expect(thumbnail.headers.get("cache-control")).toBe("private, no-cache");
+    expect(etag).toMatch(/^"thumbnail-[a-f0-9]{64}"$/);
+    expect(metadata).toMatchObject({ format: "jpeg", width: 320, height: 180 });
+
+    const unchanged = await fetch(thumbnailUrl, {
+      headers: { "if-none-match": etag! },
+    });
+    expect(unchanged.status).toBe(304);
+    expect(await unchanged.text()).toBe("");
+
+    const traversal = await fetch(
+      `${server.url}/api/assets/thumbnail?${new URLSearchParams({ path: "../outside.mp4" })}`,
+    );
+    const missingPath = await fetch(`${server.url}/api/assets/thumbnail`);
+    const missing = await fetch(
+      `${server.url}/api/assets/thumbnail?${new URLSearchParams({ path: "assets/missing.mp4" })}`,
+    );
+    const escapingSymlink = await fetch(
+      `${server.url}/api/assets/thumbnail?${new URLSearchParams({ path: "assets/escape.mp4" })}`,
+    );
+    const broken = await fetch(
+      `${server.url}/api/assets/thumbnail?${new URLSearchParams({ path: "assets/broken.mp4" })}`,
+    );
+    expect(traversal.status).toBe(400);
+    expect(missingPath.status).toBe(400);
+    expect(missing.status).toBe(404);
+    expect(escapingSymlink.status).toBe(404);
+    expect(broken.status).toBe(422);
   });
 
   it("租约与 If-Match 在项目互斥锁内阻止并发静默覆盖", async () => {

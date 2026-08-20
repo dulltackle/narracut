@@ -83,6 +83,14 @@ test.beforeAll(async () => {
     join(projectDirectory, "assets", "short.mp4"),
     Buffer.from(shortVideoBase64.trim(), "base64"),
   );
+  await Promise.all(
+    Array.from({ length: 12 }, (_, index) =>
+      writeFile(
+        join(projectDirectory, "assets", `short-${String(index + 1).padStart(2, "0")}.mp4`),
+        Buffer.from(shortVideoBase64.trim(), "base64"),
+      )
+    ),
+  );
   await writeFile(join(projectDirectory, "assets", "corrupt.mp4"), "not a video");
   await writeProject(projectWithAssets());
   server = await startNarracutServer({
@@ -199,6 +207,70 @@ test("已绑定 Video 使用原生控件从首帧预览，关闭后立即停止"
   await expect(page.getByTestId("player-selected-scene")).toHaveText("选中 01");
 });
 
+test("视频缩略图按视口和双并发加载首帧，打开预览前不请求原 MP4", async ({ page }) => {
+  const assets = Array.from({ length: 12 }, (_, index) => ({
+    id: `41000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`,
+    kind: "video" as const,
+    path: `assets/short-${String(index + 1).padStart(2, "0")}.mp4`,
+  }));
+  const project: Project = {
+    ...projectWithAssets(),
+    assets,
+    scenes: [
+      {
+        id: sceneIds[0],
+        narration: { text: "首屏保持 Card，不应预加载视频" },
+        visual: { type: "card", title: "当前 Scene" },
+        transition: "cut",
+      },
+      ...assets.map((asset, index) => ({
+        id: `40000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`,
+        narration: { text: `检查视频 ${index + 1}` },
+        visual: { type: "video" as const, assetId: asset.id },
+        transition: "cut" as const,
+      })),
+    ],
+  };
+  await writeProject(project);
+  let activeThumbnails = 0;
+  let maxActiveThumbnails = 0;
+  let thumbnailRequests = 0;
+  const mp4Requests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.endsWith(".mp4")) mp4Requests.push(request.url());
+  });
+  await page.route((url) => url.pathname === "/api/assets/thumbnail", async (route) => {
+    thumbnailRequests += 1;
+    activeThumbnails += 1;
+    maxActiveThumbnails = Math.max(maxActiveThumbnails, activeThumbnails);
+    await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 50));
+    await route.continue();
+    activeThumbnails -= 1;
+  });
+
+  await page.goto(server.url);
+  await expect(page.getByTestId("global-workbench")).toBeVisible();
+  await expect.poll(() => thumbnailRequests).toBeGreaterThan(0);
+  await page.waitForTimeout(300);
+  expect(thumbnailRequests).toBeLessThan(assets.length);
+  expect(mp4Requests).toEqual([]);
+
+  const rows = page.getByTestId("scene-row");
+  for (let index = 1; index < await rows.count(); index += 1) {
+    await rows.nth(index).scrollIntoViewIfNeeded();
+  }
+  await expect.poll(() => thumbnailRequests).toBe(assets.length);
+  await expect(page.locator(".asset-thumbnail-video > img")).toHaveCount(assets.length);
+  expect(maxActiveThumbnails).toBeLessThanOrEqual(2);
+  expect(mp4Requests).toEqual([]);
+
+  await page.getByRole("button", {
+    name: "预览 Scene 2 Video Asset short-01.mp4",
+  }).click();
+  await expect(page.getByRole("dialog", { name: "short-01.mp4" })).toBeVisible();
+  await expect.poll(() => mp4Requests.length).toBeGreaterThan(0);
+});
+
 test("文件缺失与媒体解码失败都在同一预览浮窗中明确反馈", async ({ page }) => {
   const missingImageId = "41000000-0000-4000-8000-000000000003";
   const corruptVideoId = "41000000-0000-4000-8000-000000000004";
@@ -230,7 +302,11 @@ test("文件缺失与媒体解码失败都在同一预览浮窗中明确反馈",
   await expect(dialog.getByRole("alert")).toContainText("assets/missing.png");
   await dialog.getByRole("button", { name: "关闭" }).click();
 
-  await page.getByRole("button", { name: /预览 Scene 2 Video Asset corrupt\.mp4/ }).click();
+  const corruptTrigger = page.getByRole("button", {
+    name: /预览 Scene 2 Video Asset corrupt\.mp4/,
+  });
+  await expect(corruptTrigger.locator('[data-thumbnail-status="error"]')).toBeVisible();
+  await corruptTrigger.click();
   dialog = page.getByRole("dialog", { name: "corrupt.mp4" });
   await expect(dialog.getByRole("alert")).toContainText("Asset 文件不可用");
   await expect(dialog.getByRole("alert")).toContainText("assets/corrupt.mp4");

@@ -141,6 +141,9 @@ tbody tr.drop-target td { box-shadow: inset 0 2px var(--accent); }
 .asset-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 8px; box-shadow: var(--focus); }
 .asset-file-input { display: none; }
 .asset-thumbnail { width: 48px; height: 30px; object-fit: contain; border-radius: 8px; background: #2a2226; }
+.asset-thumbnail-video { display: grid; place-items: center; overflow: hidden; color: #d7cfd3; }
+.asset-thumbnail-video > img { width: 100%; height: 100%; object-fit: contain; }
+.asset-thumbnail-video > svg { width: 18px; height: 18px; }
 .asset-thumbnail-missing { display: grid; place-items: center; color: #d7cfd3; }
 .asset-thumbnail-missing > svg { width: 18px; height: 18px; }
 .asset-not-applicable { grid-template-columns: 32px minmax(0, 1fr); color: var(--muted); }

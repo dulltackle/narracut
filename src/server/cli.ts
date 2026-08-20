@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { loadEnvFile } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { startNarracutServer, type RunningServer } from "./server";
@@ -8,23 +9,37 @@ type CliOptions = {
   staticDirectory?: string;
   initialPort?: number;
   log?: (message: string) => void;
+  envFile?: string;
 };
 
 const DEFAULT_STATIC_DIRECTORY = fileURLToPath(
   new URL("../../dist/client", import.meta.url),
 );
+const DEFAULT_ENV_FILE = fileURLToPath(new URL("../../.env", import.meta.url));
+
+function loadOptionalEnvFile(envFile: string): void {
+  try {
+    loadEnvFile(envFile);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
+}
 
 export async function runCli({
   args,
   staticDirectory = DEFAULT_STATIC_DIRECTORY,
   initialPort = 3579,
   log = console.log,
+  envFile = DEFAULT_ENV_FILE,
 }: CliOptions): Promise<RunningServer> {
   const [projectPath, ...unexpectedArguments] = args;
   if (projectPath === undefined || unexpectedArguments.length > 0) {
     throw new Error("用法：pnpm start <项目路径>");
   }
 
+  loadOptionalEnvFile(envFile);
   const projectDirectory = resolve(projectPath);
   const server = await startNarracutServer({
     projectDirectory,

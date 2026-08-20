@@ -38,6 +38,21 @@ type SpeechGenerationState = {
 
 const startingScenes = new Set<string>();
 let recoveryPromise: Promise<void> | undefined;
+const SPEECH_CLEANUP_REQUEST_TIMEOUT_MS = 2_000;
+
+async function fetchWithTimeout(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 async function discardPreparedJob(jobId: string): Promise<boolean> {
   for (const delayMs of [0, 150, 450]) {
@@ -45,10 +60,14 @@ async function discardPreparedJob(jobId: string): Promise<boolean> {
       await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, delayMs));
     }
     try {
-      const response = await fetch(`/api/jobs/${jobId}/discard`, {
-        method: "POST",
-        headers: { "x-narracut-session-id": getProjectSessionId() },
-      });
+      const response = await fetchWithTimeout(
+        `/api/jobs/${jobId}/discard`,
+        {
+          method: "POST",
+          headers: { "x-narracut-session-id": getProjectSessionId() },
+        },
+        SPEECH_CLEANUP_REQUEST_TIMEOUT_MS,
+      );
       if (response.ok || response.status === 404 || response.status === 409) {
         return true;
       }

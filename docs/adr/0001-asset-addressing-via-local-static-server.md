@@ -14,6 +14,9 @@ Remotion 官方的素材约定是把文件放进 `public/`、用 `staticFile()` 
 
 - **端口与 URL 绝不落进 DSL**。`mediaBaseUrl` 是每次打开项目时现算的运行时值，项目文件夹移动/改名后重新打开即自愈。
 - **服务与 API 同 origin、同端口**，素材挂在 `/media/*` 前缀下（见 [ADR-0003](./0003-frontend-owns-the-dsl.md) 的接口清单）。
+- **工作台列表中的视频缩略图不得直接加载 `/media/*.mp4`**。列表改用 `GET /api/assets/thumbnail?path=...` 按需派生的 320×180 JPEG 首帧；只有用户打开完整 Asset 预览、选择视频 Scene 或播放时，Player 才能读取原视频。这避免了页面启动时为多个尾置 `moov` 的 MP4 并发发起 Range 请求。
+- **首帧是非持久化运行时派生数据**。服务只按项目相对路径和源文件元数据签名缓存 JPEG，缓存有界且仅存在于进程内；不得修改 `project.json`、`assets/` 或项目内其他文件，服务重启后允许重新生成。
 - **素材响应必须带 `Access-Control-Allow-Origin: *`**。渲染时 headless Chromium 从 Remotion 的 `serveUrl` 加载 bundle、再跨域抓 `/media/*`；CORS 失败会让 `@remotion/media` 的 `<Video>` 静默 fallback，而 Player 与 renderer 的 fallback 目标不同（`<Html5Video>` vs `<OffthreadVideo>`），「Preview = Render」会从这里裂开。
 - **不加 token 鉴权**，这是明确接受的风险。`<Video src>` 的请求由浏览器与 renderer 自己发出，加不了 header，token 只能塞 query string 并污染那个两端共用的纯函数。缓解手段是显式 `listen(port, '127.0.0.1')` 绑回环，外加一道 `path.resolve` 校验解析结果落在项目根内。风险等价于「本机其他进程本来就能读你的磁盘」。
 - **打开项目时必须做素材完整性校验**，报错带 Scene ID + 相对路径 + 拼出的绝对路径，而不是让 Player 黑屏或让渲染跑到一半才 404。
+- **未来的视频导入管线必须产出 fast-start MP4**，即把 `moov` 元数据放在文件头，降低主动预览与播放时通过高延迟链路读取元数据的成本。本决策不自动改写既有 Asset，也不提前增加当前尚不存在的视频导入流程。
