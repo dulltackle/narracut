@@ -299,6 +299,106 @@ test("Visual 在导入期间改变时保留未绑定 Asset，并可从任务抽�
   expect(saved.scenes[0].visual).toEqual({ type: "video" });
 });
 
+test("删除导入中的 Scene 后保留迟到 Asset，并在空态任务抽屉说明未绑定结果", async ({ page }) => {
+  const importedAssetId = "90000000-0000-4000-8000-000000000099";
+  const importedAssetPath = `assets/${importedAssetId}.png`;
+  await sharp({
+    create: {
+      width: 1920,
+      height: 1080,
+      channels: 3,
+      background: { r: 24, g: 142, b: 138 },
+    },
+  })
+    .png()
+    .toFile(join(projectDirectory, importedAssetPath));
+  const source = join(sourceDirectory, "删除后完成.png");
+  await writeFile(source, "intercepted by the test");
+  const now = new Date().toISOString();
+  const queuedJob = {
+    id: "scene-delete-image-job",
+    type: "image-import" as const,
+    sceneId,
+    fileName: "删除后完成.png",
+    status: "queued" as const,
+    stage: "waiting" as const,
+    createdAt: now,
+    updatedAt: now,
+  };
+  let notifyLatestRequested!: () => void;
+  let releaseLatestResponse!: () => void;
+  const latestRequested = new Promise<void>((resolvePromise) => {
+    notifyLatestRequested = resolvePromise;
+  });
+  const latestResponseReleased = new Promise<void>((resolvePromise) => {
+    releaseLatestResponse = resolvePromise;
+  });
+  await page.route("**/api/jobs/image-import", async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({ job: queuedJob }),
+    });
+  });
+  await page.route("**/api/jobs/scene-delete-image-job", async (route) => {
+    notifyLatestRequested();
+    await latestResponseReleased;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...queuedJob,
+        status: "succeeded",
+        stage: "completed",
+        result: {
+          asset: { id: importedAssetId, kind: "image", path: importedAssetPath },
+          facts: {
+            sourceWidth: 1920,
+            sourceHeight: 1080,
+            width: 1920,
+            height: 1080,
+            enlarged: false,
+          },
+        },
+      }),
+    });
+  });
+
+  await page.goto(server.url);
+  await page.getByLabel("为 Scene 1 选择图片").setInputFiles(source);
+  await latestRequested;
+  await page.getByRole("button", { name: "删除 Scene 1" }).click();
+  releaseLatestResponse();
+
+  await expect(page.getByRole("complementary", { name: "任务与渲染" })).toBeVisible();
+  await expect(page.getByTestId("image-import-task")).toContainText(
+    "图片已导入，但目标 Scene 已删除",
+  );
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")))
+    .toMatchObject({
+      assets: [{ id: importedAssetId, path: importedAssetPath }],
+      scenes: [],
+    });
+
+  await page.getByRole("button", { name: "撤销：删除 Scene 01" }).click();
+  await expect(page.getByTestId("scene-row")).toHaveCount(1);
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")))
+    .toMatchObject({
+      assets: [{ id: importedAssetId, path: importedAssetPath }],
+      scenes: [{ id: sceneId, visual: { type: "image" } }],
+    });
+
+  await page.getByRole("button", { name: "重做：删除 Scene 01" }).click();
+  await expect(page.getByTestId("scene-row")).toHaveCount(0);
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")))
+    .toMatchObject({
+      assets: [{ id: importedAssetId, path: importedAssetPath }],
+      scenes: [],
+    });
+});
+
 test("行内取消会保留原项目并清理未完成导入", async ({ page }) => {
   const source = join(sourceDirectory, "取消中的图片.png");
   await sharp({

@@ -4,6 +4,8 @@ import { useProjectStore } from "../src/client/project-store";
 import type { Project, Speech } from "../src/shared/project";
 
 const sceneId = "91000000-0000-4000-8000-000000000001";
+const secondSceneId = "91000000-0000-4000-8000-000000000004";
+const thirdSceneId = "91000000-0000-4000-8000-000000000005";
 const imageAssetId = "91000000-0000-4000-8000-000000000002";
 const importedAssetId = "91000000-0000-4000-8000-000000000003";
 
@@ -97,6 +99,7 @@ beforeEach(() => {
     undoStack: [],
     redoStack: [],
     historyNotice: undefined,
+    historyAnnouncement: undefined,
     historyEventId: 0,
     historyFocusRequest: undefined,
   });
@@ -107,6 +110,166 @@ afterEach(() => {
 });
 
 describe("Project DSL 事务历史", () => {
+  it("删除选中 Scene 后选择下一条，撤销重做时保留删除后登记的 Asset", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) =>
+        String(input).endsWith("/api/speech/revisions")
+          ? Response.json({
+              results: [
+                {
+                  path: `speech/${secondSceneId}.mp3`,
+                  exists: true,
+                  revision: `sha256:${"3".repeat(64)}`,
+                },
+              ],
+            })
+          : new Response(null, {
+              status: 204,
+              headers: { etag: '"history-delete-etag"' },
+            }),
+      ),
+    );
+    const project = projectFixture();
+    project.scenes = [
+      project.scenes[0],
+      {
+        id: secondSceneId,
+        narration: { text: "待删除旁白" },
+        speech: {
+          path: `speech/${secondSceneId}.mp3`,
+          durationMs: 1800,
+          sourceTextHash: `sha256:${"2".repeat(64)}`,
+          ttsProfileId: "narracut-mandarin-news-v1",
+        },
+        visual: { type: "image", assetId: imageAssetId },
+        transition: "cut",
+      },
+      {
+        id: thirdSceneId,
+        narration: { text: "后续旁白" },
+        visual: { type: "video" },
+        transition: "cut",
+      },
+    ];
+    useProjectStore.setState({
+      project,
+      selectedSceneId: secondSceneId,
+      mediaRevisions: {
+        [`speech/${secondSceneId}.mp3`]: `sha256:${"3".repeat(64)}`,
+      },
+    });
+
+    await useProjectStore.getState().deleteScene(secondSceneId);
+
+    expect(useProjectStore.getState()).toMatchObject({
+      selectedSceneId: thirdSceneId,
+      historyNotice: undefined,
+      historyAnnouncement: "已删除 Scene 2，可撤销",
+      historyFocusRequest: {
+        sceneId: thirdSceneId,
+        target: "scene-select",
+        force: true,
+      },
+    });
+    expect(useProjectStore.getState().project?.scenes.map((scene) => scene.id)).toEqual([
+      sceneId,
+      thirdSceneId,
+    ]);
+    expect(useProjectStore.getState().project?.assets).toEqual(project.assets);
+
+    const lateAsset = {
+      id: importedAssetId,
+      kind: "image" as const,
+      path: `assets/${importedAssetId}.png`,
+    };
+    expect(await useProjectStore.getState().registerAsset(lateAsset)).toBe(true);
+
+    await useProjectStore.getState().undo();
+    expect(useProjectStore.getState().project?.scenes[1]).toEqual(project.scenes[1]);
+    expect(useProjectStore.getState().project?.assets).toEqual([
+      ...project.assets,
+      lateAsset,
+    ]);
+    expect(useProjectStore.getState()).toMatchObject({
+      selectedSceneId: secondSceneId,
+      historyFocusRequest: {
+        sceneId: secondSceneId,
+        target: "scene-select",
+        force: true,
+      },
+    });
+
+    useProjectStore.getState().selectScene(sceneId);
+    await useProjectStore.getState().redo();
+    expect(useProjectStore.getState().project?.scenes.map((scene) => scene.id)).toEqual([
+      sceneId,
+      thirdSceneId,
+    ]);
+    expect(useProjectStore.getState().project?.assets).toEqual([
+      ...project.assets,
+      lateAsset,
+    ]);
+    expect(useProjectStore.getState()).toMatchObject({
+      selectedSceneId: sceneId,
+      historyFocusRequest: {
+        sceneId: thirdSceneId,
+        target: "scene-select",
+        force: true,
+      },
+    });
+  });
+
+  it("删除非选中 Scene 保持选择，删除唯一 Scene 后清空选择并聚焦新增入口", async () => {
+    const project = projectFixture();
+    project.scenes.push({
+      id: secondSceneId,
+      narration: { text: "第二条" },
+      visual: { type: "video" },
+      transition: "cut",
+    });
+    useProjectStore.setState({ project, selectedSceneId: secondSceneId });
+
+    await useProjectStore.getState().deleteScene(sceneId);
+    expect(useProjectStore.getState()).toMatchObject({
+      selectedSceneId: secondSceneId,
+      historyFocusRequest: {
+        sceneId: secondSceneId,
+        target: "scene-select",
+        force: true,
+      },
+    });
+
+    await useProjectStore.getState().deleteScene(secondSceneId);
+    expect(useProjectStore.getState()).toMatchObject({
+      selectedSceneId: undefined,
+      historyFocusRequest: {
+        target: "add-scene",
+        force: true,
+      },
+    });
+    expect(useProjectStore.getState().project?.scenes).toEqual([]);
+  });
+
+  it("删除先结束 Narration 文本事务，Undo 恢复删除，第二次 Undo 再恢复文本", async () => {
+    useProjectStore.getState().updateNarration(sceneId, "删除前最新旁白");
+
+    await useProjectStore.getState().deleteScene(sceneId);
+    expect(useProjectStore.getState().undoStack.map((entry) => entry.label)).toEqual([
+      "编辑 Scene 01 旁白",
+      "删除 Scene 01",
+    ]);
+
+    await useProjectStore.getState().undo();
+    expect(useProjectStore.getState().project?.scenes[0].narration.text).toBe(
+      "删除前最新旁白",
+    );
+    await useProjectStore.getState().undo();
+    expect(useProjectStore.getState().project?.scenes[0].narration.text).toBe(
+      "原始旁白",
+    );
+  });
+
   it("保存请求超过 5 秒会中止并进入重试", async () => {
     vi.useFakeTimers();
     let putAttempt = 0;

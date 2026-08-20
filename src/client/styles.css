@@ -109,8 +109,12 @@ h1, h2, h3 { text-wrap: balance; }
 table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 th { position: sticky; top: 0; z-index: 2; height: 36px; padding: 0 8px; border-bottom: 1px solid var(--border); background: white; color: var(--muted); text-align: left; font: 600 12px var(--mono); }
 td { height: 88px; padding: 8px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; background: white; }
-.scene-table { min-width: 1060px; }
-.scene-table th:nth-child(1) { width: 76px; }.scene-table th:nth-child(2) { width: auto; }.scene-table th:nth-child(3) { width: 150px; }.scene-table th:nth-child(4) { width: 210px; }.scene-table th:nth-child(5) { width: 230px; }.scene-table th:nth-child(6) { width: 92px; }
+.scene-table { min-width: 900px; }
+.scene-table th:nth-child(1) { width: 76px; }.scene-table th:nth-child(2) { width: auto; }.scene-table th:nth-child(3) { width: 110px; }.scene-table th:nth-child(4) { width: 210px; }.scene-table th:nth-child(5) { width: 230px; }.scene-table th:nth-child(6) { width: 75px; }.scene-table th:nth-child(7) { width: 60px; }
+.scene-actions-heading { right: 0; z-index: 3; text-align: center; box-shadow: -1px 0 var(--border-soft); }
+.scene-actions-cell { position: sticky; right: 0; z-index: 1; text-align: center; box-shadow: -1px 0 var(--border-soft); }
+.scene-delete-button { width: 44px; height: 44px; display: inline-grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); }
+.scene-delete-button:hover, .scene-delete-button:focus-visible { border-color: #fecdd3; background: #fff1f4; color: var(--danger); }
 tbody tr { cursor: pointer; }
 tbody tr:hover td { background: var(--bg); }
 tbody tr.selected td { background: var(--surface-warm); }

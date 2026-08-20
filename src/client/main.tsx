@@ -372,6 +372,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   const undo = useProjectStore((state) => state.undo);
   const redo = useProjectStore((state) => state.redo);
   const historyNotice = useProjectStore((state) => state.historyNotice);
+  const historyAnnouncement = useProjectStore((state) => state.historyAnnouncement);
   const historyEventId = useProjectStore((state) => state.historyEventId);
   const clearHistoryNotice = useProjectStore((state) => state.clearHistoryNotice);
   const [editingProjectName, setEditingProjectName] = useState(false);
@@ -465,6 +466,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
           <button className="btn icon" type="button" aria-label={redoLabel} title={redoLabel} disabled={actionsDisabled || redoEntry === undefined} onClick={() => void redo()}><ArrowCounterClockwise /></button>
         </div>
         {historyNotice === undefined ? null : <div key={historyEventId} className="history-feedback" role="status" aria-live="polite">{historyNotice}</div>}
+        {historyAnnouncement === undefined ? null : <div key={historyEventId} className="sr-only" role="status" aria-live="polite" data-testid="history-announcement">{historyAnnouncement}</div>}
       </div>
       <div className="top-actions"><button className="btn" disabled={readOnly || renderDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length + imageJobCount + speechJobCount + Object.keys(renderJobs).length}</span></button>{showLatestRenderResult && latestRender?.status === "succeeded" ? <button className="btn render-output-shortcut" type="button" onClick={() => void openOutput(latestRender.id)}><FolderOpen />打开产物目录</button> : null}<button className="btn primary render-primary" disabled={readOnly || renderDisabled || renderStarting || activeRender !== undefined || (showLatestRenderResult && latestRender?.status === "succeeded")} onClick={handleRenderAction}><FilmSlate />{renderLabel}</button></div>
     </header>
@@ -1541,6 +1543,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const updateVisual = useProjectStore((state) => state.updateVisual);
   const updateTheme = useProjectStore((state) => state.updateTheme);
   const reorderScene = useProjectStore((state) => state.reorderScene);
+  const deleteScene = useProjectStore((state) => state.deleteScene);
   const taskDrawerOpen = useProjectStore((state) => state.taskDrawerOpen);
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
@@ -1594,6 +1597,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const [reorderNotice, setReorderNotice] = useState("");
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [assetPreview, setAssetPreview] = useState<{
+    sceneId: string;
     asset: Asset;
     displayName: string;
     trigger: HTMLElement;
@@ -1605,7 +1609,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const playerRef = useRef<PlayerRef>(null);
   const scrubWasPlayingRef = useRef(false);
   const previousPlayingSceneIdRef = useRef<string | undefined>(undefined);
-  const pendingReorderPlaybackRef = useRef<{
+  const pendingStructuralPlaybackRef = useRef<{
     sceneId: string;
     offsetInFrames: number;
     wasPlaying: boolean;
@@ -1632,7 +1636,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     [previewSnapshot],
   );
   const previousPreviewSnapshotRef = useRef(previewSnapshot);
-  const durationSnapshotRef = useRef(previewSnapshot);
+  const structuralSnapshotRef = useRef(previewSnapshot);
   useEffect(() => connectImageJobs(), [connectImageJobs]);
   useEffect(() => connectSpeechJobs(), [connectSpeechJobs]);
   useEffect(() => connectRenderJobs(), [connectRenderJobs]);
@@ -1648,36 +1652,54 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     previousPreviewSnapshotRef.current = previewSnapshot;
   }, [playerError, previewSnapshot]);
   useEffect(() => {
-    const previous = durationSnapshotRef.current;
-    durationSnapshotRef.current = previewSnapshot;
-    if (previous === undefined || previewSnapshot === undefined) return;
-    const sameSceneOrder =
-      previous.scenes.length === previewSnapshot.scenes.length &&
-      previous.scenes.every(
-        (scene, index) => scene.scene.id === previewSnapshot.scenes[index]?.scene.id,
-      );
-    const durationChanged =
-      sameSceneOrder &&
-      previous.scenes.some(
-        (scene, index) =>
-          scene.durationInFrames !== previewSnapshot.scenes[index]?.durationInFrames,
-      );
-    if (!durationChanged) return;
-    const previousResolved = findSceneAtFrame(previous, currentFrame);
-    if (previousResolved === undefined) return;
+    const previous = structuralSnapshotRef.current;
+    structuralSnapshotRef.current = previewSnapshot;
+    const pending = pendingStructuralPlaybackRef.current;
+    pendingStructuralPlaybackRef.current = undefined;
+    if (
+      previewSnapshot === undefined ||
+      previewSnapshot.scenes.length === 0
+    ) {
+      playerRef.current?.pause();
+      setPlaying(false);
+      setCurrentFrame(0);
+      return;
+    }
+    if (previous === undefined && pending === undefined) return;
+    const previousResolved =
+      pending === undefined && previous !== undefined
+        ? findSceneAtFrame(previous, currentFrame)
+        : undefined;
+    const playbackContext =
+      pending ??
+      (previousResolved === undefined
+        ? selectedSceneId === undefined
+          ? undefined
+          : { sceneId: selectedSceneId, offsetInFrames: 0, wasPlaying: false }
+        : {
+            sceneId: previousResolved.scene.id,
+            offsetInFrames: currentFrame - previousResolved.startFrame,
+            wasPlaying: playerRef.current?.isPlaying() ?? playing,
+          });
+    if (playbackContext === undefined) return;
     const restoredFrame = frameForSceneOffset(
       previewSnapshot,
-      previousResolved.scene.id,
-      currentFrame - previousResolved.startFrame,
+      playbackContext.sceneId,
+      playbackContext.offsetInFrames,
     );
-    if (restoredFrame === undefined) return;
-    const wasPlaying = playerRef.current?.isPlaying() ?? playing;
-    requestAnimationFrame(() => {
-      playerRef.current?.seekTo(restoredFrame);
-      setCurrentFrame(restoredFrame);
-      if (wasPlaying) playerRef.current?.play();
+    const fallbackFrame =
+      restoredFrame ??
+      (selectedSceneId === undefined
+        ? undefined
+        : frameForSceneOffset(previewSnapshot, selectedSceneId, 0));
+    if (fallbackFrame === undefined) return;
+    const frame = requestAnimationFrame(() => {
+      playerRef.current?.seekTo(fallbackFrame);
+      setCurrentFrame(fallbackFrame);
+      if (restoredFrame !== undefined && playbackContext.wasPlaying) playerRef.current?.play();
       else playerRef.current?.pause();
     });
+    return () => cancelAnimationFrame(frame);
   }, [previewSnapshot]);
   const renderDiagnostics = useMemo(
     () =>
@@ -1731,22 +1753,6 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     };
   }, [playerGeneration, previewSnapshot?.durationInFrames, previewSnapshot?.previewBlockers.length]);
   useEffect(() => {
-    if (previewSnapshot === undefined) return;
-    const pending = pendingReorderPlaybackRef.current;
-    if (pending === undefined) return;
-    const restoredFrame = frameForSceneOffset(
-      previewSnapshot,
-      pending.sceneId,
-      pending.offsetInFrames,
-    );
-    pendingReorderPlaybackRef.current = undefined;
-    if (restoredFrame === undefined) return;
-    playerRef.current?.seekTo(restoredFrame);
-    setCurrentFrame(restoredFrame);
-    if (pending.wasPlaying) playerRef.current?.play();
-    else playerRef.current?.pause();
-  }, [previewSnapshot]);
-  useEffect(() => {
     if (!singleSceneFocusPendingRef.current || sceneCount === 0) return;
     singleSceneFocusPendingRef.current = false;
     if (tableScrollRef.current !== null) {
@@ -1762,14 +1768,25 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   useEffect(() => {
     if (historyFocusRequest === undefined) return;
     const activeElement = document.activeElement;
-    if (activeElement !== document.body && activeElement?.isConnected) return;
+    if (
+      historyFocusRequest.force !== true &&
+      activeElement !== document.body &&
+      activeElement?.isConnected
+    ) return;
     const selector =
-      historyFocusRequest.target === "narration"
-        ? `[data-narration-scene-id="${historyFocusRequest.sceneId}"]`
-        : historyFocusRequest.target === "reorder"
-          ? `[data-reorder-handle="${historyFocusRequest.sceneId}"]`
-          : `[data-visual-type-scene-id="${historyFocusRequest.sceneId}"]`;
-    document.querySelector<HTMLElement>(selector)?.focus();
+      historyFocusRequest.target === "add-scene"
+        ? "[data-add-scene]"
+        : historyFocusRequest.target === "scene-select"
+          ? `[data-scene-id="${historyFocusRequest.sceneId}"] [data-scene-select]`
+          : historyFocusRequest.target === "narration"
+            ? `[data-narration-scene-id="${historyFocusRequest.sceneId}"]`
+            : historyFocusRequest.target === "reorder"
+              ? `[data-reorder-handle="${historyFocusRequest.sceneId}"]`
+              : `[data-visual-type-scene-id="${historyFocusRequest.sceneId}"]`;
+    const frame = requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>(selector)?.focus(),
+    );
+    return () => cancelAnimationFrame(frame);
   }, [historyFocusRequest]);
   if (project === undefined) return null;
 
@@ -1885,6 +1902,50 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     requestAnimationFrame(() => trigger?.focus());
   };
 
+  const handleDeleteScene = (sceneId: string) => {
+    const sceneIndex = project.scenes.findIndex((scene) => scene.id === sceneId);
+    const playbackFrame = playerRef.current?.getCurrentFrame() ?? currentFrame;
+    const playbackScene =
+      previewSnapshot === undefined
+        ? undefined
+        : findSceneAtFrame(previewSnapshot, playbackFrame);
+    if (sceneIndex >= 0 && playbackScene !== undefined) {
+      const wasPlaying = playerRef.current?.isPlaying() ?? playing;
+      const nextSceneId =
+        project.scenes[sceneIndex + 1]?.id ?? project.scenes[sceneIndex - 1]?.id;
+      pendingStructuralPlaybackRef.current =
+        playbackScene.scene.id === sceneId
+          ? nextSceneId === undefined
+            ? undefined
+            : { sceneId: nextSceneId, offsetInFrames: 0, wasPlaying: false }
+          : {
+              sceneId: playbackScene.scene.id,
+              offsetInFrames: playbackFrame - playbackScene.startFrame,
+              wasPlaying,
+            };
+      if (wasPlaying) playerRef.current?.pause();
+    }
+    const narrationPopover = document.querySelector<HTMLElement>(
+      `[data-narration-popover-scene-id="${sceneId}"]`,
+    );
+    if (narrationPopover?.matches(":popover-open")) {
+      narrationPopover.hidePopover();
+    }
+    if (assetPreview?.sceneId === sceneId) setAssetPreview(undefined);
+    if (cardChoice?.sceneId === sceneId) setCardChoice(undefined);
+    if (pendingVisualChange?.sceneId === sceneId) setPendingVisualChange(undefined);
+    if (draggedSceneId === sceneId) {
+      setDraggedSceneId(undefined);
+      setDropTargetIndex(undefined);
+    }
+    if (keyboardReorder?.sceneId === sceneId) {
+      setKeyboardReorder(undefined);
+      setDropTargetIndex(undefined);
+      setReorderAnnouncement("");
+    }
+    void deleteScene(sceneId);
+  };
+
   const seekProjectFrame = (frame: number) => {
     if (previewSnapshot === undefined) return;
     const nextFrame = Math.min(
@@ -1973,7 +2034,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
           : findSceneAtFrame(previewSnapshot, playbackFrame);
       if (playbackScene !== undefined) {
         const wasPlaying = playerRef.current?.isPlaying() ?? playing;
-        pendingReorderPlaybackRef.current = {
+        pendingStructuralPlaybackRef.current = {
           sceneId: playbackScene.scene.id,
           offsetInFrames: playbackFrame - playbackScene.startFrame,
           wasPlaying,
@@ -2065,7 +2126,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
         <section className="pane script-pane">
           <PaneHeading title="脚本表" meta={`${project.scenes.length} 个 Scene`} actions={<div className="filter"><button aria-pressed="true">全部</button><button aria-pressed="false">待修复</button></div>} />
           <div className="table-wrap" ref={tableScrollRef}>
-            <table className="scene-table"><thead><tr><th>顺序</th><th>Narration</th><th>Visual Type</th><th>Asset</th><th>Speech</th><th>状态</th></tr></thead><tbody>
+            <table className="scene-table"><thead><tr><th>顺序</th><th>Narration</th><th>Visual Type</th><th>Asset</th><th>Speech</th><th>状态</th><th className="scene-actions-heading">操作</th></tr></thead><tbody>
               {project.scenes.map((scene, index) => {
                 const asset = assetForScene(scene, assets);
                 const sceneDiagnostics = renderDiagnostics.filter(
@@ -2081,16 +2142,17 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
                     <td><div className="narration-cell">
                       <textarea ref={selected ? selectedNarrationRef : undefined} data-narration-scene-id={scene.id} className="narration" aria-label={`Scene ${index + 1} Narration`} value={scene.narration.text} onClick={(event) => event.stopPropagation()} onChange={(event) => updateNarration(scene.id, event.target.value)} onBlur={endTextTransaction} />
                       <button className="narration-expand" type="button" aria-label={`扩大编辑 Scene ${index + 1} Narration`} onClick={(event) => { event.stopPropagation(); openNarrationPopover(narrationPopoverId, expandedNarrationId); }}><ArrowsOutSimple /></button>
-                      <section id={narrationPopoverId} className="narration-popover" popover="auto" role="dialog" aria-label={`扩大编辑 Scene ${index + 1} Narration`} onClick={(event) => event.stopPropagation()}>
+                      <section id={narrationPopoverId} data-narration-popover-scene-id={scene.id} className="narration-popover" popover="auto" role="dialog" aria-label={`扩大编辑 Scene ${index + 1} Narration`} onClick={(event) => event.stopPropagation()}>
                         <header><div><p className="eyebrow">Scene {String(index + 1).padStart(2, "0")}</p><h2>扩大编辑 Narration</h2></div><button className="btn icon" type="button" aria-label="关闭扩大编辑" onClick={() => closeNarrationPopover(narrationPopoverId)}><X /></button></header>
                         <textarea id={expandedNarrationId} aria-label={`Scene ${index + 1} Narration 扩大编辑`} value={scene.narration.text} onChange={(event) => updateNarration(scene.id, event.target.value)} onBlur={endTextTransaction} />
                         <small>内容会直接写回当前 Scene</small>
                       </section>
                     </div></td>
                     <td><div className="table-cell visual-type-cell"><select data-visual-type-scene-id={scene.id} aria-label={`Scene ${index + 1} Visual Type`} value={scene.visual.type} onClick={(event) => event.stopPropagation()} onChange={(event) => requestVisualChange(scene, event.target.value as VisualType, event.currentTarget)}>{(Object.keys(visualLabels) as VisualType[]).map((type) => <option key={type} value={type}>{visualLabels[type]}</option>)}</select><span>{captionForVisual(scene.visual) ?? (scene.visual.type === "card" ? "结构化文字画面" : "标准画面")}</span></div></td>
-                    <td><AssetCell scene={scene} sceneIndex={index} asset={asset} onPreview={(previewAsset, _sceneIndex, displayName, trigger) => setAssetPreview({ asset: previewAsset, displayName, trigger })} /></td>
+                    <td><AssetCell scene={scene} sceneIndex={index} asset={asset} onPreview={(previewAsset, _sceneIndex, displayName, trigger) => setAssetPreview({ sceneId: scene.id, asset: previewAsset, displayName, trigger })} /></td>
                     <td><SpeechCell scene={scene} sceneIndex={index} /></td>
                     <td><span className={assetStatus.className}>{assetStatus.label}</span></td>
+                    <td className="scene-actions-cell"><button className="scene-delete-button" type="button" aria-label={`删除 Scene ${index + 1}`} title={`删除 Scene ${index + 1}`} onClick={(event) => { event.stopPropagation(); handleDeleteScene(scene.id); }}><Trash /></button></td>
                   </tr>
                 );
               })}
@@ -2226,6 +2288,61 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   );
 }
 
+function EmptyWorkspaceTaskDrawer({
+  project,
+  diagnostics,
+}: {
+  project: import("../shared/project").Project;
+  diagnostics: import("../shared/project").Diagnostic[];
+}) {
+  const taskDrawerOpen = useProjectStore((state) => state.taskDrawerOpen);
+  const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
+  const saveDiagnostics = useProjectStore((state) => state.saveDiagnostics);
+  const mediaAvailability = useProjectStore((state) => state.mediaAvailability);
+  const imageJobs = useImageImportStore((state) => state.jobs);
+  const speechJobs = useSpeechGenerationStore((state) => state.jobs);
+  const renderJobs = useRenderJobStore((state) => state.jobs);
+  const renderStartError = useRenderJobStore((state) => state.startError);
+  const renderOpenError = useRenderJobStore((state) => state.openError);
+  const imageJobList = Object.values(imageJobs).sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  );
+  const speechJobList = Object.values(speechJobs).sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  );
+  const renderJobList = Object.values(renderJobs).sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  );
+  const currentRenderJob = renderJobList.find(
+    (job) =>
+      job.status === "queued" ||
+      job.status === "processing" ||
+      job.status === "cancelling",
+  );
+  const completedRenderJobs = renderJobList.filter(
+    (job) => job !== currentRenderJob,
+  );
+  const renderDiagnostics = [
+    ...diagnostics,
+    ...validateRenderReadiness(project, mediaAvailability),
+  ];
+
+  return (
+    <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen} aria-label="任务与渲染">
+      <header><h2>任务与渲染</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>
+      <div className="task-groups">
+        {currentRenderJob ? <section><h3>当前渲染</h3><RenderJobTask job={currentRenderJob} onNavigate={() => setTaskDrawerOpen(false)} /></section> : null}
+        {completedRenderJobs.length > 0 ? <section><h3>渲染结果</h3><div className="render-job-list">{completedRenderJobs.map((job) => <RenderJobTask key={job.id} job={job} onNavigate={() => setTaskDrawerOpen(false)} />)}</div></section> : null}
+        {renderStartError || renderOpenError ? <section><h3>渲染操作</h3><div className="render-operation-error" role="alert"><WarningCircle weight="fill" /><span><strong>{renderOpenError ? "结果目录无法打开" : "无法创建 Render Job"}</strong>{renderOpenError ?? renderStartError}</span></div></section> : null}
+        {speechJobList.length > 0 ? <section><h3>Speech 生成</h3><div className="speech-job-list">{speechJobList.map((job) => <SpeechJobTask key={job.id} job={job} />)}</div></section> : null}
+        {imageJobList.length > 0 ? <section><h3>图片导入</h3><div className="image-job-list">{imageJobList.map((job) => <ImageJobTask key={job.id} job={job} />)}</div></section> : null}
+        {saveDiagnostics.length > 0 ? <section><h3>保存问题</h3><div className="task-diagnostics">{saveDiagnostics.map((diagnostic) => <div key={`save-${diagnostic.code}-${diagnostic.path.join(".")}`} className="error"><WarningCircle weight="fill" /><span><strong>阻止保存</strong>{diagnostic.message}<code>{diagnostic.path.join(".") || "project.json"}</code></span></div>)}</div></section> : null}
+        <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <div key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断" : "提醒"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></div>)}</div>}</section>
+      </div>
+    </aside>
+  );
+}
+
 function EmptyWorkspace({ project, projectName, diagnostics, controlsDisabled, occupied, onThemeChange, onAddScene }: { project: import("../shared/project").Project; projectName: string; diagnostics: import("../shared/project").Diagnostic[]; controlsDisabled: boolean; occupied: boolean; onThemeChange: (theme: import("../shared/project").Project["theme"]) => void; onAddScene: () => void }) {
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
   const migrationPending = useProjectStore((state) => state.migrationPending);
@@ -2234,10 +2351,11 @@ function EmptyWorkspace({ project, projectName, diagnostics, controlsDisabled, o
 
   return (
     <div className={`app-shell ${bannerKind === undefined ? "" : "has-banner"}`}><Topbar projectName={projectName} controlsDisabled={controlsDisabled} renderDisabled={occupied} />{bannerKind === undefined ? null : <WorkspaceBanner kind={bannerKind} />}<fieldset className="workspace-lock" disabled={controlsDisabled}><main className="workspace" data-testid={occupied ? "readonly-workbench" : "global-workbench"}>
-      <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setBatchDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行 Narration，我们只按换行拆分，并在真正写入项目之前让你整理完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setBatchDialogOpen(true)}><Plus />粘贴多行 Narration</button><button className="btn" onClick={onAddScene}>新增一条</button></div><small>空白行会被忽略并计数 · Scene 数量不限</small></div></section>
+      <section className="pane script-pane empty-script"><PaneHeading title="脚本表" meta="0 个 Scene" actions={<button className="btn compact" onClick={() => setBatchDialogOpen(true)}>新建 Scene</button>} /><div className="empty-state"><span className="first-scene-badge">01</span><h1>从第一句讲解开始</h1><p>粘贴逐行 Narration，我们只按换行拆分，并在真正写入项目之前让你整理完整结果。</p><div className="empty-actions"><button className="btn primary" onClick={() => setBatchDialogOpen(true)}><Plus />粘贴多行 Narration</button><button className="btn" data-add-scene onClick={onAddScene}>新增一条</button></div><small>空白行会被忽略并计数 · Scene 数量不限</small></div></section>
       <section className="pane player-pane"><PaneHeading title="Player" meta="无 Scene" /><div className="stage"><div className="preview-frame empty-preview"><strong>暂无可预览内容</strong><span>创建 Scene 后，这里会显示画面与可储存的字幕层。</span></div></div><div className="player-controls"><button className="play-button" aria-label="播放" disabled><Play weight="fill" /></button><span className="timecode">00:00 / 00:00</span><div className="scrubber"><span /></div></div></section>
       <section className="pane inspector-pane"><PaneHeading title="属性" meta="项目主题" actions={<div className="inspector-tabs" role="tablist" aria-label="属性范围"><button role="tab" aria-selected="false" disabled>场景</button><button role="tab" aria-selected="true">项目</button></div>} /><div className="inspector-scroll" data-testid="inspector-project"><ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={onThemeChange} /></div></section>
     </main>
+      <EmptyWorkspaceTaskDrawer project={project} diagnostics={diagnostics} />
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={0} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
       </fieldset><ExternalConflictDialog />
     </div>

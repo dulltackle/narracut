@@ -46,7 +46,19 @@ type ExternalConflict = {
   resolutionError?: string;
 };
 
-type HistoryFocusTarget = "narration" | "visual-type" | "reorder";
+type HistoryFocusTarget =
+  | "narration"
+  | "visual-type"
+  | "reorder"
+  | "scene-select"
+  | "add-scene";
+
+type HistoryFocusRequest = {
+  eventId: number;
+  sceneId?: string;
+  target: HistoryFocusTarget;
+  force?: boolean;
+};
 
 type HistoryEntry = {
   id: number;
@@ -55,6 +67,11 @@ type HistoryEntry = {
   label: string;
   sceneId?: string;
   focusTarget?: HistoryFocusTarget;
+  deletedScene?: {
+    sceneId: string;
+    selectedSceneIdAfter?: string;
+    focusSceneIdAfter?: string;
+  };
   beforeSpeechRevisions: Record<string, string>;
   afterSpeechRevisions: Record<string, string>;
 };
@@ -103,12 +120,9 @@ type ProjectState = {
   undoStack: HistoryEntry[];
   redoStack: HistoryEntry[];
   historyNotice?: string;
+  historyAnnouncement?: string;
   historyEventId: number;
-  historyFocusRequest?: {
-    eventId: number;
-    sceneId: string;
-    target: HistoryFocusTarget;
-  };
+  historyFocusRequest?: HistoryFocusRequest;
   taskDrawerOpen: boolean;
   speechCommitInFlight: boolean;
   load: () => Promise<void>;
@@ -133,6 +147,7 @@ type ProjectState = {
   applyJobResult: (result: ProjectJobResult) => Promise<boolean>;
   updateVisual: (sceneId: string, visual: Visual) => Promise<void>;
   reorderScene: (sceneId: string, targetIndex: number) => Promise<void>;
+  deleteScene: (sceneId: string) => Promise<boolean>;
   addScenesFromLines: (
     lines: string[],
     visualType?: "video" | "image",
@@ -244,6 +259,16 @@ function immutableProject(project: Project): Project {
 
 function sameSerializableValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function preserveRegisteredAssets(snapshot: Project, current: Project): Project {
+  const snapshotAssetIds = new Set(snapshot.assets.map((asset) => asset.id));
+  const registeredAfterSnapshot = current.assets.filter(
+    (asset) => !snapshotAssetIds.has(asset.id),
+  );
+  return registeredAfterSnapshot.length === 0
+    ? snapshot
+    : { ...snapshot, assets: [...snapshot.assets, ...registeredAfterSnapshot] };
 }
 
 function canonicalize(value: unknown): unknown {
@@ -737,6 +762,7 @@ async function installDiskProject(
     undoStack: [],
     redoStack: [],
     historyNotice: undefined,
+    historyAnnouncement: undefined,
     historyFocusRequest: undefined,
     saveStatus: migrated ? "migrated" : "saved",
     saveErrorMessage: undefined,
@@ -1091,6 +1117,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       undoStack: [],
       redoStack: [],
       historyNotice: undefined,
+      historyAnnouncement: undefined,
       historyFocusRequest: undefined,
     });
 
@@ -1495,13 +1522,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (entry === undefined) {
       set((state) => ({
         historyNotice: "没有可撤销的编辑",
+        historyAnnouncement: undefined,
         historyEventId: state.historyEventId + 1,
       }));
       return;
     }
     const operationToken = ++historyOperationToken;
     const projectAtStart = get().project;
-    const restored = await restoreHistorySpeech(entry.before, entry.beforeSpeechRevisions);
+    const historyProject =
+      entry.deletedScene === undefined
+        ? entry.before
+        : preserveRegisteredAssets(entry.before, projectAtStart!);
+    const restored = await restoreHistorySpeech(historyProject, entry.beforeSpeechRevisions);
     if (
       operationToken !== historyOperationToken ||
       get().project !== projectAtStart ||
@@ -1509,28 +1541,49 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     ) return;
     const project = restored.project;
     const selectedSceneId = get().selectedSceneId;
+    const restoredDeletedSceneId = entry.deletedScene?.sceneId;
     set((state) => ({
       project,
       mediaRevisions: { ...state.mediaRevisions, ...restored.revisions },
       mediaAvailability: { ...state.mediaAvailability, ...restored.availability },
-      selectedSceneId: project.scenes.some((scene) => scene.id === selectedSceneId)
-        ? selectedSceneId
-        : project.scenes[0]?.id,
+      selectedSceneId:
+        restoredDeletedSceneId !== undefined &&
+        project.scenes.some((scene) => scene.id === restoredDeletedSceneId)
+          ? restoredDeletedSceneId
+          : project.scenes.some((scene) => scene.id === selectedSceneId)
+            ? selectedSceneId
+            : project.scenes[0]?.id,
       diagnostics: validateProjectConsistency(project),
       undoStack: undoStack.slice(0, -1),
       redoStack: [...redoStack, entry],
-      historyNotice: restored.discarded
-        ? `已撤销：${entry.label}；Speech 文件修订已改变，已恢复为缺 Speech`
-        : `已撤销：${entry.label}`,
+      historyNotice:
+        entry.deletedScene === undefined
+          ? restored.discarded
+            ? `已撤销：${entry.label}；Speech 文件修订已改变，已恢复为缺 Speech`
+            : `已撤销：${entry.label}`
+          : undefined,
+      historyAnnouncement:
+        entry.deletedScene === undefined
+          ? undefined
+          : restored.discarded
+            ? `已撤销：${entry.label}；Speech 文件修订已改变，已恢复为缺 Speech`
+            : `已撤销：${entry.label}`,
       historyEventId: state.historyEventId + 1,
       historyFocusRequest:
-        entry.sceneId === undefined || entry.focusTarget === undefined
-          ? undefined
-          : {
+        restoredDeletedSceneId !== undefined
+          ? {
               eventId: state.historyEventId + 1,
-              sceneId: entry.sceneId,
-              target: entry.focusTarget,
-            },
+              sceneId: restoredDeletedSceneId,
+              target: "scene-select",
+              force: true,
+            }
+          : entry.sceneId === undefined || entry.focusTarget === undefined
+            ? undefined
+            : {
+                eventId: state.historyEventId + 1,
+                sceneId: entry.sceneId,
+                target: entry.focusTarget,
+              },
     }));
     await scheduleProjectSave(project, "immediate", set, get);
   },
@@ -1542,13 +1595,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (entry === undefined) {
       set((state) => ({
         historyNotice: "没有可重做的编辑",
+        historyAnnouncement: undefined,
         historyEventId: state.historyEventId + 1,
       }));
       return;
     }
     const operationToken = ++historyOperationToken;
     const projectAtStart = get().project;
-    const restored = await restoreHistorySpeech(entry.after, entry.afterSpeechRevisions);
+    const historyProject =
+      entry.deletedScene === undefined
+        ? entry.after
+        : preserveRegisteredAssets(entry.after, projectAtStart!);
+    const restored = await restoreHistorySpeech(historyProject, entry.afterSpeechRevisions);
     if (
       operationToken !== historyOperationToken ||
       get().project !== projectAtStart ||
@@ -1556,28 +1614,56 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     ) return;
     const project = restored.project;
     const selectedSceneId = get().selectedSceneId;
+    const deletedScene = entry.deletedScene;
     set((state) => ({
       project,
       mediaRevisions: { ...state.mediaRevisions, ...restored.revisions },
       mediaAvailability: { ...state.mediaAvailability, ...restored.availability },
-      selectedSceneId: project.scenes.some((scene) => scene.id === selectedSceneId)
-        ? selectedSceneId
-        : project.scenes[0]?.id,
+      selectedSceneId:
+        deletedScene !== undefined
+          ? project.scenes.some((scene) => scene.id === selectedSceneId)
+            ? selectedSceneId
+            : deletedScene.selectedSceneIdAfter
+          : project.scenes.some((scene) => scene.id === selectedSceneId)
+            ? selectedSceneId
+            : project.scenes[0]?.id,
       diagnostics: validateProjectConsistency(project),
       undoStack: [...undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: redoStack.slice(0, -1),
-      historyNotice: restored.discarded
-        ? `已重做：${entry.label}；Speech 文件修订已改变，已恢复为缺 Speech`
-        : `已重做：${entry.label}`,
+      historyNotice:
+        entry.deletedScene === undefined
+          ? restored.discarded
+            ? `已重做：${entry.label}；Speech 文件修订已改变，已恢复为缺 Speech`
+            : `已重做：${entry.label}`
+          : undefined,
+      historyAnnouncement:
+        entry.deletedScene === undefined
+          ? undefined
+          : restored.discarded
+            ? `已重做：${entry.label}；Speech 文件修订已改变，已恢复为缺 Speech`
+            : `已重做：${entry.label}`,
       historyEventId: state.historyEventId + 1,
       historyFocusRequest:
-        entry.sceneId === undefined || entry.focusTarget === undefined
-          ? undefined
-          : {
-              eventId: state.historyEventId + 1,
-              sceneId: entry.sceneId,
-              target: entry.focusTarget,
-            },
+        deletedScene !== undefined
+          ? deletedScene.focusSceneIdAfter === undefined
+            ? {
+                eventId: state.historyEventId + 1,
+                target: "add-scene",
+                force: true,
+              }
+            : {
+                eventId: state.historyEventId + 1,
+                sceneId: deletedScene.focusSceneIdAfter,
+                target: "scene-select",
+                force: true,
+              }
+          : entry.sceneId === undefined || entry.focusTarget === undefined
+            ? undefined
+            : {
+                eventId: state.historyEventId + 1,
+                sceneId: entry.sceneId,
+                target: entry.focusTarget,
+              },
     }));
     await scheduleProjectSave(project, "immediate", set, get);
   },
@@ -1703,6 +1789,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       undoStack: [...state.undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
       historyNotice: "已清除绑定 · 可撤销",
+      historyAnnouncement: undefined,
       historyEventId: state.historyEventId + 1,
     }));
     await scheduleProjectSave(structural.project, "immediate", set, get);
@@ -1831,6 +1918,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       undoStack: [...state.undoStack, entry].slice(-HISTORY_LIMIT),
       redoStack: [],
       historyNotice: notice,
+      historyAnnouncement: undefined,
       historyEventId: state.historyEventId + 1,
       ...(result.kind === "speech"
         ? {
@@ -1934,6 +2022,74 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       redoStack: [],
     });
     await scheduleProjectSave(structural.project, "immediate", set, get);
+  },
+  deleteScene: async (sceneId) => {
+    const project = get().project;
+    if (project === undefined || !canMutateProject(get)) return false;
+    const sceneIndex = project.scenes.findIndex((scene) => scene.id === sceneId);
+    if (sceneIndex < 0) return false;
+
+    const scenes = project.scenes.filter((scene) => scene.id !== sceneId);
+    const nextProject: Project = { ...project, scenes };
+    const structural = validateProjectStructure(nextProject);
+    const diagnostics = structural.success
+      ? validateProjectConsistency(structural.project)
+      : structural.diagnostics;
+    if (!structural.success || hasSaveBlockingError(diagnostics)) {
+      throw new Error(structuralErrorMessage(diagnostics));
+    }
+
+    const focusSceneIdAfter = scenes[sceneIndex]?.id ?? scenes[sceneIndex - 1]?.id;
+    const currentSelectedSceneId = get().selectedSceneId;
+    const selectedSceneIdAfter =
+      currentSelectedSceneId === sceneId
+        ? focusSceneIdAfter
+        : scenes.some((scene) => scene.id === currentSelectedSceneId)
+          ? currentSelectedSceneId
+          : focusSceneIdAfter;
+    finishTextTransaction();
+    const entry: HistoryEntry = {
+      id: ++nextHistoryEntryId,
+      before: immutableProject(project),
+      after: immutableProject(structural.project),
+      beforeSpeechRevisions: revisionsForProject(project, get().mediaRevisions),
+      afterSpeechRevisions: revisionsForProject(
+        structural.project,
+        get().mediaRevisions,
+      ),
+      label: `删除 Scene ${String(sceneIndex + 1).padStart(2, "0")}`,
+      sceneId,
+      deletedScene: {
+        sceneId,
+        selectedSceneIdAfter,
+        focusSceneIdAfter,
+      },
+    };
+    set((state) => ({
+      project: structural.project,
+      diagnostics,
+      selectedSceneId: selectedSceneIdAfter,
+      undoStack: [...state.undoStack, entry].slice(-HISTORY_LIMIT),
+      redoStack: [],
+      historyNotice: undefined,
+      historyAnnouncement: `已删除 Scene ${sceneIndex + 1}，可撤销`,
+      historyEventId: state.historyEventId + 1,
+      historyFocusRequest:
+        focusSceneIdAfter === undefined
+          ? {
+              eventId: state.historyEventId + 1,
+              target: "add-scene",
+              force: true,
+            }
+          : {
+              eventId: state.historyEventId + 1,
+              sceneId: focusSceneIdAfter,
+              target: "scene-select",
+              force: true,
+            },
+    }));
+    await scheduleProjectSave(structural.project, "immediate", set, get);
+    return true;
   },
   addScenesFromLines: async (lines, visualType = "video") => {
     const project = get().project;

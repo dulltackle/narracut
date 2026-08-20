@@ -59,6 +59,7 @@ test("现有 13 Scene 示例进入完整三栏工作台并显示当前 Scene 列
     "Asset",
     "Speech",
     "状态",
+    "操作",
   ]);
   await expect(page.getByTestId("scene-row")).toHaveCount(13);
   await expect(page.getByText("宫腔通液治疗仪操作演示")).toBeVisible();

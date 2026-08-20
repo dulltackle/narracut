@@ -205,3 +205,28 @@ test("快速双击只会为同一 Scene 创建一个 Speech 任务", async ({ pa
   await expect(page.getByTestId("scene-row").getByText("已生成 · 可撤销"))
     .toBeVisible();
 });
+
+test("删除生成中的 Scene 不取消 Job，迟到 Speech 被丢弃且 Undo 不复活结果", async ({ page }) => {
+  await page.goto(server.url);
+  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await expect(page.getByTestId("scene-row").getByText("正在生成", { exact: true }))
+    .toBeVisible();
+
+  await page.getByRole("button", { name: "删除 Scene 1" }).click();
+  await expect(page.getByRole("heading", { name: "从第一句讲解开始" })).toBeVisible();
+  resolveProvider?.();
+
+  await expect(page.getByTestId("speech-generation-task")).toContainText(
+    "结果未应用 · 目标 Scene 已删除",
+  );
+  await expect(page.getByRole("complementary", { name: "任务与渲染" })).toBeVisible();
+  await expect
+    .poll(async () => JSON.parse(await readFile(projectFile, "utf8")).scenes)
+    .toEqual([]);
+
+  await page.getByRole("button", { name: "撤销：删除 Scene 01" }).click();
+  await expect(page.getByTestId("scene-row")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "生成 Speech" })).toBeVisible();
+  expect(JSON.parse(await readFile(projectFile, "utf8")).scenes[0].speech).toBeUndefined();
+  expect(providerCalls).toBe(1);
+});
