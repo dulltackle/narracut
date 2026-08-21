@@ -21,6 +21,7 @@ test.beforeAll(async () => {
   server = await startNarracutServer({
     projectDirectory,
     staticDirectory: resolve("dist/client"),
+    host: "127.0.0.1",
     initialPort: 0,
   });
 });
@@ -233,6 +234,7 @@ test("批量确认默认创建 Video Scene 并在重新打开后完整恢复", a
   server = await startNarracutServer({
     projectDirectory: resolve(projectFile, ".."),
     staticDirectory: resolve("dist/client"),
+    host: "127.0.0.1",
     initialPort: 0,
   });
   await page.goto(server.url);

@@ -7,7 +7,11 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 
-import { startNarracutServer, type RunningServer } from "../src/server/server";
+import {
+  DEFAULT_SERVER_HOST,
+  startNarracutServer,
+  type RunningServer,
+} from "../src/server/server";
 
 const runningServers: RunningServer[] = [];
 
@@ -28,7 +32,20 @@ afterEach(async () => {
 });
 
 describe("Narracut 本地服务", () => {
-  it("同一回环服务提供 SPA、原始 Project DSL 与项目媒体", async () => {
+  it("默认监听 WireGuard 地址并拒绝不可访问的通配地址", async () => {
+    expect(DEFAULT_SERVER_HOST).toBe("10.8.0.5");
+    for (const host of ["0.0.0.0", "0.0.0.0.", "0", "::", "0:0:0:0:0:0:0:0"]) {
+      await expect(
+        startNarracutServer({
+          projectDirectory: "/not-used",
+          staticDirectory: "/not-used",
+          host,
+        }),
+      ).rejects.toThrow("通配地址");
+    }
+  });
+
+  it("同一服务提供 SPA、原始 Project DSL 与项目媒体", async () => {
     const root = await mkdtemp(join(tmpdir(), "narracut-server-"));
     const projectDirectory = join(root, "project");
     const staticDirectory = join(root, "client");
@@ -43,6 +60,7 @@ describe("Narracut 本地服务", () => {
     const server = await startNarracutServer({
       projectDirectory,
       staticDirectory,
+      host: "127.0.0.1",
       initialPort: 0,
     });
     runningServers.push(server);
@@ -106,6 +124,7 @@ describe("Narracut 本地服务", () => {
     const server = await startNarracutServer({
       projectDirectory,
       staticDirectory,
+      host: "127.0.0.1",
       initialPort: 0,
     });
     runningServers.push(server);
@@ -162,6 +181,7 @@ describe("Narracut 本地服务", () => {
     const server = await startNarracutServer({
       projectDirectory,
       staticDirectory,
+      host: "127.0.0.1",
       initialPort: 0,
     });
     runningServers.push(server);
@@ -258,6 +278,7 @@ describe("Narracut 本地服务", () => {
     const server = await startNarracutServer({
       projectDirectory,
       staticDirectory,
+      host: "127.0.0.1",
       initialPort: 0,
     });
     runningServers.push(server);
@@ -325,6 +346,7 @@ describe("Narracut 本地服务", () => {
       const server = await startNarracutServer({
         projectDirectory: root,
         staticDirectory: root,
+        host: "127.0.0.1",
         initialPort: address.port,
       });
       runningServers.push(server);
@@ -351,6 +373,7 @@ describe("Narracut 本地服务", () => {
     const server = await startNarracutServer({
       projectDirectory,
       staticDirectory,
+      host: "127.0.0.1",
       initialPort: 0,
     });
     runningServers.push(server);

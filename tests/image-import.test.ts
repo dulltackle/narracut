@@ -22,6 +22,7 @@ async function startServer() {
   const server = await startNarracutServer({
     projectDirectory,
     staticDirectory,
+    host: "127.0.0.1",
     initialPort: 0,
   });
   runningServers.push(server);

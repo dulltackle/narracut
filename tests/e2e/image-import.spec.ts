@@ -55,6 +55,7 @@ test.beforeEach(async () => {
   server = await startNarracutServer({
     projectDirectory,
     staticDirectory: resolve("dist/client"),
+    host: "127.0.0.1",
     initialPort: 0,
   });
 });

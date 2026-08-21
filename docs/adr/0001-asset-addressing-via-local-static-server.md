@@ -1,5 +1,7 @@
 # 素材寻址走本地静态服务，而非 Remotion 的 `staticFile()` + `public/`
 
+> 本 ADR 中“仅绑定回环地址”的缓解措施已由 [ADR-0007](./0007-trust-wireguard-peers-for-service-access.md) 替代；其余素材寻址决策继续有效。
+
 Remotion 官方的素材约定是把文件放进 `public/`、用 `staticFile()` 引用，并明确不支持绝对路径。但本项目的核心前提是「项目就是一个文件夹，可整体移动」，素材路径由用户决定——要求所有素材复制进一个固定的 `public/` 才能用，等于在唯一数据源之外再造一份可能不同步的副本。因此改用官方文档在 `absolute-paths` 页给出的逃生舱：**用 `serve-handler` 把项目根整体映射成本地 HTTP，DSL 只存相对项目根的相对路径**，Player 与渲染 Composition 共用同一个「相对路径 → URL」纯函数，两端读到的是同一个服务进程下的同一份磁盘文件。
 
 - 决策出处：[02 — Remotion 实拍渲染调研](https://github.com/dulltackle/narracut/issues/7) 第 7 节（三方案对比 + 可跑代码）、[07 — 渲染管线与前后端边界](https://github.com/dulltackle/narracut/issues/12)。

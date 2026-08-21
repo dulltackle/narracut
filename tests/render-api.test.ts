@@ -65,6 +65,7 @@ async function setup(worker: FakeWorker, onOpen?: (directory: string) => void) {
   const server = await startNarracutServer({
     projectDirectory,
     staticDirectory,
+    host: "127.0.0.1",
     initialPort: 0,
     renderWorkerFactory: (input) => {
       workerInput = input;
@@ -118,6 +119,9 @@ describe("Render API", () => {
     const { job } = await created.json() as { job: { id: string; artifacts: { snapshot: string } } };
     expect(JSON.parse(await readFile(job.artifacts.snapshot, "utf8"))).toEqual(memoryProject);
     expect(getWorkerInput()?.snapshotFile).toBe(job.artifacts.snapshot);
+    expect(getWorkerInput()?.mediaBaseUrl).toMatch(
+      new RegExp(`^${server.url.replaceAll(".", "\\.")}/media/`),
+    );
 
     const duplicate = await fetch(`${server.url}/api/jobs/render`, {
       method: "POST",

@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 describe("pnpm start <项目路径>", () => {
-  it("启动回环服务但不自动打开浏览器", async () => {
+  it("使用 NARRACUT_HOST 启动指定地址的服务但不自动打开浏览器", async () => {
     const root = await mkdtemp(join(tmpdir(), "narracut-cli-"));
     const projectDirectory = join(root, "demo");
     const staticDirectory = join(root, "client");
@@ -33,9 +33,11 @@ describe("pnpm start <项目路径>", () => {
       initialPort: 0,
       log,
       envFile: join(root, "missing.env"),
+      environment: { NARRACUT_HOST: "127.0.0.1" },
     });
     runningServers.push(server);
 
+    expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     expect(log).toHaveBeenCalledWith(expect.stringContaining(server.url));
     expect((await fetch(server.url)).status).toBe(200);
   });
@@ -50,6 +52,27 @@ describe("pnpm start <项目路径>", () => {
     ).rejects.toThrow("用法：pnpm start <项目路径>");
   });
 
+  it("监听地址不存在时给出覆盖方式并保留底层原因", async () => {
+    const unavailable = Object.assign(new Error("bind EADDRNOTAVAIL"), {
+      code: "EADDRNOTAVAIL",
+    });
+
+    await expect(
+      runCli({
+        args: ["/not-used"],
+        staticDirectory: "/not-used",
+        envFile: "/not-used/.env",
+        environment: { NARRACUT_HOST: "10.8.0.5" },
+        startServer: async () => {
+          throw unavailable;
+        },
+      }),
+    ).rejects.toThrow(
+      "无法监听 10.8.0.5：该地址在当前机器上不可用（EADDRNOTAVAIL：bind EADDRNOTAVAIL）。" +
+        "请启动对应网络接口，或设置 NARRACUT_HOST=127.0.0.1 覆盖。",
+    );
+  });
+
   it("从应用根 .env 向 Speech Job 注入 TokenDance API key", async () => {
     const root = await mkdtemp(join(tmpdir(), "narracut-cli-env-"));
     const projectDirectory = join(root, "demo");
@@ -62,9 +85,13 @@ describe("pnpm start <项目路径>", () => {
       '{"schemaVersion":1,"metadata":{},"assets":[],"scenes":[]}',
     );
     await writeFile(join(staticDirectory, "index.html"), "<main>Narracut</main>");
-    await writeFile(envFile, "TOKENDANCE_API_KEY=fake-cli-key\n");
+    await writeFile(
+      envFile,
+      "TOKENDANCE_API_KEY=fake-cli-key\nNARRACUT_HOST=127.0.0.1\n",
+    );
 
     const originalApiKey = process.env.TOKENDANCE_API_KEY;
+    const originalHost = process.env.NARRACUT_HOST;
     const originalFetch = globalThis.fetch;
     const providerRequest = vi.fn(async (
       _input: Parameters<typeof fetch>[0],
@@ -76,6 +103,7 @@ describe("pnpm start <项目路径>", () => {
     );
     const providerFetch = providerRequest as unknown as typeof fetch;
     delete process.env.TOKENDANCE_API_KEY;
+    delete process.env.NARRACUT_HOST;
     globalThis.fetch = providerFetch;
 
     let server: RunningServer | undefined;
@@ -122,6 +150,8 @@ describe("pnpm start <项目路径>", () => {
       globalThis.fetch = originalFetch;
       if (originalApiKey === undefined) delete process.env.TOKENDANCE_API_KEY;
       else process.env.TOKENDANCE_API_KEY = originalApiKey;
+      if (originalHost === undefined) delete process.env.NARRACUT_HOST;
+      else process.env.NARRACUT_HOST = originalHost;
     }
   });
 });

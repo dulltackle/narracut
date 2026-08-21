@@ -2,7 +2,11 @@ import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { startNarracutServer, type RunningServer } from "./server";
+import {
+  DEFAULT_SERVER_HOST,
+  startNarracutServer,
+  type RunningServer,
+} from "./server";
 
 type CliOptions = {
   args: string[];
@@ -10,6 +14,8 @@ type CliOptions = {
   initialPort?: number;
   log?: (message: string) => void;
   envFile?: string;
+  environment?: { NARRACUT_HOST?: string };
+  startServer?: typeof startNarracutServer;
 };
 
 const DEFAULT_STATIC_DIRECTORY = fileURLToPath(
@@ -33,6 +39,8 @@ export async function runCli({
   initialPort = 3579,
   log = console.log,
   envFile = DEFAULT_ENV_FILE,
+  environment = process.env,
+  startServer = startNarracutServer,
 }: CliOptions): Promise<RunningServer> {
   const [projectPath, ...unexpectedArguments] = args;
   if (projectPath === undefined || unexpectedArguments.length > 0) {
@@ -41,11 +49,25 @@ export async function runCli({
 
   loadOptionalEnvFile(envFile);
   const projectDirectory = resolve(projectPath);
-  const server = await startNarracutServer({
-    projectDirectory,
-    staticDirectory,
-    initialPort,
-  });
+  const host = environment.NARRACUT_HOST ?? DEFAULT_SERVER_HOST;
+  let server: RunningServer;
+  try {
+    server = await startServer({
+      projectDirectory,
+      staticDirectory,
+      host,
+      initialPort,
+    });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EADDRNOTAVAIL") {
+      throw new Error(
+        `无法监听 ${host}：该地址在当前机器上不可用（EADDRNOTAVAIL：${error.message}）。` +
+          "请启动对应网络接口，或设置 NARRACUT_HOST=127.0.0.1 覆盖。",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 
   log(`Narracut 已打开 ${projectDirectory}`);
   log(`本地工作台：${server.url}`);

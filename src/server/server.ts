@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { isIP } from "node:net";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isAbsolute as isPosixAbsolute } from "node:path/posix";
 
@@ -23,7 +24,7 @@ import {
 import { preflightRenderMedia, RenderPreflightError } from "./render-preflight";
 import { VideoThumbnailError, VideoThumbnailService } from "./video-thumbnails";
 
-const LOOPBACK_HOST = "127.0.0.1";
+export const DEFAULT_SERVER_HOST = "10.8.0.5";
 const DEFAULT_PORT = 3579;
 const MAX_PROJECT_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_IMPORT_BYTES = 100 * 1024 * 1024;
@@ -42,12 +43,60 @@ class HttpError extends Error {
 export type StartServerOptions = {
   projectDirectory: string;
   staticDirectory: string;
+  host?: string;
   initialPort?: number;
   ttsFetch?: typeof fetch;
   environment?: { TOKENDANCE_API_KEY?: string };
   renderWorkerFactory?: (input: RenderWorkerInput) => RenderWorkerHandle;
   openDirectory?: (directory: string) => Promise<void>;
 };
+
+function isWildcardServerHost(host: string): boolean {
+  const ipVersion = isIP(host);
+  if (ipVersion === 4) return host === "0.0.0.0";
+  if (ipVersion === 6) {
+    return new URL(`http://[${host}]`).hostname === "[::]";
+  }
+  try {
+    return new URL(`http://${host}`).hostname === "0.0.0.0";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeServerHost(host: string): string {
+  const normalized = host.trim();
+  if (normalized.length === 0) {
+    throw new Error("服务监听地址不能为空。");
+  }
+  if (isWildcardServerHost(normalized)) {
+    throw new Error(
+      `服务监听地址 ${normalized} 是通配地址，无法作为浏览器访问地址。请指定具体 IP 或主机名。`,
+    );
+  }
+  if (isIP(normalized) !== 0) return normalized;
+
+  const hostname = normalized.endsWith(".") ? normalized.slice(0, -1) : normalized;
+  const labels = hostname.split(".");
+  if (
+    hostname.length === 0 ||
+    hostname.length > 253 ||
+    labels.some(
+      (label) =>
+        label.length === 0 ||
+        label.length > 63 ||
+        !/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label),
+    )
+  ) {
+    throw new Error(`服务监听地址 ${host} 不是有效的具体 IP 或主机名。`);
+  }
+  return normalized;
+}
+
+function serverUrl(host: string, port?: number): string {
+  const urlHost = isIP(host) === 6 ? `[${host}]` : host;
+  return `http://${urlHost}${port === undefined ? "" : `:${port}`}`;
+}
 
 export type RunningServer = {
   url: string;
@@ -263,12 +312,13 @@ async function isContainedProjectFile(
 
 async function listen(
   server: ReturnType<typeof createServer>,
+  host: string,
   initialPort: number,
 ): Promise<number> {
   if (initialPort === 0) {
     await new Promise<void>((resolvePromise, rejectPromise) => {
       server.once("error", rejectPromise);
-      server.listen(0, LOOPBACK_HOST, () => {
+      server.listen(0, host, () => {
         server.off("error", rejectPromise);
         resolvePromise();
       });
@@ -298,7 +348,7 @@ async function listen(
         };
         server.once("error", onError);
         server.once("listening", onListening);
-        server.listen(port, LOOPBACK_HOST);
+        server.listen(port, host);
       },
     );
 
@@ -327,12 +377,14 @@ async function openLocalDirectory(directory: string): Promise<void> {
 export async function startNarracutServer({
   projectDirectory,
   staticDirectory,
+  host = DEFAULT_SERVER_HOST,
   initialPort = DEFAULT_PORT,
   ttsFetch,
   environment = process.env,
   renderWorkerFactory,
   openDirectory = openLocalDirectory,
 }: StartServerOptions): Promise<RunningServer> {
+  const serverHost = normalizeServerHost(host);
   const projectRoot = resolve(projectDirectory);
   const staticRoot = resolve(staticDirectory);
   const projectFile = join(projectRoot, "project.json");
@@ -393,7 +445,7 @@ export async function startNarracutServer({
 
   const server = createServer(async (request, response) => {
     try {
-      const url = new URL(request.url ?? "/", `http://${LOOPBACK_HOST}`);
+      const url = new URL(request.url ?? "/", serverUrl(serverHost));
 
       if (url.pathname === "/api/project" && request.method === "GET") {
         const bytes = await readFile(projectFile);
@@ -730,7 +782,7 @@ export async function startNarracutServer({
           JSON.stringify({
             job: await renderJobs.create({
               project: structure.project,
-              mediaBaseUrl: `http://${LOOPBACK_HOST}:${serverAddress.port}/media/`,
+              mediaBaseUrl: `${serverUrl(serverHost, serverAddress.port)}/media/`,
               snapshotSource,
               mediaAvailability: availability,
             }),
@@ -1020,10 +1072,10 @@ export async function startNarracutServer({
     }
   });
 
-  const port = await listen(server, initialPort);
+  const port = await listen(server, serverHost, initialPort);
   return {
     port,
-    url: `http://${LOOPBACK_HOST}:${port}`,
+    url: serverUrl(serverHost, port),
     releaseProjectLease: () =>
       withProjectLock(async () => {
         lease = undefined;

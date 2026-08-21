@@ -1,5 +1,7 @@
 # 本地应用不套 Electron 壳，运行形态是「一条命令 + 浏览器」
 
+> 本 ADR 中“浏览器打开 localhost”的运行地址已由 [ADR-0007](./0007-trust-wireguard-peers-for-service-access.md) 替代；不使用 Electron 的决策继续有效。
+
 这是一个单用户本地桌面工具，直觉上该是 Electron 应用。我们不这么做：**架构上不依赖任何 Electron API**（不用 `dialog`、不用 `app.getPath`），运行形态是一条 `pnpm start <项目路径>` 拉起常驻 Node 服务，浏览器打开 localhost。理由是 Electron 在本项目里唯一能换来的东西是原生文件选择框和一个安装包，而前者可以用启动参数替代，后者属于分发问题、不属于架构问题——为它引入一整套主进程/渲染进程模型、打包链路和体积，代价与收益不成比例。将来若要套壳，因为没有任何 Electron API 依赖，那是纯增量。
 
 - 决策出处：[07 — 渲染管线与前后端边界](https://github.com/dulltackle/narracut/issues/12)。

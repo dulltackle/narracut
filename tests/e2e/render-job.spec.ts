@@ -72,6 +72,7 @@ async function start(withSpeech = true) {
   server = await startNarracutServer({
     projectDirectory,
     staticDirectory: resolve("dist/client"),
+    host: "127.0.0.1",
     initialPort: 0,
     renderWorkerFactory: (input) => {
       workerInput = input;
@@ -223,6 +224,7 @@ test("图片型项目通过默认 fork worker 生成帧数正确的可解码 MP4
   server = await startNarracutServer({
     projectDirectory,
     staticDirectory: resolve("dist/client"),
+    host: "127.0.0.1",
     initialPort: 0,
     openDirectory: async () => undefined,
   });

@@ -57,6 +57,7 @@ async function startServer(ttsFetch: typeof fetch) {
   const server = await startNarracutServer({
     projectDirectory,
     staticDirectory,
+    host: "127.0.0.1",
     initialPort: 0,
     ttsFetch,
     environment: { TOKENDANCE_API_KEY: "fake-test-key" },

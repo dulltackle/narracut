@@ -35,6 +35,7 @@ describeLive("TokenDance Speech 真实请求", () => {
     server = await startNarracutServer({
       projectDirectory,
       staticDirectory,
+      host: "127.0.0.1",
       initialPort: 0,
       environment: { TOKENDANCE_API_KEY: apiKey },
     });
