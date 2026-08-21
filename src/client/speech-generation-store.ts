@@ -5,6 +5,7 @@ import {
   CURRENT_TTS_PROFILE_ID,
   type Speech,
 } from "../shared/project";
+import { createClientUuid } from "./client-uuid";
 import { getProjectSessionId, useProjectStore } from "./project-store";
 
 type SpeechResolution =
@@ -222,7 +223,7 @@ function localFailure(
   message: string,
 ): void {
   const now = new Date().toISOString();
-  const id = `local-${globalThis.crypto.randomUUID()}`;
+  const id = `local-${createClientUuid()}`;
   useSpeechGenerationStore.setState((state) => ({
     jobs: {
       ...state.jobs,

@@ -15,6 +15,7 @@ import {
   validateProjectStructure,
   validateSpeechFreshness,
 } from "../shared/project";
+import { createClientUuid } from "./client-uuid";
 
 export type ProjectInfo = {
   projectDirectory: string;
@@ -199,7 +200,7 @@ let leaseRenewTimer: ReturnType<typeof setInterval> | undefined;
 let leaseRecheckTimer: ReturnType<typeof setTimeout> | undefined;
 let loadGeneration = 0;
 let lifecycleListenersInstalled = false;
-const sessionId = globalThis.crypto.randomUUID();
+const sessionId = createClientUuid();
 export const getProjectSessionId = (): string => sessionId;
 let nextHistoryEntryId = 0;
 let historyOperationToken = 0;
@@ -2098,7 +2099,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
 
     const newScenes = lines.map((text) => ({
-      id: crypto.randomUUID(),
+      id: createClientUuid(),
       narration: { text },
       visual: { type: visualType },
       transition: "cut" as const,

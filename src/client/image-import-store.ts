@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { ImageImportJob } from "../shared/jobs";
+import { createClientUuid } from "./client-uuid";
 import { getProjectSessionId, useProjectStore } from "./project-store";
 
 type ProposalResolution =
@@ -188,7 +189,7 @@ export const useImageImportStore = create<ImageImportState>((set, get) => ({
     const expected = { visualType: "image" as const, assetId: scene.visual.assetId };
     const recordFailure = (message: string) => {
       const now = new Date().toISOString();
-      const id = `local-${globalThis.crypto.randomUUID()}`;
+      const id = `local-${createClientUuid()}`;
       set((state) => ({
         jobs: {
           ...state.jobs,

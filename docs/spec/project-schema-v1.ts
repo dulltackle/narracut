@@ -1,5 +1,7 @@
 import * as z from "zod";
 
+import { sha256Utf8 } from "../../src/shared/sha256";
+
 export const CURRENT_SCHEMA_VERSION = 1 as const;
 export const CURRENT_TTS_PROFILE_ID = "narracut-mandarin-news-v1" as const;
 
@@ -381,14 +383,6 @@ export function validateProjectConsistency(project: ProjectV1): Diagnostic[] {
   }
 
   return diagnostics;
-}
-
-async function sha256Utf8(text: string): Promise<string> {
-  const bytes = new TextEncoder().encode(text);
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return `sha256:${Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("")}`;
 }
 
 export async function validateSpeechFreshness(
