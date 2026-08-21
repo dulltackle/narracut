@@ -40,6 +40,7 @@ type CreateRenderJobInput = {
   mediaBaseUrl: string;
   snapshotSource: RenderJob["snapshotSource"];
   mediaAvailability?: Record<string, boolean>;
+  videoDurationInFrames?: Record<string, number>;
 };
 
 type InternalRenderJob = RenderJob & { worker?: RenderWorkerHandle };
@@ -153,6 +154,8 @@ export class RenderJobs {
       input.project,
       input.mediaBaseUrl,
       input.mediaAvailability,
+      {},
+      input.videoDurationInFrames,
     );
     const id = randomUUID();
     const timestamp = new Date().toISOString().replaceAll(":", "-");

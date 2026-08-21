@@ -23,8 +23,8 @@ import {
   type RenderWorkerHandle,
 } from "./render-jobs";
 import {
+  inspectMediaFile,
   inspectRenderMedia,
-  mediaValidationError,
 } from "./render-preflight";
 import { VideoThumbnailError, VideoThumbnailService } from "./video-thumbnails";
 import { VideoImportJobError, VideoImportJobs } from "./video-import-jobs";
@@ -277,9 +277,19 @@ async function probeProjectPaths(
   videoPaths: ReadonlySet<string> = new Set(),
   imagePaths: ReadonlySet<string> = new Set(),
   speechPaths: ReadonlySet<string> = new Set(),
-): Promise<Array<{ path: string; exists: boolean; error?: string }>> {
+): Promise<Array<{
+  path: string;
+  exists: boolean;
+  error?: string;
+  videoDurationInFrames?: number;
+}>> {
   const uniquePaths = [...new Set(paths)];
-  const results = new Map<string, { path: string; exists: boolean; error?: string }>();
+  const results = new Map<string, {
+    path: string;
+    exists: boolean;
+    error?: string;
+    videoDurationInFrames?: number;
+  }>();
   let cursor = 0;
   const probeNext = async (): Promise<void> => {
     while (cursor < uniquePaths.length) {
@@ -304,12 +314,18 @@ async function probeProjectPaths(
           continue;
         }
         try {
-          const error = await mediaValidationError(mediaKind, await realpath(candidate));
-          if (error !== undefined) {
-            results.set(path, { path, exists: true, error });
+          const inspection = await inspectMediaFile(mediaKind, await realpath(candidate));
+          if (inspection.error !== undefined) {
+            results.set(path, { path, exists: true, error: inspection.error });
             continue;
           }
-          results.set(path, { path, exists: true });
+          results.set(path, {
+            path,
+            exists: true,
+            ...(inspection.videoDurationInFrames === undefined
+              ? {}
+              : { videoDurationInFrames: inspection.videoDurationInFrames }),
+          });
         } catch (error) {
           results.set(path, {
             path,
@@ -898,6 +914,7 @@ export async function startNarracutServer({
               mediaBaseUrl: `${serverUrl(serverHost, serverAddress.port)}/media/`,
               snapshotSource,
               mediaAvailability: mediaInspection.availability,
+              videoDurationInFrames: mediaInspection.videoDurationInFrames,
             }),
           }),
           "application/json; charset=utf-8",

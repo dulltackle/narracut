@@ -133,8 +133,13 @@ async function assertAudioStream(file: string): Promise<void> {
   }
 }
 
-async function assertNormalizedVideoAsset(file: string): Promise<void> {
-  assertNormalizedVideoProbe(await probeVideoFile(file));
+async function normalizedVideoDurationInFrames(file: string): Promise<number> {
+  const probe = await probeVideoFile(file);
+  assertNormalizedVideoProbe(probe);
+  const video = probe.streams?.find(
+    (stream) => stream.codec_type === "video" && stream.disposition?.attached_pic !== 1,
+  );
+  return Number(video?.nb_frames);
 }
 
 async function assertNormalizedImageAsset(file: string): Promise<void> {
@@ -156,30 +161,42 @@ async function assertNormalizedImageAsset(file: string): Promise<void> {
   }
 }
 
+export async function inspectMediaFile(
+  kind: MediaEntry["kind"],
+  file: string,
+): Promise<{ error?: string; videoDurationInFrames?: number }> {
+  try {
+    if (kind === "image") await assertNormalizedImageAsset(file);
+    else if (kind === "video") {
+      return { videoDurationInFrames: await normalizedVideoDurationInFrames(file) };
+    }
+    else await assertAudioStream(file);
+    return {};
+  } catch (error) {
+    if (kind === "video" && error instanceof VideoMediaError) return { error: error.code };
+    if (error instanceof Error && error.name === "ImageAssetNotNormalizedError") {
+      return { error: "IMAGE_ASSET_NOT_NORMALIZED" };
+    }
+    return {
+      error: kind === "speech"
+        ? "SPEECH_DECODE_FAILED"
+        : kind === "image"
+          ? "IMAGE_DECODE_FAILED"
+          : "VIDEO_DECODE_FAILED",
+    };
+  }
+}
+
 export async function mediaValidationError(
   kind: MediaEntry["kind"],
   file: string,
 ): Promise<string | undefined> {
-  try {
-    if (kind === "image") await assertNormalizedImageAsset(file);
-    else if (kind === "video") await assertNormalizedVideoAsset(file);
-    else await assertAudioStream(file);
-    return undefined;
-  } catch (error) {
-    if (kind === "video" && error instanceof VideoMediaError) return error.code;
-    if (error instanceof Error && error.name === "ImageAssetNotNormalizedError") {
-      return "IMAGE_ASSET_NOT_NORMALIZED";
-    }
-    return kind === "speech"
-      ? "SPEECH_DECODE_FAILED"
-      : kind === "image"
-        ? "IMAGE_DECODE_FAILED"
-        : "VIDEO_DECODE_FAILED";
-  }
+  return (await inspectMediaFile(kind, file)).error;
 }
 
 export type RenderMediaInspection = {
   availability: Record<string, boolean>;
+  videoDurationInFrames: Record<string, number>;
   diagnostics: Diagnostic[];
 };
 
@@ -189,12 +206,17 @@ export async function inspectRenderMedia(
 ): Promise<RenderMediaInspection> {
   const projectRealRoot = await realpath(projectRoot);
   const availability: Record<string, boolean> = {};
+  const videoDurationInFrames: Record<string, number> = {};
   const diagnostics: Diagnostic[] = [];
   for (const entry of referencedRenderMedia(project)) {
     const file = await containedFile(projectRealRoot, projectRoot, entry.path);
     availability[entry.path] = file !== undefined;
     if (file === undefined) continue;
-    const code = await mediaValidationError(entry.kind, file);
+    const facts = await inspectMediaFile(entry.kind, file);
+    const code = facts.error;
+    if (facts.videoDurationInFrames !== undefined) {
+      videoDurationInFrames[entry.path] = facts.videoDurationInFrames;
+    }
     if (code !== undefined) {
       const subject = entry.kind === "speech"
         ? "Speech"
@@ -215,7 +237,7 @@ export async function inspectRenderMedia(
       }));
     }
   }
-  return { availability, diagnostics };
+  return { availability, videoDurationInFrames, diagnostics };
 }
 
 export async function preflightRenderMedia(

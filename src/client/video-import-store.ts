@@ -73,6 +73,7 @@ async function handleSucceeded(jobId: string): Promise<void> {
         sceneId: job.sceneId,
         expected: job.expected,
         asset: job.result.asset,
+        videoDurationInFrames: job.result.facts.frameCount,
       });
       if (applied) {
         useVideoImportStore.setState((state) => ({
@@ -88,7 +89,10 @@ async function handleSucceeded(jobId: string): Promise<void> {
       }
     }
 
-    const registered = await useProjectStore.getState().registerAsset(job.result.asset);
+    const registered = await useProjectStore.getState().registerAsset(
+      job.result.asset,
+      job.result.facts.frameCount,
+    );
     if (!registered) throw new Error("无法登记导入后的 Asset。");
     const currentScene = useProjectStore.getState().project?.scenes.find(
       (candidate) => candidate.id === job.sceneId,

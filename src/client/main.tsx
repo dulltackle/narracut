@@ -1744,6 +1744,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const addScenesFromLines = useProjectStore((state) => state.addScenesFromLines);
   const mediaAvailability = useProjectStore((state) => state.mediaAvailability);
   const mediaRevisions = useProjectStore((state) => state.mediaRevisions);
+  const videoDurationInFrames = useProjectStore((state) => state.videoDurationInFrames);
   const projectDiagnostics = useProjectStore((state) => state.diagnostics);
   const mediaDiagnostics = useProjectStore((state) => state.mediaDiagnostics);
   const saveDiagnostics = useProjectStore((state) => state.saveDiagnostics);
@@ -1852,8 +1853,9 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
             `${window.location.origin}/media/`,
             mediaAvailability,
             mediaRevisions,
+            videoDurationInFrames,
           ),
-    [project, mediaAvailability, mediaRevisions],
+    [project, mediaAvailability, mediaRevisions, videoDurationInFrames],
   );
   const playerInputProps = useMemo(
     () => previewSnapshot === undefined ? undefined : { snapshot: previewSnapshot },

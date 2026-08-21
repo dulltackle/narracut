@@ -158,7 +158,11 @@ describe("渲染视频 Asset 预检", () => {
     ]);
 
     await expect(
-      preflightRenderMedia(videoProject(relativePath), projectRoot),
-    ).resolves.toMatchObject({ [relativePath]: true });
+      inspectRenderMedia(videoProject(relativePath), projectRoot),
+    ).resolves.toMatchObject({
+      availability: { [relativePath]: true },
+      videoDurationInFrames: { [relativePath]: 3 },
+      diagnostics: [],
+    });
   }, 20_000);
 });

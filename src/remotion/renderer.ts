@@ -46,6 +46,7 @@ export async function renderProjectSnapshot(
   outputLocation: string,
   onProgress?: (progress: number) => void,
   cancelSignal?: CancelSignal,
+  options: { concurrency?: number } = {},
 ): Promise<void> {
   const { serveUrl, inputProps, composition } = await selectProjectComposition(snapshot);
   await renderMedia({
@@ -56,6 +57,8 @@ export async function renderProjectSnapshot(
     inputProps,
     onProgress: ({ progress }) => onProgress?.(progress),
     cancelSignal,
+    timeoutInMilliseconds: 120_000,
+    concurrency: options.concurrency,
   });
 }
 

@@ -95,6 +95,7 @@ export type ProjectJobResult =
         assetId: string | undefined;
       };
       asset: Asset;
+      videoDurationInFrames?: number;
     };
 
 type ProjectState = {
@@ -107,6 +108,7 @@ type ProjectState = {
   mediaDiagnostics: Diagnostic[];
   mediaAvailability: Record<string, boolean>;
   mediaRevisions: Record<string, string>;
+  videoDurationInFrames: Record<string, number>;
   errorMessage?: string;
   selectedSceneId?: string;
   saveStatus: SaveStatus;
@@ -144,7 +146,7 @@ type ProjectState = {
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   clearHistoryNotice: () => void;
-  registerAsset: (asset: Asset) => Promise<boolean>;
+  registerAsset: (asset: Asset, videoDurationInFrames?: number) => Promise<boolean>;
   bindAsset: (sceneId: string, assetId: string) => Promise<boolean>;
   clearAsset: (sceneId: string) => Promise<boolean>;
   applyJobResult: (result: ProjectJobResult) => Promise<boolean>;
@@ -444,6 +446,7 @@ async function withoutStaleSpeech(project: Project): Promise<Project> {
 
 type MediaProbeResult = {
   availability: Record<string, boolean>;
+  videoDurationInFrames: Record<string, number>;
   diagnostics: Diagnostic[];
 };
 
@@ -455,7 +458,9 @@ async function probeMediaAvailability(project: Project): Promise<MediaProbeResul
     ),
   ];
   const uniquePaths = [...new Set(paths)];
-  if (uniquePaths.length === 0) return { availability: {}, diagnostics: [] };
+  if (uniquePaths.length === 0) {
+    return { availability: {}, videoDurationInFrames: {}, diagnostics: [] };
+  }
   const videoPaths = project.assets
     .filter((asset) => asset.kind === "video")
     .map((asset) => asset.path);
@@ -470,13 +475,27 @@ async function probeMediaAvailability(project: Project): Promise<MediaProbeResul
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ paths: uniquePaths, imagePaths, videoPaths, speechPaths }),
   });
-  if (!response.ok) return { availability: {}, diagnostics: [] };
+  if (!response.ok) {
+    return { availability: {}, videoDurationInFrames: {}, diagnostics: [] };
+  }
   const payload = (await response.json()) as {
-    results: Array<{ path: string; exists: boolean; error?: string }>;
+    results: Array<{
+      path: string;
+      exists: boolean;
+      error?: string;
+      videoDurationInFrames?: number;
+    }>;
   };
   return {
     availability: Object.fromEntries(
       payload.results.map((result) => [result.path, result.exists]),
+    ),
+    videoDurationInFrames: Object.fromEntries(
+      payload.results.flatMap((result) =>
+        result.videoDurationInFrames === undefined
+          ? []
+          : [[result.path, result.videoDurationInFrames] as const],
+      ),
     ),
     diagnostics: diagnosticsFromMediaProbe(project, payload.results),
   };
@@ -797,6 +816,7 @@ async function installDiskProject(
     diagnostics,
     mediaDiagnostics: mediaProbe.diagnostics,
     mediaAvailability: mediaProbe.availability,
+    videoDurationInFrames: mediaProbe.videoDurationInFrames,
     mediaRevisions: await probeSpeechRevisions(project),
     selectedSceneId: project.scenes[0]?.id,
     undoStack: [],
@@ -1117,6 +1137,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   mediaDiagnostics: [],
   mediaAvailability: {},
   mediaRevisions: {},
+  videoDurationInFrames: {},
   saveStatus: "saved",
   saveDiagnostics: [],
   dirty: false,
@@ -1145,6 +1166,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       unknownProject: undefined,
       mediaAvailability: {},
       mediaRevisions: {},
+      videoDurationInFrames: {},
       saveStatus: "saved",
       saveErrorMessage: undefined,
       saveRetryAttempt: undefined,
@@ -1245,6 +1267,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         diagnostics: currentDiagnostics,
         mediaDiagnostics: mediaProbe.diagnostics,
         mediaAvailability: mediaProbe.availability,
+        videoDurationInFrames: mediaProbe.videoDurationInFrames,
         mediaRevisions,
         selectedSceneId: currentProject.scenes[0]?.id,
         saveStatus:
@@ -1712,7 +1735,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await scheduleProjectSave(project, "immediate", set, get);
   },
   clearHistoryNotice: () => set({ historyNotice: undefined }),
-  registerAsset: async (asset) => {
+  registerAsset: async (asset, videoDurationInFrames) => {
     const project = get().project;
     if (project === undefined || !canMutateProject(get)) return false;
     const existing = project.assets.find((candidate) => candidate.id === asset.id);
@@ -1733,6 +1756,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       project: structural.project,
       diagnostics,
       mediaAvailability: { ...state.mediaAvailability, [asset.path]: true },
+      videoDurationInFrames:
+        videoDurationInFrames === undefined
+          ? state.videoDurationInFrames
+          : { ...state.videoDurationInFrames, [asset.path]: videoDurationInFrames },
     }));
     await scheduleProjectSave(structural.project, "immediate", set, get);
     return true;
@@ -1955,6 +1982,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         result.kind === "asset"
           ? { ...state.mediaAvailability, [result.asset.path]: true }
           : { ...state.mediaAvailability, [result.speech.path]: true },
+      videoDurationInFrames:
+        result.kind !== "asset" || result.videoDurationInFrames === undefined
+          ? state.videoDurationInFrames
+          : {
+              ...state.videoDurationInFrames,
+              [result.asset.path]: result.videoDurationInFrames,
+            },
       mediaDiagnostics: state.mediaDiagnostics.filter((diagnostic) => {
         if (result.kind === "speech") {
           return diagnostic.relativePath !== result.speech.path &&

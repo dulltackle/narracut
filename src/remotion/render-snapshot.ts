@@ -20,6 +20,11 @@ export type ResolvedScene = {
   scene: Scene;
   durationInFrames: number;
   startFrame: number;
+  videoPlaybackWindow?: {
+    sourceDurationInFrames: number;
+    durationInFrames: number;
+    freezeFrame?: number;
+  };
   textPresentation?: ReturnType<typeof resolveTextPresentation> & {
     scale: number;
   };
@@ -46,6 +51,7 @@ export type RenderSnapshot = RenderPlan & {
   mediaBaseUrl: string;
   mediaAvailability: Record<string, boolean>;
   mediaRevisions: Record<string, string>;
+  videoDurationInFrames: Record<string, number>;
   previewBlockers: Diagnostic[];
 };
 
@@ -88,6 +94,7 @@ export function createRenderSnapshot(
   mediaBaseUrl: string,
   mediaAvailability?: Record<string, boolean>,
   mediaRevisions: Record<string, string> = {},
+  videoDurationInFrames: Record<string, number> = {},
 ): RenderSnapshot {
   const assumedAvailability =
     mediaAvailability ??
@@ -103,6 +110,7 @@ export function createRenderSnapshot(
     "render",
     assumedAvailability,
     mediaRevisions,
+    videoDurationInFrames,
   );
 }
 
@@ -111,6 +119,7 @@ export function createPreviewSnapshot(
   mediaBaseUrl: string,
   mediaAvailability: Record<string, boolean> = {},
   mediaRevisions: Record<string, string> = {},
+  videoDurationInFrames: Record<string, number> = {},
 ): RenderSnapshot {
   return createSnapshot(
     projectInput,
@@ -118,6 +127,7 @@ export function createPreviewSnapshot(
     "preview",
     mediaAvailability,
     mediaRevisions,
+    videoDurationInFrames,
   );
 }
 
@@ -127,6 +137,7 @@ function createSnapshot(
   mode: "preview" | "render",
   mediaAvailability: Record<string, boolean>,
   mediaRevisions: Record<string, string>,
+  videoDurationInFrames: Record<string, number>,
 ): RenderSnapshot {
   const allowRenderBlockingDiagnostics = mode === "preview";
   const projectCopy = structuredClone(projectInput);
@@ -148,6 +159,13 @@ function createSnapshot(
   let startFrame = 0;
   const scenes = structure.project.scenes.map((scene): ResolvedScene => {
     const durationInFrames = sceneDurationInFrames(scene, mediaAvailability);
+    const videoAssetId = scene.visual.type === "video" ? scene.visual.assetId : undefined;
+    const videoAsset = videoAssetId === undefined
+      ? undefined
+      : structure.project.assets.find((asset) => asset.id === videoAssetId);
+    const sourceDurationInFrames = videoAsset === undefined
+      ? undefined
+      : videoDurationInFrames[videoAsset.path];
     const block = textBlock(scene);
     const resolved =
       block === undefined
@@ -164,6 +182,17 @@ function createSnapshot(
       scene,
       durationInFrames,
       startFrame,
+      ...(sourceDurationInFrames === undefined || !Number.isInteger(sourceDurationInFrames) || sourceDurationInFrames < 1
+        ? {}
+        : {
+            videoPlaybackWindow: {
+              sourceDurationInFrames,
+              durationInFrames: Math.min(durationInFrames, sourceDurationInFrames),
+              ...(sourceDurationInFrames < durationInFrames
+                ? { freezeFrame: sourceDurationInFrames - 1 }
+                : {}),
+            },
+          }),
       textBlockers: {
         narration: consistencyDiagnostics.filter(
           (diagnostic) =>
@@ -203,6 +232,7 @@ function createSnapshot(
     fontFamily: getFontPreset(structure.project.theme.fontId)?.family,
     mediaAvailability: { ...mediaAvailability },
     mediaRevisions: { ...mediaRevisions },
+    videoDurationInFrames: { ...videoDurationInFrames },
     previewBlockers:
       mode === "preview"
         ? consistencyDiagnostics.filter(

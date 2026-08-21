@@ -84,6 +84,59 @@ describe("Remotion 渲染快照", () => {
     expect(snapshot.durationInFrames).toBe(300);
   });
 
+  it("只让视频播放窗服从媒体帧数，Scene 时长仍完全由 Speech 决定", () => {
+    const shortAssetId = "70000000-0000-4000-8000-000000000020";
+    const longAssetId = "70000000-0000-4000-8000-000000000021";
+    const videoProject: Project = {
+      ...project,
+      assets: [
+        { id: shortAssetId, kind: "video", path: "assets/short.mp4" },
+        { id: longAssetId, kind: "video", path: "assets/long.mp4" },
+      ],
+      scenes: [
+        {
+          ...project.scenes[0],
+          speech: { ...project.scenes[0].speech!, durationMs: 1001 },
+          visual: { type: "video", assetId: shortAssetId },
+        },
+        {
+          ...project.scenes[1],
+          speech: { ...project.scenes[1].speech!, durationMs: 1001 },
+          visual: { type: "video", assetId: longAssetId },
+        },
+      ],
+    };
+
+    const snapshot = createRenderSnapshot(
+      videoProject,
+      "http://127.0.0.1:3579/media/",
+      undefined,
+      {},
+      { "assets/short.mp4": 12, "assets/long.mp4": 120 },
+    );
+
+    expect(snapshot.scenes).toMatchObject([
+      {
+        startFrame: 0,
+        durationInFrames: 31,
+        videoPlaybackWindow: {
+          sourceDurationInFrames: 12,
+          durationInFrames: 12,
+          freezeFrame: 11,
+        },
+      },
+      {
+        startFrame: 31,
+        durationInFrames: 31,
+        videoPlaybackWindow: {
+          sourceDurationInFrames: 120,
+          durationInFrames: 31,
+        },
+      },
+    ]);
+    expect(snapshot.durationInFrames).toBe(62);
+  });
+
   it("允许三种 Style 与四种 Motion 任意组合", () => {
     const combinations = TEXT_STYLE_PRESETS.flatMap((style) =>
       TEXT_MOTION_PRESETS.map((motion, index) => ({

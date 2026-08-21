@@ -118,6 +118,8 @@ export async function runRenderWorker(
     structure.project,
     input.mediaBaseUrl,
     inspection.availability,
+    {},
+    inspection.videoDurationInFrames,
   );
   send({ type: "progress", stage: "encoding", progress: 0 });
   await renderProjectSnapshot(

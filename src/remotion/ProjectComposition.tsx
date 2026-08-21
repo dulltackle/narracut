@@ -1,11 +1,12 @@
 import { Audio, Video } from "@remotion/media";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   AbsoluteFill,
   cancelRender,
   continueRender,
   delayRender,
   Easing,
+  Freeze,
   Img,
   interpolate,
   Sequence,
@@ -159,17 +160,52 @@ function AssetPlaceholder({
 function MediaAsset({
   src,
   visualType,
+  videoPlaybackWindow,
 }: {
   src: string;
   visualType: "image" | "video";
+  videoPlaybackWindow?: ResolvedScene["videoPlaybackWindow"];
 }) {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const currentFrame = useCurrentFrame();
   const markError = () => setStatus("error");
   if (status === "error") {
     return <AssetPlaceholder visualType={visualType} reason="当前文件无法读取或解码" />;
   }
+  const video = (trimBefore?: number) => (
+    <Video
+      src={src}
+      muted
+      loop={false}
+      trimBefore={trimBefore}
+      disallowFallbackToOffthreadVideo
+      onVideoFrame={() => {
+        setStatus("ready");
+        rootRef.current?.setAttribute("data-video-rendered-at-frame", String(currentFrame));
+        rootRef.current?.setAttribute(
+          "data-video-rendered-layer",
+          trimBefore === undefined ? "live" : "freeze",
+        );
+      }}
+      onError={() => {
+        markError();
+        return "fail";
+      }}
+      objectFit="contain"
+      style={{ width: "100%", height: "100%", background: "#0f172a" }}
+    />
+  );
   return (
-    <AbsoluteFill data-testid="media-asset" data-media-kind={visualType} data-media-muted={visualType === "video" ? "true" : undefined} data-media-status={status}>
+    <AbsoluteFill
+      ref={rootRef}
+      data-testid="media-asset"
+      data-media-kind={visualType}
+      data-media-muted={visualType === "video" ? "true" : undefined}
+      data-media-status={status}
+      data-video-source-frames={videoPlaybackWindow?.sourceDurationInFrames}
+      data-video-freeze-frame={videoPlaybackWindow?.freezeFrame}
+    >
       {visualType === "image" ? (
         <Img
           src={src}
@@ -183,19 +219,16 @@ function MediaAsset({
           }}
         />
       ) : (
-        <Video
-          src={src}
-          muted
-          loop={false}
-          disallowFallbackToOffthreadVideo
-          onVideoFrame={() => setStatus("ready")}
-          onError={() => {
-            markError();
-            return "fail";
-          }}
-          objectFit="contain"
-          style={{ width: "100%", height: "100%", background: "#0f172a" }}
-        />
+        videoPlaybackWindow?.freezeFrame === undefined ? video() : (
+          <>
+            <Sequence durationInFrames={videoPlaybackWindow.durationInFrames}>
+              {video()}
+            </Sequence>
+            <Sequence from={videoPlaybackWindow.durationInFrames}>
+              <Freeze frame={0}>{video(videoPlaybackWindow.freezeFrame)}</Freeze>
+            </Sequence>
+          </>
+        )
       )}
       {status === "loading" ? (
         <CompositionState
@@ -234,7 +267,14 @@ function AssetLayer({ snapshot, resolved }: { snapshot: RenderSnapshot; resolved
   if (asset.kind !== visual.type) {
     return <AssetPlaceholder visualType={visual.type} reason="绑定的 Asset 类型不匹配" />;
   }
-  return <MediaAsset key={src} src={src} visualType={visual.type} />;
+  return (
+    <MediaAsset
+      key={src}
+      src={src}
+      visualType={visual.type}
+      videoPlaybackWindow={resolved.videoPlaybackWindow}
+    />
+  );
 }
 
 function textContent(resolved: ResolvedScene): TextBlockContent | undefined {
