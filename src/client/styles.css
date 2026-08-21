@@ -403,7 +403,8 @@ tbody tr.drop-target td { box-shadow: inset 0 2px var(--accent); }
 .asset-preview-dialog { width: min(1040px, 100%); max-height: calc(100dvh - 48px); display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .asset-preview-dialog > header { align-items: center; }
 .asset-preview-dialog > .transaction-dialog-body { min-height: 0; overflow: auto; padding: 20px 24px 24px; }
-.asset-preview-canvas { position: relative; width: min(960px, 100%); height: auto; max-height: min(540px, calc(100dvh - 300px)); aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; margin-inline: auto; border-radius: var(--radius-sm); background: #2a2226; color: #f8fafc; }
+/* 将画布宽度同时约束在容器宽度和视口剩余高度内，避免缩放时压扁原生视频控件。 */
+.asset-preview-canvas { position: relative; width: min(960px, 100%, max(213.333px, calc(177.7778dvh - 533.333px))); height: auto; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; margin-inline: auto; border-radius: var(--radius-sm); background: #2a2226; color: #f8fafc; }
 .asset-preview-canvas > img, .asset-preview-canvas > video { width: 100%; height: 100%; object-fit: contain; background: #2a2226; }
 .asset-preview-state { position: absolute; z-index: 1; inset: 0; display: grid; place-items: center; align-content: center; gap: 8px; padding: 24px; text-align: center; background: #2a2226; color: #f8fafc; }
 .asset-preview-state > svg { width: 28px; height: 28px; color: #8ad5d2; }
