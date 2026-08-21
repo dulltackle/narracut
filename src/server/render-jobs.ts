@@ -188,6 +188,7 @@ export class RenderJobs {
       artifacts: { directory, snapshot, output, log },
       snapshotPlan: plan.scenes.map((scene) => ({
         sceneId: scene.scene.id,
+        sequenceName: `Scene ${scene.scene.id}`,
         startFrame: scene.startFrame,
         durationInFrames: scene.durationInFrames,
       })),
@@ -276,6 +277,19 @@ export class RenderJobs {
               : "渲染 worker 未能完成任务。",
           ...(typeof message.sceneId === "string" ? { sceneId: message.sceneId } : {}),
           ...(typeof message.frame === "number" ? { frame: message.frame } : {}),
+          ...(typeof message.sequenceName === "string"
+            ? { sequenceName: message.sequenceName }
+            : {}),
+          ...(typeof message.frameRange === "object" && message.frameRange !== null &&
+            typeof Reflect.get(message.frameRange, "startFrame") === "number" &&
+            typeof Reflect.get(message.frameRange, "endFrame") === "number"
+            ? {
+                frameRange: {
+                  startFrame: Reflect.get(message.frameRange, "startFrame") as number,
+                  endFrame: Reflect.get(message.frameRange, "endFrame") as number,
+                },
+              }
+            : {}),
         },
       });
     }

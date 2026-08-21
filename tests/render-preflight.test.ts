@@ -1,16 +1,17 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
-import { preflightRenderMedia } from "../src/server/render-preflight";
+import { inspectRenderMedia, preflightRenderMedia } from "../src/server/render-preflight";
 import { DEFAULT_PROJECT_THEME, type Project } from "../src/shared/project";
 
 const execFileAsync = promisify(execFile);
 const sceneId = "34000000-0000-4000-8000-000000000001";
+const secondSceneId = "34000000-0000-4000-8000-000000000002";
 const assetId = "35000000-0000-4000-8000-000000000001";
 
 function videoProject(path: string): Project {
@@ -58,6 +59,59 @@ async function videoFixture(
 }
 
 describe("渲染视频 Asset 预检", () => {
+  it("一次聚合损坏的 Image Asset 与 Speech，并关联回 Scene/Asset/路径", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "narracut-render-preflight-all-"));
+    await mkdir(join(projectRoot, "assets"));
+    await mkdir(join(projectRoot, "speech"));
+    await writeFile(join(projectRoot, "assets", "broken.png"), "not-an-image");
+    await writeFile(join(projectRoot, "speech", `${sceneId}.mp3`), "not-audio");
+    const brokenProject: Project = {
+      schemaVersion: 3,
+      metadata: {},
+      theme: DEFAULT_PROJECT_THEME,
+      assets: [{ id: assetId, kind: "image", path: "assets/broken.png" }],
+      scenes: [sceneId, secondSceneId].map((id) => ({
+        id,
+        narration: { text: "聚合运行时事实" },
+        speech: {
+          path: `speech/${sceneId}.mp3`,
+          durationMs: 1000,
+          sourceTextHash: `sha256:${"0".repeat(64)}`,
+          ttsProfileId: "narracut-mandarin-news-v1",
+        },
+        visual: { type: "image" as const, assetId },
+        transition: "cut" as const,
+      })),
+    };
+
+    await expect(inspectRenderMedia(brokenProject, projectRoot)).resolves.toMatchObject({
+      diagnostics: [
+        {
+          code: "SPEECH_DECODE_FAILED",
+          sceneId,
+          relativePath: `speech/${sceneId}.mp3`,
+        },
+        {
+          code: "SPEECH_DECODE_FAILED",
+          sceneId: secondSceneId,
+          relativePath: `speech/${sceneId}.mp3`,
+        },
+        {
+          code: "IMAGE_DECODE_FAILED",
+          sceneId,
+          assetId,
+          relativePath: "assets/broken.png",
+        },
+        {
+          code: "IMAGE_DECODE_FAILED",
+          sceneId: secondSceneId,
+          assetId,
+          relativePath: "assets/broken.png",
+        },
+      ],
+    });
+  });
+
   it("拒绝 ffprobe 可读取但 Remotion 无法渲染的 HEVC Main 10", async () => {
     const { projectRoot, relativePath } = await videoFixture("hevc.mp4", [
       "-c:v",

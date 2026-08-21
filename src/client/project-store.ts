@@ -16,6 +16,7 @@ import {
   validateSpeechFreshness,
 } from "../shared/project";
 import { createClientUuid } from "./client-uuid";
+import { diagnosticsFromMediaProbe } from "../shared/diagnostics";
 
 export type ProjectInfo = {
   projectDirectory: string;
@@ -163,6 +164,7 @@ const renderOnlyDiagnosticCodes = new Set([
   "THEME_FONT_MISSING",
   "THEME_ACCENT_CONTRAST_LOW",
   "TEXT_SAFE_AREA_OVERFLOW",
+  "FONT_COVERAGE_UNSUPPORTED",
   "LOGO_ASSET_MISSING",
   "LOGO_ASSET_KIND_MISMATCH",
 ]);
@@ -440,40 +442,26 @@ async function probeMediaAvailability(project: Project): Promise<MediaProbeResul
   const videoPaths = project.assets
     .filter((asset) => asset.kind === "video")
     .map((asset) => asset.path);
+  const imagePaths = project.assets
+    .filter((asset) => asset.kind === "image")
+    .map((asset) => asset.path);
+  const speechPaths = project.scenes.flatMap((scene) =>
+    scene.speech === undefined ? [] : [scene.speech.path],
+  );
   const response = await fetch("/api/assets/probe", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ paths: uniquePaths, videoPaths }),
+    body: JSON.stringify({ paths: uniquePaths, imagePaths, videoPaths, speechPaths }),
   });
   if (!response.ok) return { availability: {}, diagnostics: [] };
   const payload = (await response.json()) as {
     results: Array<{ path: string; exists: boolean; error?: string }>;
   };
-  const assetsByPath = new Map(project.assets.map((asset) => [asset.path, asset]));
   return {
     availability: Object.fromEntries(
       payload.results.map((result) => [result.path, result.exists]),
     ),
-    diagnostics: payload.results.flatMap((result) => {
-      if (!result.error?.startsWith("VIDEO_")) return [];
-      const asset = assetsByPath.get(result.path);
-      if (asset?.kind !== "video") return [];
-      const scene = project.scenes.find(
-        (candidate) => candidate.visual.type === "video" &&
-          candidate.visual.assetId === asset.id,
-      );
-      return [{
-        code: result.error,
-        severity: "error" as const,
-        path: scene === undefined
-          ? ["assets", project.assets.indexOf(asset), "path"]
-          : ["scenes", project.scenes.indexOf(scene), "visual", "assetId"],
-        sceneId: scene?.id,
-        assetId: asset.id,
-        relativePath: asset.path,
-        message: "Video Asset 已存在，但媒体复检未通过；请重新导入该视频后再渲染。",
-      }];
-    }),
+    diagnostics: diagnosticsFromMediaProbe(project, payload.results),
   };
 }
 
@@ -1543,6 +1531,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     scheduleTextTransactionBoundary(textTransaction.entryId);
     set({
       project: nextProject,
+      diagnostics: validateProjectConsistency(nextProject),
       undoStack,
       redoStack: [],
     });
@@ -1949,6 +1938,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         result.kind === "asset"
           ? { ...state.mediaAvailability, [result.asset.path]: true }
           : { ...state.mediaAvailability, [result.speech.path]: true },
+      mediaDiagnostics: state.mediaDiagnostics.filter((diagnostic) => {
+        if (result.kind === "speech") {
+          return diagnostic.relativePath !== result.speech.path &&
+            !(diagnostic.sceneId === result.sceneId && diagnostic.path.includes("speech"));
+        }
+        if (diagnostic.sceneId !== result.sceneId) return true;
+        return !diagnostic.path.some((segment) => segment === "visual" || segment === "assetId");
+      }),
       mediaRevisions:
         result.kind === "speech"
           ? { ...state.mediaRevisions, [result.speech.path]: result.fileRevision }

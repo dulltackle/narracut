@@ -24,9 +24,14 @@ import { UploadSimple } from "@phosphor-icons/react/UploadSimple";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { X } from "@phosphor-icons/react/X";
 
-import type { Asset, Scene, Visual } from "../shared/project";
+import type { Asset, Diagnostic, Scene, Visual } from "../shared/project";
 import type { RenderJob } from "../shared/jobs";
 import { CURRENT_SCHEMA_VERSION } from "../shared/project";
+import {
+  diagnosticIdentity,
+  resolveRenderDiagnosticScene,
+  sortAndDedupeDiagnostics,
+} from "../shared/diagnostics";
 import { ProjectComposition } from "../remotion/ProjectComposition";
 import {
   createPreviewSnapshot,
@@ -477,7 +482,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
         {historyNotice === undefined ? null : <div key={historyEventId} className="history-feedback" role="status" aria-live="polite">{historyNotice}</div>}
         {historyAnnouncement === undefined ? null : <div key={historyEventId} className="sr-only" role="status" aria-live="polite" data-testid="history-announcement">{historyAnnouncement}</div>}
       </div>
-      <div className="top-actions"><button className="btn" disabled={readOnly || renderDisabled} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length + imageJobCount + videoJobCount + speechJobCount + Object.keys(renderJobs).length}</span></button>{showLatestRenderResult && latestRender?.status === "succeeded" ? <button className="btn render-output-shortcut" type="button" onClick={() => void openOutput(latestRender.id)}><FolderOpen />打开产物目录</button> : null}<button className="btn primary render-primary" disabled={readOnly || renderDisabled || renderStarting || activeRender !== undefined || (showLatestRenderResult && latestRender?.status === "succeeded")} onClick={handleRenderAction}><FilmSlate />{renderLabel}</button></div>
+      <div className="top-actions"><button className="btn" data-task-trigger disabled={readOnly} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length + imageJobCount + videoJobCount + speechJobCount + Object.keys(renderJobs).length}</span></button>{showLatestRenderResult && latestRender?.status === "succeeded" ? <button className="btn render-output-shortcut" type="button" onClick={() => void openOutput(latestRender.id)}><FolderOpen />打开产物目录</button> : null}<button className="btn primary render-primary" data-render-trigger disabled={readOnly || renderDisabled || renderStarting || activeRender !== undefined || (showLatestRenderResult && latestRender?.status === "succeeded")} onClick={handleRenderAction}><FilmSlate />{renderLabel}</button></div>
     </header>
   );
 }
@@ -491,22 +496,104 @@ function captionForVisual(visual: Visual): string | undefined {
   return visual.type === "card" ? undefined : visual.caption?.text;
 }
 
-function sceneAssetStatus(
-  scene: Scene,
-  asset: Asset | undefined,
-  mediaAvailability: Record<string, boolean>,
-  diagnostics: import("../shared/project").Diagnostic[],
-) {
-  if ("assetId" in scene.visual && asset === undefined) {
-    return { className: "status-error", label: "缺少 Asset" };
+function diagnosticFieldLabel(diagnostic: Diagnostic): string {
+  const path = diagnostic.path.map(String);
+  if (path.includes("narration")) return "Narration";
+  if (path.includes("speech")) return "Speech";
+  if (path.includes("caption")) return "Caption";
+  if (path.includes("assetId") || diagnostic.assetId !== undefined) return "Asset";
+  if (path.includes("visual")) return "Visual";
+  if (path.includes("fontId")) return "项目字体";
+  if (path.includes("accentColor")) return "品牌强调色";
+  if (path[0] === "theme") return "Project Theme";
+  return "Project DSL";
+}
+
+function diagnosticTitle(diagnostic: Diagnostic): string {
+  if (diagnostic.code === "NARRATION_EMPTY") return "补充 Narration";
+  if (diagnostic.code === "SCENE_ASSET_REQUIRED") return "绑定 Asset";
+  if (diagnostic.code === "SCENE_ASSET_MISSING") return "重新绑定 Asset";
+  if (diagnostic.code === "SCENE_ASSET_KIND_MISMATCH") return "更换匹配的 Asset";
+  if (diagnostic.code === "SPEECH_MISSING") return "生成 Speech";
+  if (diagnostic.code === "SPEECH_FILE_MISSING" || diagnostic.code === "SPEECH_DECODE_FAILED") return "重新生成 Speech";
+  if (diagnostic.code === "FONT_COVERAGE_UNSUPPORTED") return `替换缺字 ${diagnostic.character ?? ""}`.trim();
+  if (diagnostic.code === "TEXT_SAFE_AREA_OVERFLOW") return "精简文字或更换 Style";
+  if (diagnostic.code.includes("PRESET_MISSING") || diagnostic.code === "THEME_FONT_MISSING") return "恢复内置文字设置";
+  if (diagnostic.code.includes("FILE_MISSING")) return "恢复缺失文件";
+  if (diagnostic.code.includes("DECODE_FAILED") || diagnostic.code.includes("NOT_NORMALIZED")) return "重新导入 Asset";
+  if (diagnostic.code.endsWith("_ENLARGED")) return "已放大到 1080p";
+  if (diagnostic.code === "THEME_ACCENT_CONTRAST_LOW") return "检查品牌强调色";
+  return diagnostic.severity === "error" ? "前往修复" : "请检查";
+}
+
+function DiagnosticIcon({ severity }: { severity: Diagnostic["severity"] }) {
+  return severity === "error"
+    ? <WarningCircle weight="fill" aria-hidden="true" />
+    : <WarningCircle aria-hidden="true" />;
+}
+
+function SceneStatusSummary({
+  diagnostics,
+  onActivate,
+}: {
+  diagnostics: Diagnostic[];
+  onActivate: (diagnostic: Diagnostic) => void;
+}) {
+  const first = diagnostics[0];
+  if (first === undefined) {
+    return <span className="status-ready"><CheckCircle weight="fill" aria-hidden="true" />Render-ready</span>;
   }
-  if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    return { className: "status-error", label: "渲染阻断" };
-  }
-  if (asset !== undefined && mediaAvailability[asset.path] === false) {
-    return { className: "status-error", label: "文件缺失" };
-  }
-  return { className: "status-ready", label: "可编辑草稿" };
+  return (
+    <button
+      className={`scene-status-summary ${first.severity}`}
+      type="button"
+      data-diagnostic-id={diagnosticIdentity(first)}
+      aria-label={`${first.severity === "error" ? "阻断" : "提醒"}：${diagnosticTitle(first)}${diagnostics.length > 1 ? `，另有 ${diagnostics.length - 1} 项` : ""}`}
+      onClick={() => onActivate(first)}
+    >
+      <DiagnosticIcon severity={first.severity} />
+      <span><strong>{diagnosticTitle(first)}</strong>{diagnostics.length > 1 ? <small>另有 {diagnostics.length - 1} 项</small> : <small>{first.severity === "error" ? "阻断渲染" : "不阻断渲染"}</small>}</span>
+    </button>
+  );
+}
+
+function SceneProblems({
+  diagnostics,
+  onNavigate,
+}: {
+  diagnostics: Diagnostic[];
+  onNavigate: (diagnostic: Diagnostic) => void;
+}) {
+  return (
+    <section className="scene-problems" aria-labelledby="scene-problems-title">
+      <h3 id="scene-problems-title">问题 · {diagnostics.length}</h3>
+      {diagnostics.length === 0 ? (
+        <div className="scene-problems-empty" role="status"><CheckCircle weight="fill" /><span><strong>当前 Scene 可以渲染</strong><small>没有阻断或提醒。</small></span></div>
+      ) : (
+        <div className="scene-problem-list">
+          {diagnostics.map((diagnostic) => (
+            <article
+              key={diagnosticIdentity(diagnostic)}
+              className={`scene-problem ${diagnostic.severity}`}
+              data-diagnostic-id={diagnosticIdentity(diagnostic)}
+              tabIndex={-1}
+              role={diagnostic.severity === "error" ? "alert" : "status"}
+            >
+              <DiagnosticIcon severity={diagnostic.severity} />
+              <div>
+                <span className="diagnostic-meta">{diagnostic.severity === "error" ? "阻断" : "提醒"} · {diagnosticFieldLabel(diagnostic)}</span>
+                <strong>{diagnosticTitle(diagnostic)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.character === undefined ? null : <p className="diagnostic-character"><b>{diagnostic.character}</b><code>U+{diagnostic.codePoint?.toString(16).toUpperCase()}</code></p>}
+                <code>{diagnostic.path.join(".") || "project.json"} · {diagnostic.code}</code>
+                <button className="btn compact" type="button" onClick={() => onNavigate(diagnostic)}>前往 {diagnosticFieldLabel(diagnostic)}</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function mediaUrl(path: string): string {
@@ -1134,9 +1221,9 @@ function RenderJobTask({
         </div>
       ) : null}
       {job.error !== undefined ? (
-        <button className="render-error" type="button" onClick={() => onNavigate(job)}>
+        <button className="render-error" type="button" aria-label={`${job.error.message}，${job.error.sceneId !== undefined || job.error.sequenceName !== undefined || job.error.frame !== undefined || job.error.frameRange !== undefined ? "返回 Scene" : "查看项目问题"}`} onClick={() => onNavigate(job)}>
           <WarningCircle weight="fill" />
-          <span><strong>{job.error.message}</strong><code>{job.error.code}{job.error.sceneId ? ` · Scene ${job.error.sceneId.slice(0, 8)}` : ""}</code></span>
+          <span><strong>{job.error.message}</strong><small>{job.error.sceneId !== undefined || job.error.sequenceName !== undefined || job.error.frame !== undefined || job.error.frameRange !== undefined ? "返回 Scene" : "查看项目问题"}</small><code>{job.error.code}{job.error.sceneId ? ` · Scene ${job.error.sceneId.slice(0, 8)}` : ""}{job.error.sequenceName ? ` · ${job.error.sequenceName}` : ""}{job.error.frameRange ? ` · 帧 ${job.error.frameRange.startFrame}–${job.error.frameRange.endFrame}` : job.error.frame !== undefined ? ` · 帧 ${job.error.frame}` : ""}</code></span>
         </button>
       ) : null}
       <div className="render-job-actions">
@@ -1673,6 +1760,8 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const [playerGeneration, setPlayerGeneration] = useState(0);
   const [sceneBoundaryAnnouncement, setSceneBoundaryAnnouncement] = useState("");
   const [inspectorMode, setInspectorMode] = useState<"scene" | "project">("scene");
+  const [sceneFilter, setSceneFilter] = useState<"all" | "issues">("all");
+  const [filterAnnouncement, setFilterAnnouncement] = useState("");
   const [safeAreaVisible, setSafeAreaVisible] = useState(false);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   const [cardChoice, setCardChoice] = useState<{
@@ -1706,6 +1795,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const playerRef = useRef<PlayerRef>(null);
   const scrubWasPlayingRef = useRef(false);
   const previousPlayingSceneIdRef = useRef<string | undefined>(undefined);
+  const lastFocusedSceneIdRef = useRef<string | undefined>(undefined);
   const pendingStructuralPlaybackRef = useRef<{
     sceneId: string;
     offsetInFrames: number;
@@ -1815,6 +1905,24 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const renderDiagnostics = useMemo(
     () => {
       if (project === undefined) return diagnostics;
+      const imageWarnings = Object.values(imageJobs).flatMap((job) => {
+        if (job.result?.facts.enlarged !== true) return [];
+        const sceneIndex = project.scenes.findIndex(
+          (scene) => scene.visual.type === "image" &&
+            scene.visual.assetId === job.result?.asset.id,
+        );
+        if (sceneIndex < 0) return [];
+        return [{
+          code: "IMAGE_ASSET_ENLARGED",
+          severity: "warning" as const,
+          path: ["scenes", sceneIndex, "visual", "assetId"],
+          sceneId: project.scenes[sceneIndex].id,
+          assetId: job.result.asset.id,
+          relativePath: job.result.asset.path,
+          message: `Image Asset 源画面 ${job.result.facts.sourceWidth}×${job.result.facts.sourceHeight} 已实际放大到 1080p；可替换为更高分辨率图片。`,
+          origins: ["media" as const],
+        }];
+      });
       const videoWarnings = Object.values(videoJobs).flatMap((job) => {
         if (job.result?.facts.enlarged !== true) return [];
         const sceneIndex = project.scenes.findIndex(
@@ -1827,17 +1935,72 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
           severity: "warning" as const,
           path: ["scenes", sceneIndex, "visual", "assetId"],
           sceneId: project.scenes[sceneIndex].id,
+          assetId: job.result.asset.id,
+          relativePath: job.result.asset.path,
           message: `Video Asset 源画面 ${job.result.facts.sourceWidth}×${job.result.facts.sourceHeight} 已按 contain 放大到 1080p；黑边不计为低分辨率。`,
+          origins: ["media" as const],
         }];
       });
-      return [
+      return sortAndDedupeDiagnostics([
         ...diagnostics,
         ...validateRenderReadiness(project, mediaAvailability),
+        ...imageWarnings,
         ...videoWarnings,
-      ];
+      ], project.scenes.map((scene) => scene.id));
     },
-    [project, diagnostics, mediaAvailability, videoJobs],
+    [project, diagnostics, mediaAvailability, imageJobs, videoJobs],
   );
+  const visibleSceneEntries = useMemo(() => {
+    if (project === undefined) return [];
+    return project.scenes.flatMap((scene, index) =>
+      sceneFilter === "all" || renderDiagnostics.some((diagnostic) => diagnostic.sceneId === scene.id)
+        ? [{ scene, index }]
+        : [],
+    );
+  }, [project, renderDiagnostics, sceneFilter]);
+  const issueSceneCount = new Set(
+    renderDiagnostics.flatMap((diagnostic) => diagnostic.sceneId === undefined ? [] : [diagnostic.sceneId]),
+  ).size;
+  const visibleSceneIdsKey = visibleSceneEntries.map(({ scene }) => scene.id).join("|");
+  useEffect(() => {
+    const rememberFocusedScene = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const row = target.closest<HTMLElement>("[data-scene-id]");
+      if (row?.dataset.sceneId !== undefined) {
+        lastFocusedSceneIdRef.current = row.dataset.sceneId;
+      } else if (target !== document.body) {
+        lastFocusedSceneIdRef.current = undefined;
+      }
+    };
+    document.addEventListener("focusin", rememberFocusedScene);
+    return () => document.removeEventListener("focusin", rememberFocusedScene);
+  }, []);
+  useEffect(() => {
+    if (sceneFilter !== "issues" || project === undefined) return;
+    const active = document.activeElement;
+    const activeRow = active instanceof Element
+      ? active.closest<HTMLElement>("[data-scene-id]")
+      : null;
+    const activeSceneId = activeRow?.dataset.sceneId ?? lastFocusedSceneIdRef.current;
+    if (activeSceneId === undefined || visibleSceneEntries.some(({ scene }) => scene.id === activeSceneId)) return;
+    const removedIndex = project.scenes.findIndex((scene) => scene.id === activeSceneId);
+    const nextEntry = visibleSceneEntries.find(({ index }) => index > removedIndex) ?? visibleSceneEntries[0];
+    const frame = requestAnimationFrame(() => {
+      const next = nextEntry === undefined
+        ? null
+        : document.querySelector<HTMLElement>(`[data-scene-id="${nextEntry.scene.id}"] .scene-status-summary`);
+      const fallback = document.querySelector<HTMLElement>("[data-scene-filter='issues']");
+      (next ?? fallback)?.focus();
+      lastFocusedSceneIdRef.current = nextEntry?.scene.id;
+      setFilterAnnouncement(
+        visibleSceneEntries.length === 0
+          ? "全部问题已处理"
+          : `当前 Scene 的问题已处理，已移动到下一条待修复 Scene`,
+      );
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [sceneFilter, visibleSceneIdsKey]);
   const firstRenderBlocker = renderDiagnostics.find(
     (diagnostic) => diagnostic.severity === "error",
   );
@@ -1928,6 +2091,12 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const selectedScene =
     project.scenes.find((scene) => scene.id === selectedSceneId) ?? project.scenes[0];
   const selectedAsset = selectedScene ? assetForScene(selectedScene, assets) : undefined;
+  const selectedSceneDiagnostics = selectedScene === undefined
+    ? []
+    : renderDiagnostics.filter((diagnostic) => diagnostic.sceneId === selectedScene.id);
+  const renderErrorCount = renderDiagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
+  const renderWarningCount = renderDiagnostics.length - renderErrorCount;
+  const affectedSceneCount = new Set(renderDiagnostics.flatMap((diagnostic) => diagnostic.sceneId === undefined ? [] : [diagnostic.sceneId])).size;
   const projectName = project.metadata.name || info?.fallbackName || "未命名项目";
   const imageJobList = Object.values(imageJobs).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
@@ -1970,6 +2139,16 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       ? -1
       : project.scenes.findIndex((scene) => scene.id === playingResolved.scene.id);
   const previewBlocker = previewSnapshot?.previewBlockers[0];
+  const playingSceneDiagnostics = playingResolved === undefined
+    ? []
+    : renderDiagnostics.filter((diagnostic) => diagnostic.sceneId === playingResolved.scene.id);
+  const playingAssetError = playingSceneDiagnostics.find(
+    (diagnostic) => diagnostic.severity === "error" &&
+      (diagnostic.path.includes("assetId") || diagnostic.assetId !== undefined),
+  );
+  const playingEnlargementWarning = playingSceneDiagnostics.find(
+    (diagnostic) => diagnostic.code === "IMAGE_ASSET_ENLARGED" || diagnostic.code === "VIDEO_ASSET_ENLARGED",
+  );
 
   useEffect(() => {
     const playingSceneId = playingResolved?.scene.id;
@@ -2000,40 +2179,83 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   };
 
   const navigateToDiagnostic = (
-    sceneId: string | undefined,
-    path: Array<string | number> = [],
+    diagnostic: Pick<Diagnostic, "sceneId" | "path" | "frame"> & Partial<Diagnostic>,
+    focus: "field" | "problem" = "field",
   ) => {
+    const sceneId = diagnostic.sceneId;
     if (sceneId === undefined || !project.scenes.some((scene) => scene.id === sceneId)) {
       setInspectorMode("project");
       setTaskDrawerOpen(false);
-      requestAnimationFrame(() =>
-        document.querySelector<HTMLElement>("[data-testid='inspector-project'] input, [data-testid='inspector-project'] select")?.focus(),
-      );
+      const projectTarget = diagnostic.path.includes("accentColor")
+        ? "[aria-label='品牌强调色']"
+        : diagnostic.path.includes("fontId")
+          ? "[aria-label='渲染字体']"
+          : diagnostic.path.includes("logoAssetId")
+            ? "[aria-label='项目标志']"
+            : "[data-testid='inspector-project'] button, [data-testid='inspector-project'] input, [data-testid='inspector-project'] select";
+      requestAnimationFrame(() => requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>(projectTarget)?.focus(),
+      ));
       return;
     }
-    selectAndSeekScene(sceneId);
+    playerRef.current?.pause();
+    setPlaying(false);
+    selectScene(sceneId);
+    const resolved = previewSnapshot?.scenes.find((candidate) => candidate.scene.id === sceneId);
+    const targetFrame = diagnostic.frame ?? resolved?.startFrame;
+    if (targetFrame !== undefined) {
+      playerRef.current?.seekTo(targetFrame);
+      setCurrentFrame(targetFrame);
+    }
     setInspectorMode("scene");
     setTaskDrawerOpen(false);
+    const path = diagnostic.path;
     const target = path.includes("speech")
       ? `[data-speech-cell-scene-id="${sceneId}"]`
       : path.includes("narration")
         ? `[data-narration-scene-id="${sceneId}"]`
-        : path.includes("visual")
+        : path.includes("assetId")
+          ? `[data-asset-cell-scene-id="${sceneId}"]`
+          : path.includes("caption")
+            ? "[data-testid='inspector-scene'] textarea[aria-label='说明文字']"
+            : path.includes("visual")
           ? `[data-visual-type-scene-id="${sceneId}"]`
           : `[data-scene-select][aria-label*="Scene ${project.scenes.findIndex((scene) => scene.id === sceneId) + 1}"]`;
-    requestAnimationFrame(() => document.querySelector<HTMLElement>(target)?.focus());
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (focus === "problem") {
+        const problem = [...document.querySelectorAll<HTMLElement>(".scene-problem[data-diagnostic-id]")]
+          .find((element) => element.dataset.diagnosticId === diagnosticIdentity(diagnostic as Diagnostic));
+        if (problem !== undefined) {
+          problem.focus();
+          return;
+        }
+      }
+      const container = document.querySelector<HTMLElement>(target);
+      const candidate = container?.matches("button, input, textarea, select")
+        ? container
+        : container?.querySelector<HTMLElement>("button, input, textarea, select, [tabindex]")
+          ?? (container?.matches("[tabindex]") ? container : undefined);
+      if (candidate instanceof HTMLButtonElement && candidate.disabled) {
+        document.querySelector<HTMLElement>(`[data-narration-scene-id="${sceneId}"]`)?.focus();
+        setFilterAnnouncement("请先补充 Narration，再生成 Speech");
+        return;
+      }
+      candidate?.focus();
+    }));
   };
 
   const navigateRenderJob = (job: RenderJob) => {
-    const frameScene =
-      job.error?.frame === undefined
-        ? undefined
-        : job.snapshotPlan.find(
-            (scene) =>
-              job.error!.frame! >= scene.startFrame &&
-              job.error!.frame! < scene.startFrame + scene.durationInFrames,
-          )?.sceneId;
-    navigateToDiagnostic(job.error?.sceneId ?? frameScene);
+    const location = job.error === undefined
+      ? undefined
+      : resolveRenderDiagnosticScene(job.error, job.snapshotPlan);
+    navigateToDiagnostic({
+      code: job.error?.code ?? "RENDER_FAILED",
+      severity: "error",
+      message: job.error?.message ?? "渲染失败",
+      path: [],
+      sceneId: location?.sceneId,
+      frame: location?.frame,
+    });
   };
 
   const closeAssetPreview = () => {
@@ -2264,15 +2486,14 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       <fieldset className="workspace-lock" disabled={workspaceDisabled}>
       <main className="workspace" data-testid={occupied ? "readonly-workbench" : "global-workbench"}>
         <section className="pane script-pane">
-          <PaneHeading title="脚本表" meta={`${project.scenes.length} 个 Scene`} actions={<div className="filter"><button aria-pressed="true">全部</button><button aria-pressed="false">待修复</button></div>} />
+          <PaneHeading title="脚本表" meta={sceneFilter === "issues" ? `${visibleSceneEntries.length} / ${project.scenes.length} 个 Scene` : `${project.scenes.length} 个 Scene`} actions={<div className="filter" aria-label="Scene 过滤"><button data-scene-filter="all" aria-pressed={sceneFilter === "all"} onClick={() => { setSceneFilter("all"); setFilterAnnouncement(`显示全部 ${project.scenes.length} 个 Scene`); }}>全部</button><button data-scene-filter="issues" aria-pressed={sceneFilter === "issues"} onClick={() => { setSceneFilter("issues"); setFilterAnnouncement(`${issueSceneCount} 个 Scene 待修复`); }}>待修复</button></div>} />
           <div className="table-wrap" ref={tableScrollRef}>
             <table className="scene-table"><thead><tr><th>顺序</th><th>Narration</th><th>Visual Type</th><th>Asset</th><th>Speech</th><th>状态</th><th className="scene-actions-heading">操作</th></tr></thead><tbody>
-              {project.scenes.map((scene, index) => {
+              {visibleSceneEntries.map(({ scene, index }) => {
                 const asset = assetForScene(scene, assets);
                 const sceneDiagnostics = renderDiagnostics.filter(
                   (diagnostic) => diagnostic.sceneId === scene.id,
                 );
-                const assetStatus = sceneAssetStatus(scene, asset, mediaAvailability, sceneDiagnostics);
                 const selected = scene.id === selectedScene?.id;
                 const narrationPopoverId = `narration-popover-${scene.id}`;
                 const expandedNarrationId = `narration-expanded-${scene.id}`;
@@ -2291,15 +2512,17 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
                     <td><div className="table-cell visual-type-cell"><select data-visual-type-scene-id={scene.id} aria-label={`Scene ${index + 1} Visual Type`} value={scene.visual.type} onClick={(event) => event.stopPropagation()} onChange={(event) => requestVisualChange(scene, event.target.value as VisualType, event.currentTarget)}>{(Object.keys(visualLabels) as VisualType[]).map((type) => <option key={type} value={type}>{visualLabels[type]}</option>)}</select><span>{captionForVisual(scene.visual) ?? (scene.visual.type === "card" ? "结构化文字画面" : "标准画面")}</span></div></td>
                     <td><AssetCell scene={scene} sceneIndex={index} asset={asset} onPreview={(previewAsset, _sceneIndex, displayName, trigger) => setAssetPreview({ sceneId: scene.id, asset: previewAsset, displayName, trigger })} /></td>
                     <td><SpeechCell scene={scene} sceneIndex={index} /></td>
-                    <td><span className={assetStatus.className}>{assetStatus.label}</span></td>
+                    <td><SceneStatusSummary diagnostics={sceneDiagnostics} onActivate={(diagnostic) => navigateToDiagnostic(diagnostic, "problem")} /></td>
                     <td className="scene-actions-cell"><button className="scene-delete-button" type="button" aria-label={`删除 Scene ${index + 1}`} title={`删除 Scene ${index + 1}`} onClick={(event) => { event.stopPropagation(); handleDeleteScene(scene.id); }}><Trash /></button></td>
                   </tr>
                 );
               })}
             </tbody></table>
+            {sceneFilter === "issues" && visibleSceneEntries.length === 0 ? <div className="filtered-empty"><CheckCircle weight="fill" /><strong>全部问题已处理</strong><span>切换到“全部”继续查看项目。</span></div> : null}
           </div>
           <div className={`reorder-feedback ${reorderNotice === "" ? "empty" : ""}`} role="status" aria-label="重排提示">{reorderNotice}</div>
           <div className="sr-only" aria-live="assertive">{reorderAnnouncement}</div>
+          <div className="sr-only" aria-live="polite">{filterAnnouncement}</div>
           <footer className="script-footer"><button className="btn compact" onClick={() => setBatchDialogOpen(true)}><Plus />批量添加</button><button className="btn compact" onClick={addSingleScene}><Plus />新增一条</button></footer>
         </section>
 
@@ -2347,6 +2570,8 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
                 <small>请检查当前 Scene 的项目文件后重试。</small>
               </div>
             ) : null}
+            {playingAssetError !== undefined && playerError === undefined ? <button className="player-layer-recovery" type="button" onClick={() => navigateToDiagnostic(playingAssetError)}><WarningCircle weight="fill" /><span><strong>当前 Asset 不可用</strong><small>{diagnosticTitle(playingAssetError)} · 前往 Asset</small></span></button> : null}
+            {playingEnlargementWarning !== undefined ? <div className="player-media-warning" role="status"><WarningCircle /><span><strong>已放大到 1080p</strong><small>不阻断渲染</small></span></div> : null}
             {safeAreaVisible ? <div className="safe-area-overlay" data-testid="safe-area-overlay"><span>80px SAFE</span></div> : null}
           </div></div>
           <div className="player-controls">
@@ -2398,12 +2623,12 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
           <div className="inspector-scroll" data-testid={inspectorMode === "project" ? "inspector-project" : "inspector-scene"}>
             {inspectorMode === "project" ? (
               <ProjectThemeInspector project={project} diagnostics={diagnostics} onChange={(theme) => void updateTheme(theme)} />
-            ) : selectedScene ? <><h3>场景 {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>旁白文稿（同时作为底部字幕）<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} onBlur={endTextTransaction} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} /><SceneTextPresentationInspector sceneIndex={selectedSceneIndex} visual={selectedScene.visual} theme={project.theme} diagnostics={diagnostics} onChange={(visual) => void updateVisual(selectedScene.id, visual)} onMotionChange={(visual) => { void updateVisual(selectedScene.id, visual).then(() => { const resolved = previewSnapshot?.scenes.find((candidate) => candidate.scene.id === selectedScene.id); if (resolved) playerRef.current?.seekTo(resolved.startFrame); playerRef.current?.play(); }); }} /><label>素材项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label><div className="inspector-note"><WarningCircle weight="fill" />缺少旁白音频时，预览使用 5 秒草稿时长；最终渲染前仍需生成。</div></> : null}
+            ) : selectedScene ? <><h3>场景 {String(project.scenes.indexOf(selectedScene) + 1).padStart(2, "0")}</h3><label>旁白文稿（同时作为底部字幕）<textarea value={selectedScene.narration.text} onChange={(event) => updateNarration(selectedScene.id, event.target.value)} onBlur={endTextTransaction} /></label><VisualFields visual={selectedScene.visual} onChange={(visual) => void updateVisual(selectedScene.id, visual)} /><SceneTextPresentationInspector sceneIndex={selectedSceneIndex} visual={selectedScene.visual} theme={project.theme} diagnostics={diagnostics} onChange={(visual) => void updateVisual(selectedScene.id, visual)} onMotionChange={(visual) => { void updateVisual(selectedScene.id, visual).then(() => { const resolved = previewSnapshot?.scenes.find((candidate) => candidate.scene.id === selectedScene.id); if (resolved) playerRef.current?.seekTo(resolved.startFrame); playerRef.current?.play(); }); }} /><label>素材项目相对路径<input value={selectedAsset?.path ?? "未绑定"} readOnly /></label>{selectedScene.speech === undefined || mediaAvailability[selectedScene.speech.path] === false ? <div className="inspector-note"><WarningCircle weight="fill" />缺少可用 Speech 时，预览使用 5 秒 Draft Duration；最终渲染前仍需生成。</div> : null}<SceneProblems diagnostics={selectedSceneDiagnostics} onNavigate={(diagnostic) => navigateToDiagnostic(diagnostic)} /></> : null}
           </div>
         </section>
       </main>
       <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen} aria-label="任务与渲染">
-        <header><h2>任务与渲染</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>
+        <header><h2>任务与渲染</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => { setTaskDrawerOpen(false); requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-task-trigger]")?.focus()); }}><X /></button></header>
         <div className="task-groups">
           {currentRenderJob ? <section><h3>当前渲染</h3><RenderJobTask job={currentRenderJob} onNavigate={navigateRenderJob} /></section> : null}
           {completedRenderJobs.length > 0 ? <section><h3>渲染结果</h3><div className="render-job-list">{completedRenderJobs.map((job) => <RenderJobTask key={job.id} job={job} onNavigate={navigateRenderJob} />)}</div></section> : null}
@@ -2411,7 +2636,10 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
           {speechJobList.length > 0 ? <section><h3>Speech 生成</h3><div className="speech-job-list">{speechJobList.map((job) => <SpeechJobTask key={job.id} job={job} />)}</div></section> : null}
           {assetJobList.length > 0 ? <section><h3>Asset 导入</h3><div className="image-job-list">{assetJobList.map((job) => job.type === "image-import" ? <ImageJobTask key={job.id} job={job} /> : <VideoJobTask key={job.id} job={job} />)}</div></section> : null}
           {saveDiagnostics.length > 0 ? <section><h3>保存问题</h3><div className="task-diagnostics">{saveDiagnostics.map((diagnostic) => <div key={`save-${diagnostic.code}-${diagnostic.path.join(".")}`} className="error"><WarningCircle weight="fill" /><span><strong>阻止保存</strong>{diagnostic.message}<code>{diagnostic.path.join(".") || "project.json"}</code></span></div>)}</div></section> : null}
-          <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <button ref={diagnostic === firstRenderBlocker ? firstRenderBlockerRef : undefined} type="button" key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity} onClick={() => navigateToDiagnostic(diagnostic.sceneId, diagnostic.path)}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断 · 前往修复" : "提醒 · 查看"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></button>)}</div>}</section>
+          <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现阻断或提醒。</span><button className="btn compact" type="button" onClick={() => setTaskDrawerOpen(false)}>关闭抽屉</button></div> : <><div className="diagnostic-queue-summary" role="status"><strong>{renderErrorCount} 个阻断 · {renderWarningCount} 个提醒</strong><span>涉及 {affectedSceneCount} 个 Scene</span></div><div className="task-diagnostics diagnostic-queue">{renderDiagnostics.map((diagnostic) => {
+            const sceneIndex = diagnostic.sceneId === undefined ? -1 : project.scenes.findIndex((scene) => scene.id === diagnostic.sceneId);
+            return <button ref={diagnostic === firstRenderBlocker ? firstRenderBlockerRef : undefined} type="button" key={diagnosticIdentity(diagnostic)} className={diagnostic.severity} data-diagnostic-id={diagnosticIdentity(diagnostic)} onClick={() => navigateToDiagnostic(diagnostic)}><DiagnosticIcon severity={diagnostic.severity} /><span><span className="diagnostic-meta">{sceneIndex < 0 ? "项目" : `Scene ${String(sceneIndex + 1).padStart(2, "0")}`} · {diagnosticFieldLabel(diagnostic)}</span><strong>{diagnosticTitle(diagnostic)}</strong><p>{diagnostic.message}</p>{diagnostic.frame === undefined ? null : <small>帧 {diagnostic.frame}</small>}<code>{diagnostic.path.join(".") || "project.json"} · {diagnostic.code}</code></span></button>;
+          })}</div></>}</section>
         </div>
       </aside>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={project.scenes.length} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}

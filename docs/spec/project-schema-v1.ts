@@ -184,7 +184,23 @@ export type Diagnostic = {
   assetId?: string;
   relativePath?: string;
   absolutePath?: string;
+  character?: string;
+  codePoint?: number;
+  frame?: number;
+  frameRange?: { startFrame: number; endFrame: number };
+  sequenceName?: string;
+  origins?: DiagnosticOrigin[];
 };
+
+export type DiagnosticOrigin =
+  | "structure"
+  | "consistency"
+  | "save"
+  | "open"
+  | "media"
+  | "speech"
+  | "font"
+  | "render";
 
 export type StructuralValidationResult =
   | { success: true; project: ProjectV1; diagnostics: [] }

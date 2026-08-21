@@ -201,7 +201,7 @@ test("点击表格行选中并跳到 Scene 开头，同时保留播放或暂停�
 
   await page.getByRole("button", { name: "播放" }).click();
   await expect(page.getByTestId("player-playback-state")).toHaveText("播放中");
-  await page.getByTestId("scene-row").nth(2).locator("td").nth(5).click();
+  await page.getByTestId("scene-row").nth(2).click({ position: { x: 1, y: 1 } });
   await expect(page.getByTestId("player-selected-scene")).toHaveText("选中 03");
   await expect(page.getByTestId("player-playing-scene")).toHaveText("播放 03");
   await expect(page.getByTestId("player-playback-state")).toHaveText("播放中");

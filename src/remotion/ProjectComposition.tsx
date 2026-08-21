@@ -256,6 +256,33 @@ function TextBlock({ snapshot, resolved }: { snapshot: RenderSnapshot; resolved:
     return null;
   }
   const { layout } = presentation.style;
+  if (resolved.textBlockers.visual.length > 0) {
+    const characters = resolved.textBlockers.visual
+      .map((diagnostic) => `${diagnostic.character ?? "?"} · U+${diagnostic.codePoint?.toString(16).toUpperCase() ?? "?"}`)
+      .join("，");
+    return (
+      <div
+        data-testid="player-visual-text-error"
+        style={{
+          position: "absolute",
+          left: layout.left,
+          top: layout.top,
+          width: layout.width,
+          minHeight: 180,
+          display: "grid",
+          alignContent: "center",
+          gap: 12,
+          padding: 44,
+          borderRadius: layout.radius,
+          background: "rgba(76, 5, 25, 0.94)",
+          color: "#fff1f4",
+        }}
+      >
+        <strong style={{ fontSize: 42 }}>这层文字包含字体不支持的字符</strong>
+        <span style={{ fontSize: 30, color: "#fda4af" }}>{characters}</span>
+      </div>
+    );
+  }
   const duration = motionDurationInFrames(
     presentation.motion,
     snapshot.fps,
@@ -367,7 +394,11 @@ function SceneComposition({ snapshot, resolved }: { snapshot: RenderSnapshot; re
             "0 0 6px rgba(20,14,17,1), 0 4px 14px rgba(20,14,17,1), 0 0 40px rgba(20,14,17,.85)",
         }}
       >
-        {resolved.scene.narration.text || "请输入 Narration"}
+        {resolved.textBlockers.narration.length > 0 ? (
+          <span data-testid="player-subtitle-text-error" style={{ display: "inline-block", padding: "12px 20px", borderRadius: 12, background: "rgba(76, 5, 25, 0.94)", color: "#fda4af", fontSize: 34 }}>
+            Subtitle 缺字 · {resolved.textBlockers.narration.map((diagnostic) => `U+${diagnostic.codePoint?.toString(16).toUpperCase() ?? "?"}`).join(" · ")}
+          </span>
+        ) : resolved.scene.narration.text || "请输入 Narration"}
       </div>
     </AbsoluteFill>
   );

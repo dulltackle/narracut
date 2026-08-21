@@ -390,6 +390,7 @@ describe("Narracut 本地服务", () => {
           "assets/escape.txt",
           "../outside.txt",
         ],
+        imagePaths: ["assets/present.png"],
         videoPaths: ["assets/invalid.mp4", "assets/missing.mp4"],
       }),
     });
@@ -397,7 +398,7 @@ describe("Narracut 本地服务", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       results: [
-        { path: "assets/present.png", exists: true },
+        { path: "assets/present.png", exists: true, error: "IMAGE_DECODE_FAILED" },
         { path: "assets/invalid.mp4", exists: true, error: "VIDEO_TOOL_FAILED" },
         { path: "assets/missing.mp4", exists: false },
         { path: "assets/escape.txt", exists: false },

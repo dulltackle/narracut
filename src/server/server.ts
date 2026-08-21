@@ -9,6 +9,7 @@ import { isAbsolute as isPosixAbsolute } from "node:path/posix";
 import serveHandler from "serve-handler";
 
 import { validateRenderReadiness } from "../remotion/render-snapshot";
+import { sortAndDedupeDiagnostics } from "../shared/diagnostics";
 import { validateProjectConsistency, validateProjectStructure } from "../shared/project";
 import { ImageImportJobError, ImageImportJobs } from "./image-import-jobs";
 import {
@@ -21,14 +22,12 @@ import {
   type RenderWorkerInput,
   type RenderWorkerHandle,
 } from "./render-jobs";
-import { preflightRenderMedia, RenderPreflightError } from "./render-preflight";
+import {
+  inspectRenderMedia,
+  mediaValidationError,
+} from "./render-preflight";
 import { VideoThumbnailError, VideoThumbnailService } from "./video-thumbnails";
 import { VideoImportJobError, VideoImportJobs } from "./video-import-jobs";
-import {
-  assertNormalizedVideoProbe,
-  probeVideoFile,
-  VideoMediaError,
-} from "./video-media";
 
 export const DEFAULT_SERVER_HOST = "10.8.0.5";
 const DEFAULT_PORT = 3579;
@@ -276,6 +275,8 @@ async function probeProjectPaths(
   projectRealRoot: string,
   paths: string[],
   videoPaths: ReadonlySet<string> = new Set(),
+  imagePaths: ReadonlySet<string> = new Set(),
+  speechPaths: ReadonlySet<string> = new Set(),
 ): Promise<Array<{ path: string; exists: boolean; error?: string }>> {
   const uniquePaths = [...new Set(paths)];
   const results = new Map<string, { path: string; exists: boolean; error?: string }>();
@@ -291,20 +292,29 @@ async function probeProjectPaths(
       const candidate = join(projectRoot, ...path.split("/"));
       try {
         const exists = await isContainedProjectFile(projectRealRoot, candidate);
-        if (!exists || !videoPaths.has(path)) {
+        const mediaKind = videoPaths.has(path)
+          ? "video"
+          : imagePaths.has(path)
+            ? "image"
+            : speechPaths.has(path)
+              ? "speech"
+              : undefined;
+        if (!exists || mediaKind === undefined) {
           results.set(path, { path, exists });
           continue;
         }
         try {
-          assertNormalizedVideoProbe(await probeVideoFile(await realpath(candidate)));
+          const error = await mediaValidationError(mediaKind, await realpath(candidate));
+          if (error !== undefined) {
+            results.set(path, { path, exists: true, error });
+            continue;
+          }
           results.set(path, { path, exists: true });
         } catch (error) {
           results.set(path, {
             path,
             exists: true,
-            error: error instanceof VideoMediaError
-              ? error.code
-              : "VIDEO_ASSET_PROBE_FAILED",
+            error: mediaKind === "video" ? "VIDEO_ASSET_PROBE_FAILED" : mediaKind === "image" ? "IMAGE_DECODE_FAILED" : "SPEECH_DECODE_FAILED",
           });
         }
       } catch {
@@ -695,15 +705,23 @@ export async function startNarracutServer({
           Array.isArray(Reflect.get(input, "videoPaths"))
             ? Reflect.get(input, "videoPaths")
             : [];
+        const imagePathsValue: unknown =
+          typeof input === "object" && input !== null &&
+          Array.isArray(Reflect.get(input, "imagePaths"))
+            ? Reflect.get(input, "imagePaths")
+            : [];
+        const speechPathsValue: unknown =
+          typeof input === "object" && input !== null &&
+          Array.isArray(Reflect.get(input, "speechPaths"))
+            ? Reflect.get(input, "speechPaths")
+            : [];
         const pathSet = new Set(paths);
-        if (
-          !Array.isArray(videoPathsValue) ||
-          videoPathsValue.length > Math.min(paths.length, 200) ||
-          !videoPathsValue.every(
-            (path: unknown) => typeof path === "string" && pathSet.has(path),
-          )
-        ) {
-          send(response, 400, "videoPaths 必须是 paths 的字符串子集，且不超过 200 项。");
+        const validSubset = (value: unknown): value is string[] =>
+          Array.isArray(value) &&
+          value.length <= Math.min(paths.length, 200) &&
+          value.every((path: unknown) => typeof path === "string" && pathSet.has(path));
+        if (!validSubset(videoPathsValue) || !validSubset(imagePathsValue) || !validSubset(speechPathsValue)) {
+          send(response, 400, "媒体类型路径必须是 paths 的字符串子集，且每类不超过 200 项。");
           return;
         }
         send(
@@ -715,6 +733,8 @@ export async function startNarracutServer({
               projectRealRoot,
               paths,
               new Set(videoPathsValue as string[]),
+              new Set(imagePathsValue),
+              new Set(speechPathsValue),
             ),
           }),
           "application/json; charset=utf-8",
@@ -855,11 +875,13 @@ export async function startNarracutServer({
         if (snapshotSource !== "saved" && snapshotSource !== "unsaved") {
           throw new HttpError(400, "快照版本说明必须是 saved 或 unsaved。");
         }
-        const availability = await preflightRenderMedia(structure.project, projectRoot);
-        const blocker = [
+        const mediaInspection = await inspectRenderMedia(structure.project, projectRoot);
+        const renderDiagnostics = sortAndDedupeDiagnostics([
           ...validateProjectConsistency(structure.project),
-          ...validateRenderReadiness(structure.project, availability),
-        ].find((diagnostic) => diagnostic.severity === "error");
+          ...validateRenderReadiness(structure.project, mediaInspection.availability),
+          ...mediaInspection.diagnostics,
+        ], structure.project.scenes.map((scene) => scene.id));
+        const blocker = renderDiagnostics.find((diagnostic) => diagnostic.severity === "error");
         if (blocker !== undefined) throw new HttpError(422, blocker.message);
         const serverAddress = server.address();
         if (serverAddress === null || typeof serverAddress === "string") {
@@ -873,7 +895,7 @@ export async function startNarracutServer({
               project: structure.project,
               mediaBaseUrl: `${serverUrl(serverHost, serverAddress.port)}/media/`,
               snapshotSource,
-              mediaAvailability: availability,
+              mediaAvailability: mediaInspection.availability,
             }),
           }),
           "application/json; charset=utf-8",
@@ -1227,7 +1249,6 @@ export async function startNarracutServer({
         error instanceof VideoImportJobError ||
         error instanceof SpeechGenerationJobError ||
         error instanceof RenderJobError ||
-        error instanceof RenderPreflightError ||
         error instanceof VideoThumbnailError
           ? error.statusCode
           : 500;

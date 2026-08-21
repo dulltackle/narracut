@@ -119,7 +119,7 @@ test.afterEach(async () => {
 test("首次生成期间保留 Draft，成功后 Speech 成为 Player 的时长来源", async ({ page }) => {
   await page.goto(server.url);
   await expect(page.getByTestId("player-draft-state")).toContainText("Draft · 5.0s");
-  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await page.getByRole("button", { name: "生成 Speech", exact: true }).click();
 
   const row = page.getByTestId("scene-row");
   await expect(row.getByText("正在生成", { exact: true })).toBeVisible();
@@ -146,7 +146,7 @@ test("安全提交无响应时退出等待态并保留 Draft", async ({ page }) 
     await new Promise<void>(() => undefined);
   });
   await page.goto(server.url);
-  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await page.getByRole("button", { name: "生成 Speech", exact: true }).click();
   resolveProvider?.();
 
   const row = page.getByTestId("scene-row");
@@ -183,7 +183,7 @@ test("重新生成失败时旧 Speech、Duration 与恢复动作保持可见", a
 
 test("取消生成后恢复 Draft，并把焦点送回对应 Speech 单元格", async ({ page }) => {
   await page.goto(server.url);
-  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await page.getByRole("button", { name: "生成 Speech", exact: true }).click();
 
   const row = page.getByTestId("scene-row");
   await expect(row.getByText("正在生成", { exact: true })).toBeVisible();
@@ -197,7 +197,7 @@ test("取消生成后恢复 Draft，并把焦点送回对应 Speech 单元格", 
 
 test("快速双击只会为同一 Scene 创建一个 Speech 任务", async ({ page }) => {
   await page.goto(server.url);
-  await page.getByRole("button", { name: "生成 Speech" }).dblclick();
+  await page.getByRole("button", { name: "生成 Speech", exact: true }).dblclick();
 
   await expect(page.getByTestId("scene-row").getByText("正在生成", { exact: true }))
     .toBeVisible();
@@ -209,7 +209,7 @@ test("快速双击只会为同一 Scene 创建一个 Speech 任务", async ({ pa
 
 test("删除生成中的 Scene 不取消 Job，迟到 Speech 被丢弃且 Undo 不复活结果", async ({ page }) => {
   await page.goto(server.url);
-  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await page.getByRole("button", { name: "生成 Speech", exact: true }).click();
   await expect(page.getByTestId("scene-row").getByText("正在生成", { exact: true }))
     .toBeVisible();
 
@@ -227,7 +227,7 @@ test("删除生成中的 Scene 不取消 Job，迟到 Speech 被丢弃且 Undo �
 
   await page.getByRole("button", { name: "撤销：删除 Scene 01" }).click();
   await expect(page.getByTestId("scene-row")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "生成 Speech" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成 Speech", exact: true })).toBeVisible();
   expect(JSON.parse(await readFile(projectFile, "utf8")).scenes[0].speech).toBeUndefined();
   expect(providerCalls).toBe(1);
 });

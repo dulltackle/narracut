@@ -96,7 +96,7 @@ test("同一 Narration 在 750ms 内合并，空闲后形成新事务，并与 S
   await undo.click();
   await expect(narration).toHaveValue("第一轮 B");
   await expect(
-    page.getByTestId("scene-row").first().getByRole("button", { name: "生成 Speech" }),
+    page.getByTestId("scene-row").first().getByRole("button", { name: "生成 Speech", exact: true }),
   ).toBeVisible();
   await expect(page.getByTestId("scene-row").first()).toContainText(
     "Draft Duration",

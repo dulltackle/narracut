@@ -270,13 +270,16 @@ export function validateProjectConsistency(project: Project): Diagnostic[] {
       });
     }
     visibleTextFields.forEach(({ value, path }) => {
-      findUnsupportedFontCodePoints(value).slice(0, 8).forEach(({ character, codePoint }) => {
+      findUnsupportedFontCodePoints(value).forEach(({ character, codePoint }) => {
         diagnostics.push({
           code: "FONT_COVERAGE_UNSUPPORTED",
-          severity: "warning",
+          severity: "error",
           path,
-          message: `内置字体可能不覆盖字符“${character}”（U+${codePoint.toString(16).toUpperCase()}），请在 Player 中检查或替换。`,
+          message: `项目字体不覆盖字符“${character}”（U+${codePoint.toString(16).toUpperCase()}）；请替换该字符后再渲染。`,
           sceneId: scene.id,
+          character,
+          codePoint,
+          origins: ["font"],
         });
       });
     });

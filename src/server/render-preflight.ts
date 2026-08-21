@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, sep } from "node:path";
 
 import sharp from "sharp";
 
-import type { Project } from "../shared/project";
+import type { Diagnostic, Project } from "../shared/project";
 import {
   assertNormalizedVideoProbe,
   probeVideoFile,
@@ -27,33 +27,53 @@ export class RenderPreflightError extends Error {
 type MediaEntry = {
   path: string;
   kind: "image" | "video" | "speech";
-  sceneId?: string;
+  targets: Array<{
+    sceneId?: string;
+    assetId?: string;
+    diagnosticPath: Array<string | number>;
+  }>;
 };
+
+function addMediaEntry(
+  entries: Map<string, MediaEntry>,
+  path: string,
+  kind: MediaEntry["kind"],
+  target: MediaEntry["targets"][number],
+): void {
+  const existing = entries.get(path);
+  if (existing !== undefined) {
+    existing.targets.push(target);
+    return;
+  }
+  entries.set(path, { path, kind, targets: [target] });
+}
 
 export function referencedRenderMedia(project: Project): MediaEntry[] {
   const entries = new Map<string, MediaEntry>();
-  for (const scene of project.scenes) {
-    if (scene.speech !== undefined && !entries.has(scene.speech.path)) {
-      entries.set(scene.speech.path, {
-        path: scene.speech.path,
-        kind: "speech",
+  for (const [sceneIndex, scene] of project.scenes.entries()) {
+    if (scene.speech !== undefined) {
+      addMediaEntry(entries, scene.speech.path, "speech", {
         sceneId: scene.id,
+        diagnosticPath: ["scenes", sceneIndex, "speech", "path"],
       });
     }
     if (!("assetId" in scene.visual) || scene.visual.assetId === undefined) continue;
     const assetId = scene.visual.assetId;
     const asset = project.assets.find((candidate) => candidate.id === assetId);
-    if (asset !== undefined && !entries.has(asset.path)) {
-      entries.set(asset.path, {
-        path: asset.path,
-        kind: asset.kind,
+    if (asset !== undefined) {
+      addMediaEntry(entries, asset.path, asset.kind, {
         sceneId: scene.id,
+        assetId: asset.id,
+        diagnosticPath: ["scenes", sceneIndex, "visual", "assetId"],
       });
     }
   }
   const logo = project.assets.find((asset) => asset.id === project.theme.logoAssetId);
-  if (logo !== undefined && !entries.has(logo.path)) {
-    entries.set(logo.path, { path: logo.path, kind: logo.kind });
+  if (logo !== undefined) {
+    addMediaEntry(entries, logo.path, logo.kind, {
+      assetId: logo.id,
+      diagnosticPath: ["theme", "logoAssetId"],
+    });
   }
   return [...entries.values()];
 }
@@ -117,47 +137,100 @@ async function assertNormalizedVideoAsset(file: string): Promise<void> {
   assertNormalizedVideoProbe(await probeVideoFile(file));
 }
 
-export async function preflightRenderMedia(
+async function assertNormalizedImageAsset(file: string): Promise<void> {
+  const metadata = await sharp(file, { animated: true }).metadata();
+  if (metadata.width === undefined || metadata.height === undefined) {
+    throw new Error("图片没有有效尺寸。");
+  }
+  if (
+    metadata.format !== "png" ||
+    metadata.width !== 1920 ||
+    metadata.height !== 1080 ||
+    metadata.depth !== "uchar" ||
+    metadata.space !== "srgb" ||
+    (metadata.pages ?? 1) !== 1
+  ) {
+    const error = new Error("Image Asset 不是 1920×1080、8-bit sRGB 的单帧 PNG。");
+    error.name = "ImageAssetNotNormalizedError";
+    throw error;
+  }
+}
+
+export async function mediaValidationError(
+  kind: MediaEntry["kind"],
+  file: string,
+): Promise<string | undefined> {
+  try {
+    if (kind === "image") await assertNormalizedImageAsset(file);
+    else if (kind === "video") await assertNormalizedVideoAsset(file);
+    else await assertAudioStream(file);
+    return undefined;
+  } catch (error) {
+    if (kind === "video" && error instanceof VideoMediaError) return error.code;
+    if (error instanceof Error && error.name === "ImageAssetNotNormalizedError") {
+      return "IMAGE_ASSET_NOT_NORMALIZED";
+    }
+    return kind === "speech"
+      ? "SPEECH_DECODE_FAILED"
+      : kind === "image"
+        ? "IMAGE_DECODE_FAILED"
+        : "VIDEO_DECODE_FAILED";
+  }
+}
+
+export type RenderMediaInspection = {
+  availability: Record<string, boolean>;
+  diagnostics: Diagnostic[];
+};
+
+export async function inspectRenderMedia(
   project: Project,
   projectRoot: string,
-): Promise<Record<string, boolean>> {
+): Promise<RenderMediaInspection> {
   const projectRealRoot = await realpath(projectRoot);
   const availability: Record<string, boolean> = {};
+  const diagnostics: Diagnostic[] = [];
   for (const entry of referencedRenderMedia(project)) {
     const file = await containedFile(projectRealRoot, projectRoot, entry.path);
     availability[entry.path] = file !== undefined;
     if (file === undefined) continue;
-    try {
-      if (entry.kind === "image") {
-        const metadata = await sharp(file).metadata();
-        if (metadata.width === undefined || metadata.height === undefined) {
-          throw new Error("图片没有有效尺寸。");
-        }
-      } else if (entry.kind === "video") {
-        await assertNormalizedVideoAsset(file);
-      } else {
-        await assertAudioStream(file);
-      }
-    } catch (error) {
-      if (error instanceof VideoMediaError && error.code === "VIDEO_ASSET_NOT_NORMALIZED") {
-        throw new RenderPreflightError(
-          "VIDEO_ASSET_NOT_NORMALIZED",
-          `Video Asset 不符合渲染规范：${entry.path}（${error.message}）`,
-          entry.sceneId,
-          entry.path,
-        );
-      }
-      throw new RenderPreflightError(
-        entry.kind === "speech"
-          ? "SPEECH_DECODE_FAILED"
-          : entry.kind === "image"
-            ? "IMAGE_DECODE_FAILED"
-            : "VIDEO_DECODE_FAILED",
-        `${entry.kind === "speech" ? "Speech" : entry.kind === "image" ? "Image Asset" : "Video Asset"} 无法解码：${entry.path}`,
-        entry.sceneId,
-        entry.path,
-      );
+    const code = await mediaValidationError(entry.kind, file);
+    if (code !== undefined) {
+      const subject = entry.kind === "speech"
+        ? "Speech"
+        : entry.kind === "image"
+          ? "Image Asset"
+          : "Video Asset";
+      entry.targets.forEach((target) => diagnostics.push({
+          code,
+          severity: "error",
+          path: target.diagnosticPath,
+          message: code.endsWith("NOT_NORMALIZED")
+            ? `${subject} 不符合渲染规范：${entry.path}`
+            : `${subject} 无法解码：${entry.path}`,
+          sceneId: target.sceneId,
+          assetId: target.assetId,
+          relativePath: entry.path,
+          origins: [entry.kind === "speech" ? "speech" : "media"],
+      }));
     }
   }
-  return availability;
+  return { availability, diagnostics };
+}
+
+export async function preflightRenderMedia(
+  project: Project,
+  projectRoot: string,
+): Promise<Record<string, boolean>> {
+  const inspection = await inspectRenderMedia(project, projectRoot);
+  const blocker = inspection.diagnostics[0];
+  if (blocker !== undefined) {
+    throw new RenderPreflightError(
+      blocker.code,
+      blocker.message,
+      blocker.sceneId,
+      blocker.relativePath,
+    );
+  }
+  return inspection.availability;
 }

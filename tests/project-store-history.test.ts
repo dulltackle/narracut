@@ -471,6 +471,16 @@ describe("Project DSL 事务历史", () => {
       sourceTextHash: `sha256:${"1".repeat(64)}`,
       ttsProfileId: "narracut-mandarin-news-v1",
     };
+    useProjectStore.setState({
+      mediaDiagnostics: [{
+        code: "SPEECH_DECODE_FAILED",
+        severity: "error",
+        path: ["scenes", 0, "speech", "path"],
+        message: "旧 Speech 已损坏",
+        sceneId,
+        relativePath: speech.path,
+      }],
+    });
     const accepted = await useProjectStore.getState().applyJobResult({
       kind: "speech",
       jobId: "speech-job-accepted",
@@ -483,6 +493,7 @@ describe("Project DSL 事务历史", () => {
     expect(accepted).toBe(true);
     expect(useProjectStore.getState().project?.scenes[0].speech).toEqual(speech);
     expect(useProjectStore.getState().historyNotice).toBe("Speech 已应用 · 可撤销");
+    expect(useProjectStore.getState().mediaDiagnostics).toEqual([]);
 
     useProjectStore.getState().updateNarration(sceneId, "后来修改的旁白");
     useProjectStore.getState().endTextTransaction();
@@ -559,6 +570,17 @@ describe("Project DSL 事务历史", () => {
   });
 
   it("Asset Job 以稳定 Scene ID 和 Visual 前提原子回填 catalog 与绑定", async () => {
+    useProjectStore.setState({
+      mediaDiagnostics: [{
+        code: "IMAGE_DECODE_FAILED",
+        severity: "error",
+        path: ["scenes", 0, "visual", "assetId"],
+        message: "旧 Image 已损坏",
+        sceneId,
+        assetId: imageAssetId,
+        relativePath: `assets/${imageAssetId}.png`,
+      }],
+    });
     const accepted = await useProjectStore.getState().applyJobResult({
       kind: "asset",
       sceneId,
@@ -580,6 +602,7 @@ describe("Project DSL 事务历史", () => {
       visual: { type: "image", assetId: importedAssetId },
     });
     expect(useProjectStore.getState().historyNotice).toBe("Asset 已应用 · 可撤销");
+    expect(useProjectStore.getState().mediaDiagnostics).toEqual([]);
     expect(useProjectStore.getState().undoStack.at(-1)?.label).toBe(
       "应用 Scene 01 Asset",
     );

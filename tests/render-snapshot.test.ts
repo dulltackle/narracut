@@ -12,14 +12,16 @@ import {
   findSceneAtFrame,
   frameForSceneOffset,
   projectMediaUrl,
+  validateRenderReadiness,
   VIDEO_FPS,
 } from "../src/remotion/render-snapshot";
 
+const imageAssetId = "70000000-0000-4000-8000-000000000010";
 const project: Project = {
   schemaVersion: 3,
   metadata: { name: "快照夹具" },
   theme: DEFAULT_PROJECT_THEME,
-  assets: [],
+  assets: [{ id: imageAssetId, kind: "image", path: `assets/${imageAssetId}.png` }],
   scenes: [
     {
       id: "70000000-0000-4000-8000-000000000001",
@@ -47,7 +49,7 @@ const project: Project = {
         sourceTextHash: `sha256:${"1".repeat(64)}`,
         ttsProfileId: "narracut/test@1",
       },
-      visual: { type: "image", caption: { text: "继承默认" } },
+      visual: { type: "image", assetId: imageAssetId, caption: { text: "继承默认" } },
       transition: "cut",
     },
   ],
@@ -137,6 +139,24 @@ describe("Remotion 渲染快照", () => {
       .toThrow("Scene 01 缺少 Speech");
   });
 
+  it("Render-ready 一次聚合空 Narration、缺 Asset 与缺 Speech", () => {
+    const draftProject: Project = {
+      ...project,
+      scenes: [{
+        id: "70000000-0000-4000-8000-000000000099",
+        narration: { text: "   " },
+        visual: { type: "image" },
+        transition: "cut",
+      }],
+    };
+
+    expect(validateRenderReadiness(draftProject)).toMatchObject([
+      { code: "NARRATION_EMPTY", sceneId: draftProject.scenes[0].id },
+      { code: "SCENE_ASSET_REQUIRED", sceneId: draftProject.scenes[0].id },
+      { code: "SPEECH_MISSING", sceneId: draftProject.scenes[0].id },
+    ]);
+  });
+
   it("Preview 以逐 Scene 半开区间派生 Draft RenderPlan", () => {
     const previewProject: Project = {
       ...project,
@@ -223,6 +243,36 @@ describe("Remotion 渲染快照", () => {
     expect(() =>
       createRenderSnapshot(blockedProject, "http://127.0.0.1:3579/media/"),
     ).toThrow("缺少 Text Style Preset");
+  });
+
+  it("Preview 把缺字诊断限制到受影响的 Narration 或 Visual 文字层", () => {
+    const unsupported = "\u{10FFFF}";
+    const preview = createPreviewSnapshot({
+      ...project,
+      scenes: [
+        {
+          ...project.scenes[0],
+          narration: { text: `Narration ${unsupported}` },
+        },
+        {
+          ...project.scenes[1],
+          visual: {
+            type: "image",
+            assetId: imageAssetId,
+            caption: { text: `Caption ${unsupported}` },
+          },
+        },
+      ],
+    }, "http://127.0.0.1:3579/media/");
+
+    expect(preview.scenes[0].textBlockers).toMatchObject({
+      narration: [{ code: "FONT_COVERAGE_UNSUPPORTED", character: unsupported }],
+      visual: [],
+    });
+    expect(preview.scenes[1].textBlockers).toMatchObject({
+      narration: [],
+      visual: [{ code: "FONT_COVERAGE_UNSUPPORTED", character: unsupported }],
+    });
   });
 
   it("唯一媒体 URL 纯函数逐段编码项目相对路径", () => {

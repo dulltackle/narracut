@@ -23,6 +23,10 @@ export type ResolvedScene = {
   textPresentation?: ReturnType<typeof resolveTextPresentation> & {
     scale: number;
   };
+  textBlockers: {
+    narration: Diagnostic[];
+    visual: Diagnostic[];
+  };
 };
 
 export type RenderPlan = {
@@ -160,6 +164,20 @@ function createSnapshot(
       scene,
       durationInFrames,
       startFrame,
+      textBlockers: {
+        narration: consistencyDiagnostics.filter(
+          (diagnostic) =>
+            diagnostic.code === "FONT_COVERAGE_UNSUPPORTED" &&
+            diagnostic.sceneId === scene.id &&
+            diagnostic.path.includes("narration"),
+        ),
+        visual: consistencyDiagnostics.filter(
+          (diagnostic) =>
+            diagnostic.code === "FONT_COVERAGE_UNSUPPORTED" &&
+            diagnostic.sceneId === scene.id &&
+            diagnostic.path.includes("visual"),
+        ),
+      },
       ...(block === undefined || resolved === undefined || resolved.style === undefined
         ? {}
         : {
@@ -234,6 +252,26 @@ export function validateRenderReadiness(
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   project.scenes.forEach((scene, index) => {
+    if (scene.narration.text.trim() === "") {
+      diagnostics.push({
+        code: "NARRATION_EMPTY",
+        severity: "error",
+        path: ["scenes", index, "narration", "text"],
+        message: `Scene ${String(index + 1).padStart(2, "0")} 的 Narration 为空；请先补充旁白文本。`,
+        sceneId: scene.id,
+        origins: ["consistency"],
+      });
+    }
+    if (scene.visual.type !== "card" && scene.visual.assetId === undefined) {
+      diagnostics.push({
+        code: "SCENE_ASSET_REQUIRED",
+        severity: "error",
+        path: ["scenes", index, "visual", "assetId"],
+        message: `Scene ${String(index + 1).padStart(2, "0")} 尚未绑定 ${scene.visual.type === "image" ? "Image" : "Video"} Asset。`,
+        sceneId: scene.id,
+        origins: ["consistency"],
+      });
+    }
     if (scene.speech === undefined) {
       diagnostics.push({
         code: "SPEECH_MISSING",
@@ -241,6 +279,7 @@ export function validateRenderReadiness(
         path: ["scenes", index, "speech"],
         message: `Scene ${String(index + 1).padStart(2, "0")} 缺少 Speech；Draft Duration 仅用于 Preview。`,
         sceneId: scene.id,
+        origins: ["speech"],
       });
     } else if (mediaAvailability[scene.speech.path] === false) {
       diagnostics.push({
@@ -249,6 +288,8 @@ export function validateRenderReadiness(
         path: ["scenes", index, "speech", "path"],
         message: `Speech 文件不存在：${scene.speech.path}`,
         sceneId: scene.id,
+        relativePath: scene.speech.path,
+        origins: ["speech"],
       });
     }
     if (scene.visual.type !== "card" && scene.visual.assetId !== undefined) {
@@ -261,6 +302,9 @@ export function validateRenderReadiness(
           path: ["scenes", index, "visual", "assetId"],
           message: `Visual 文件不存在：${asset.path}`,
           sceneId: scene.id,
+          assetId: asset.id,
+          relativePath: asset.path,
+          origins: ["media"],
         });
       }
     }
@@ -272,6 +316,9 @@ export function validateRenderReadiness(
       severity: "error",
       path: ["theme", "logoAssetId"],
       message: `Logo 文件不存在：${logo.path}`,
+      assetId: logo.id,
+      relativePath: logo.path,
+      origins: ["media"],
     });
   }
   return diagnostics;

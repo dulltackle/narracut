@@ -151,7 +151,11 @@ test("未知 Preset ID 原样可见，并可从相关字段恢复", async ({ pag
   await page.goto(server.url);
 
   await expect(page.getByTestId("global-workbench")).toBeVisible();
-  await expect(page.getByTestId("scene-row").first().locator(".status-error")).toHaveText("渲染阻断");
+  await expect(
+    page.getByTestId("scene-row").first().getByRole("button", {
+      name: "阻断：恢复内置文字设置，另有 1 项",
+    }),
+  ).toBeVisible();
   await page.getByRole("tab", { name: "项目" }).click();
   await expect(page.getByText("vendor/missing-theme@4", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "恢复内置主题" }).click();

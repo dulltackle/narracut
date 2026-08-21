@@ -170,6 +170,7 @@ export type RenderJob = {
   };
   snapshotPlan: Array<{
     sceneId: string;
+    sequenceName: string;
     startFrame: number;
     durationInFrames: number;
   }>;
@@ -179,6 +180,8 @@ export type RenderJob = {
     message: string;
     sceneId?: string;
     frame?: number;
+    sequenceName?: string;
+    frameRange?: { startFrame: number; endFrame: number };
   };
 };
 

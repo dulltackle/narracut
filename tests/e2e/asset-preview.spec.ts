@@ -335,7 +335,7 @@ test("悬空 Asset ID 只显示诊断，kind 不匹配时按 Asset 真实 kind �
   await page.goto(server.url);
 
   await expect(page.getByTestId("global-workbench")).toBeVisible();
-  await expect(page.getByTestId("scene-row").nth(0)).toContainText("缺少 Asset");
+  await expect(page.getByTestId("scene-row").nth(0)).toContainText("重新绑定 Asset");
   await expect(page.getByRole("button", { name: /^预览 Scene 1 / })).toHaveCount(0);
   const realKindTrigger = page.getByRole("button", {
     name: "预览 Scene 2 Video Asset short.mp4",
@@ -365,6 +365,11 @@ test("编辑权被占用时预览入口仍可用，编辑动作保持禁用", as
     await expect(trigger).toBeEnabled();
     await trigger.click();
     await expect(readonlyPage.getByRole("dialog", { name: "still.png" })).toBeVisible();
+    await readonlyPage.getByRole("button", { name: "关闭" }).click();
+    const taskButton = readonlyPage.getByRole("button", { name: /任务/ });
+    await expect(taskButton).toBeEnabled();
+    await taskButton.click();
+    await expect(readonlyPage.getByRole("complementary", { name: "任务与渲染" })).toBeVisible();
   } finally {
     await editingContext.close();
     await readonlyContext.close();

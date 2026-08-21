@@ -178,4 +178,31 @@ describe("Render Job", () => {
       error: { code: "RENDER_WORKER_ERROR", message: "fork channel unavailable" },
     });
   });
+
+  it("保留 renderer 的 Scene、Sequence 与帧区间定位证据", async () => {
+    const projectRoot = await createProjectRoot("narracut-render-location-");
+    const worker = new FakeWorker();
+    const jobs = new RenderJobs(projectRoot, { workerFactory: () => worker });
+    const job = await jobs.create({
+      project: renderReadyProject("定位证据"),
+      mediaBaseUrl: "http://127.0.0.1:3579/media/",
+      snapshotSource: "saved",
+    });
+
+    worker.emit("message", {
+      type: "failed",
+      code: "RENDER_FRAME_FAILED",
+      message: "Scene 渲染失败",
+      sequenceName: `Scene ${sceneId}`,
+      frameRange: { startFrame: 2, endFrame: 4 },
+    });
+
+    expect(jobs.get(job.id)).toMatchObject({
+      snapshotPlan: [{ sceneId, sequenceName: `Scene ${sceneId}` }],
+      error: {
+        sequenceName: `Scene ${sceneId}`,
+        frameRange: { startFrame: 2, endFrame: 4 },
+      },
+    });
+  });
 });

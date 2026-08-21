@@ -132,7 +132,7 @@ describe("Project DSL V3", () => {
     );
   });
 
-  it("把内置字体未覆盖的字符与码位作为可定位提醒", () => {
+  it("把内置字体未覆盖的字符与码位作为可定位阻断", () => {
     const structure = validateProjectStructure({
       schemaVersion: 3,
       metadata: {},
@@ -153,9 +153,11 @@ describe("Project DSL V3", () => {
     expect(validateProjectConsistency(structure.project)).toContainEqual(
       expect.objectContaining({
         code: "FONT_COVERAGE_UNSUPPORTED",
-        severity: "warning",
+        severity: "error",
         path: ["scenes", 0, "narration", "text"],
         sceneId,
+        character: "\u{10FFFF}",
+        codePoint: 0x10ffff,
         message: expect.stringContaining("U+10FFFF"),
       }),
     );
