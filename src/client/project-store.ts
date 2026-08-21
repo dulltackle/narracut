@@ -203,7 +203,24 @@ let leaseRenewTimer: ReturnType<typeof setInterval> | undefined;
 let leaseRecheckTimer: ReturnType<typeof setTimeout> | undefined;
 let loadGeneration = 0;
 let lifecycleListenersInstalled = false;
-const sessionId = createClientUuid();
+const PROJECT_SESSION_STORAGE_KEY = "narracut:project-session-id";
+
+function getOrCreateProjectSessionId(): string {
+  if (typeof window === "undefined") return createClientUuid();
+  try {
+    const existing = window.sessionStorage.getItem(PROJECT_SESSION_STORAGE_KEY);
+    if (existing !== null && existing.length > 0 && existing.length <= 128) {
+      return existing;
+    }
+    const created = createClientUuid();
+    window.sessionStorage.setItem(PROJECT_SESSION_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return createClientUuid();
+  }
+}
+
+const sessionId = getOrCreateProjectSessionId();
 export const getProjectSessionId = (): string => sessionId;
 let nextHistoryEntryId = 0;
 let historyOperationToken = 0;

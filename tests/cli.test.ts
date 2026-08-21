@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runCli } from "../src/server/cli";
-import type { RunningServer } from "../src/server/server";
+import { startNarracutServer, type RunningServer } from "../src/server/server";
 
 const runningServers: RunningServer[] = [];
 
@@ -104,8 +104,6 @@ describe("pnpm start <项目路径>", () => {
     const providerFetch = providerRequest as unknown as typeof fetch;
     delete process.env.TOKENDANCE_API_KEY;
     delete process.env.NARRACUT_HOST;
-    globalThis.fetch = providerFetch;
-
     let server: RunningServer | undefined;
     try {
       server = await runCli({
@@ -114,9 +112,12 @@ describe("pnpm start <项目路径>", () => {
         initialPort: 0,
         log: () => undefined,
         envFile,
+        startServer: (options) => startNarracutServer({
+          ...options,
+          ttsFetch: providerFetch,
+        }),
       });
       runningServers.push(server);
-      globalThis.fetch = originalFetch;
 
       const sessionId = "cli-env-test";
       await originalFetch(`${server.url}/api/project/lease`, {
@@ -147,7 +148,6 @@ describe("pnpm start <项目路径>", () => {
         headers: { authorization: "Bearer fake-cli-key" },
       });
     } finally {
-      globalThis.fetch = originalFetch;
       if (originalApiKey === undefined) delete process.env.TOKENDANCE_API_KEY;
       else process.env.TOKENDANCE_API_KEY = originalApiKey;
       if (originalHost === undefined) delete process.env.NARRACUT_HOST;

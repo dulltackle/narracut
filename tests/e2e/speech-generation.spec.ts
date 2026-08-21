@@ -11,6 +11,7 @@ import { startNarracutServer, type RunningServer } from "../../src/server/server
 
 const execFileAsync = promisify(execFile);
 const sceneId = "8b000000-0000-4000-8000-000000000001";
+const secondSceneId = "8b000000-0000-4000-8000-000000000002";
 const narrationText = "请确认样本架已经放置到位。";
 const durationMs = 468;
 let server: RunningServer;
@@ -19,6 +20,7 @@ let projectFile: string;
 let providerAudio: Buffer;
 let providerMode: "pending" | "auth-failure";
 let resolveProvider: (() => void) | undefined;
+let resolveProviders: Array<() => void>;
 let providerCalls: number;
 
 function sourceTextHash(text: string): string {
@@ -80,6 +82,7 @@ test.beforeEach(async () => {
   providerMode = "pending";
   providerCalls = 0;
   resolveProvider = undefined;
+  resolveProviders = [];
   const ttsFetch: typeof fetch = async (_input, init) => {
     providerCalls += 1;
     if (providerMode === "auth-failure") {
@@ -89,6 +92,7 @@ test.beforeEach(async () => {
     }
     await new Promise<void>((resolvePromise, rejectPromise) => {
       resolveProvider = resolvePromise;
+      resolveProviders.push(resolvePromise);
       init?.signal?.addEventListener(
         "abort",
         () => rejectPromise(new DOMException("Aborted", "AbortError")),
@@ -205,6 +209,47 @@ test("快速双击只会为同一 Scene 创建一个 Speech 任务", async ({ pa
   resolveProvider?.();
   await expect(page.getByTestId("scene-row").getByText("已生成 · 可撤销"))
     .toBeVisible();
+});
+
+test("不同 Scene 的 Speech Job 可以并发并独立完成", async ({ page }) => {
+  const concurrentProject = projectWithSpeech();
+  concurrentProject.scenes.push({
+    id: secondSceneId,
+    narration: { text: "第二个 Scene 同时生成。" },
+    visual: { type: "card", title: "并发 Speech" },
+    transition: "cut",
+  });
+  await writeFile(projectFile, `${JSON.stringify(concurrentProject)}\n`);
+  await page.goto(server.url);
+
+  const rows = page.getByTestId("scene-row");
+  await rows.nth(0).getByRole("button", { name: "生成 Speech", exact: true }).click();
+  await rows.nth(1).getByRole("button", { name: "生成 Speech", exact: true }).click();
+  await expect(page.getByTestId("scene-row").getByText("正在生成", { exact: true }))
+    .toHaveCount(2);
+  expect(providerCalls).toBe(2);
+
+  for (const resolve of resolveProviders) resolve();
+  await expect(page.getByTestId("scene-row").getByText("已生成 · 可撤销"))
+    .toHaveCount(2);
+});
+
+test("刷新后恢复活跃 Speech，并把未知前提的迟到结果安全丢弃", async ({ page }) => {
+  await page.goto(server.url);
+  await page.getByRole("button", { name: "生成 Speech", exact: true }).click();
+  await expect(page.getByTestId("scene-row").getByText("正在生成", { exact: true }))
+    .toBeVisible();
+
+  await page.reload();
+  await expect(page.getByTestId("scene-row").getByText("正在生成", { exact: true }))
+    .toBeVisible();
+  resolveProvider?.();
+
+  await expect(page.getByTestId("speech-generation-task")).toContainText(
+    "结果未应用 · 当前 Speech 已改变",
+  );
+  expect((JSON.parse(await readFile(projectFile, "utf8"))).scenes[0].speech)
+    .toBeUndefined();
 });
 
 test("删除生成中的 Scene 不取消 Job，迟到 Speech 被丢弃且 Undo 不复活结果", async ({ page }) => {

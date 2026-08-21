@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
-import type { RenderJob } from "../shared/jobs";
+import { canApplyJobUpdate, isActiveJob, type RenderJob } from "../shared/jobs";
+import { connectJobEvents, type JobEventOrigin } from "./job-events";
 import { getProjectSessionId, useProjectStore } from "./project-store";
 
 type RenderJobState = {
@@ -10,6 +11,7 @@ type RenderJobState = {
   starting: boolean;
   startError?: string;
   openError?: string;
+  cancelError?: string;
   connect: () => () => void;
   start: () => Promise<void>;
   cancel: (jobId: string) => Promise<void>;
@@ -29,9 +31,11 @@ export const renderStageCopy: Record<RenderJob["stage"], string> = {
   failed: "渲染失败",
 };
 
-function receiveServerJob(incoming: RenderJob): void {
+function receiveServerJob(incoming: RenderJob, origin: JobEventOrigin = "event"): void {
   if (incoming.type !== "render") return;
   const current = useRenderJobStore.getState().jobs[incoming.id];
+  if (current === undefined && origin === "snapshot" && !isActiveJob(incoming)) return;
+  if (current !== undefined && !canApplyJobUpdate(current, incoming)) return;
   const changed = current?.stage !== incoming.stage || current?.status !== incoming.status;
   useRenderJobStore.setState((state) => ({
     jobs: { ...state.jobs, [incoming.id]: incoming },
@@ -62,17 +66,12 @@ export const useRenderJobStore = create<RenderJobState>((set, get) => ({
   starting: false,
   connect: () => {
     if (get().connected) return () => undefined;
-    const source = new EventSource("/api/jobs/events");
     set({ connected: true });
-    const onJob = (event: MessageEvent<string>) => {
-      const job = JSON.parse(event.data) as { type?: string };
-      if (job.type === "render") receiveServerJob(job as RenderJob);
-    };
-    source.addEventListener("job", onJob as EventListener);
-    source.onerror = () => set({ announcement: "渲染进度连接已中断，正在重新连接" });
+    const disconnect = connectJobEvents((job, origin) => {
+      if (job.type === "render") receiveServerJob(job, origin);
+    });
     return () => {
-      source.removeEventListener("job", onJob as EventListener);
-      source.close();
+      disconnect();
       set({ connected: false });
     };
   },
@@ -108,6 +107,7 @@ export const useRenderJobStore = create<RenderJobState>((set, get) => ({
     }
   },
   cancel: async (jobId) => {
+    set({ cancelError: undefined });
     try {
       const response = await fetch(`/api/jobs/${jobId}`, {
         method: "DELETE",
@@ -116,8 +116,10 @@ export const useRenderJobStore = create<RenderJobState>((set, get) => ({
       if (!response.ok) throw new Error((await response.text()) || "无法取消 Render Job。");
       receiveServerJob(await response.json() as RenderJob);
     } catch (error) {
+      const message = error instanceof Error ? error.message : "无法取消 Render Job。";
       set({
-        startError: error instanceof Error ? error.message : "无法取消 Render Job。",
+        startError: message,
+        cancelError: message,
         announcement: "取消 Render Job 失败",
       });
     }

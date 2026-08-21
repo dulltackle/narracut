@@ -40,6 +40,7 @@ import {
   validateRenderReadiness,
 } from "../remotion/render-snapshot";
 import { useProjectStore } from "./project-store";
+import { PROJECT_SWITCH_EVENT } from "./project-switch";
 import {
   imageImportStageCopy,
   latestImageJobForScene,
@@ -75,6 +76,13 @@ import {
   type CardVisual,
   type VisualType,
 } from "./visual-migration";
+import {
+  isClientJobActive,
+  jobNeedsAttention,
+  TaskDrawer,
+  useJobDrawerSelection,
+  type ClientJob,
+} from "./task-drawer";
 import "./styles.css";
 
 const visualLabels: Record<Visual["type"], string> = {
@@ -366,15 +374,9 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   const persistedProjectName = useProjectStore((state) => state.project?.metadata.name);
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
   const projectDiagnostics = useProjectStore((state) => state.diagnostics);
-  const imageJobCount = useImageImportStore(
-    (state) => Object.keys(state.jobs).length,
-  );
-  const videoJobCount = useVideoImportStore(
-    (state) => Object.keys(state.jobs).length,
-  );
-  const speechJobCount = useSpeechGenerationStore(
-    (state) => Object.keys(state.jobs).length,
-  );
+  const imageJobs = useImageImportStore((state) => state.jobs);
+  const videoJobs = useVideoImportStore((state) => state.jobs);
+  const speechJobs = useSpeechGenerationStore((state) => state.jobs);
   const renderJobs = useRenderJobStore((state) => state.jobs);
   const renderStarting = useRenderJobStore((state) => state.starting);
   const startRender = useRenderJobStore((state) => state.start);
@@ -389,6 +391,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   const historyAnnouncement = useProjectStore((state) => state.historyAnnouncement);
   const historyEventId = useProjectStore((state) => state.historyEventId);
   const clearHistoryNotice = useProjectStore((state) => state.clearHistoryNotice);
+  const selectDrawerJob = useJobDrawerSelection((state) => state.selectJob);
   const [editingProjectName, setEditingProjectName] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState("");
   const [showLatestRenderResult, setShowLatestRenderResult] = useState(false);
@@ -397,6 +400,12 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
   const renderBlockers = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   const activeRender = activeRenderJob(renderJobs);
   const latestRender = latestRenderJob(renderJobs);
+  const actionJobCount = [
+    ...Object.values(imageJobs),
+    ...Object.values(videoJobs),
+    ...Object.values(speechJobs),
+    ...Object.values(renderJobs),
+  ].filter((job) => isClientJobActive(job) || jobNeedsAttention(job)).length;
   const undoEntry = undoStack.at(-1);
   const redoEntry = redoStack.at(-1);
   const undoLabel = undoEntry === undefined ? "撤销" : `撤销：${undoEntry.label}`;
@@ -461,6 +470,11 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
                 ? `检查并渲染 · ${renderBlockers.length}`
                 : "渲染 MP4";
   const handleRenderAction = () => {
+    if (activeRender !== undefined) {
+      selectDrawerJob(activeRender.id);
+      setTaskDrawerOpen(true);
+      return;
+    }
     if (showLatestRenderResult && latestRender?.status === "failed") {
       setTaskDrawerOpen(true);
       return;
@@ -482,7 +496,7 @@ function Topbar({ projectName, readOnly = false, controlsDisabled = false, rende
         {historyNotice === undefined ? null : <div key={historyEventId} className="history-feedback" role="status" aria-live="polite">{historyNotice}</div>}
         {historyAnnouncement === undefined ? null : <div key={historyEventId} className="sr-only" role="status" aria-live="polite" data-testid="history-announcement">{historyAnnouncement}</div>}
       </div>
-      <div className="top-actions"><button className="btn" data-task-trigger disabled={readOnly} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{diagnostics.length + imageJobCount + videoJobCount + speechJobCount + Object.keys(renderJobs).length}</span></button>{showLatestRenderResult && latestRender?.status === "succeeded" ? <button className="btn render-output-shortcut" type="button" onClick={() => void openOutput(latestRender.id)}><FolderOpen />打开产物目录</button> : null}<button className="btn primary render-primary" data-render-trigger disabled={readOnly || renderDisabled || renderStarting || activeRender !== undefined || (showLatestRenderResult && latestRender?.status === "succeeded")} onClick={handleRenderAction}><FilmSlate />{renderLabel}</button></div>
+      <div className="top-actions"><button className="btn" data-task-trigger disabled={readOnly} onClick={() => setTaskDrawerOpen(true)}><ListChecks />任务 <span className="count">{actionJobCount}</span></button>{showLatestRenderResult && latestRender?.status === "succeeded" ? <button className="btn render-output-shortcut" type="button" onClick={() => void openOutput(latestRender.id)}><FolderOpen />打开产物目录</button> : null}{activeRender === undefined ? <button className="btn primary render-primary" data-render-trigger disabled={readOnly || renderDisabled || renderStarting || (showLatestRenderResult && latestRender?.status === "succeeded")} onClick={handleRenderAction}><FilmSlate />{renderLabel}</button> : <span className="render-active-control"><button className="btn primary render-primary" data-render-trigger disabled><FilmSlate />{renderLabel}</button><button className="render-active-hit" type="button" aria-label="查看当前 Render Job 详情" onClick={handleRenderAction} /></span>}</div>
     </header>
   );
 }
@@ -1041,6 +1055,7 @@ function SpeechCell({ scene, sceneIndex }: { scene: Scene; sceneIndex: number })
   const cancel = useSpeechGenerationStore((state) => state.cancel);
   const retry = useSpeechGenerationStore((state) => state.retry);
   const setTaskDrawerOpen = useProjectStore((state) => state.setTaskDrawerOpen);
+  const selectDrawerJob = useJobDrawerSelection((state) => state.selectJob);
   const speechAvailable = useProjectStore((state) =>
     scene.speech === undefined
       ? false
@@ -1103,7 +1118,7 @@ function SpeechCell({ scene, sceneIndex }: { scene: Scene; sceneIndex: number })
         </span>
         <span className="speech-actions">
           <button className="speech-icon-button" type="button" aria-label={`重试 Scene ${sceneIndex + 1} Speech`} onClick={() => void retry(job.id)}><ArrowCounterClockwise /></button>
-          <button className="speech-icon-button" type="button" aria-label={`查看 Scene ${sceneIndex + 1} Speech 失败详情`} onClick={() => setTaskDrawerOpen(true)}><ListChecks /></button>
+          <button className="speech-icon-button" type="button" aria-label={`查看 Scene ${sceneIndex + 1} Speech 失败详情`} onClick={() => { selectDrawerJob(job.id); setTaskDrawerOpen(true); }}><ListChecks /></button>
         </span>
       </div>
     );
@@ -1740,17 +1755,21 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const imageJobs = useImageImportStore((state) => state.jobs);
   const imageJobAnnouncement = useImageImportStore((state) => state.announcement);
   const connectImageJobs = useImageImportStore((state) => state.connect);
+  const cancelImageJob = useImageImportStore((state) => state.cancel);
   const videoJobs = useVideoImportStore((state) => state.jobs);
   const videoJobAnnouncement = useVideoImportStore((state) => state.announcement);
   const connectVideoJobs = useVideoImportStore((state) => state.connect);
+  const cancelVideoJob = useVideoImportStore((state) => state.cancel);
   const speechJobs = useSpeechGenerationStore((state) => state.jobs);
   const speechJobAnnouncement = useSpeechGenerationStore((state) => state.announcement);
   const connectSpeechJobs = useSpeechGenerationStore((state) => state.connect);
+  const cancelSpeechJob = useSpeechGenerationStore((state) => state.cancel);
   const renderJobs = useRenderJobStore((state) => state.jobs);
   const renderJobAnnouncement = useRenderJobStore((state) => state.announcement);
   const renderStartError = useRenderJobStore((state) => state.startError);
   const renderOpenError = useRenderJobStore((state) => state.openError);
   const connectRenderJobs = useRenderJobStore((state) => state.connect);
+  const cancelRenderJob = useRenderJobStore((state) => state.cancel);
   const workspaceDisabled =
     occupied || externalConflict !== undefined || speechCommitInFlight;
   const [playing, setPlaying] = useState(false);
@@ -1782,6 +1801,11 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   }>();
   const [reorderNotice, setReorderNotice] = useState("");
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
+  const [projectSwitch, setProjectSwitch] = useState<{
+    destination: string;
+    cancelling: boolean;
+    error?: string;
+  }>();
   const [assetPreview, setAssetPreview] = useState<{
     sceneId: string;
     asset: Asset;
@@ -1841,6 +1865,108 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   useEffect(() => connectVideoJobs(), [connectVideoJobs]);
   useEffect(() => connectSpeechJobs(), [connectSpeechJobs]);
   useEffect(() => connectRenderJobs(), [connectRenderJobs]);
+  useEffect(() => {
+    const protectActiveJobs = (event: BeforeUnloadEvent) => {
+      const jobs = [
+        ...Object.values(useImageImportStore.getState().jobs),
+        ...Object.values(useVideoImportStore.getState().jobs),
+        ...Object.values(useSpeechGenerationStore.getState().jobs),
+        ...Object.values(useRenderJobStore.getState().jobs),
+      ];
+      if (!jobs.some((job) => isClientJobActive(job))) return;
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+    window.onbeforeunload = protectActiveJobs;
+    return () => {
+      if (window.onbeforeunload === protectActiveJobs) window.onbeforeunload = null;
+    };
+  }, []);
+  useEffect(() => {
+    const requestSwitch = (event: Event) => {
+      const destination = (event as CustomEvent<{ destination?: unknown }>).detail?.destination;
+      if (typeof destination !== "string") return;
+      let resolved: URL;
+      try {
+        resolved = new URL(destination, window.location.href);
+      } catch {
+        return;
+      }
+      if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return;
+      const jobs = [
+        ...Object.values(useImageImportStore.getState().jobs),
+        ...Object.values(useVideoImportStore.getState().jobs),
+        ...Object.values(useSpeechGenerationStore.getState().jobs),
+        ...Object.values(useRenderJobStore.getState().jobs),
+      ];
+      if (!jobs.some((job) => isClientJobActive(job))) {
+        window.location.assign(resolved.href);
+        return;
+      }
+      setProjectSwitch({ destination: resolved.href, cancelling: false });
+    };
+    window.addEventListener(PROJECT_SWITCH_EVENT, requestSwitch);
+    return () => window.removeEventListener(PROJECT_SWITCH_EVENT, requestSwitch);
+  }, []);
+
+  const cancelJobsAndSwitchProject = async () => {
+    if (projectSwitch === undefined || projectSwitch.cancelling) return;
+    const destination = projectSwitch.destination;
+    setProjectSwitch({ destination, cancelling: true });
+    const jobs = [
+      ...Object.values(useImageImportStore.getState().jobs),
+      ...Object.values(useVideoImportStore.getState().jobs),
+      ...Object.values(useSpeechGenerationStore.getState().jobs),
+      ...Object.values(useRenderJobStore.getState().jobs),
+    ].filter(isClientJobActive);
+    await Promise.all(jobs.map((job) => {
+      if (job.type === "render") return cancelRenderJob(job.id);
+      if (job.type === "speech-generation") return cancelSpeechJob(job.id);
+      if (job.type === "video-import") return cancelVideoJob(job.id);
+      return cancelImageJob(job.id);
+    }));
+    const renderCancellationError = useRenderJobStore.getState().cancelError;
+    if (renderCancellationError !== undefined) {
+      setProjectSwitch({
+        destination,
+        cancelling: false,
+        error: renderCancellationError,
+      });
+      return;
+    }
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const current = [
+        ...Object.values(useImageImportStore.getState().jobs),
+        ...Object.values(useVideoImportStore.getState().jobs),
+        ...Object.values(useSpeechGenerationStore.getState().jobs),
+        ...Object.values(useRenderJobStore.getState().jobs),
+      ];
+      const cancellationError = current.find((job) =>
+        "cancelError" in job && typeof job.cancelError === "string"
+      );
+      if (cancellationError !== undefined && "cancelError" in cancellationError) {
+        setProjectSwitch({
+          destination,
+          cancelling: false,
+          error: cancellationError.cancelError,
+        });
+        return;
+      }
+      if (!current.some(isClientJobActive)) {
+        setProjectSwitch(undefined);
+        window.location.assign(destination);
+        return;
+      }
+      await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 100));
+    }
+    setProjectSwitch({
+      destination,
+      cancelling: false,
+      error: "仍有任务未能进入终态。请查看任务详情后重试切换。",
+    });
+  };
   useEffect(() => {
     if (
       previousPreviewSnapshotRef.current !== previewSnapshot &&
@@ -2104,22 +2230,18 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
   const videoJobList = Object.values(videoJobs).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
   );
-  const assetJobList = [...imageJobList, ...videoJobList].sort((left, right) =>
-    right.createdAt.localeCompare(left.createdAt),
-  );
   const speechJobList = Object.values(speechJobs).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
   );
   const renderJobList = Object.values(renderJobs).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
   );
-  const currentRenderJob = renderJobList.find(
-    (job) =>
-      job.status === "queued" ||
-      job.status === "processing" ||
-      job.status === "cancelling",
-  );
-  const completedRenderJobs = renderJobList.filter((job) => job !== currentRenderJob);
+  const clientJobs = [
+    ...imageJobList,
+    ...videoJobList,
+    ...speechJobList,
+    ...renderJobList,
+  ] satisfies ClientJob[];
   const pendingImageProposal = imageJobList.find(
     (job) =>
       job.proposalDialogOpen &&
@@ -2255,6 +2377,26 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       path: [],
       sceneId: location?.sceneId,
       frame: location?.frame,
+    });
+  };
+
+  const locateJob = (job: ClientJob) => {
+    if (job.type === "render") {
+      navigateRenderJob(job);
+      return;
+    }
+    const sceneId = job.sceneId;
+    const scene = project.scenes.find((candidate) => candidate.id === sceneId);
+    if (scene === undefined) return;
+    selectScene(sceneId);
+    setTaskDrawerOpen(false);
+    requestAnimationFrame(() => {
+      const selector = job.type === "speech-generation"
+        ? `[data-speech-cell-scene-id="${sceneId}"]`
+        : `[data-asset-cell-scene-id="${sceneId}"]`;
+      const target = document.querySelector<HTMLElement>(selector);
+      target?.setAttribute("tabindex", "-1");
+      target?.focus();
     });
   };
 
@@ -2448,8 +2590,29 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
     setReorderAnnouncement(`Scene 将移动到第 ${targetIndex + 1} 项`);
   };
 
+  const projectSwitchDialog = projectSwitch === undefined ? null : (
+    <ModalFrame
+      title="当前项目仍有活跃任务"
+      description="切换项目会更换本地媒体服务根目录。请先让所有任务进入确定终态。"
+      dismissible={!projectSwitch.cancelling}
+      onCancel={() => setProjectSwitch(undefined)}
+      dialogRole="alertdialog"
+      footer={<>
+        <button className="btn" type="button" disabled={projectSwitch.cancelling} onClick={() => setProjectSwitch(undefined)}>留在当前项目</button>
+        <button className="btn primary" type="button" data-autofocus disabled={projectSwitch.cancelling} onClick={() => void cancelJobsAndSwitchProject()}>{projectSwitch.cancelling ? "正在取消任务" : "取消任务后切换"}</button>
+      </>}
+    >
+      <div className="project-switch-summary" data-testid="project-switch-guard">
+        <strong>{clientJobs.filter(isClientJobActive).length} 个任务仍在运行</strong>
+        <span>{[...new Set(clientJobs.filter(isClientJobActive).map((job) => job.kind))].join(" · ")}</span>
+        {projectSwitch.cancelling ? <p role="status"><CircleNotch className="spinner-inline" />正在等待全部任务进入终态…</p> : null}
+        {projectSwitch.error ? <p className="danger-text" role="alert"><WarningCircle weight="fill" />{projectSwitch.error}</p> : null}
+      </div>
+    </ModalFrame>
+  );
+
   if (project.scenes.length === 0) {
-    return <EmptyWorkspace project={project} projectName={projectName} diagnostics={diagnostics} controlsDisabled={workspaceDisabled} occupied={occupied} onThemeChange={(theme) => void updateTheme(theme)} onAddScene={addSingleScene} />;
+    return <><EmptyWorkspace project={project} projectName={projectName} diagnostics={diagnostics} controlsDisabled={workspaceDisabled} occupied={occupied} onThemeChange={(theme) => void updateTheme(theme)} onAddScene={addSingleScene} />{projectSwitchDialog}</>;
   }
 
   const bannerKind = occupied ? "lease" : migrationSavedNotice ? "migration-saved" : migrationPending ? "migration" : undefined;
@@ -2627,21 +2790,20 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
           </div>
         </section>
       </main>
-      <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen} aria-label="任务与渲染">
-        <header><h2>任务与渲染</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => { setTaskDrawerOpen(false); requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-task-trigger]")?.focus()); }}><X /></button></header>
-        <div className="task-groups">
-          {currentRenderJob ? <section><h3>当前渲染</h3><RenderJobTask job={currentRenderJob} onNavigate={navigateRenderJob} /></section> : null}
-          {completedRenderJobs.length > 0 ? <section><h3>渲染结果</h3><div className="render-job-list">{completedRenderJobs.map((job) => <RenderJobTask key={job.id} job={job} onNavigate={navigateRenderJob} />)}</div></section> : null}
+      <TaskDrawer
+        open={taskDrawerOpen}
+        jobs={clientJobs}
+        project={project}
+        onClose={() => { setTaskDrawerOpen(false); requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-task-trigger]")?.focus()); }}
+        onLocate={locateJob}
+      >
           {renderStartError || renderOpenError ? <section><h3>渲染操作</h3><div className="render-operation-error" role="alert"><WarningCircle weight="fill" /><span><strong>{renderOpenError ? "结果目录无法打开" : "无法创建 Render Job"}</strong>{renderOpenError ?? renderStartError}</span></div></section> : null}
-          {speechJobList.length > 0 ? <section><h3>Speech 生成</h3><div className="speech-job-list">{speechJobList.map((job) => <SpeechJobTask key={job.id} job={job} />)}</div></section> : null}
-          {assetJobList.length > 0 ? <section><h3>Asset 导入</h3><div className="image-job-list">{assetJobList.map((job) => job.type === "image-import" ? <ImageJobTask key={job.id} job={job} /> : <VideoJobTask key={job.id} job={job} />)}</div></section> : null}
           {saveDiagnostics.length > 0 ? <section><h3>保存问题</h3><div className="task-diagnostics">{saveDiagnostics.map((diagnostic) => <div key={`save-${diagnostic.code}-${diagnostic.path.join(".")}`} className="error"><WarningCircle weight="fill" /><span><strong>阻止保存</strong>{diagnostic.message}<code>{diagnostic.path.join(".") || "project.json"}</code></span></div>)}</div></section> : null}
           <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现阻断或提醒。</span><button className="btn compact" type="button" onClick={() => setTaskDrawerOpen(false)}>关闭抽屉</button></div> : <><div className="diagnostic-queue-summary" role="status"><strong>{renderErrorCount} 个阻断 · {renderWarningCount} 个提醒</strong><span>涉及 {affectedSceneCount} 个 Scene</span></div><div className="task-diagnostics diagnostic-queue">{renderDiagnostics.map((diagnostic) => {
             const sceneIndex = diagnostic.sceneId === undefined ? -1 : project.scenes.findIndex((scene) => scene.id === diagnostic.sceneId);
             return <button ref={diagnostic === firstRenderBlocker ? firstRenderBlockerRef : undefined} type="button" key={diagnosticIdentity(diagnostic)} className={diagnostic.severity} data-diagnostic-id={diagnosticIdentity(diagnostic)} onClick={() => navigateToDiagnostic(diagnostic)}><DiagnosticIcon severity={diagnostic.severity} /><span><span className="diagnostic-meta">{sceneIndex < 0 ? "项目" : `Scene ${String(sceneIndex + 1).padStart(2, "0")}`} · {diagnosticFieldLabel(diagnostic)}</span><strong>{diagnosticTitle(diagnostic)}</strong><p>{diagnostic.message}</p>{diagnostic.frame === undefined ? null : <small>帧 {diagnostic.frame}</small>}<code>{diagnostic.path.join(".") || "project.json"} · {diagnostic.code}</code></span></button>;
           })}</div></>}</section>
-        </div>
-      </aside>
+      </TaskDrawer>
       {batchDialogOpen ? <BatchCreateDialog existingSceneCount={project.scenes.length} onClose={() => setBatchDialogOpen(false)} onCreate={async (lines, visualType) => { await addScenesFromLines(lines, visualType); setBatchDialogOpen(false); }} /> : null}
       {cardChoice ? <CardContentDialog onCancel={() => { const trigger = cardChoice.trigger; setCardChoice(undefined); restoreVisualTrigger(trigger); }} onCreate={(card) => { const choice = cardChoice; setCardChoice(undefined); stageVisualMigration(choice.sceneId, "card", choice.trigger, card); }} /> : null}
       {pendingVisualChange ? <VisualLossDialog losses={pendingVisualChange.losses} onCancel={() => { const trigger = pendingVisualChange.trigger; setPendingVisualChange(undefined); restoreVisualTrigger(trigger); }} onConfirm={() => { const change = pendingVisualChange; setPendingVisualChange(undefined); void updateVisual(change.sceneId, change.visual); restoreVisualTrigger(change.trigger); }} /> : null}
@@ -2653,6 +2815,7 @@ function Workspace({ occupied = false }: { occupied?: boolean }) {
       {assetPreview ? <AssetPreviewDialog asset={assetPreview.asset} displayName={assetPreview.displayName} available={mediaAvailability[assetPreview.asset.path]} onClose={closeAssetPreview} /> : null}
       {pendingImageProposal ? <ImageProposalDialog job={pendingImageProposal} /> : null}
       {pendingVideoProposal ? <VideoProposalDialog job={pendingVideoProposal} /> : null}
+      {projectSwitchDialog}
       <ExternalConflictDialog />
     </div>
   );
@@ -2681,42 +2844,29 @@ function EmptyWorkspaceTaskDrawer({
   const videoJobList = Object.values(videoJobs).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
   );
-  const assetJobList = [...imageJobList, ...videoJobList].sort((left, right) =>
-    right.createdAt.localeCompare(left.createdAt),
-  );
   const speechJobList = Object.values(speechJobs).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
   );
   const renderJobList = Object.values(renderJobs).sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
   );
-  const currentRenderJob = renderJobList.find(
-    (job) =>
-      job.status === "queued" ||
-      job.status === "processing" ||
-      job.status === "cancelling",
-  );
-  const completedRenderJobs = renderJobList.filter(
-    (job) => job !== currentRenderJob,
-  );
+  const clientJobs = [
+    ...imageJobList,
+    ...videoJobList,
+    ...speechJobList,
+    ...renderJobList,
+  ] satisfies ClientJob[];
   const renderDiagnostics = [
     ...diagnostics,
     ...validateRenderReadiness(project, mediaAvailability),
   ];
 
   return (
-    <aside className={`task-drawer ${taskDrawerOpen ? "open" : ""}`} aria-hidden={!taskDrawerOpen} aria-label="任务与渲染">
-      <header><h2>任务与渲染</h2><button className="btn icon" aria-label="关闭任务抽屉" onClick={() => setTaskDrawerOpen(false)}><X /></button></header>
-      <div className="task-groups">
-        {currentRenderJob ? <section><h3>当前渲染</h3><RenderJobTask job={currentRenderJob} onNavigate={() => setTaskDrawerOpen(false)} /></section> : null}
-        {completedRenderJobs.length > 0 ? <section><h3>渲染结果</h3><div className="render-job-list">{completedRenderJobs.map((job) => <RenderJobTask key={job.id} job={job} onNavigate={() => setTaskDrawerOpen(false)} />)}</div></section> : null}
+    <TaskDrawer open={taskDrawerOpen} jobs={clientJobs} project={project} onClose={() => setTaskDrawerOpen(false)} onLocate={() => setTaskDrawerOpen(false)}>
         {renderStartError || renderOpenError ? <section><h3>渲染操作</h3><div className="render-operation-error" role="alert"><WarningCircle weight="fill" /><span><strong>{renderOpenError ? "结果目录无法打开" : "无法创建 Render Job"}</strong>{renderOpenError ?? renderStartError}</span></div></section> : null}
-        {speechJobList.length > 0 ? <section><h3>Speech 生成</h3><div className="speech-job-list">{speechJobList.map((job) => <SpeechJobTask key={job.id} job={job} />)}</div></section> : null}
-        {assetJobList.length > 0 ? <section><h3>Asset 导入</h3><div className="image-job-list">{assetJobList.map((job) => job.type === "image-import" ? <ImageJobTask key={job.id} job={job} /> : <VideoJobTask key={job.id} job={job} />)}</div></section> : null}
         {saveDiagnostics.length > 0 ? <section><h3>保存问题</h3><div className="task-diagnostics">{saveDiagnostics.map((diagnostic) => <div key={`save-${diagnostic.code}-${diagnostic.path.join(".")}`} className="error"><WarningCircle weight="fill" /><span><strong>阻止保存</strong>{diagnostic.message}<code>{diagnostic.path.join(".") || "project.json"}</code></span></div>)}</div></section> : null}
         <section><h3>Render-ready 问题</h3>{renderDiagnostics.length === 0 ? <div className="task-empty"><ListChecks size={48} /><strong>可以渲染</strong><span>当前快照未发现 Theme、Preset、媒体或文字版面问题。</span></div> : <div className="task-diagnostics">{renderDiagnostics.map((diagnostic) => <div key={`${diagnostic.code}-${diagnostic.path.join(".")}`} className={diagnostic.severity}><WarningCircle weight="fill" /><span><strong>{diagnostic.severity === "error" ? "阻断" : "提醒"}</strong>{diagnostic.message}<code>{diagnostic.path.join(".")}</code></span></div>)}</div>}</section>
-      </div>
-    </aside>
+    </TaskDrawer>
   );
 }
 

@@ -148,6 +148,84 @@ test("用户可以取消后台渲染并继续使用工作台", async ({ page }) 
     .toBeEnabled();
 });
 
+test("活跃 Render 提供原生离开保护，详情返回后恢复任务焦点", async ({ page }) => {
+  await start();
+  await page.goto(server.url);
+  await page.getByRole("button", { name: "渲染 MP4" }).click();
+  const summary = page.getByRole("button", { name: "查看 Render Job 详情" });
+  await expect(summary).toBeVisible();
+
+  expect(await page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    const result = window.onbeforeunload?.(event as BeforeUnloadEvent);
+    return { installed: window.onbeforeunload !== null, result, defaultPrevented: event.defaultPrevented };
+  })).toEqual({ installed: true, result: "", defaultPrevented: true });
+
+  await summary.click();
+  await expect(page.getByRole("heading", { name: "Render Job" })).toBeVisible();
+  await page.getByRole("button", { name: "返回任务总览" }).click();
+  await expect(summary).toBeFocused();
+  await page.getByRole("button", { name: "取消渲染" }).click();
+  await expect(page.getByTestId("render-job-task")).toContainText("已取消");
+
+  expect(await page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    const result = window.onbeforeunload?.(event as BeforeUnloadEvent);
+    return { installed: window.onbeforeunload !== null, result, defaultPrevented: event.defaultPrevented };
+  })).toEqual({ installed: true, result: undefined, defaultPrevented: false });
+});
+
+test("项目切换会等待活跃任务取消，取消失败时留在当前项目", async ({ page }) => {
+  await start();
+  await page.goto(server.url);
+  await page.getByRole("button", { name: "渲染 MP4" }).click();
+  await expect(page.getByRole("button", { name: /正在启动/ })).toBeDisabled();
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("narracut:project-switch", {
+      detail: { destination: `${window.location.origin}/#switched` },
+    }));
+  });
+  await expect(page.getByTestId("project-switch-guard")).toContainText("1 个任务仍在运行");
+  await expect(page.getByTestId("project-switch-guard")).toContainText("render");
+  await page.getByRole("button", { name: "取消任务后切换" }).click();
+  await expect(page).toHaveURL(/#switched$/u);
+
+  await page.getByRole("button", { name: "渲染 MP4" }).click();
+  await expect(page.getByRole("button", { name: /正在启动/ })).toBeDisabled();
+  await page.route("**/api/jobs/*", async (route) => {
+    if (route.request().method() === "DELETE") {
+      await route.fulfill({ status: 500, body: "取消 worker 失败" });
+    } else {
+      await route.continue();
+    }
+  });
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("narracut:project-switch", {
+      detail: { destination: `${window.location.origin}/#blocked` },
+    }));
+  });
+  await page.getByRole("button", { name: "取消任务后切换" }).click();
+  await expect(page.getByTestId("project-switch-guard").getByRole("alert"))
+    .toContainText("取消 worker 失败");
+  await expect(page).not.toHaveURL(/#blocked$/u);
+});
+
+test("刷新后恢复活跃 Render，但不会继承旧终态历史", async ({ page }) => {
+  await start();
+  await page.goto(server.url);
+  await page.getByRole("button", { name: "渲染 MP4" }).click();
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: /正在启动/ })).toBeDisabled();
+  worker.emit("message", { type: "completed", durationInFrames: 3 });
+  await expect(page.getByRole("button", { name: "渲染完成" })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "渲染 MP4" })).toBeVisible();
+  await page.getByRole("button", { name: /任务/ }).click();
+  await expect(page.getByTestId("render-job-task")).toHaveCount(0);
+});
+
 test("Auto Save 冲突时仍从当前内存版本创建渲染快照", async ({ page }) => {
   await start();
   await page.goto(server.url);

@@ -74,13 +74,21 @@ async function setup(worker: FakeWorker, onOpen?: (directory: string) => void) {
     openDirectory: async (directory) => onOpen?.(directory),
   });
   runningServers.push(server);
-  const lease = await fetch(`${server.url}/api/project/lease`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionId }),
-  });
-  expect(lease.status).toBe(200);
-  return { projectDirectory, server, getWorkerInput: () => workerInput };
+  const renewLease = async () => {
+    const lease = await fetch(`${server.url}/api/project/lease`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    });
+    expect(lease.status).toBe(200);
+  };
+  await renewLease();
+  return {
+    projectDirectory,
+    server,
+    getWorkerInput: () => workerInput,
+    renewLease,
+  };
 }
 
 const renderHeaders = {
@@ -92,10 +100,32 @@ afterEach(async () => {
   await Promise.all(runningServers.splice(0).map((server) => server.close()));
 });
 
+async function readSseEvent(response: Response, eventName: string): Promise<unknown> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error(`SSE 在 ${eventName} 前结束。`);
+      buffered += decoder.decode(value, { stream: true });
+      const blocks = buffered.split("\n\n");
+      buffered = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const event = block.split("\n").find((line) => line.startsWith("event: "))?.slice(7);
+        const data = block.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+        if (event === eventName && data !== undefined) return JSON.parse(data);
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
 describe("Render API", () => {
   it("拒绝 Render-ready 阻断，但 warning 不阻止从完整内存 DSL 创建 Job", async () => {
     const worker = new FakeWorker();
-    const { server, getWorkerInput } = await setup(worker);
+    const { server, getWorkerInput, renewLease } = await setup(worker);
     const blocked = await fetch(`${server.url}/api/jobs/render`, {
       method: "POST",
       headers: renderHeaders,
@@ -130,6 +160,7 @@ describe("Render API", () => {
     });
     expect(duplicate.status).toBe(409);
 
+    await renewLease();
     const cancelled = await fetch(`${server.url}/api/jobs/${job.id}`, {
       method: "DELETE",
       headers: { "x-narracut-session-id": sessionId },
@@ -141,7 +172,7 @@ describe("Render API", () => {
   it("完成后可通过受约束入口打开该 Job 的产物目录", async () => {
     const worker = new FakeWorker();
     let opened: string | undefined;
-    const { server } = await setup(worker, (directory) => { opened = directory; });
+    const { server, renewLease } = await setup(worker, (directory) => { opened = directory; });
     const response = await fetch(`${server.url}/api/jobs/render`, {
       method: "POST",
       headers: renderHeaders,
@@ -150,6 +181,7 @@ describe("Render API", () => {
     const { job } = await response.json() as { job: { id: string; artifacts: { directory: string } } };
     worker.emit("message", { type: "completed", durationInFrames: 3 });
 
+    await renewLease();
     const openedResponse = await fetch(`${server.url}/api/jobs/${job.id}/open-output`, {
       method: "POST",
       headers: { "x-narracut-session-id": sessionId },
@@ -175,5 +207,36 @@ describe("Render API", () => {
       body: JSON.stringify(project("错误类型")),
     });
     expect(wrongType.status).toBe(415);
+  });
+
+  it("SSE 每次重连先返回当前快照，并在 worker 完成后给出确定终态", async () => {
+    const worker = new FakeWorker();
+    const { server } = await setup(worker);
+    const response = await fetch(`${server.url}/api/jobs/render`, {
+      method: "POST",
+      headers: renderHeaders,
+      body: JSON.stringify(project("SSE 重连")),
+    });
+    const { job } = await response.json() as { job: { id: string } };
+
+    const firstSnapshot = await readSseEvent(
+      await fetch(`${server.url}/api/jobs/events`),
+      "snapshot",
+    ) as Array<{ id: string; status: string }>;
+    expect(firstSnapshot).toContainEqual(expect.objectContaining({ id: job.id, status: "processing" }));
+
+    worker.emit("message", { type: "progress", stage: "encoding", progress: 0.42 });
+    const reconnectedSnapshot = await readSseEvent(
+      await fetch(`${server.url}/api/jobs/events`),
+      "snapshot",
+    ) as Array<{ id: string; progress?: number }>;
+    expect(reconnectedSnapshot).toContainEqual(expect.objectContaining({ id: job.id, progress: 0.42 }));
+
+    worker.emit("message", { type: "completed", durationInFrames: 3 });
+    const terminalSnapshot = await readSseEvent(
+      await fetch(`${server.url}/api/jobs/events`),
+      "snapshot",
+    ) as Array<{ id: string; status: string }>;
+    expect(terminalSnapshot).toContainEqual(expect.objectContaining({ id: job.id, status: "succeeded" }));
   });
 });

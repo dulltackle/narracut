@@ -210,7 +210,7 @@ test("warning-only 直接渲染，renderer Sequence 错误可返回对应 Scene"
   await page.goto(server.url);
 
   await page.getByRole("button", { name: "渲染 MP4" }).click();
-  await expect(page.getByText("当前渲染", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "进行中" })).toBeVisible();
   expect(workerInput).toBeDefined();
 
   worker.emit("message", {
@@ -220,7 +220,8 @@ test("warning-only 直接渲染，renderer Sequence 错误可返回对应 Scene"
     sequenceName: `Scene ${sceneIds[1]}`,
     frameRange: { startFrame: 3, endFrame: 5 },
   });
-  await page.getByRole("button", { name: /第二幕渲染失败，返回 Scene/ }).click();
+  await page.getByRole("button", { name: "查看 Render Job 详情" }).click();
+  await page.getByRole("button", { name: "定位到 Scene" }).click();
 
   await expect(page.getByTestId("player-selected-scene")).toHaveText("选中 02");
   await expect(page.getByTestId("player-playback-state")).toHaveText("已暂停");

@@ -1,7 +1,8 @@
 import { create } from "zustand";
 
-import type { ImageImportJob } from "../shared/jobs";
+import { canApplyJobUpdate, isActiveJob, type ImageImportJob } from "../shared/jobs";
 import { createClientUuid } from "./client-uuid";
+import { connectJobEvents, type JobEventOrigin } from "./job-events";
 import { getProjectSessionId, useProjectStore } from "./project-store";
 
 type ProposalResolution =
@@ -15,7 +16,8 @@ type ProposalResolution =
 
 export type ClientImageImportJob = ImageImportJob & {
   expected: { visualType: "image"; assetId: string | undefined };
-  sourceFile: File;
+  sourceFile?: File;
+  recovered?: boolean;
   handlingResult?: boolean;
   resolution?: ProposalResolution;
   proposalDialogOpen?: boolean;
@@ -36,6 +38,9 @@ type ImageImportState = {
   hidePending: (jobId: string) => void;
   showPending: (jobId: string) => void;
 };
+
+const deferredServerJobs = new Map<string, ImageImportJob>();
+const deferredServerJobTimers = new Map<string, number>();
 
 const stageCopy: Record<ImageImportJob["stage"], string> = {
   waiting: "等待处理",
@@ -140,9 +145,41 @@ async function handleSucceeded(jobId: string): Promise<void> {
   }
 }
 
-function receiveServerJob(incoming: ImageImportJob): void {
-  const current = useImageImportStore.getState().jobs[incoming.id];
-  if (current === undefined) return;
+function receiveServerJob(
+  incoming: ImageImportJob,
+  origin: JobEventOrigin = "event",
+  deferred = false,
+): void {
+  let current = useImageImportStore.getState().jobs[incoming.id];
+  if (current === undefined) {
+    if (origin === "event" && !deferred) {
+      deferredServerJobs.set(incoming.id, incoming);
+      if (!deferredServerJobTimers.has(incoming.id)) {
+        deferredServerJobTimers.set(incoming.id, window.setTimeout(() => {
+          deferredServerJobTimers.delete(incoming.id);
+          const latest = deferredServerJobs.get(incoming.id);
+          deferredServerJobs.delete(incoming.id);
+          if (latest !== undefined) receiveServerJob(latest, "event", true);
+        }, 100));
+      }
+      return;
+    }
+    if (origin === "snapshot" && !isActiveJob(incoming)) return;
+    current = {
+      ...incoming,
+      expected: { visualType: "image", assetId: `recovered-${incoming.id}` },
+      recovered: true,
+    };
+    useImageImportStore.setState((state) => ({
+      jobs: { ...state.jobs, [incoming.id]: current! },
+    }));
+  } else {
+    const timer = deferredServerJobTimers.get(incoming.id);
+    if (timer !== undefined) window.clearTimeout(timer);
+    deferredServerJobTimers.delete(incoming.id);
+    deferredServerJobs.delete(incoming.id);
+    if (!canApplyJobUpdate(current, incoming)) return;
+  }
   const phaseChanged =
     current.stage !== incoming.stage || current.status !== incoming.status;
   const shouldHandle =
@@ -169,16 +206,12 @@ export const useImageImportStore = create<ImageImportState>((set, get) => ({
   connected: false,
   connect: () => {
     if (get().connected) return () => undefined;
-    const source = new EventSource("/api/jobs/events");
     set({ connected: true });
-    const onJob = (event: MessageEvent<string>) => {
-      receiveServerJob(JSON.parse(event.data) as ImageImportJob);
-    };
-    source.addEventListener("job", onJob as EventListener);
-    source.onerror = () => set({ announcement: "任务进度连接已中断，正在重新连接" });
+    const disconnect = connectJobEvents((job, origin) => {
+      if (job.type === "image-import") receiveServerJob(job, origin);
+    });
     return () => {
-      source.removeEventListener("job", onJob as EventListener);
-      source.close();
+      disconnect();
       set({ connected: false });
     };
   },
@@ -195,6 +228,7 @@ export const useImageImportStore = create<ImageImportState>((set, get) => ({
           ...state.jobs,
           [id]: {
             id,
+            kind: "image-import",
             type: "image-import",
             sceneId,
             fileName: file.name,
@@ -272,7 +306,9 @@ export const useImageImportStore = create<ImageImportState>((set, get) => ({
           },
           announcement: message,
         }));
+        return;
       }
+      receiveServerJob((await response.json()) as ImageImportJob);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "无法取消图片导入任务。";
@@ -304,7 +340,7 @@ export const useImageImportStore = create<ImageImportState>((set, get) => ({
       await handleSucceeded(jobId);
       return;
     }
-    await get().startImport(job.sceneId, job.sourceFile);
+    if (job.sourceFile !== undefined) await get().startImport(job.sceneId, job.sourceFile);
   },
   applyPending: async (jobId) => {
     const job = get().jobs[jobId];

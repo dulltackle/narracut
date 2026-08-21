@@ -1,11 +1,12 @@
 import { create } from "zustand";
 
-import type { SpeechGenerationJob } from "../shared/jobs";
+import { canApplyJobUpdate, isActiveJob, type SpeechGenerationJob } from "../shared/jobs";
 import {
   CURRENT_TTS_PROFILE_ID,
   type Speech,
 } from "../shared/project";
 import { createClientUuid } from "./client-uuid";
+import { connectJobEvents, type JobEventOrigin } from "./job-events";
 import { getProjectSessionId, useProjectStore } from "./project-store";
 
 type SpeechResolution =
@@ -25,6 +26,7 @@ export type ClientSpeechGenerationJob = SpeechGenerationJob & {
   resolution?: SpeechResolution;
   handlingResult?: boolean;
   cancelError?: string;
+  recovered?: boolean;
 };
 
 type SpeechGenerationState = {
@@ -40,6 +42,8 @@ type SpeechGenerationState = {
 const startingScenes = new Set<string>();
 let recoveryPromise: Promise<void> | undefined;
 const SPEECH_CLEANUP_REQUEST_TIMEOUT_MS = 2_000;
+const deferredServerJobs = new Map<string, SpeechGenerationJob>();
+const deferredServerJobTimers = new Map<string, number>();
 
 async function fetchWithTimeout(
   input: Parameters<typeof fetch>[0],
@@ -124,7 +128,9 @@ async function handleSucceeded(jobId: string): Promise<void> {
     (candidate) => candidate.id === job.sceneId,
   );
   let resolution: SpeechResolution | undefined;
-  if (scene === undefined) {
+  if (job.recovered) {
+    resolution = "speech-changed";
+  } else if (scene === undefined) {
     resolution = "scene-deleted";
   } else if (scene.narration.text !== job.expected.narrationText) {
     resolution = "narration-changed";
@@ -188,9 +194,48 @@ async function handleSucceeded(jobId: string): Promise<void> {
   }
 }
 
-function receiveServerJob(incoming: SpeechGenerationJob): void {
-  const current = useSpeechGenerationStore.getState().jobs[incoming.id];
-  if (current === undefined) return;
+function receiveServerJob(
+  incoming: SpeechGenerationJob,
+  origin: JobEventOrigin = "event",
+  deferred = false,
+): void {
+  let current = useSpeechGenerationStore.getState().jobs[incoming.id];
+  if (current === undefined) {
+    if (origin === "event" && !deferred) {
+      deferredServerJobs.set(incoming.id, incoming);
+      if (!deferredServerJobTimers.has(incoming.id)) {
+        deferredServerJobTimers.set(incoming.id, window.setTimeout(() => {
+          deferredServerJobTimers.delete(incoming.id);
+          const latest = deferredServerJobs.get(incoming.id);
+          deferredServerJobs.delete(incoming.id);
+          if (latest !== undefined) receiveServerJob(latest, "event", true);
+        }, 100));
+      }
+      return;
+    }
+    if (origin === "snapshot" && !isActiveJob(incoming)) return;
+    const scene = useProjectStore.getState().project?.scenes.find(
+      (candidate) => candidate.id === incoming.sceneId,
+    );
+    current = {
+      ...incoming,
+      expected: {
+        narrationText: incoming.narrationText,
+        speech: scene?.speech,
+        ttsProfileId: CURRENT_TTS_PROFILE_ID,
+      },
+      recovered: true,
+    };
+    useSpeechGenerationStore.setState((state) => ({
+      jobs: { ...state.jobs, [incoming.id]: current! },
+    }));
+  } else {
+    const timer = deferredServerJobTimers.get(incoming.id);
+    if (timer !== undefined) window.clearTimeout(timer);
+    deferredServerJobTimers.delete(incoming.id);
+    deferredServerJobs.delete(incoming.id);
+    if (!canApplyJobUpdate(current, incoming)) return;
+  }
   const phaseChanged =
     current.stage !== incoming.stage || current.status !== incoming.status;
   const shouldHandle =
@@ -229,6 +274,7 @@ function localFailure(
       ...state.jobs,
       [id]: {
         id,
+        kind: "speech",
         type: "speech-generation",
         sceneId,
         narrationText: expected.narrationText,
@@ -267,18 +313,12 @@ export const useSpeechGenerationStore = create<SpeechGenerationState>((set, get)
       method: "POST",
       headers: { "x-narracut-session-id": getProjectSessionId() },
     }).then(() => undefined, () => undefined);
-    const source = new EventSource("/api/jobs/events");
     set({ connected: true });
-    const onJob = (event: MessageEvent<string>) => {
-      const incoming = JSON.parse(event.data) as import("../shared/jobs").NarracutJob;
-      if (incoming.type === "speech-generation") receiveServerJob(incoming);
-    };
-    source.addEventListener("job", onJob as EventListener);
-    source.onerror = () =>
-      set({ announcement: "Speech 任务进度连接已中断，正在重新连接" });
+    const disconnect = connectJobEvents((job, origin) => {
+      if (job.type === "speech-generation") receiveServerJob(job, origin);
+    });
     return () => {
-      source.removeEventListener("job", onJob as EventListener);
-      source.close();
+      disconnect();
       set({ connected: false });
     };
   },
@@ -370,7 +410,9 @@ export const useSpeechGenerationStore = create<SpeechGenerationState>((set, get)
           },
           announcement: message,
         }));
+        return;
       }
+      receiveServerJob((await response.json()) as SpeechGenerationJob);
     } catch (error) {
       const message = error instanceof Error ? error.message : "无法取消 Speech 任务。";
       set((state) => ({

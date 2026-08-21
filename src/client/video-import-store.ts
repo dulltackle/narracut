@@ -1,7 +1,8 @@
 import { create } from "zustand";
 
-import type { VideoImportJob } from "../shared/jobs";
+import { canApplyJobUpdate, isActiveJob, type VideoImportJob } from "../shared/jobs";
 import { createClientUuid } from "./client-uuid";
+import { connectJobEvents, type JobEventOrigin } from "./job-events";
 import { getProjectSessionId, useProjectStore } from "./project-store";
 
 type ProposalResolution =
@@ -15,7 +16,8 @@ type ProposalResolution =
 
 export type ClientVideoImportJob = VideoImportJob & {
   expected: { visualType: "video"; assetId: string | undefined };
-  sourceFile: File;
+  sourceFile?: File;
+  recovered?: boolean;
   handlingResult?: boolean;
   resolution?: ProposalResolution;
   proposalDialogOpen?: boolean;
@@ -36,6 +38,9 @@ type VideoImportState = {
   hidePending: (jobId: string) => void;
   showPending: (jobId: string) => void;
 };
+
+const deferredServerJobs = new Map<string, VideoImportJob>();
+const deferredServerJobTimers = new Map<string, number>();
 
 const stageCopy: Record<VideoImportJob["stage"], string> = {
   waiting: "排队中",
@@ -125,10 +130,42 @@ async function handleSucceeded(jobId: string): Promise<void> {
   }
 }
 
-function receiveServerJob(incoming: VideoImportJob): void {
+function receiveServerJob(
+  incoming: VideoImportJob,
+  origin: JobEventOrigin = "event",
+  deferred = false,
+): void {
   if (incoming.type !== "video-import") return;
-  const current = useVideoImportStore.getState().jobs[incoming.id];
-  if (current === undefined) return;
+  let current = useVideoImportStore.getState().jobs[incoming.id];
+  if (current === undefined) {
+    if (origin === "event" && !deferred) {
+      deferredServerJobs.set(incoming.id, incoming);
+      if (!deferredServerJobTimers.has(incoming.id)) {
+        deferredServerJobTimers.set(incoming.id, window.setTimeout(() => {
+          deferredServerJobTimers.delete(incoming.id);
+          const latest = deferredServerJobs.get(incoming.id);
+          deferredServerJobs.delete(incoming.id);
+          if (latest !== undefined) receiveServerJob(latest, "event", true);
+        }, 100));
+      }
+      return;
+    }
+    if (origin === "snapshot" && !isActiveJob(incoming)) return;
+    current = {
+      ...incoming,
+      expected: { visualType: "video", assetId: `recovered-${incoming.id}` },
+      recovered: true,
+    };
+    useVideoImportStore.setState((state) => ({
+      jobs: { ...state.jobs, [incoming.id]: current! },
+    }));
+  } else {
+    const timer = deferredServerJobTimers.get(incoming.id);
+    if (timer !== undefined) window.clearTimeout(timer);
+    deferredServerJobTimers.delete(incoming.id);
+    deferredServerJobs.delete(incoming.id);
+    if (!canApplyJobUpdate(current, incoming)) return;
+  }
   const phaseChanged = current.stage !== incoming.stage || current.status !== incoming.status;
   const shouldHandle = incoming.status === "succeeded" &&
     current.resolution === undefined && !current.handlingResult;
@@ -152,17 +189,12 @@ export const useVideoImportStore = create<VideoImportState>((set, get) => ({
   connected: false,
   connect: () => {
     if (get().connected) return () => undefined;
-    const source = new EventSource("/api/jobs/events");
     set({ connected: true });
-    const onJob = (event: MessageEvent<string>) => {
-      const incoming = JSON.parse(event.data) as { type?: string };
-      if (incoming.type === "video-import") receiveServerJob(incoming as VideoImportJob);
-    };
-    source.addEventListener("job", onJob as EventListener);
-    source.onerror = () => set({ announcement: "任务进度连接已中断，正在重新连接" });
+    const disconnect = connectJobEvents((job, origin) => {
+      if (job.type === "video-import") receiveServerJob(job, origin);
+    });
     return () => {
-      source.removeEventListener("job", onJob as EventListener);
-      source.close();
+      disconnect();
       set({ connected: false });
     };
   },
@@ -180,6 +212,7 @@ export const useVideoImportStore = create<VideoImportState>((set, get) => ({
           ...state.jobs,
           [id]: {
             id,
+            kind: "transcode",
             type: "video-import",
             sceneId,
             fileName: file.name,
@@ -239,6 +272,7 @@ export const useVideoImportStore = create<VideoImportState>((set, get) => ({
         headers: { "x-narracut-session-id": getProjectSessionId() },
       });
       if (!response.ok) throw new Error((await response.text()) || "无法取消视频导入任务。");
+      receiveServerJob((await response.json()) as VideoImportJob);
     } catch (error) {
       const message = error instanceof Error ? error.message : "无法取消视频导入任务。";
       set((state) => ({
@@ -258,7 +292,7 @@ export const useVideoImportStore = create<VideoImportState>((set, get) => ({
       await handleSucceeded(jobId);
       return;
     }
-    await get().startImport(job.sceneId, job.sourceFile);
+    if (job.sourceFile !== undefined) await get().startImport(job.sceneId, job.sourceFile);
   },
   applyPending: async (jobId) => {
     const job = get().jobs[jobId];

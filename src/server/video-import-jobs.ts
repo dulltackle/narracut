@@ -1,6 +1,8 @@
+import { fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, realpath, rename, unlink } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { normalizeVideoWithRemotion } from "../remotion/renderer";
 import type { VideoImportJob } from "../shared/jobs";
@@ -45,7 +47,27 @@ type InternalJob = VideoImportJob & {
   sourceFile: string;
   sourceBytes: number;
   controller?: AbortController;
+  worker?: VideoImportWorkerHandle;
 };
+
+export type VideoImportWorkerInput = {
+  jobId: string;
+  projectRoot: string;
+  mediaBaseUrl: string;
+  sceneId: string;
+  fileName: string;
+  sourceFile: string;
+  sourceBytes: number;
+};
+
+export type VideoImportWorkerHandle = {
+  on(event: "message", listener: (message: unknown) => void): VideoImportWorkerHandle;
+  on(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): VideoImportWorkerHandle;
+  on(event: "error", listener: (error: Error) => void): VideoImportWorkerHandle;
+  kill(signal?: NodeJS.Signals): boolean;
+};
+
+type VideoImportWorkerFactory = (input: VideoImportWorkerInput) => VideoImportWorkerHandle;
 
 export class VideoImportJobError extends Error {
   constructor(
@@ -61,9 +83,19 @@ function publicJob(job: InternalJob): VideoImportJob {
     sourceFile: _sourceFile,
     sourceBytes: _sourceBytes,
     controller: _controller,
+    worker: _worker,
     ...value
   } = job;
   return structuredClone(value);
+}
+
+function defaultWorkerFactory(input: VideoImportWorkerInput): VideoImportWorkerHandle {
+  const workerFile = fileURLToPath(new URL("./video-import-worker.ts", import.meta.url));
+  return fork(workerFile, [JSON.stringify(input)], {
+    cwd: dirname(workerFile),
+    execArgv: ["--import", "tsx"],
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
 }
 
 function mediaUrl(base: string, path: string): string {
@@ -169,6 +201,7 @@ export class VideoImportJobs {
   readonly #listeners = new Set<(job: VideoImportJob) => void>();
   readonly #queue: string[] = [];
   readonly #pipeline: VideoImportPipeline;
+  readonly #workerFactory: VideoImportWorkerFactory | undefined;
   readonly #cleanupPromises = new Set<Promise<void>>();
   #activeJobId: string | undefined;
   #activePromise: Promise<void> | undefined;
@@ -178,9 +211,14 @@ export class VideoImportJobs {
     private readonly options: {
       mediaBaseUrl: () => string;
       pipeline?: VideoImportPipeline;
+      workerFactory?: VideoImportWorkerFactory;
+      runInline?: boolean;
     },
   ) {
     this.#pipeline = options.pipeline ?? defaultPipeline();
+    this.#workerFactory = options.pipeline !== undefined || options.runInline === true
+      ? undefined
+      : options.workerFactory ?? defaultWorkerFactory;
   }
 
   list(): VideoImportJob[] {
@@ -201,10 +239,10 @@ export class VideoImportJobs {
     for (const job of this.#jobs.values()) {
       if (ACTIVE_STATUSES.has(job.status)) this.cancel(job.id);
     }
-    await Promise.allSettled([
-      ...(this.#activePromise === undefined ? [] : [this.#activePromise]),
-      ...this.#cleanupPromises,
-    ]);
+    if (this.#activePromise !== undefined) {
+      await Promise.allSettled([this.#activePromise]);
+    }
+    await Promise.allSettled(this.#cleanupPromises);
   }
 
   assertCanCreate(sceneId: string, sourceBytes = 0): void {
@@ -225,6 +263,7 @@ export class VideoImportJobs {
   }
 
   create(input: {
+    id?: string;
     sceneId: string;
     fileName: string;
     sourceFile: string;
@@ -233,7 +272,8 @@ export class VideoImportJobs {
     this.assertCanCreate(input.sceneId, input.sourceBytes);
     const now = new Date().toISOString();
     const job: InternalJob = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
+      kind: "transcode",
       type: "video-import",
       sceneId: input.sceneId,
       fileName: input.fileName,
@@ -281,7 +321,8 @@ export class VideoImportJobs {
       }
     }
     this.#update(job, { status: "cancelling", stage: "cancelling" });
-    job.controller?.abort();
+    if (job.worker !== undefined) job.worker.kill("SIGTERM");
+    else job.controller?.abort();
     return publicJob(job);
   }
 
@@ -310,7 +351,106 @@ export class VideoImportJobs {
   }
 
   async #process(job: InternalJob): Promise<void> {
-    const assetId = randomUUID();
+    if (this.#workerFactory !== undefined) {
+      await this.#processInWorker(job);
+      return;
+    }
+    await this.#processInline(job);
+  }
+
+  async #processInWorker(job: InternalJob): Promise<void> {
+    await new Promise<void>((resolvePromise) => {
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        job.worker = undefined;
+        job.sourceFile = "";
+        job.sourceBytes = 0;
+        resolvePromise();
+      };
+      const cleanupWorkerFiles = () => {
+        const cleanup = Promise.all([
+          job.sourceFile,
+          join(this.projectRoot, "assets", `.${job.id}.output.tmp.mp4`),
+          join(this.projectRoot, "assets", `.${job.id}.bridge.tmp.mp4`),
+          join(this.projectRoot, "assets", `${job.id}.mp4`),
+        ].map((file) => unlink(file).catch(() => undefined)))
+          .then(() => undefined)
+          .finally(() => this.#cleanupPromises.delete(cleanup));
+        this.#cleanupPromises.add(cleanup);
+      };
+      try {
+        const worker = this.#workerFactory!({
+          jobId: job.id,
+          projectRoot: this.projectRoot,
+          mediaBaseUrl: this.options.mediaBaseUrl(),
+          sceneId: job.sceneId,
+          fileName: job.fileName,
+          sourceFile: job.sourceFile,
+          sourceBytes: job.sourceBytes,
+        });
+        job.worker = worker;
+        worker.on("message", (message) => {
+          if (typeof message !== "object" || message === null) return;
+          const incoming = Reflect.get(message, "job") as VideoImportJob | undefined;
+          if (
+            incoming?.type !== "video-import" ||
+            incoming.id !== job.id ||
+            (job.status !== "queued" && job.status !== "processing")
+          ) return;
+          this.#update(job, {
+            status: incoming.status,
+            stage: incoming.stage,
+            progress: incoming.progress,
+            result: incoming.result,
+            error: incoming.error,
+          });
+        });
+        worker.on("error", (error) => {
+          if (!ACTIVE_STATUSES.has(job.status)) return;
+          this.#update(job, job.status === "cancelling"
+            ? { status: "cancelled", stage: "cancelled", progress: undefined }
+            : {
+                status: "failed",
+                stage: "failed",
+                error: { code: "TRANSCODE_WORKER_ERROR", message: "Transcode worker 无法继续；本地服务仍可使用。" },
+              });
+          worker.kill("SIGTERM");
+          cleanupWorkerFiles();
+          settle();
+          void error;
+        });
+        worker.on("exit", (code, signal) => {
+          if (job.status === "cancelling") {
+            this.#update(job, { status: "cancelled", stage: "cancelled", progress: undefined });
+            cleanupWorkerFiles();
+          } else if (ACTIVE_STATUSES.has(job.status)) {
+            const detail = signal === null ? `退出码 ${code ?? "未知"}` : `信号 ${signal}`;
+            this.#update(job, {
+              status: "failed",
+              stage: "failed",
+              progress: undefined,
+              error: { code: "TRANSCODE_WORKER_CRASHED", message: `Transcode worker 异常退出（${detail}）；其他任务不受影响。` },
+            });
+            cleanupWorkerFiles();
+          }
+          settle();
+        });
+      } catch {
+        this.#update(job, {
+          status: "failed",
+          stage: "failed",
+          error: { code: "TRANSCODE_WORKER_START_FAILED", message: "无法启动 Transcode worker；请重试。" },
+        });
+        cleanupWorkerFiles();
+        settle();
+      }
+    });
+  }
+
+  async #processInline(job: InternalJob): Promise<void> {
+    const assetId = job.id;
     const assetsDirectory = join(this.projectRoot, "assets");
     const finalPath = `assets/${assetId}.mp4`;
     let sourceFile = "";

@@ -821,19 +821,13 @@ export async function startNarracutServer({
         });
         response.write(": connected\n\n");
         eventStreams.add(response);
-        for (const job of imageImportJobs.list()) {
-          response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
-        }
-        for (const job of videoImportJobs.list()) {
-          response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
-        }
-        for (const job of speechGenerationJobs.list()) {
-          response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
-        }
-        for (const job of renderJobs.list()) {
-          response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
-        }
+        const pendingJobs: import("../shared/jobs").NarracutJob[] = [];
+        let snapshotSent = false;
         const writeJob = (job: import("../shared/jobs").NarracutJob) => {
+          if (!snapshotSent) {
+            pendingJobs.push(job);
+            return;
+          }
           if (!response.destroyed && !response.writableEnded) {
             response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
           }
@@ -842,6 +836,14 @@ export async function startNarracutServer({
         const unsubscribeVideo = videoImportJobs.subscribe(writeJob);
         const unsubscribeSpeech = speechGenerationJobs.subscribe(writeJob);
         const unsubscribeRender = renderJobs.subscribe(writeJob);
+        response.write(`event: snapshot\ndata: ${JSON.stringify([
+          ...imageImportJobs.list(),
+          ...videoImportJobs.list(),
+          ...speechGenerationJobs.list(),
+          ...renderJobs.list(),
+        ])}\n\n`);
+        snapshotSent = true;
+        for (const job of pendingJobs) writeJob(job);
         request.once("close", () => {
           unsubscribeImage();
           unsubscribeVideo();
@@ -1269,6 +1271,7 @@ export async function startNarracutServer({
       eventStreams.clear();
       await videoThumbnails.close();
       await videoImportJobs.close();
+      await speechGenerationJobs.close();
       renderJobs.close();
       return new Promise<void>((resolvePromise, rejectPromise) => {
         server.close((error) => (error ? rejectPromise(error) : resolvePromise()));

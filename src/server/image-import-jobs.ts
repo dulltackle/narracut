@@ -98,6 +98,7 @@ export class ImageImportJobs {
     const now = new Date().toISOString();
     const job: InternalJob = {
       id: randomUUID(),
+      kind: "image-import",
       type: "image-import",
       sceneId: input.sceneId,
       fileName: input.fileName,

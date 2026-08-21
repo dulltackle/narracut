@@ -240,6 +240,13 @@ test("视频缩略图按视口和双并发加载首帧，打开预览前不请�
   page.on("request", (request) => {
     if (new URL(request.url()).pathname.endsWith(".mp4")) mp4Requests.push(request.url());
   });
+  await page.route((url) => url.pathname === "/api/assets/probe", async (route) => {
+    const { paths } = route.request().postDataJSON() as { paths: string[] };
+    await route.fulfill({
+      contentType: "application/json",
+      json: { results: paths.map((path) => ({ path, exists: true })) },
+    });
+  });
   await page.route((url) => url.pathname === "/api/assets/thumbnail", async (route) => {
     thumbnailRequests += 1;
     activeThumbnails += 1;

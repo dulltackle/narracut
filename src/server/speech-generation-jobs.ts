@@ -1,7 +1,8 @@
-import { execFile } from "node:child_process";
+import { execFile, fork } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { copyFile, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { CURRENT_TTS_PROFILE_ID } from "../shared/project";
@@ -25,6 +26,7 @@ type InternalJob = SpeechGenerationJob & {
   backupFile?: string;
   hadPreviousFile?: boolean;
   committed?: boolean;
+  worker?: SpeechWorkerHandle;
 };
 
 type ProviderPayload = {
@@ -38,7 +40,34 @@ type SpeechGenerationJobsOptions = {
   apiKey?: string;
   retryDelaysMs?: readonly number[];
   requestTimeoutMs?: number;
+  workerFactory?: SpeechWorkerFactory;
+  runInline?: boolean;
 };
+
+export type SpeechWorkerInput = {
+  jobId: string;
+  projectRoot: string;
+  sceneId: string;
+  narrationText: string;
+  apiKey?: string;
+  retryDelaysMs: readonly number[];
+  requestTimeoutMs: number;
+};
+
+export type SpeechWorkerState = {
+  job: SpeechGenerationJob;
+  temporaryFile?: string;
+  finalFile?: string;
+};
+
+export type SpeechWorkerHandle = {
+  on(event: "message", listener: (message: unknown) => void): SpeechWorkerHandle;
+  on(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): SpeechWorkerHandle;
+  on(event: "error", listener: (error: Error) => void): SpeechWorkerHandle;
+  kill(signal?: NodeJS.Signals): boolean;
+};
+
+type SpeechWorkerFactory = (input: SpeechWorkerInput) => SpeechWorkerHandle;
 
 export class SpeechGenerationJobError extends Error {
   constructor(
@@ -70,9 +99,21 @@ function publicJob(job: InternalJob): SpeechGenerationJob {
     backupFile: _backupFile,
     hadPreviousFile: _hadPreviousFile,
     committed: _committed,
+    worker: _worker,
     ...value
   } = job;
   return structuredClone(value);
+}
+
+function defaultWorkerFactory(input: SpeechWorkerInput): SpeechWorkerHandle {
+  const workerFile = fileURLToPath(new URL("./speech-generation-worker.ts", import.meta.url));
+  const worker = fork(workerFile, [], {
+    cwd: dirname(workerFile),
+    execArgv: ["--import", "tsx"],
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+  worker.send(input);
+  return worker;
 }
 
 function sha256(value: string | Buffer): string {
@@ -162,7 +203,11 @@ function decodeProviderAudio(payload: ProviderPayload): {
   return { audio: Buffer.from(audioHex, "hex"), durationMs };
 }
 
-async function validateMp3(file: string, expectedDurationMs: number): Promise<number> {
+async function validateMp3(
+  file: string,
+  expectedDurationMs: number,
+  signal?: AbortSignal,
+): Promise<number> {
   let stdout: string;
   try {
     ({ stdout } = await execFileAsync("ffprobe", [
@@ -173,7 +218,11 @@ async function validateMp3(file: string, expectedDurationMs: number): Promise<nu
       "-of",
       "json",
       file,
-    ]));
+    ], {
+      encoding: "utf8",
+      signal,
+      timeout: 30_000,
+    }));
   } catch {
     throw new SpeechFailure(
       "TTS_AUDIO_INVALID",
@@ -234,6 +283,9 @@ export class SpeechGenerationJobs {
   readonly #apiKey: string | undefined;
   readonly #retryDelaysMs: readonly number[];
   readonly #requestTimeoutMs: number;
+  readonly #workerFactory: SpeechWorkerFactory | undefined;
+  readonly #processing = new Map<string, Promise<void>>();
+  readonly #cleanupPromises = new Set<Promise<void>>();
 
   constructor(
     private readonly projectRoot: string,
@@ -243,6 +295,9 @@ export class SpeechGenerationJobs {
     this.#apiKey = options.apiKey;
     this.#retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.#workerFactory = options.fetchImpl !== undefined || options.runInline === true
+      ? undefined
+      : options.workerFactory ?? defaultWorkerFactory;
   }
 
   list(): SpeechGenerationJob[] {
@@ -259,7 +314,7 @@ export class SpeechGenerationJobs {
     return () => this.#listeners.delete(listener);
   }
 
-  create(input: { sceneId: string; narrationText: string }): SpeechGenerationJob {
+  create(input: { sceneId: string; narrationText: string; id?: string }): SpeechGenerationJob {
     if (
       input.narrationText.trim().length === 0 ||
       input.narrationText.length >= 10_000
@@ -282,7 +337,8 @@ export class SpeechGenerationJobs {
     }
     const now = new Date().toISOString();
     const job: InternalJob = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
+      kind: "speech",
       type: "speech-generation",
       sceneId: input.sceneId,
       narrationText: input.narrationText,
@@ -293,7 +349,11 @@ export class SpeechGenerationJobs {
       cancelRequested: false,
     };
     this.#jobs.set(job.id, job);
-    setImmediate(() => void this.#process(job));
+    setImmediate(() => {
+      const processing = this.#process(job).finally(() => this.#processing.delete(job.id));
+      this.#processing.set(job.id, processing);
+      void processing;
+    });
     return publicJob(job);
   }
 
@@ -303,7 +363,8 @@ export class SpeechGenerationJobs {
     if (!ACTIVE_STATUSES.has(job.status)) return publicJob(job);
     job.cancelRequested = true;
     this.#update(job, { status: "cancelling", stage: "cancelling" });
-    job.controller?.abort();
+    if (job.worker !== undefined) job.worker.kill("SIGTERM");
+    else job.controller?.abort();
     return publicJob(job);
   }
 
@@ -393,11 +454,6 @@ export class SpeechGenerationJobs {
   async recoverOrphans(): Promise<SpeechGenerationJob[]> {
     const recovered: SpeechGenerationJob[] = [];
     for (const job of this.#jobs.values()) {
-      if (ACTIVE_STATUSES.has(job.status)) {
-        this.cancel(job.id);
-        recovered.push(publicJob(job));
-        continue;
-      }
       if (
         job.status === "succeeded" &&
         (job.stage === "prepared" || job.stage === "finalizing")
@@ -407,6 +463,28 @@ export class SpeechGenerationJobs {
       }
     }
     return recovered;
+  }
+
+  async close(): Promise<void> {
+    for (const job of this.#jobs.values()) {
+      if (ACTIVE_STATUSES.has(job.status)) this.cancel(job.id);
+    }
+    await Promise.allSettled(this.#processing.values());
+    await Promise.allSettled(this.#cleanupPromises);
+  }
+
+  async waitForSettlement(jobId: string): Promise<void> {
+    const processing = this.#processing.get(jobId);
+    if (processing !== undefined) await processing;
+  }
+
+  workerState(jobId: string): SpeechWorkerState | undefined {
+    const job = this.#jobs.get(jobId);
+    return job === undefined ? undefined : {
+      job: publicJob(job),
+      temporaryFile: job.temporaryFile,
+      finalFile: job.finalFile,
+    };
   }
 
   #update(job: InternalJob, patch: Partial<SpeechGenerationJob>): void {
@@ -540,6 +618,107 @@ export class SpeechGenerationJobs {
   }
 
   async #process(job: InternalJob): Promise<void> {
+    if (this.#workerFactory !== undefined) {
+      await this.#processInWorker(job);
+      return;
+    }
+    await this.#processInline(job);
+  }
+
+  async #processInWorker(job: InternalJob): Promise<void> {
+    await new Promise<void>((resolvePromise) => {
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        job.worker = undefined;
+        resolvePromise();
+      };
+      const cleanupPrepared = () => {
+        const cleanup = unlink(
+          join(this.projectRoot, "speech", `.${job.sceneId}.${job.id}.tmp.mp3`),
+        ).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return;
+          this.#update(job, {
+            error: {
+              code: job.error?.code ?? "TEMP_CLEANUP_FAILED",
+              message: "Speech 临时文件清理失败——查看任务详情",
+              retryable: job.error?.retryable ?? true,
+              cleanupFailed: true,
+            },
+          });
+        }).finally(() => this.#cleanupPromises.delete(cleanup));
+        this.#cleanupPromises.add(cleanup);
+      };
+      try {
+        const worker = this.#workerFactory!({
+          jobId: job.id,
+          projectRoot: this.projectRoot,
+          sceneId: job.sceneId,
+          narrationText: job.narrationText,
+          apiKey: this.#apiKey,
+          retryDelaysMs: this.#retryDelaysMs,
+          requestTimeoutMs: this.#requestTimeoutMs,
+        });
+        job.worker = worker;
+        worker.on("message", (message) => {
+          if (typeof message !== "object" || message === null) return;
+          const state = Reflect.get(message, "state") as SpeechWorkerState | undefined;
+          if (
+            state?.job.type !== "speech-generation" ||
+            state.job.id !== job.id ||
+            (job.status !== "queued" && job.status !== "processing")
+          ) return;
+          job.temporaryFile = state.temporaryFile;
+          job.finalFile = state.finalFile;
+          this.#update(job, {
+            status: state.job.status,
+            stage: state.job.stage,
+            result: state.job.result,
+            error: state.job.error,
+          });
+        });
+        worker.on("error", () => {
+          if (!ACTIVE_STATUSES.has(job.status)) return;
+          this.#update(job, job.status === "cancelling"
+            ? { status: "cancelled", stage: "cancelled" }
+            : {
+                status: "failed",
+                stage: "failed",
+                error: { code: "SPEECH_WORKER_ERROR", message: "Speech worker 无法继续；本地服务仍可使用。", retryable: true },
+              });
+          worker.kill("SIGTERM");
+          cleanupPrepared();
+          settle();
+        });
+        worker.on("exit", (code, signal) => {
+          if (job.status === "cancelling") {
+            this.#update(job, { status: "cancelled", stage: "cancelled" });
+            cleanupPrepared();
+          } else if (ACTIVE_STATUSES.has(job.status)) {
+            const detail = signal === null ? `退出码 ${code ?? "未知"}` : `信号 ${signal}`;
+            this.#update(job, {
+              status: "failed",
+              stage: "failed",
+              error: { code: "SPEECH_WORKER_CRASHED", message: `Speech worker 异常退出（${detail}）；其他任务不受影响。`, retryable: true },
+            });
+            cleanupPrepared();
+          }
+          settle();
+        });
+      } catch {
+        this.#update(job, {
+          status: "failed",
+          stage: "failed",
+          error: { code: "SPEECH_WORKER_START_FAILED", message: "无法启动 Speech worker；请重试。", retryable: true },
+        });
+        cleanupPrepared();
+        settle();
+      }
+    });
+  }
+
+  async #processInline(job: InternalJob): Promise<void> {
     const speechDirectory = join(this.projectRoot, "speech");
     const finalPath = `speech/${job.sceneId}.mp3`;
     let temporaryFile = "";
@@ -581,7 +760,18 @@ export class SpeechGenerationJobs {
       this.#throwIfCancelled(job);
 
       this.#update(job, { stage: "validating" });
-      const containerDurationMs = await validateMp3(temporaryFile, durationMs);
+      const validationController = new AbortController();
+      job.controller = validationController;
+      let containerDurationMs: number;
+      try {
+        containerDurationMs = await validateMp3(
+          temporaryFile,
+          durationMs,
+          validationController.signal,
+        );
+      } finally {
+        if (job.controller === validationController) job.controller = undefined;
+      }
       this.#throwIfCancelled(job);
 
       const sourceTextHash = sha256(job.narrationText);

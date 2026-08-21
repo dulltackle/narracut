@@ -149,7 +149,14 @@ test("项目名可原位编辑、取消、清空并在重新打开后恢复", as
     fallbackName,
   );
 
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "sendBeacon", {
+      configurable: true,
+      value: () => true,
+    });
+  });
   await page.reload();
+  await expect(page.getByTestId("lease-banner")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "编辑项目名" })).toHaveText(
     fallbackName,
   );

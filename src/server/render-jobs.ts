@@ -179,6 +179,7 @@ export class RenderJobs {
     const now = new Date().toISOString();
     const job: InternalRenderJob = {
       id,
+      kind: "render",
       type: "render",
       status: "queued",
       stage: "waiting",
