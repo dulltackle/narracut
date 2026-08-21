@@ -366,6 +366,7 @@ describe("Narracut 本地服务", () => {
     await mkdir(staticDirectory);
     await writeFile(join(projectDirectory, "project.json"), "{}");
     await writeFile(join(projectDirectory, "assets", "present.png"), "image");
+    await writeFile(join(projectDirectory, "assets", "invalid.mp4"), "not-video");
     const outsideFile = join(root, "outside.txt");
     await writeFile(outsideFile, "outside project");
     await symlink(outsideFile, join(projectDirectory, "assets", "escape.txt"));
@@ -384,10 +385,12 @@ describe("Narracut 本地服务", () => {
       body: JSON.stringify({
         paths: [
           "assets/present.png",
+          "assets/invalid.mp4",
           "assets/missing.mp4",
           "assets/escape.txt",
           "../outside.txt",
         ],
+        videoPaths: ["assets/invalid.mp4", "assets/missing.mp4"],
       }),
     });
 
@@ -395,6 +398,7 @@ describe("Narracut 本地服务", () => {
     expect(await response.json()).toEqual({
       results: [
         { path: "assets/present.png", exists: true },
+        { path: "assets/invalid.mp4", exists: true, error: "VIDEO_TOOL_FAILED" },
         { path: "assets/missing.mp4", exists: false },
         { path: "assets/escape.txt", exists: false },
         { path: "../outside.txt", exists: false, error: "INVALID_PROJECT_PATH" },

@@ -103,6 +103,7 @@ type ProjectState = {
   unknownVersion?: number;
   info?: ProjectInfo;
   diagnostics: Diagnostic[];
+  mediaDiagnostics: Diagnostic[];
   mediaAvailability: Record<string, boolean>;
   mediaRevisions: Record<string, string>;
   errorMessage?: string;
@@ -422,7 +423,12 @@ async function withoutStaleSpeech(project: Project): Promise<Project> {
   };
 }
 
-async function probeMediaAvailability(project: Project): Promise<Record<string, boolean>> {
+type MediaProbeResult = {
+  availability: Record<string, boolean>;
+  diagnostics: Diagnostic[];
+};
+
+async function probeMediaAvailability(project: Project): Promise<MediaProbeResult> {
   const paths = [
     ...project.assets.map((asset) => asset.path),
     ...project.scenes.flatMap((scene) =>
@@ -430,19 +436,45 @@ async function probeMediaAvailability(project: Project): Promise<Record<string, 
     ),
   ];
   const uniquePaths = [...new Set(paths)];
-  if (uniquePaths.length === 0) return {};
+  if (uniquePaths.length === 0) return { availability: {}, diagnostics: [] };
+  const videoPaths = project.assets
+    .filter((asset) => asset.kind === "video")
+    .map((asset) => asset.path);
   const response = await fetch("/api/assets/probe", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ paths: uniquePaths }),
+    body: JSON.stringify({ paths: uniquePaths, videoPaths }),
   });
-  if (!response.ok) return {};
+  if (!response.ok) return { availability: {}, diagnostics: [] };
   const payload = (await response.json()) as {
-    results: Array<{ path: string; exists: boolean }>;
+    results: Array<{ path: string; exists: boolean; error?: string }>;
   };
-  return Object.fromEntries(
-    payload.results.map((result) => [result.path, result.exists]),
-  );
+  const assetsByPath = new Map(project.assets.map((asset) => [asset.path, asset]));
+  return {
+    availability: Object.fromEntries(
+      payload.results.map((result) => [result.path, result.exists]),
+    ),
+    diagnostics: payload.results.flatMap((result) => {
+      if (!result.error?.startsWith("VIDEO_")) return [];
+      const asset = assetsByPath.get(result.path);
+      if (asset?.kind !== "video") return [];
+      const scene = project.scenes.find(
+        (candidate) => candidate.visual.type === "video" &&
+          candidate.visual.assetId === asset.id,
+      );
+      return [{
+        code: result.error,
+        severity: "error" as const,
+        path: scene === undefined
+          ? ["assets", project.assets.indexOf(asset), "path"]
+          : ["scenes", project.scenes.indexOf(scene), "visual", "assetId"],
+        sceneId: scene?.id,
+        assetId: asset.id,
+        relativePath: asset.path,
+        message: "Video Asset 已存在，但媒体复检未通过；请重新导入该视频后再渲染。",
+      }];
+    }),
+  };
 }
 
 async function probeSpeechRevisions(project: Project): Promise<Record<string, string>> {
@@ -753,11 +785,13 @@ async function installDiskProject(
   preMigrationBackupPending = migrated;
   pendingSave = undefined;
   clearSaveTimers();
+  const mediaProbe = await probeMediaAvailability(project);
   set({
     phase: "ready",
     project,
     diagnostics,
-    mediaAvailability: await probeMediaAvailability(project),
+    mediaDiagnostics: mediaProbe.diagnostics,
+    mediaAvailability: mediaProbe.availability,
     mediaRevisions: await probeSpeechRevisions(project),
     selectedSceneId: project.scenes[0]?.id,
     undoStack: [],
@@ -1075,6 +1109,7 @@ function installLifecycleListeners(get: GetProjectState): void {
 export const useProjectStore = create<ProjectState>((set, get) => ({
   phase: "loading",
   diagnostics: [],
+  mediaDiagnostics: [],
   mediaAvailability: {},
   mediaRevisions: {},
   saveStatus: "saved",
@@ -1099,6 +1134,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({
       phase: "loading",
       diagnostics: [],
+      mediaDiagnostics: [],
       errorMessage: undefined,
       project: undefined,
       unknownProject: undefined,
@@ -1186,7 +1222,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         currentProject === structural.project
           ? diagnostics
           : validateProjectConsistency(currentProject);
-      const [mediaAvailability, mediaRevisions] = await Promise.all([
+      const [mediaProbe, mediaRevisions] = await Promise.all([
         probeMediaAvailability(currentProject),
         probeSpeechRevisions(currentProject),
       ]);
@@ -1202,7 +1238,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         info,
         project: currentProject,
         diagnostics: currentDiagnostics,
-        mediaAvailability,
+        mediaDiagnostics: mediaProbe.diagnostics,
+        mediaAvailability: mediaProbe.availability,
         mediaRevisions,
         selectedSceneId: currentProject.scenes[0]?.id,
         saveStatus:

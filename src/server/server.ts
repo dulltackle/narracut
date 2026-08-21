@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -23,11 +23,18 @@ import {
 } from "./render-jobs";
 import { preflightRenderMedia, RenderPreflightError } from "./render-preflight";
 import { VideoThumbnailError, VideoThumbnailService } from "./video-thumbnails";
+import { VideoImportJobError, VideoImportJobs } from "./video-import-jobs";
+import {
+  assertNormalizedVideoProbe,
+  probeVideoFile,
+  VideoMediaError,
+} from "./video-media";
 
 export const DEFAULT_SERVER_HOST = "10.8.0.5";
 const DEFAULT_PORT = 3579;
 const MAX_PROJECT_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_IMPORT_BYTES = 100 * 1024 * 1024;
+const MAX_VIDEO_IMPORT_BYTES = 1024 * 1024 * 1024;
 const PROJECT_LEASE_TTL_MS = 3_000;
 const BACKUP_KINDS = new Set(["pre-migration", "external-conflict"]);
 
@@ -140,6 +147,32 @@ async function readRequestBody(
   return Buffer.concat(chunks);
 }
 
+async function spoolRequestBody(
+  request: IncomingMessage,
+  file: string,
+  limit: number,
+  tooLargeMessage: string,
+): Promise<number> {
+  const handle = await open(file, "wx");
+  let size = 0;
+  try {
+    for await (const chunk of request) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.byteLength;
+      if (size > limit) throw new HttpError(413, tooLargeMessage);
+      await handle.writeFile(buffer);
+    }
+    await handle.sync();
+    return size;
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await unlink(file).catch(() => undefined);
+    throw error;
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
 async function writeProjectAtomically(
   projectFile: string,
   bytes: Buffer,
@@ -242,26 +275,47 @@ async function probeProjectPaths(
   projectRoot: string,
   projectRealRoot: string,
   paths: string[],
+  videoPaths: ReadonlySet<string> = new Set(),
 ): Promise<Array<{ path: string; exists: boolean; error?: string }>> {
-  return Promise.all(
-    paths.map(async (path) => {
+  const uniquePaths = [...new Set(paths)];
+  const results = new Map<string, { path: string; exists: boolean; error?: string }>();
+  let cursor = 0;
+  const probeNext = async (): Promise<void> => {
+    while (cursor < uniquePaths.length) {
+      const path = uniquePaths[cursor++];
       if (!isProjectRelativePath(path)) {
-        return { path, exists: false, error: "INVALID_PROJECT_PATH" };
+        results.set(path, { path, exists: false, error: "INVALID_PROJECT_PATH" });
+        continue;
       }
 
+      const candidate = join(projectRoot, ...path.split("/"));
       try {
-        return {
-          path,
-          exists: await isContainedProjectFile(
-            projectRealRoot,
-            join(projectRoot, ...path.split("/")),
-          ),
-        };
+        const exists = await isContainedProjectFile(projectRealRoot, candidate);
+        if (!exists || !videoPaths.has(path)) {
+          results.set(path, { path, exists });
+          continue;
+        }
+        try {
+          assertNormalizedVideoProbe(await probeVideoFile(await realpath(candidate)));
+          results.set(path, { path, exists: true });
+        } catch (error) {
+          results.set(path, {
+            path,
+            exists: true,
+            error: error instanceof VideoMediaError
+              ? error.code
+              : "VIDEO_ASSET_PROBE_FAILED",
+          });
+        }
       } catch {
-        return { path, exists: false };
+        results.set(path, { path, exists: false });
       }
-    }),
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(2, uniquePaths.length) }, () => probeNext()),
   );
+  return paths.map((path) => results.get(path)!);
 }
 
 async function probeSpeechRevisions(
@@ -408,6 +462,15 @@ export async function startNarracutServer({
   }
   const projectRealRoot = await realpath(projectRoot);
   const imageImportJobs = new ImageImportJobs(projectRoot);
+  const videoImportJobs = new VideoImportJobs(projectRoot, {
+    mediaBaseUrl: () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        throw new VideoImportJobError(503, "本地媒体服务尚未准备好。");
+      }
+      return `${serverUrl(serverHost, address.port)}/media/`;
+    },
+  });
   const speechGenerationJobs = new SpeechGenerationJobs(projectRoot, {
     fetchImpl: ttsFetch,
     apiKey: environment.TOKENDANCE_API_KEY,
@@ -627,11 +690,32 @@ export async function startNarracutServer({
           return;
         }
         const paths = pathsValue as string[];
+        const videoPathsValue: unknown =
+          typeof input === "object" && input !== null &&
+          Array.isArray(Reflect.get(input, "videoPaths"))
+            ? Reflect.get(input, "videoPaths")
+            : [];
+        const pathSet = new Set(paths);
+        if (
+          !Array.isArray(videoPathsValue) ||
+          videoPathsValue.length > Math.min(paths.length, 200) ||
+          !videoPathsValue.every(
+            (path: unknown) => typeof path === "string" && pathSet.has(path),
+          )
+        ) {
+          send(response, 400, "videoPaths 必须是 paths 的字符串子集，且不超过 200 项。");
+          return;
+        }
         send(
           response,
           200,
           JSON.stringify({
-            results: await probeProjectPaths(projectRoot, projectRealRoot, paths),
+            results: await probeProjectPaths(
+              projectRoot,
+              projectRealRoot,
+              paths,
+              new Set(videoPathsValue as string[]),
+            ),
           }),
           "application/json; charset=utf-8",
         );
@@ -720,6 +804,9 @@ export async function startNarracutServer({
         for (const job of imageImportJobs.list()) {
           response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
         }
+        for (const job of videoImportJobs.list()) {
+          response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
+        }
         for (const job of speechGenerationJobs.list()) {
           response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
         }
@@ -732,10 +819,12 @@ export async function startNarracutServer({
           }
         };
         const unsubscribeImage = imageImportJobs.subscribe(writeJob);
+        const unsubscribeVideo = videoImportJobs.subscribe(writeJob);
         const unsubscribeSpeech = speechGenerationJobs.subscribe(writeJob);
         const unsubscribeRender = renderJobs.subscribe(writeJob);
         request.once("close", () => {
           unsubscribeImage();
+          unsubscribeVideo();
           unsubscribeSpeech();
           unsubscribeRender();
           eventStreams.delete(response);
@@ -883,6 +972,77 @@ export async function startNarracutServer({
         return;
       }
 
+      if (url.pathname === "/api/jobs/video-import" && request.method === "POST") {
+        requireLease(request);
+        const rawFileName = request.headers["x-narracut-file-name"];
+        const sceneId = request.headers["x-narracut-scene-id"];
+        if (typeof rawFileName !== "string" || typeof sceneId !== "string") {
+          throw new HttpError(400, "视频导入必须包含文件名与目标 Scene ID。");
+        }
+        let fileName: string;
+        try {
+          fileName = decodeURIComponent(rawFileName);
+        } catch {
+          throw new HttpError(400, "视频文件名无效。");
+        }
+        if (
+          fileName.length === 0 || fileName.length > 512 || /[\0\r\n]/u.test(fileName) ||
+          !/\.(mp4|mov)$/iu.test(fileName) ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(sceneId)
+        ) {
+          throw new HttpError(400, "请选择 MP4 或 MOV，并提供有效的目标 Scene ID。");
+        }
+        const declaredBytes = Number(request.headers["content-length"]);
+        videoImportJobs.assertCanCreate(
+          sceneId,
+          Number.isFinite(declaredBytes) && declaredBytes > 0 ? declaredBytes : 0,
+        );
+        const assetsDirectory = join(projectRoot, "assets");
+        await mkdir(assetsDirectory, { recursive: true });
+        const assetsRealDirectory = await realpath(assetsDirectory);
+        const contained = relative(projectRealRoot, assetsRealDirectory);
+        if (
+          contained === "" || contained === ".." ||
+          contained.startsWith(`..${sep}`) || isAbsolute(contained)
+        ) {
+          throw new HttpError(500, "无法安全写入项目 Asset 目录。");
+        }
+        const extension = fileName.toLowerCase().endsWith(".mov") ? "mov" : "mp4";
+        const sourceFile = join(
+          assetsRealDirectory,
+          `.${randomUUID()}.upload.tmp.${extension}`,
+        );
+        const sourceBytes = await spoolRequestBody(
+          request,
+          sourceFile,
+          MAX_VIDEO_IMPORT_BYTES,
+          "视频导入源超过 1 GiB 上限。",
+        );
+        if (sourceBytes === 0) {
+          await unlink(sourceFile).catch(() => undefined);
+          throw new HttpError(400, "视频导入源为空。");
+        }
+        try {
+          send(
+            response,
+            202,
+            JSON.stringify({
+              job: videoImportJobs.create({
+                sceneId,
+                fileName,
+                sourceFile,
+                sourceBytes,
+              }),
+            }),
+            "application/json; charset=utf-8",
+          );
+        } catch (error) {
+          await unlink(sourceFile).catch(() => undefined);
+          throw error;
+        }
+        return;
+      }
+
       const jobMatch = /^\/api\/jobs\/([0-9a-f-]+)$/iu.exec(url.pathname);
       const openOutputMatch = /^\/api\/jobs\/([0-9a-f-]+)\/open-output$/iu.exec(
         url.pathname,
@@ -982,6 +1142,7 @@ export async function startNarracutServer({
       if (jobMatch !== null && request.method === "GET") {
         const job =
           imageImportJobs.get(jobMatch[1]) ??
+          videoImportJobs.get(jobMatch[1]) ??
           speechGenerationJobs.get(jobMatch[1]) ??
           renderJobs.get(jobMatch[1]);
         if (job === undefined) throw new HttpError(404, "找不到这个 Job。");
@@ -997,6 +1158,7 @@ export async function startNarracutServer({
         }
         const job =
           imageImportJobs.cancel(jobMatch[1]) ??
+          videoImportJobs.cancel(jobMatch[1]) ??
           speechGenerationJobs.cancel(jobMatch[1]);
         if (job === undefined) throw new HttpError(404, "找不到这个 Job。");
         send(response, 200, JSON.stringify(job), "application/json; charset=utf-8");
@@ -1062,6 +1224,7 @@ export async function startNarracutServer({
       const statusCode =
         error instanceof HttpError ||
         error instanceof ImageImportJobError ||
+        error instanceof VideoImportJobError ||
         error instanceof SpeechGenerationJobError ||
         error instanceof RenderJobError ||
         error instanceof RenderPreflightError ||
@@ -1084,6 +1247,7 @@ export async function startNarracutServer({
       for (const stream of eventStreams) stream.end();
       eventStreams.clear();
       await videoThumbnails.close();
+      await videoImportJobs.close();
       renderJobs.close();
       return new Promise<void>((resolvePromise, rejectPromise) => {
         server.close((error) => (error ? rejectPromise(error) : resolvePromise()));

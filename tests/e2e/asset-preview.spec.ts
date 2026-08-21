@@ -179,7 +179,7 @@ test("已绑定 Video 使用原生控件从首帧预览，关闭后立即停止"
   const trigger = page.getByRole("button", {
     name: "预览 Scene 2 Video Asset short.mp4",
   });
-  await expect(trigger).toContainText("Video · 原始媒体");
+  await expect(trigger).toContainText("Video · 1920×1080");
   await expect(page.getByText("本票不提供导入")).toHaveCount(0);
   await trigger.press("Enter");
 

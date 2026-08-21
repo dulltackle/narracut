@@ -1,5 +1,6 @@
 import { bundle } from "@remotion/bundler";
 import {
+  makeCancelSignal,
   renderMedia,
   renderStill,
   selectComposition,
@@ -71,4 +72,76 @@ export async function renderProjectStill(
     frame,
     inputProps,
   });
+}
+
+export async function normalizeVideoWithRemotion(
+  input: {
+    src: string;
+    durationInFrames: number;
+    outputLocation: string;
+  },
+  options: { signal?: AbortSignal; onProgress?: (progress: number) => void } = {},
+): Promise<void> {
+  const serveUrl = await remotionBundle();
+  const inputProps = {
+    src: input.src,
+    durationInFrames: input.durationInFrames,
+  };
+  const composition = await selectComposition({
+    serveUrl,
+    id: "NarracutNormalizeVideo",
+    inputProps,
+  });
+  const cancellation = makeCancelSignal();
+  const abort = () => cancellation.cancel();
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    await renderMedia({
+      serveUrl,
+      composition,
+      codec: "h264",
+      outputLocation: input.outputLocation,
+      inputProps,
+      muted: true,
+      enforceAudioTrack: false,
+      pixelFormat: "yuv420p",
+      colorSpace: "bt709",
+      x264Preset: "medium",
+      crf: 18,
+      metadata: {},
+      cancelSignal: cancellation.cancelSignal,
+      onProgress: ({ progress }) => options.onProgress?.(progress),
+      ffmpegOverride: ({ type, args }) => {
+        const output = args.at(-1);
+        if (output === undefined) return args;
+        if (type === "pre-stitcher") {
+          return [
+            ...args.slice(0, -1),
+            "-profile:v", "high",
+            "-level:v", "4.1",
+            "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709:fullrange=off",
+            "-color_range", "tv",
+            "-colorspace", "bt709",
+            "-color_primaries", "bt709",
+            "-color_trc", "bt709",
+            output,
+          ];
+        }
+        return [
+          ...args.slice(0, -1),
+          "-movflags", "+faststart",
+          "-color_range", "tv",
+          "-colorspace", "bt709",
+          "-color_primaries", "bt709",
+          "-color_trc", "bt709",
+          "-map_metadata", "-1",
+          "-map_chapters", "-1",
+          output,
+        ];
+      },
+    });
+  } finally {
+    options.signal?.removeEventListener("abort", abort);
+  }
 }

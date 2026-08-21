@@ -1,11 +1,14 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
+
+import sharp from "sharp";
+
+import { spawnRemotionCli } from "./video-media";
 
 const DEFAULT_MAX_CONCURRENT = 2;
 const DEFAULT_MAX_CACHE_BYTES = 32 * 1024 * 1024;
 const DEFAULT_MAX_CACHE_ENTRIES = 512;
-const MAX_OUTPUT_BYTES = 512 * 1024;
+const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES = 64 * 1024;
 const EXTRACTION_TIMEOUT_MS = 10_000;
 
@@ -77,9 +80,9 @@ async function fileSignature(file: string, relativePath: string): Promise<FileSi
   };
 }
 
-function extractFrameWithFfmpeg(file: string, signal: AbortSignal): Promise<Buffer> {
-  return new Promise<Buffer>((resolvePromise, rejectPromise) => {
-    const child = spawn(
+async function extractFrameWithFfmpeg(file: string, signal: AbortSignal): Promise<Buffer> {
+  const sourceFrame = await new Promise<Buffer>((resolvePromise, rejectPromise) => {
+    const child = spawnRemotionCli(
       "ffmpeg",
       [
         "-hide_banner",
@@ -92,8 +95,6 @@ function extractFrameWithFfmpeg(file: string, signal: AbortSignal): Promise<Buff
         file,
         "-frames:v",
         "1",
-        "-vf",
-        "scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=0x2A2226",
         "-q:v",
         "4",
         "-f",
@@ -102,7 +103,6 @@ function extractFrameWithFfmpeg(file: string, signal: AbortSignal): Promise<Buff
         "mjpeg",
         "pipe:1",
       ],
-      { stdio: ["ignore", "pipe", "pipe"] },
     );
 
     const output: Buffer[] = [];
@@ -136,7 +136,7 @@ function extractFrameWithFfmpeg(file: string, signal: AbortSignal): Promise<Buff
       const unavailable = "code" in error && error.code === "ENOENT";
       finish(new VideoThumbnailError(503, unavailable ? "FFmpeg 不可用。" : "无法启动 FFmpeg。"));
     });
-    child.stdout.on("data", (chunk: Buffer) => {
+    child.stdout!.on("data", (chunk: Buffer) => {
       outputBytes += chunk.byteLength;
       if (outputBytes > MAX_OUTPUT_BYTES) {
         terminate(new VideoThumbnailError(422, "生成的首帧超过大小上限。"));
@@ -144,7 +144,7 @@ function extractFrameWithFfmpeg(file: string, signal: AbortSignal): Promise<Buff
       }
       output.push(chunk);
     });
-    child.stderr.on("data", (chunk: Buffer) => {
+    child.stderr!.on("data", (chunk: Buffer) => {
       stderrBytes += chunk.byteLength;
       if (stderrBytes > MAX_STDERR_BYTES) {
         terminate(new VideoThumbnailError(422, "视频解码错误输出超过大小上限。"));
@@ -162,6 +162,10 @@ function extractFrameWithFfmpeg(file: string, signal: AbortSignal): Promise<Buff
       finish();
     });
   });
+  return sharp(sourceFrame)
+    .resize(320, 180, { fit: "contain", background: "#2A2226" })
+    .jpeg({ quality: 75 })
+    .toBuffer();
 }
 
 export class VideoThumbnailService {

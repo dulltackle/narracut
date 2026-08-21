@@ -43,6 +43,49 @@ export type ImageImportJob = {
   };
 };
 
+export type VideoImportJobStatus = ImageImportJobStatus;
+
+export type VideoImportJobStage =
+  | "waiting"
+  | "probing"
+  | "normalizing"
+  | "verifying"
+  | "finalizing"
+  | "completed"
+  | "cancelling"
+  | "cancelled"
+  | "failed";
+
+export type VideoImportJob = {
+  id: string;
+  type: "video-import";
+  sceneId: string;
+  fileName: string;
+  status: VideoImportJobStatus;
+  stage: VideoImportJobStage;
+  progress?: number;
+  createdAt: string;
+  updatedAt: string;
+  result?: {
+    asset: { id: string; kind: "video"; path: string };
+    facts: {
+      sourceWidth: number;
+      sourceHeight: number;
+      width: 1920;
+      height: 1080;
+      durationSeconds: number;
+      frameCount: number;
+      enlarged: boolean;
+      mode: "remux" | "transcode";
+    };
+  };
+  error?: {
+    code: string;
+    message: string;
+    cleanupFailed?: boolean;
+  };
+};
+
 export type SpeechGenerationJobStatus =
   | "queued"
   | "processing"
@@ -139,4 +182,4 @@ export type RenderJob = {
   };
 };
 
-export type NarracutJob = ImageImportJob | SpeechGenerationJob | RenderJob;
+export type NarracutJob = ImageImportJob | VideoImportJob | SpeechGenerationJob | RenderJob;

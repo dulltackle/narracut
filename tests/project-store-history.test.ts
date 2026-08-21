@@ -84,6 +84,7 @@ beforeEach(() => {
     phase: "ready",
     project: projectFixture(),
     diagnostics: [],
+    mediaDiagnostics: [],
     mediaAvailability: {},
     mediaRevisions: {},
     selectedSceneId: sceneId,
@@ -110,6 +111,21 @@ afterEach(() => {
 });
 
 describe("Project DSL 事务历史", () => {
+  it("普通 DSL 编辑不会清除项目打开时的媒体复检阻断", () => {
+    const runtimeDiagnostic = {
+      code: "VIDEO_ASSET_NOT_NORMALIZED",
+      severity: "error" as const,
+      path: ["scenes", 0, "visual", "assetId"],
+      message: "Video Asset 媒体复检未通过。",
+      assetId: importedAssetId,
+    };
+    useProjectStore.setState({ mediaDiagnostics: [runtimeDiagnostic] });
+
+    useProjectStore.getState().updateNarration(sceneId, "编辑后的旁白");
+
+    expect(useProjectStore.getState().mediaDiagnostics).toEqual([runtimeDiagnostic]);
+  });
+
   it("删除选中 Scene 后选择下一条，撤销重做时保留删除后登记的 Asset", async () => {
     vi.stubGlobal(
       "fetch",
