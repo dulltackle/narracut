@@ -72,6 +72,30 @@ describe("视频导入事实判定", () => {
     expect(result.remuxEligible).toBe(false);
   });
 
+  it("流级场序缺失时以编码头事实确认逐行 HEVC", () => {
+    const input = probe({
+      codec_name: "hevc",
+      profile: "Main 10",
+      pix_fmt: "yuv420p10le",
+      field_order: undefined,
+    });
+    input.frameEncoding = "progressive";
+
+    expect(inspectVideoSource(input)).toMatchObject({
+      codec: "hevc",
+      remuxEligible: false,
+    });
+  });
+
+  it("流级场序缺失但编码头表明隔行时仍拒绝", () => {
+    const input = probe({ field_order: undefined });
+    input.frameEncoding = "interlaced";
+
+    expect(() => inspectVideoSource(input)).toThrow(
+      expect.objectContaining({ code: "VIDEO_INTERLACED_UNSUPPORTED" }),
+    );
+  });
+
   it("应用旋转后的尺寸判定低分辨率放大", () => {
     const result = inspectVideoSource(probe({
       width: 1080,

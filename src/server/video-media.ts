@@ -47,6 +47,7 @@ export type VideoProbeStream = {
 
 export type VideoProbeResult = {
   streams?: VideoProbeStream[];
+  frameEncoding?: "progressive" | "interlaced";
   format?: {
     format_name?: string;
     duration?: string;
@@ -178,11 +179,41 @@ export async function probeVideoFile(
     ],
     { signal, timeoutMs: 30_000 },
   );
+  let result: VideoProbeResult;
   try {
-    return JSON.parse(stdout.toString("utf8")) as VideoProbeResult;
+    result = JSON.parse(stdout.toString("utf8")) as VideoProbeResult;
   } catch {
     throw new VideoMediaError("VIDEO_DECODE_FAILED", "视频内容损坏或无法读取");
   }
+  const video = result.streams?.find(
+    (stream) => stream.codec_type === "video" && stream.disposition?.attached_pic !== 1,
+  );
+  if (
+    video !== undefined &&
+    (video.field_order === undefined || video.field_order === "unknown") &&
+    (video.codec_name === "h264" || video.codec_name === "hevc")
+  ) {
+    const { stderr } = await runRemotionCli("ffmpeg", [
+      "-hide_banner", "-loglevel", "info",
+      "-i", file,
+      "-map", `0:${video.index ?? 0}`,
+      "-c", "copy",
+      "-bsf:v", "trace_headers",
+      "-frames:v", "1",
+      "-f", "null", "-",
+    ], { signal, timeoutMs: 60_000 });
+    const flagPattern = video.codec_name === "hevc"
+      ? /field_seq_flag\s+\d+\s+=\s+([01])/gu
+      : /frame_mbs_only_flag\s+\d+\s+=\s+([01])/gu;
+    const flags = [...stderr.matchAll(flagPattern)].map((match) => Number(match[1]));
+    if (flags.length > 0) {
+      const progressiveValue = video.codec_name === "hevc" ? 0 : 1;
+      result.frameEncoding = flags.every((flag) => flag === progressiveValue)
+        ? "progressive"
+        : "interlaced";
+    }
+  }
+  return result;
 }
 
 function normalizedRotation(stream: VideoProbeStream): 0 | 90 | 180 | 270 {
@@ -254,7 +285,13 @@ export function inspectVideoSource(probe: VideoProbeResult): InspectedVideoSourc
   if (!ACCEPTED_PIXEL_FORMATS.has(stream.pix_fmt ?? "")) {
     throw new VideoMediaError("VIDEO_CHROMA_UNSUPPORTED", "只支持 8/10-bit 4:2:0 视频");
   }
-  if (stream.field_order !== "progressive") {
+  const sampledFramesAreProgressive = probe.frameEncoding === "progressive";
+  const streamFieldOrderIsUnknown =
+    stream.field_order === undefined || stream.field_order === "unknown";
+  if (
+    stream.field_order !== "progressive" &&
+    !(streamFieldOrderIsUnknown && sampledFramesAreProgressive)
+  ) {
     throw new VideoMediaError("VIDEO_INTERLACED_UNSUPPORTED", "不支持隔行视频");
   }
   const streamDuration = Number(stream.duration);
