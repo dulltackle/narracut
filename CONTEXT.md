@@ -4,6 +4,24 @@
 
 ## Language
 
+### 工作区
+
+**表格工作区**：
+以逐 Scene 表格检查和管理 Narration、Asset、Speech 等项目内容的工作区。
+_Avoid_: 表格模式
+
+**Agent 工作区**：
+用户与 Agent 围绕 Video Brief 和现有 Scene 内容共同塑造成片表现的工作区；Agent 不写 Scene 内容，需要修改时只提出建议，由用户回到表格工作区手工完成。
+_Avoid_: Agent 模式、聊天模式
+
+**Video Brief**：
+人与 Agent 共享、保存于自由格式 `video.md` 的项目级创作意图；当前不规定固定章节、front matter、字段或其他文档结构。它可以提及任何创作信息，但不作为逐 Scene 内容的权威来源，也不是可执行程序。
+_Avoid_: Prompt、Agent 日志、Render Plan
+
+**Render Program**：
+随项目保存、由 Agent 持续创作的 Remotion 程序；它使用有序 Scene 的内容与时长塑造成片表现，但不拥有或改写 Scene 内容。
+_Avoid_: Visual Type、Render Plan、临时代码
+
 ### 结构
 
 **Scene**：
@@ -92,7 +110,15 @@ Scene 之间唯一的转场方式——硬切，无过渡。V1 不存在其他�
 ### 产物
 
 **项目**：
-一个可整体移动的文件夹，包含 `project.json`（即 DSL）、该项目的 Asset、Speech 与渲染产物。项目内的持久引用都相对项目根，不依赖文件夹当前所在的绝对路径。
+一个可整体移动且具有有效项目清单的文件夹，包含 `project.json`（即 DSL）、该项目的 Asset、Speech 与渲染产物；不符合当前格式的文件夹不是项目。项目内的持久引用都相对项目根，不依赖文件夹当前所在的绝对路径。
+
+**项目清单**：
+项目根的 `narracut.json`，是应用判断一个文件夹是否为项目及其 Project ID 的唯一身份依据；缺失、损坏、标识错误或格式版本不受支持的清单均表示该文件夹不是项目。
+_Avoid_: 项目标记、版本文件
+
+**Project ID**：
+创建项目时生成并写入项目清单的稳定 UUID；移动项目不改变它，正式复制项目时生成新的 ID。手工复制整个文件夹会保留 ID，因此得到的是同一项目的副本。
+_Avoid_: 文件夹 ID、路径 ID
 
 **DSL**：
 `project.json` 的内容，描述整个视频的完整结构。它是系统的核心数据资产，要求可序列化、可版本升级、可 AI 生成、可校验。
