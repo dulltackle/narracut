@@ -23,8 +23,36 @@ _Avoid_: 后台 Agent、常驻 Agent
 _Avoid_: 临时 Prompt、隐式 Brief 修改
 
 **候选 Render Program**：
-一次 Agent 创作任务从当前已接受 Render Program 派生的隔离工作版本；每个项目同时只有一个候选和一个活跃 Agent 创作任务。候选可以被 Agent 反复修改和 Preview；停止任务保留候选，只有明确放弃才删除候选，只有用户明确接受后候选才原子替换当前版本。
+一次 Agent 创作任务从当前 Render Program 派生的隔离工作版本；它是 Agent、人工或外部工具修改 Render Program 的唯一可写对象，每个项目同时最多只有一个。每批成功修改都原子持久化；停止或应用重启后候选以停止状态保留，外部工具在任务期间改变候选会使旧结果失效并暂停任务，只有明确放弃才删除，只有用户明确接受后才成为新的当前 Render Program。
 _Avoid_: 草稿分支、临时补丁
+
+**Render Program 修订**：
+用户明确接受候选后形成的一份完整、不可变 Render Program；它有稳定身份，并关联完整程序树指纹、前一当前修订、接受时核对的 Video Brief 与项目输入指纹，以及接受时间、来源和一行变更摘要，而不复制项目输入或 Agent 对话。Agent、人工或外部工具都不能继续改写修订，观察到的字节变化属于损坏而不是新版本。
+_Avoid_: 备份、可变版本
+
+**当前 Render Program**：
+项目唯一生效的 Render Program，由单一当前指向关系选定一个 Render Program 修订；接受候选只原子改变这一关系，不改写既有修订。
+_Avoid_: 当前源码目录、工作树
+
+**Render Program 历史**：
+随项目保存、由最近 20 个已接受 Render Program 修订（包含当前修订）组成的限量历史；接受新候选后，超过数量边界的最旧修订自动删除，损坏但非当前的修订在自然裁剪前仍占一个名额且不可用于比较或回退。
+_Avoid_: 无限历史、外部备份
+
+**候选恢复检查点**：
+紧邻当前候选、只用于存储完整性失败恢复的上一份完整候选状态；它不参与 Preview，也不是第二个候选，每批成功修改都会换代，接受或放弃候选时随候选删除。
+_Avoid_: 候选历史、第二候选、自动保存版本
+
+**Render Program 回退**：
+从一个仍被保留的历史修订创建新候选，再针对最新项目输入完成检查、Preview 和用户接受；它不直接改变当前指向关系，已有候选必须先接受或放弃。
+_Avoid_: 指针回滚、直接恢复
+
+**Render Program 接受**：
+用户把已经对应最新项目输入并通过阻断检查的完整候选提交为新修订的原子动作；提交点同时选定新当前修订并消费候选，此前失败保留旧当前与候选，此后的历史裁剪和遗留文件清理不撤销接受。
+_Avoid_: 发布、逐文件覆盖、局部接受
+
+**Render Program 存储完整性失败**：
+Render Program 的文件不可读、修订元数据损坏、应有文件缺失、完整树指纹不符或当前指向关系不一致，以致系统不能信任持久字节的状态；源码、Manifest、类型或构建诊断不属于存储完整性失败。
+_Avoid_: 编译失败、构建失败、普通诊断
 
 **候选 Preview**：
 最新候选 Render Program 通过构建后产生的不可变 Preview 产物；最新源码检查失败时，上一份成功产物可以继续显示，但必须明确标记为过期。Agent 在交付前检查整条时间线的代表帧、Scene 边界、Transition、运动片段和诊断；用户可以在当前版本与候选 Preview 间比较，只有与最新候选和最新项目输入完全对应、通过阻断检查的版本才能被接受，零 Scene 时允许以 Manifest 与构建检查代替运行期 Preview。
@@ -69,6 +97,18 @@ _Avoid_: 项目清单、动态配置
 **Program Resource**：
 Render Program 源码或锁定依赖携带、只服务于表现实现的字体、Shader、纹理或其他资源；它属于 Render Program，不进入 Asset 登记表。用户导入并作为 Scene 源材料使用的文件不是 Program Resource，必须登记为 Asset 并由 Scene 引用。
 _Avoid_: 用 Program Resource 隐藏 Scene Asset
+
+**Render Program 执行胶囊**：
+Narracut 用于运行任何可能执行项目代码之阶段的认证隔离环境；安装、构建、Metadata、Preview 与 Render 只能在其中按阶段取得最小能力，胶囊不可用时这些操作失败关闭。
+_Avoid_: Render Worker、容器、受信项目模式
+
+**执行环境指纹**：
+稳定标识一套认证 Render Program 执行胶囊及其 Runtime、工具链和确定性配置的组合；每个已接受修订关联一个执行环境指纹，指纹变化只能经新候选重新验收，不能静默改变既有修订的执行环境。
+_Avoid_: 应用版本、最新环境、自动升级标记
+
+**离线依赖库**：
+随项目保存并移动、按 registry 完整性摘要寻址的依赖包派生存储，覆盖候选、候选恢复检查点及全部保留修订；它不属于 Render Program 修订，也不包含安装树、Bundle 或 Preview。
+_Avoid_: node_modules、宿主缓存、依赖备份
 
 **Asset Revision**：
 Render Program Runtime 对 Asset 当前文件内容的运行时观察，用于识别原位替换，但不是持久化版本或历史副本。变化会使当前 Preview 的 Render Program Input 失效；Render 期间发生变化会使该次 Render 失败，防止一项产物混用变化前后的内容。
@@ -137,6 +177,10 @@ _Avoid_: 项目标记、版本文件
 **Project ID**：
 创建项目时生成并写入项目清单的稳定 UUID；移动项目不改变它，正式复制项目时生成新的 ID。手工复制整个文件夹会保留 ID，因此得到的是同一项目的副本。
 _Avoid_: 文件夹 ID、路径 ID
+
+**项目写入租约**：
+同一物理项目目录在任一时刻只授予一个 Narracut 进程的独占写入资格；另一进程不能进入该目录的工作区，崩溃遗留资格只有在确认原持有进程不存在后才能回收。
+_Avoid_: Project ID 锁、外部编辑锁
 
 **正式复制**：
 由 Narracut 明确创建的完整项目副本；副本获得新的 Project ID，因此是独立项目。手工复制文件夹不是正式复制，它保留原 Project ID。
