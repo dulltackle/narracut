@@ -58,6 +58,10 @@ _Avoid_: 编译失败、构建失败、普通诊断
 最新候选 Render Program 通过构建后产生的不可变 Preview 产物；最新源码检查失败时，上一份成功产物可以继续显示，但必须明确标记为过期。Agent 在交付前检查整条时间线的代表帧、Scene 边界、Transition、运动片段和诊断；用户可以在当前版本与候选 Preview 间比较，只有与最新候选和最新项目输入完全对应、通过阻断检查的版本才能被接受，零 Scene 时允许以 Manifest 与构建检查代替运行期 Preview。
 _Avoid_: 实时源码预览、自动发布
 
+**Preview 实例**：
+一次把不可变 Remotion Bundle、Render Program Input、Asset 与权威 Speech 的 Media Revision 以及执行环境共同锁定的只读 Preview 执行。实例只接受一次初始绑定；其中任一身份变化都会使旧实例过期并产生新实例，旧实例可以继续显示，但不能冒充新输入或用于接受候选。
+_Avoid_: 可变 Preview 会话、热替换输入、实时源码执行
+
 **候选交付**：
 Agent 认为候选 Render Program 就绪时提交给用户判断的完整结果，包含目标与变更摘要、输入新鲜度、检查结果、候选 Preview、非阻断警告和 Scene 修改建议。用户只能整体接受候选，也可以要求继续修改、停止或放弃；Agent 不自动接受。
 _Avoid_: 自动发布、局部接受
@@ -81,6 +85,10 @@ _Avoid_: Remotion Entry Point、Composition Root、动态入口
 **Render Program Runtime**：
 Narracut 拥有的 Render Program 执行边界；它向 Render Program 提供只读项目内容与时间线，并独占 Composition 骨架、Scene 顺序、Duration、项目总时长和权威 Speech 音轨。Render Program Runtime 允许成片表现跨越 Scene 边界，但不允许 Render Program 替换或移动权威 Speech。
 _Avoid_: Render Program Host、Agent Runtime
+
+**Preview Bridge**：
+Render Program Runtime 注入同一不可变 Remotion Bundle 的最小 Player 壳与版本化宿主消息接口；宿主工作区通过它控制 Preview，但不导入项目源码，也不把 Remotion Studio、Player Ref 或 Bundle 内部全局变量当作产品接口。Preview Bridge 只承载预览控制与观察，不向 Render Program 暴露 Narracut 写能力。
+_Avoid_: Remotion Studio 嵌入、宿主 Player、远程项目模块
 
 **Render Program Input**：
 Render Program Runtime 为一次 Preview 或 Render 生成的完整、只读、有协议主版本的专用输入值，而不是 DSL 的副本；它既使用深只读类型也在运行时深冻结，作为 Render Program Entry 的唯一参数，且不暴露 Preview/Render 模式。它包含当次原始 Video Brief、项目总帧数、Output Format、带 Narration、Asset ID 和 Scene Time Window 的有序 Scene，以及至少被一个 Scene 引用的 Asset；每个 Scene Time Window 明确标记来自 Speech 或 Draft Duration。每个可用 Asset 带稳定 ID、项目相对路径和 Runtime 生成的读取地址；文件不可用的已引用 Asset 仍保留 ID 与相对路径并明确标记为不可用，但没有读取地址。Render Program Input 不公开 Project ID、Speech 文件地址、`sourceTextHash` 或 `ttsProfileId`，也不在执行期间从 `project.json` 或实时项目 API 补读。项目内容变化会产生新的 Render Program Input，已经开始的执行继续使用原值。
