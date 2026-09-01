@@ -1,5 +1,7 @@
 # Project DSL V3 技术规格
 
+> **Legacy，已被 [ADR-0008](../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](./project-vnext.md) 替代。** 本规格只描述旧实现，不属于当前规范。Project VNext 不兼容、不自动迁移、也不以只读方式打开 V3；Visual Type、Text Preset 与固定 Composition 不进入 VNext。
+
 V3 以版本化、内容中立的 Preset 定义文字表现，并把同一份严格 DSL 快照同时交给编辑器 Player 与最终 Remotion Renderer。可执行结构见 [`project-schema-v3.ts`](./project-schema-v3.ts)，冻结的内置 Preset 见 [`text-presentation-presets-v1.md`](./text-presentation-presets-v1.md)，架构决策见 [ADR-0006](../adr/0006-versioned-text-presentation-presets.md)。
 
 ## 根结构与 Project Theme

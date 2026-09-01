@@ -1,5 +1,7 @@
 # 用版本化 Text Preset 驱动 Remotion 表现
 
+> **状态：Legacy，已由 [ADR-0009](./0009-separate-scene-content-and-render-program-authority.md) 整体替代。** Project VNext 的字体、文字、版式和运动全部归 Render Program，不继承 Theme、Style、Motion、固定 Composition 或 Preset Pack；也不提供兼容或迁移路径。
+
 跟踪任务：[Issue #39](https://github.com/dulltackle/narracut/issues/39)。
 
 Remotion 只作为内部预览与渲染引擎；Narracut 不向作者开放 Remotion Studio、React 或任意 CSS。Card 与 Caption 的 Text Block 分别选择与 Visual Type 无关的版本化 Text Style 和 Text Motion，Project Theme 提供项目默认值，单个 Scene 只保存例外；这既保留 Remotion 的表现力，又使 DSL 可校验、可迁移并满足 Preview = Render。

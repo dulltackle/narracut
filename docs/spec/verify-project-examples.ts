@@ -1,3 +1,6 @@
+/**
+ * Legacy V3 示例校验。Project VNext 规范不把这些样本视作兼容或迁移输入。
+ */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 

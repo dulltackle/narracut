@@ -1,8 +1,8 @@
 # Project DSL V2 技术规格
 
-> 本规格仅用于读取与迁移历史项目。当前写入格式见 [`project-v3.md`](./project-v3.md)。
+> **Legacy，已被 [ADR-0008](../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](./project-vnext.md) 替代。** 本规格只记录旧实现，不属于当前规范。Project VNext 不兼容、不自动迁移、也不以只读方式打开 V2。
 
-V2 将内容用途从核心数据模型中移除。历史结构定义见 [`project-schema-v2.ts`](./project-schema-v2.ts)，迁移决策见 [ADR-0005](../adr/0005-content-neutral-visual-model.md)；当前示例已升级到 V3。
+V2 曾将内容用途从核心数据模型中移除。历史结构定义见 [`project-schema-v2.ts`](./project-schema-v2.ts)，当时的迁移决策见 [ADR-0005](../adr/0005-content-neutral-visual-model.md)；现有示例仍服务 Legacy V3 实现。
 
 ## 边界与根结构
 

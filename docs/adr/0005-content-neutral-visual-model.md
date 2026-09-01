@@ -1,5 +1,7 @@
 # Visual 只描述渲染能力，不记录内容用途
 
+> **状态：Legacy，已由 [ADR-0009](./0009-separate-scene-content-and-render-program-authority.md) 替代。** Project VNext 不保存任何 Visual Type、Card 或 Caption；全部成片表现归 Render Program，也不提供旧 Visual 的兼容或迁移路径。
+
 项目从 DSL V2 起只保留 `Card`、`Image` 和 `Video` 三种 Visual Type。Card 是不依赖 Asset 的结构化 Text Block；Image 与 Video 可以拥有一个只含正文的可选 Caption。DSL 不再用 `Title`、`EndCard`、`Image+Caption`、`Video+Caption`、`Step` 或 `Alert` 表达叙事位置和内容用途，也不保存步骤编号，因为这些分类会把特定内容领域固化进核心模型。
 
 ## Considered Options

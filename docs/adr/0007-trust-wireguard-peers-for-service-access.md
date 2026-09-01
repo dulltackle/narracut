@@ -1,5 +1,7 @@
 # 信任 WireGuard 对端并在其地址提供服务
 
+> **状态：Legacy，已由 [ADR-0008](./0008-project-vnext-normative-architecture.md) 整体替代。** Project VNext 不继承固定 WireGuard 地址、无 token 服务或独立浏览器工作台拓扑；也不提供兼容路径。
+
 Narracut 的 HTTP 服务包含项目写入、导入、TTS 与渲染等操作，却因浏览器和 renderer 的媒体请求约束而不加 token 鉴权。为了让工作台可通过专用 WireGuard 网络直接访问，服务默认精确绑定 `10.8.0.5`，并把能够访问该接口的 WireGuard 对端视为受信任主体；不监听 `0.0.0.0` 或 `::`，避免把信任边界扩大到所有网络接口。
 
 ## Consequences

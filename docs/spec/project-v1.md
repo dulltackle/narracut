@@ -1,8 +1,8 @@
 # Project DSL V1 技术规格
 
-> 本规格仅用于读取与迁移历史项目。当前写入格式见 [`project-v3.md`](./project-v3.md)。
+> **Legacy，已被 [ADR-0008](../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](./project-vnext.md) 替代。** 本规格只记录旧实现，不属于当前规范。Project VNext 不兼容、不自动迁移、也不以只读方式打开 V1。
 
-本文件是 [DSL schema 定稿](https://github.com/dulltackle/narracut/issues/11) 的 V1 兼容与迁移参考。历史结构定义见 [`project-schema-v1.ts`](./project-schema-v1.ts)；当前示例与验收脚本均已升级到 V3，见 [`project-v3.md`](./project-v3.md)。
+本文件是 [DSL schema 定稿](https://github.com/dulltackle/narracut/issues/11) 的 V1 历史记录。历史结构定义见 [`project-schema-v1.ts`](./project-schema-v1.ts)；现有示例与验收脚本仍服务 Legacy V3 实现。
 
 ## 边界
 

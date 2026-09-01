@@ -1,5 +1,7 @@
 # Speech 驱动 Scene 时间并逐 Scene 向上量化到帧
 
+> **状态：Accepted（局部修订）。** Speech 驱动 Duration、每个 Scene 分别向上量化再累计的核心已纳入 [`project-vnext.md`](../spec/project-vnext.md) 与 [ADR-0009](./0009-separate-scene-content-and-render-program-authority.md)；固定 Asset 截断/冻帧的 Legacy 表现已被 ADR-0009 的 Render Program 表现权威替代。Project VNext 不因此获得旧项目兼容或迁移路径。
+
 Scene 的 Duration 只由完整 Speech 的 `audio_length` 决定，不裁首尾近静音、不加 Padding，也不允许手动覆盖。DSL 只在 Speech 上保存毫秒级原始时长；Player 与 renderer 共用同一个纯函数，把每个 Scene 的 Speech 时长分别向上量化到整帧，再累计得到时间线。
 
 ## Considered Options

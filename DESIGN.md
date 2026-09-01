@@ -117,6 +117,8 @@ components:
 
 # Design System: Narracut
 
+> **Legacy 设计说明。** 本文件描述固定脚本表、Player 与 Inspector 的独立浏览器工作台，仅服务现有 V3 实现；Project VNext 的 Codex 插件双工作区不继承兼容、迁移或只读打开承诺。当前产品边界见 [`docs/spec/project-vnext.md`](./docs/spec/project-vnext.md)。
+
 ## Overview
 
 **Creative North Star: "精密叙事台"**

@@ -1,5 +1,7 @@
 # Product
 
+> **Legacy 产品说明。** 本文件描述 Project DSL V3 与独立浏览器工作台，仅保留用于理解现有实现；Project VNext 不兼容、不迁移、也不以只读方式打开该产品形态。当前规范见 [`docs/spec/project-vnext.md`](./docs/spec/project-vnext.md)。
+
 <!-- impeccable:product-schema 1 -->
 
 ## Platform

@@ -1,3 +1,7 @@
+/**
+ * @deprecated Legacy Project DSL V1，仅供现有旧实现与测试使用。
+ * Project VNext 不读取、不迁移、也不只读打开此格式。
+ */
 import * as z from "zod";
 
 import { sha256Utf8 } from "../../src/shared/sha256";

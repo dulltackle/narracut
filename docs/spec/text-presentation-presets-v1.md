@@ -1,5 +1,7 @@
 # 内置文字表现 Preset V1
 
+> **Legacy，已被 [ADR-0008](../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](./project-vnext.md) 替代。** 本文件只冻结 Project DSL V3 的旧表现，不属于当前规范；Project VNext 不兼容或自动迁移 Text Preset，也不继承固定 Composition。
+
 本文件冻结 `@1` Preset 的视觉和时间语义。改变现有 ID 的任意数值会破坏旧项目的确定性；需要调整时必须发布新版本 ID。
 
 ## 固定输出与安全边界
