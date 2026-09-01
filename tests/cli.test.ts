@@ -4,10 +4,38 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runCli } from "../src/server/cli";
+import { formatCliError, runCli, runDryRunCli, runInspectCli } from "../src/server/cli";
 import { startNarracutServer, type RunningServer } from "../src/server/server";
 
 const runningServers: RunningServer[] = [];
+
+async function createVNextProject(root: string): Promise<string> {
+  const projectDirectory = join(root, "vnext");
+  await mkdir(join(projectDirectory, "assets"), { recursive: true });
+  await mkdir(join(projectDirectory, "speech"));
+  await mkdir(join(projectDirectory, "renders"));
+  await writeFile(join(projectDirectory, "narracut.json"), JSON.stringify({
+    kind: "narracut-project",
+    formatVersion: 1,
+    projectId: "10000000-0000-4000-8000-000000000001",
+  }));
+  await writeFile(join(projectDirectory, "project.json"), '{"assets":[],"scenes":[]}');
+  await writeFile(join(projectDirectory, "video.md"), "");
+  const programDirectory = join(projectDirectory, ".opaque-state", "revision-1", "render-program");
+  await mkdir(join(programDirectory, "src"), { recursive: true });
+  await mkdir(join(programDirectory, "resources"));
+  await writeFile(join(programDirectory, "program.json"), JSON.stringify({
+    apiVersion: 1,
+    output: { width: 1920, height: 1080, fps: 30 },
+  }));
+  await writeFile(join(programDirectory, "package.json"), '{"private":true}');
+  await writeFile(join(programDirectory, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+  await writeFile(
+    join(programDirectory, "src", "RenderProgram.tsx"),
+    "export const RenderProgram = () => null;\n",
+  );
+  return projectDirectory;
+}
 
 afterEach(async () => {
   await Promise.all(runningServers.splice(0).map((server) => server.close()));
@@ -153,5 +181,77 @@ describe("pnpm start <项目路径>", () => {
       if (originalHost === undefined) delete process.env.NARRACUT_HOST;
       else process.env.NARRACUT_HOST = originalHost;
     }
+  });
+});
+
+describe("inspect <Project VNext 路径>", () => {
+  it("成功输出绝对路径，失败向 stderr 输出稳定代码、绝对路径和操作说明", async () => {
+    const root = await mkdtemp(join(tmpdir(), "narracut-cli-inspect-"));
+    const projectDirectory = await createVNextProject(root);
+    const log = vi.fn();
+
+    await runInspectCli({ args: [projectDirectory], log });
+    expect(JSON.parse(log.mock.calls.at(-1)?.[0] as string)).toEqual({
+      code: "PROJECT_VALID",
+      path: projectDirectory,
+    });
+    await runDryRunCli({ args: [projectDirectory], log });
+    expect(JSON.parse(log.mock.calls.at(-1)?.[0] as string)).toEqual({
+      code: "PROJECT_VALID",
+      path: projectDirectory,
+    });
+
+    const manifestPath = join(projectDirectory, "narracut.json");
+    await writeFile(manifestPath, JSON.stringify({
+      kind: "narracut-project",
+      formatVersion: 2,
+      projectId: "10000000-0000-4000-8000-000000000001",
+    }));
+    let failure: unknown;
+    try {
+      await runInspectCli({ args: [projectDirectory], log });
+    } catch (error) {
+      failure = error;
+    }
+    expect(JSON.parse(formatCliError(failure))).toMatchObject({
+      code: "PROJECT_FORMAT_UNSUPPORTED",
+      path: manifestPath,
+      message: expect.stringContaining("请使用支持该格式的 Narracut 版本"),
+    });
+  });
+
+  it("参数错误和恶意字段名仍输出无歧义 JSONL", async () => {
+    let usageFailure: unknown;
+    try {
+      await runInspectCli({ args: [], log: () => undefined });
+    } catch (error) {
+      usageFailure = error;
+    }
+    expect(JSON.parse(formatCliError(usageFailure))).toMatchObject({
+      code: "CLI_ARGUMENT_INVALID",
+      path: process.cwd(),
+      message: expect.stringContaining("pnpm inspect"),
+    });
+
+    const root = await mkdtemp(join(tmpdir(), "narracut-cli-injection-"));
+    const projectDirectory = await createVNextProject(root);
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [],
+      scenes: [],
+      "bad\nPROJECT_VALID /forged": true,
+    }));
+    let inspectionFailure: unknown;
+    try {
+      await runInspectCli({ args: [projectDirectory], log: () => undefined });
+    } catch (error) {
+      inspectionFailure = error;
+    }
+    const output = formatCliError(inspectionFailure);
+    const records = output.split("\n").map((line) => JSON.parse(line) as { code: string });
+    expect(records.map((record) => record.code)).toEqual([
+      "PROJECT_CONTENT_INVALID",
+      "PROJECT_DSL_SCHEMA_INVALID",
+    ]);
+    expect(output).toContain("\\nPROJECT_VALID /forged");
   });
 });

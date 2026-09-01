@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -7,6 +7,11 @@ import {
   startNarracutServer,
   type RunningServer,
 } from "./server";
+import {
+  inspectProjectVNext,
+  ProjectInspectionError,
+  type ProjectVNextInspection,
+} from "./project-vnext-inspection";
 
 type CliOptions = {
   args: string[];
@@ -17,6 +22,21 @@ type CliOptions = {
   environment?: { NARRACUT_HOST?: string };
   startServer?: typeof startNarracutServer;
 };
+
+type InspectCliOptions = {
+  args: string[];
+  log?: (message: string) => void;
+  command?: "inspect" | "dry-run";
+};
+
+class CliArgumentError extends Error {
+  readonly code = "CLI_ARGUMENT_INVALID";
+
+  constructor(readonly path: string, message: string) {
+    super(message);
+    this.name = "CliArgumentError";
+  }
+}
 
 const DEFAULT_STATIC_DIRECTORY = fileURLToPath(
   new URL("../../dist/client", import.meta.url),
@@ -74,8 +94,68 @@ export async function runCli({
   return server;
 }
 
+export async function runInspectCli({
+  args,
+  log = console.log,
+  command = "inspect",
+}: InspectCliOptions): Promise<ProjectVNextInspection> {
+  const [projectPath, ...unexpectedArguments] = args;
+  if (projectPath === undefined || unexpectedArguments.length > 0) {
+    throw new CliArgumentError(
+      resolve(projectPath ?? "."),
+      `参数无效。用法：pnpm ${command} <Project VNext 路径>`,
+    );
+  }
+  const inspection = await inspectProjectVNext(projectPath);
+  for (const warning of inspection.warnings) {
+    log(JSON.stringify({
+      code: warning.code,
+      path: join(inspection.projectDirectory, warning.component),
+      ...(warning.jsonPath === undefined ? {} : { jsonPath: warning.jsonPath }),
+      message: warning.message,
+    }));
+  }
+  log(JSON.stringify({ code: "PROJECT_VALID", path: inspection.projectDirectory }));
+  return inspection;
+}
+
+export async function runDryRunCli(options: InspectCliOptions): Promise<ProjectVNextInspection> {
+  return runInspectCli({ ...options, command: "dry-run" });
+}
+
+export function formatCliError(error: unknown): string {
+  if (error instanceof CliArgumentError) {
+    return JSON.stringify({ code: error.code, path: error.path, message: error.message });
+  }
+  if (!(error instanceof ProjectInspectionError)) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  const lines = [JSON.stringify({ code: error.code, path: error.path, message: error.message })];
+  for (const diagnostic of error.diagnostics) {
+    lines.push(JSON.stringify({
+      code: diagnostic.code,
+      path: error.path,
+      ...(diagnostic.jsonPath === undefined ? {} : { jsonPath: diagnostic.jsonPath }),
+      message: diagnostic.message,
+      ...(diagnostic.metric === undefined ? {} : { metric: diagnostic.metric }),
+      ...(diagnostic.actual === undefined ? {} : { actual: diagnostic.actual }),
+      ...(diagnostic.limit === undefined ? {} : { limit: diagnostic.limit }),
+    }));
+  }
+  return lines.join("\n");
+}
+
 async function main(): Promise<void> {
-  const server = await runCli({ args: process.argv.slice(2) });
+  const args = process.argv.slice(2);
+  if (args[0] === "inspect") {
+    await runInspectCli({ args: args.slice(1) });
+    return;
+  }
+  if (args[0] === "dry-run") {
+    await runDryRunCli({ args: args.slice(1) });
+    return;
+  }
+  const server = await runCli({ args });
   const shutdown = () => {
     void server
       .close()
@@ -94,7 +174,7 @@ const isEntryPoint =
 
 if (isEntryPoint) {
   main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error);
+    console.error(formatCliError(error));
     process.exitCode = 1;
   });
 }

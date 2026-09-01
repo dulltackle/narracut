@@ -7,6 +7,8 @@
     "build": "vite build",
     "prestart": "pnpm build",
     "start": "tsx src/server/cli.ts",
+    "inspect": "tsx src/server/cli.ts inspect",
+    "dry-run": "tsx src/server/cli.ts dry-run",
     "test": "pnpm test:schema && pnpm test:unit && pnpm test:e2e",
     "test:schema": "tsx docs/spec/verify-project-examples.ts",
     "test:unit": "vitest run",
