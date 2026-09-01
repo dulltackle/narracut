@@ -1,0 +1,27 @@
+{
+  "name": "narracut",
+  "version": "0.1.0",
+  "description": "在 Codex 中只读检查 Project VNext，并打开 Narracut 工作台。",
+  "author": {
+    "name": "Narracut contributors",
+    "url": "https://github.com/dulltackle/narracut"
+  },
+  "homepage": "https://github.com/dulltackle/narracut",
+  "repository": "https://github.com/dulltackle/narracut",
+  "license": "MIT",
+  "keywords": ["video", "scene", "project-inspection", "read-only"],
+  "interface": {
+    "displayName": "Narracut",
+    "shortDescription": "只读检查 Narracut 项目并打开工作台。",
+    "longDescription": "连接本地 Narracut Project VNext，通过受控只读工具检查项目身份与内容，并在 Codex 中打开双工作区外壳。",
+    "developerName": "Narracut contributors",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read"],
+    "defaultPrompt": [
+      "检查这个 Narracut 项目并打开工作台。",
+      "确认 Narracut 插件连接是否正常。"
+    ],
+    "brandColor": "#3F78C5"
+  },
+  "mcpServers": "./.mcp.json"
+}

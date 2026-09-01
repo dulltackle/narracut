@@ -1,283 +1,269 @@
 ---
-name: Narracut
-description: 以冷静、精密的本地工作台组织 AI 驱动的类口播视频制作。
+name: Narracut VNext Workbench
+description: 以暗房接触印样组织 Project VNext Scene 检查的只读 Codex 插件工作台。
 colors:
-  canvas: "#f6f8fb"
-  surface: "#ffffff"
-  surface-mint: "#eef8f6"
-  ink: "#0f172a"
-  ink-secondary: "#334155"
-  muted: "#64748b"
-  border: "#dbe4ee"
-  border-soft: "#edf2f7"
-  accent: "#00a3a6"
-  accent-hover: "#008f92"
-  success: "#15803d"
-  warning: "#b45309"
-  danger: "#e11d48"
+  darkroom: "#090d0e"
+  shell: "#101516"
+  film: "#050707"
+  line: "#303738"
+  paper: "#f1f3eb"
+  paper-hover: "#e4e8df"
+  paper-selected: "#fafbf5"
+  ink: "#171b1b"
+  muted: "#909997"
+  proof-blue: "#4e88df"
+  proof-blue-deep: "#245da9"
+  readonly-amber: "#d89a3d"
+  connected-green: "#67c477"
 typography:
   display:
-    fontFamily: '"Microsoft YaHei", "微软雅黑", sans-serif'
-    fontSize: "32px"
-    fontWeight: 700
-    lineHeight: 1.55
-    letterSpacing: "normal"
+    fontFamily: '"Narracut Display", sans-serif'
+    fontSize: "clamp(1.45rem, 2.1vw, 2rem)"
+    fontWeight: 800
+    letterSpacing: "-0.035em"
+    fontVariation: '"wdth" 75, "wght" 800'
   headline:
-    fontFamily: '"Microsoft YaHei", "微软雅黑", sans-serif'
-    fontSize: "28px"
-    fontWeight: 700
-    lineHeight: 1.55
-    letterSpacing: "normal"
+    fontFamily: '"Narracut Display", sans-serif'
+    fontSize: "1.8rem"
+    fontWeight: 720
+    lineHeight: 1
+    fontVariation: '"wdth" 75'
   title:
-    fontFamily: '"Microsoft YaHei", "微软雅黑", sans-serif'
-    fontSize: "16px"
-    fontWeight: 700
-    lineHeight: 1.55
-    letterSpacing: "normal"
+    fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
+    fontSize: "clamp(0.9rem, 1.18vw, 1.13rem)"
+    fontWeight: 680
+    lineHeight: 1.65
   body:
-    fontFamily: '"Microsoft YaHei", "微软雅黑", sans-serif'
-    fontSize: "14px"
+    fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
+    fontSize: "0.79rem"
     fontWeight: 400
-    lineHeight: 1.55
-    letterSpacing: "normal"
+    lineHeight: 1.75
   label:
-    fontFamily: '"SF Mono", ui-monospace, Menlo, monospace'
-    fontSize: "12px"
-    fontWeight: 600
-    lineHeight: 1.55
-    letterSpacing: "normal"
+    fontFamily: "ui-monospace, monospace"
+    fontSize: "0.62rem"
+    fontWeight: 700
+    lineHeight: 1
+    letterSpacing: "0.07em"
   control:
-    fontFamily: '"Microsoft YaHei", "微软雅黑", sans-serif'
-    fontSize: "12px"
+    fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
+    fontSize: "0.96rem"
     fontWeight: 650
-    lineHeight: 1.55
-    letterSpacing: "normal"
 rounded:
-  micro: "8px"
-  sm: "12px"
-  md: "18px"
-  lg: "28px"
-  pill: "9999px"
+  micro: "2px"
+  control: "6px"
+  field: "7px"
+  frame: "9px"
+  circle: "50%"
 spacing:
-  xs: "4px"
-  sm: "8px"
-  md: "12px"
+  xs: "8px"
+  sm: "12px"
+  md: "14px"
   lg: "16px"
-  xl: "24px"
-  2xl: "32px"
+  panel: "20px"
+  copy: "22px"
+  frame: "24px"
 components:
-  button-primary:
-    backgroundColor: "{colors.accent}"
-    textColor: "{colors.surface}"
-    typography: "{typography.body}"
-    rounded: "{rounded.pill}"
-    padding: "0 16px"
-    height: "44px"
-  button-primary-hover:
-    backgroundColor: "{colors.accent-hover}"
-    textColor: "{colors.surface}"
-    typography: "{typography.body}"
-    rounded: "{rounded.pill}"
-    padding: "0 16px"
-    height: "44px"
-  button-secondary:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    rounded: "{rounded.pill}"
-    padding: "0 16px"
-    height: "44px"
-  button-secondary-hover:
-    backgroundColor: "{colors.surface-mint}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    rounded: "{rounded.pill}"
-    padding: "0 16px"
-    height: "44px"
-  filter-selected:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
+  workspace-tab:
+    backgroundColor: "transparent"
+    textColor: "{colors.muted}"
     typography: "{typography.control}"
-    rounded: "{rounded.pill}"
-    padding: "0 12px"
-    height: "44px"
-  input:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink-secondary}"
+    rounded: "0"
+    padding: "0 28px"
+    height: "54px"
+  workspace-tab-selected:
+    backgroundColor: "rgba(78, 136, 223, 0.08)"
+    textColor: "#ffffff"
     typography: "{typography.control}"
-    rounded: "{rounded.sm}"
-    padding: "12px"
-    height: "44px"
-  pane:
-    backgroundColor: "{colors.surface}"
+    rounded: "0"
+    padding: "0 28px"
+    height: "54px"
+  contact-frame:
+    backgroundColor: "{colors.film}"
+    textColor: "{colors.readonly-amber}"
+    rounded: "{rounded.frame}"
+    padding: "0 24px"
+  contact-sheet:
+    backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
-    rounded: "{rounded.md}"
+    rounded: "0"
     padding: "0"
+  scene-row:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    typography: "{typography.title}"
+    rounded: "0"
+    padding: "0"
+    height: "112px"
+  scene-row-selected:
+    backgroundColor: "{colors.paper-selected}"
+    textColor: "{colors.ink}"
+    typography: "{typography.title}"
+    rounded: "0"
+    padding: "0"
+    height: "112px"
+  composer-disabled:
+    backgroundColor: "#171d1f"
+    textColor: "#a7afac"
+    rounded: "{rounded.field}"
+    padding: "0 18px"
+    height: "48px"
 ---
 
-# Design System: Narracut
-
-> **Legacy 设计说明。** 本文件描述固定脚本表、Player 与 Inspector 的独立浏览器工作台，仅服务现有 V3 实现；Project VNext 的 Codex 插件双工作区不继承兼容、迁移或只读打开承诺。当前产品边界见 [`docs/spec/project-vnext.md`](./docs/spec/project-vnext.md)。
+# Design System: Narracut VNext Workbench
 
 ## Overview
 
-**Creative North Star: "精密叙事台"**
+**Creative North Star: "暗房接触印样台"**
 
-Narracut 的界面是一张为脚本、画面和 Speech 精确装配而设的工作台。冷纸灰承托纯净工作面，墨蓝黑建立清晰的信息骨架，自动化青绿只在需要行动与聚焦的位置出现；整体克制、可靠、精密、平静。
+Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。
 
-系统以高密度但有秩序的操作空间为主，而不是营销式展示空间。边框、轻微色调差和稳定的网格帮助创作者同时掌握脚本表、Player 与 Inspector；圆润的组件削弱传统专业软件的生硬感，但不牺牲状态辨识和工作效率。它明确避免炫技式 AI 科幻感，也避免传统专业剪辑软件的视觉噪声。
+这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是主工作面，项目检查是窄侧台，Composer 是固定在灯箱下沿的批注槽。当前只读交付把不可用能力留在可见位置并解释原因；视觉不能暗示文件选择、编辑、Asset Preview、TTS、Render 或 Agent 创作已经可用。
 
 **Key Characteristics:**
 
-- 冷灰白工作面、墨蓝黑信息骨架与稀少的青绿色行动信号。
-- 脚本表优先的高密度布局，Player 与 Inspector 作为并列工作上下文。
-- 中文正文与等宽元数据组成双重信息声音。
-- 圆润、稳健、直接的控件，以及清楚但克制的状态反馈。
-- 分层为主、悬浮为辅；常驻界面保持平整，临时层才获得明显深度。
+- 黑色暗房外壳包围背光暖白接触表，主内容拥有最高亮度与面积。
+- Scene 是连续校片行；Narration 居主列，Asset 仅显示身份、路径或占位。
+- 蓝色校片线同时配合三角指示与圈记边码表达选择，不只依赖颜色。
+- 琥珀只用于胶片边码、只读与诊断提示；绿色只用于明确的有效与连接状态。
+- 自托管窄体展示字、中文 UI sans 与等宽标签构成三种受控声音。
+- 纸张与胶片 raster 由插件以内嵌 data URI 提供，界面不依赖网络材料。
 
 ## Colors
 
-调色板以低彩度冷中性色建立持续工作的安静背景，用自动化青绿标识行动与聚焦，并用独立语义色表达状态。
+调色板在近黑暗房与低彩度纸面之间建立强明度反差，蓝色负责校片选择，琥珀和绿色只承担窄而明确的状态语义。
 
 ### Primary
 
-- **自动化青绿** (`#00a3a6`)：用于主按钮、焦点轮廓、进度与少量关键引导，是系统唯一的品牌行动色。
-- **深自动化青绿** (`#008f92`)：只用于自动化青绿控件的悬停状态，保持同一色相内的反馈。
+- **校片蓝** (`proof-blue`): 选中 Scene 的内描边、当前工作区下划线与高优先级检查状态；它是操作反馈，不是大面积品牌填充。
+- **深校片蓝** (`proof-blue-deep`): Scene 边码、选择三角和纸面上的次级校片记号。
+
+### Secondary
+
+- **只读琥珀** (`readonly-amber`): 胶片边码、只读标签与诊断代码；稀少使用让边界保持可信。
+- **连接绿** (`connected-green`): 连接正常、控制文件有效与 Speech 可用等肯定状态。
 
 ### Neutral
 
-- **墨蓝黑** (`#0f172a`)：正文、高优先级标题、品牌标记和关键控制的主墨色。
-- **石板蓝灰** (`#334155`)：次级正文、字段标签和较低层级的操作信息。
-- **元数据灰** (`#64748b`)：路径、时间码、表头、辅助说明和未激活状态。
-- **冷纸灰** (`#f6f8fb`)：应用画布与控件分组的底层背景。
-- **纯净工作面** (`#ffffff`)：面板、表格行、输入框和按钮的默认表面。
-- **薄荷雾面** (`#eef8f6`)：选中行、温和悬停和与自动化青绿相关的轻量强调表面。
-- **冷界线** (`#dbe4ee`)：面板、输入框、按钮和结构分区的主边界。
-- **柔界线** (`#edf2f7`)：表格行与低优先级分隔线，避免高密度区域产生噪声。
-
-### Semantic Status
-
-- **完成绿** (`#15803d`)：已保存、已完成和成功状态。
-- **提醒琥珀** (`#b45309`)：可继续工作但需要注意的提示与只读警告。
-- **阻断玫红** (`#e11d48`)：保存失败、文件缺失与阻断性错误。
+- **暗房黑** (`darkroom`): 应用最外层画布。
+- **机身黑** (`shell`): 工作台框体与稳定结构面。
+- **胶片黑** (`film`): 接触表外框，让边码与纸面亮度成立。
+- **结构线** (`line`): 暗色区域的边界与分隔。
+- **背光纸白** (`paper`): Scene 接触表的主阅读面。
+- **纸面悬停** (`paper-hover`): 可激活 Scene 行的指针反馈。
+- **选中纸白** (`paper-selected`): 被校片线框住的当前 Scene。
+- **纸面墨色** (`ink`): Narration、Scene 编号与纸面主要信息。
+- **暗房灰** (`muted`): 未激活标签、次级状态与低优先级元数据。
 
 ### Named Rules
 
-**The One Accent Rule.** 自动化青绿只用于行动、焦点和进度；不要把它铺成大面积背景或装饰色。
+**The Proofing Blue Rule.** 校片蓝只表示当前工作区、焦点或显式选择；选中状态还必须拥有线框、位置标记或文字语义。
 
-**The Semantic Status Rule.** 绿、琥珀和玫红只表达状态含义，不承担品牌装饰或布局分区。
+**The Amber Boundary Rule.** 琥珀只说明胶片边码、只读边界与需要注意的诊断，不把整块面板染成警告色。
+
+**The Lit Content Rule.** 最高亮度留给 Scene 内容纸面；暗房中的导航、检查和 Composer 不得与接触表争夺亮度。
 
 ## Typography
 
-**Display Font:** Microsoft YaHei（回退到 微软雅黑、sans-serif）  
-**Body Font:** Microsoft YaHei（回退到 微软雅黑、sans-serif）  
-**Label/Mono Font:** SF Mono（回退到 ui-monospace、Menlo、monospace）
+**Display Font:** Narracut Display（自托管 Ubuntu Sans 可变窄体子集，回退到 sans-serif）
 
-**Character:** 中文无衬线体保持高密度工作区的清晰和稳定；等宽字体把路径、编号、表头、时间与技术状态从叙事内容中分离出来。系统不使用装饰性展示字体。
+**Body Font:** Noto Sans SC（回退到 Source Han Sans SC、Microsoft YaHei、sans-serif）
+
+**Label/Mono Font:** ui-monospace（回退到 monospace）
+
+**Character:** 展示字像胶片盒与校片章上的工业窄体，只出现在品牌、Scene 编号、校片边码和只读标签。中文 UI sans 承担叙事阅读，等宽体承担 Project ID、路径、表头、时长与机器状态；三者不能互换成装饰。
 
 ### Hierarchy
 
-- **Display** (700, 32px, line-height 1.55): 加载、错误等居中状态页的主标题。
-- **Headline** (700, 28px, line-height 1.55): 空状态的主要引导标题。
-- **Title** (700, 16px, line-height 1.55): 面板标题与对话框局部标题。
-- **Body** (400, 14px, line-height 1.55): Narration、正文和主要界面文字。
-- **Label** (600, 12px, line-height 1.55): 表头、路径、编号、时间码和紧凑元数据；默认使用等宽字体。
-- **Control** (650, 12px, line-height 1.55): 紧凑按钮、字段标签和 Inspector 控件内容。
+- **Display** (800, responsive clamp, tight tracking): 只用于 Narracut 品牌字样。
+- **Headline** (720, compact line-height): 用于 Scene 大编号及同等级校片标记。
+- **Title** (680, responsive clamp, generous line-height): Scene Narration 主内容，最多两行时仍保持稳定扫描节奏。
+- **Body** (400, compact UI size): 项目检查、说明、空状态与次级正文。
+- **Label** (700, uppercase where Latin, tracked): Scene 表头、Asset/Speech 标签与胶片边码。
+- **Control** (650): 工作区标签及同等级的明确操作文字。
 
 ### Named Rules
 
-**The Dual Voice Rule.** 叙事内容使用中文无衬线体，结构与机器状态使用等宽体；不要用更多字体制造层级。
+**The Three Voices Rule.** 展示字负责身份与校片，中文 UI sans 负责内容，等宽体负责机器事实；不要用展示字排中文长文，也不要用等宽体承担 Narration。
 
 ## Layout
 
-应用当前是最小宽度 `1180px` 的桌面 Web 工作台，不在窄屏上重排，而是保留完整操作结构并允许画布滚动。顶部栏固定为 `64px` 高；主体以 `12px` 外边距和 `12px` 间距组成不对称网格：脚本表占左侧并跨越两行，右侧上下分别是 Player 与 Inspector。列宽使用约 `1.46fr / 0.78fr`，行高使用约 `0.9fr / 1.1fr`。
+首屏采用四层固定结构：项目身份栏（`68px`）、工作区标签（`54px`）、可伸缩主工作区、底部 Composer（`102px`）。主工作区是接触表与 `320px` 项目检查的两列布局；舞台内边距为 `14px`，胶片框左右内边距为 `24px`。Scene 行固定为 `112px` 高，桌面列依次为 Scene、Narration、Asset、Speech，Narration 获得唯一弹性主列。
 
-布局采用紧凑的 `4 / 8 / 12 / 16px` 基础节奏，`20 / 24 / 28 / 32px` 只用于对话框、状态页和更大区块。主要控件最小高度为 `44px`；表格行高为 `88px`，面板头高为 `54px`。密度来自稳定的表格和并列上下文，而不是压缩触控目标。
+在 `900px` 以下，项目检查收窄到 `280px`，Scene/Speech 最右列隐藏；在 `700px` 以下，Project ID 移到独立第二行，连接文字继续可见，项目检查改为从右侧打开的抽屉，Composer 仍固定在底部。移动端接触表保留 Scene、Narration 与 Asset 三列并允许横向内容自然裁切；它不退化成卡片流或缩略图画廊。
 
-**The Workspace First Rule.** 新功能优先进入脚本表、Player、Inspector 或任务抽屉的既有职责，不为单一功能轻易增加新的顶层导航或独立画布。
+键盘焦点只表示下一次操作位置，不能自动改变所选 Scene。Scene 行通过显式激活改变选择；移动端抽屉按钮以 `aria-expanded` 表达状态，Composer 通过 `aria-describedby` 解释禁用原因。
+
+**The Identity Before Tools Rule.** 所有尺寸都保留文件夹、Project ID 与连接文字的稳定位置；不要为了节省空间把身份藏进菜单。
+
+**The Contact Sheet Dominance Rule.** 在承载 Scene 检查的表面，接触表始终是面积与亮度的主角，检查栏只提供上下文，不扩张成同权三栏 IDE。
 
 ## Elevation & Depth
 
-系统采用“分层为主，悬浮为辅”的混合策略。常驻面板依靠白色工作面、冷界线和一圈同色细描边与背景分离，顶部栏保持无阴影；Player 画布、对话框、抽屉和关键状态卡使用统一的环境阴影，明确表示它们脱离了常驻工作平面。
+系统通过灯箱明度、内嵌暗边和少量结构阴影建立深度。胶片框使用重环境阴影压入暗房；纸面使用柔和背光与内阴影模拟光箱玻璃；常驻导航和检查栏依赖边线而不是漂浮卡片。移动端项目检查是唯一明显横向悬浮层。
 
 ### Shadow Vocabulary
 
-- **环境悬浮** (`0 20px 50px rgba(15, 23, 42, 0.1)`): 用于 Player 预览画布、Popover、Modal、任务抽屉与居中状态卡。
-- **结构描边** (`0 0 0 1px #dbe4ee`): 用于常驻 Pane，在不制造悬浮感的前提下强化边界。
-- **焦点光环** (`0 0 0 4px rgba(0, 163, 166, 0.24)`): 仅与焦点轮廓一起出现，表达键盘操作位置。
+- **胶片压暗** (`0 26px 70px rgba(0,0,0,.58), inset 0 1px rgba(255,255,255,.045), inset 0 0 0 5px rgba(0,0,0,.18)`): 只用于整张接触印样框。
+- **纸面背光** (`0 0 34px rgba(241,243,235,.34), inset 0 0 36px rgba(68,76,72,.14)`): 只用于背光接触表。
+- **键盘焦点** (`0 0 0 5px rgba(78,136,223,.24)`): 与 `2px` 可见轮廓共同出现，不能代替轮廓。
+- **移动检查抽屉** (`-18px 0 45px rgba(0,0,0,.48)`): 仅在窄屏项目检查打开时出现。
 
-### Named Rules
+接触表在允许动效时以 `420ms`、`cubic-bezier(.16,1,.3,1)` 从稍暗状态亮起；`prefers-reduced-motion` 下完全不播放。除这一处首现材料反馈外，系统没有装饰性持续动画。
 
-**The Flat-by-Default Rule.** 常驻工作面保持平整；只有真正覆盖、浮出或承载预览内容的元素才能使用环境阴影。
+**The One Lightbox Rule.** 每个工作区最多有一个背光主面；不要把普通面板、按钮或提示也做成发光玻璃。
 
 ## Shapes
 
-系统通过逐级圆角表达层级：紧凑图标与行内控件使用 `8px`，输入框、预览画布和状态标签使用温和的 `12px`，常驻面板与抽屉使用 `18px`，对话框和大型状态卡使用 `28px`。主要按钮、过滤器、计数器和进度轨使用 `9999px` 胶囊形；播放按钮是完整圆形。Caption 的 `4px` 圆角和左侧硬边是面向视频画布的功能性例外。
+形状语言接近切割纸张与机械框体。Scene 行、标签和大部分结构保持直角；文件夹图标使用紧凑 `2px` 圆角，抽屉按钮使用 `6px`，Composer 字段使用 `7px`，整张胶片框和状态面使用 `9px`。连接灯是圆形；选中 Scene 的小边码使用轻微旋转和不规则椭圆圈记，作为人工校片痕迹。
 
-**The Radius Hierarchy Rule.** 圆角大小随容器层级增加；不要随机混用圆角，也不要把常驻大面板做成胶囊形。
+**The Cut Edge Rule.** 圆角用于可触控控件和整张材料框，不用于把每条 Scene、每项检查或每段文字包成卡片。
 
 ## Components
 
-### Buttons
+### Project Identity Rail
 
-- **Shape:** 主要与次要按钮采用胶囊形（`9999px`），最小高度 `44px`，水平内边距 `16px`；图标按钮固定为 `44 × 44px`。
-- **Primary:** 自动化青绿背景、白色文字和同色边框；用于当前上下文中唯一的主要动作。
-- **Hover / Focus:** 主按钮悬停变为深自动化青绿；所有按钮用 `2px` 青绿色轮廓与 `4px` 半透明焦点光环；按下时仅下移 `1px`。
-- **Secondary / Ghost:** 白色表面与冷界线，悬停时进入薄荷雾面；文本按钮移除可见边框但保留相同高度。
+顶部身份栏以深色分格承载品牌、文件夹、完整 Project ID 与连接状态。Project ID 使用等宽体并在超长时省略中段；移动端把它移到第二行而不是隐藏。连接状态同时使用绿色灯和“连接正常”文字。
 
-### Chips
+### Workspace Tabs
 
-- **Style:** 过滤器外层使用冷纸灰胶囊底，内部选项保持 `44px` 高；选中项为纯净工作面、墨蓝黑文字和一圈冷界线。
-- **State:** 未选中项使用元数据灰，不用自动化青绿填充，以免与主动作竞争。
+标签是稳定双工作区切换，不是胶囊筛选。默认态使用暗房灰；当前态使用白字、底部 `3px` 校片蓝线和极淡蓝色底。按钮最小高度不低于 `44px`，键盘焦点使用可见蓝色轮廓与光环。
 
-### Cards / Containers
+### Contact Sheet
 
-- **Corner Style:** 常驻 Pane 使用 `18px`，大型状态卡和对话框使用 `28px`。
-- **Background:** 主体为纯净工作面，面板头使用接近白色的冷调分层面。
-- **Shadow Strategy:** 常驻 Pane 只用结构描边；浮层和预览引用环境悬浮阴影。
-- **Border:** `1px` 冷界线；内部低优先级分隔采用柔界线。
-- **Internal Padding:** 面板头和 Inspector 通常为 `16px`；对话框为 `24–32px`。
+胶片框包含顶部/底部边码、背光纸面和校片角标。纸面表头固定为等宽大写标签；真实纸张与胶片 raster 只增强触感，不削弱边界、文字对比或滚动性能。两张 raster 和展示字体由 MCP Resource 转换为 data URI，禁止运行时网络请求。
 
-### Inputs / Fields
+### Scene Rows
 
-- **Style:** 白色背景、`1px` 冷界线和 `12px` 圆角；Inspector 输入使用 `12px` 内边距，Narration 行内编辑器静止时边框透明。
-- **Focus:** 青绿色 `2px` 轮廓、`1px` offset 和统一焦点光环。
-- **Error / Disabled:** 禁用控件降低到 `0.45` 透明度；错误内容使用阻断玫红及浅玫红状态面。
+Scene 行是签名组件：大号 Scene 编号、校片边码、最多两行 Narration、Asset identity/path/placeholder 与 Speech 状态按固定列对齐。默认纸面、悬停纸面和选中纸面保持同一材料；选中态叠加 `3px` 蓝色内框、左侧蓝色三角与圈记边码。Scene 列表使用固定行高虚拟窗口，不能把固定 `112px` 节奏改成内容高度瀑布流。
 
-### Navigation
+### Project Inspection
 
-顶部栏是 `64px` 高的三段网格：左侧项目身份与保存状态，中间历史操作，右侧任务与渲染动作。背景接近不透明白色，底部只保留一条冷界线；项目路径使用等宽小字并截断，不通过阴影制造层级。
+检查栏是暗色窄侧台，以点、文字和状态词同时表达控制文件有效性。当前 Scene 显示 Narration 与 Scene ID、Asset 数量、Speech 状态；只读段落以琥珀展示标签、以灰色正文解释影响。窄屏时它成为可关闭抽屉，并保留最小 `44px` 关闭目标。
 
-### Scene Table
+### Disabled Composer
 
-Scene 表是系统的签名组件。表头固定、使用 `12px` 等宽元数据；行高 `88px`，Narration 占据最大列宽。悬停进入冷纸灰，选中进入薄荷雾面并在首列增加 `3px` 墨蓝黑内侧标记。状态、Asset 和 Speech 以紧凑的主次两行信息呈现。
+Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案说明后续启用，第二行明确“当前交付只支持只读检查”，并通过 `aria-describedby` 与输入建立程序化关联。锁形图标辅助表达状态，但不能替代文字。
 
-Scene 序号同时是明确的“选择并跳转预览”按钮：指针或键盘激活后更新编辑上下文，并把 Player 跳到该 Scene 起点。键盘焦点只表示下一次操作的位置，不能在单纯获得焦点时改变选中 Scene、Inspector 上下文或播放位置。
+### Empty, Loading, and Invalid States
 
-### Player
-
-Player 是紧凑、低噪声的项目级预览器，不扩展成完整时间线。它始终同时标明“选中 Scene”和“正在播放 Scene”：前者决定 Inspector 的编辑上下文，后者由当前播放帧决定；播放跨过 Scene 边界时不得擅自改选中项。
-
-预览画面严格保持 `16:9`，在可用舞台空间内等比缩放，不拉伸、不裁成其他比例；沿用 `12px` 圆角、深墨蓝预览底和环境阴影。播放按钮使用墨蓝黑圆形，项目时间码使用等宽字体；预览区域内部的 Caption 与 Subtitle 遵循视频输出规范，而不是复用编辑器面板样式。
-
-Draft、Speech 缺失、资源加载和阻断错误必须在 Player 上下文内可见，但用紧凑状态块或画布内状态页控制噪声。关键状态同时使用图标、文字与程序化语义，不只依赖颜色；可见状态文字不得小于 `12px`。Draft 明确说明仅供预览，阻断错误则给出直接原因与恢复方向。
+状态面沿用暗房框体与 `9px` 圆角，不切换到通用白卡。空项目明确显示零 Scene 仍可只读检查；加载态使用三条静态骨架；无效项目展示稳定错误代码与有界诊断，并重复说明 Narracut 未修改目录。
 
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** 保留脚本表优先、Player 与 Inspector 并列的工作台结构。
-- **Do** 用自动化青绿标识主要动作、焦点与进度，并让它在每个视图中保持稀少。
-- **Do** 用等宽字体区分路径、编号、时间码、表头和机器状态。
-- **Do** 保持 `44px` 最小操作高度，并通过 `8 / 12 / 16px` 节奏组织高密度界面。
-- **Do** 用边框和色调建立常驻层次，只在浮层、预览与关键状态卡上使用环境阴影。
-- **Do** 区分 Scene 的编辑选择与 Player 的播放位置，并让键盘用户通过显式 Scene 序号按钮执行选择和跳转。
+- **Do** 让项目身份先于工作区工具，并在移动端继续展示 Project ID 与连接文字。
+- **Do** 让 Narration 成为每条 Scene 的视觉主内容；Asset 只显示 identity、path 或 placeholder。
+- **Do** 用蓝色线框、位置标记和程序化状态共同表达选择，让焦点与选择保持独立。
+- **Do** 把琥珀限制在胶片边码、只读与诊断提醒，把绿色限制在真实有效状态。
+- **Do** 保持项目检查在桌面端为窄侧栏、移动端为抽屉，并让 Composer 在所有尺寸下可见。
+- **Do** 以内嵌本地字体与 raster 建立材料感，同时尊重 `prefers-reduced-motion`。
 
 ### Don't:
 
-- **Don't** 引入霓虹渐变、发光装饰或炫技式 AI 科幻视觉。
-- **Don't** 模仿传统多轨剪辑器，把 Scene 工作流重新视觉化为复杂时间线。
-- **Don't** 用多个高彩度品牌色争夺注意力，或把状态色当作装饰色。
-- **Don't** 给每个面板和控件增加阴影；常驻工作面必须保持平整。
-- **Don't** 为了“简洁”隐藏关键的 Asset、Speech、状态或 Render-ready 上下文。
-- **Don't** 让焦点移动隐式切换 Scene，也不要把 Player 扩展成多轨或完整时间线。
+- **Don't** 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。
+- **Don't** 在当前只读表面加入写操作、文件选择器、Asset Preview、TTS、Render、导入或 Legacy 项目入口。
+- **Don't** 用颜色作为选择、连接、有效或只读状态的唯一信号。
+- **Don't** 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene。
+- **Don't** 隐藏或启用 Composer；禁用原因必须同时可见且可被辅助技术读取。
+- **Don't** 引入霓虹 AI、玻璃拟态、渐变品牌面或大量圆角卡片，稀释暗房与接触印样的材料逻辑。

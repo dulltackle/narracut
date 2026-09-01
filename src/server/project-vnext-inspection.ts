@@ -675,12 +675,38 @@ async function readStableDirectory(directory: string): Promise<Dirent[]> {
   return entries;
 }
 
+const MAX_DIRECTORY_TREE_DEPTH = 32;
+const MAX_DIRECTORY_TREE_DIRECTORIES = 4096;
+
+function directoryTreeLimit(
+  projectDirectory: string,
+  path: string,
+  metric: "directoryDepth" | "directories",
+  actual: number,
+  limit: number,
+): ProjectInspectionError {
+  const component = relative(projectDirectory, path) || ".";
+  return invalidControlFile(path, {
+    code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+    component,
+    metric,
+    actual,
+    limit,
+    message: `${component} 的${metric === "directoryDepth" ? "目录深度" : "已检查目录数"}为 ${actual}，超过上限 ${limit}；请精简项目内部树后重试。`,
+  });
+}
+
 async function discoverRenderProgramDirectories(projectDirectory: string): Promise<string[]> {
   const excludedRoots = new Set(["assets", "speech", "renders"]);
-  const stack = [projectDirectory];
+  const stack = [{ directory: projectDirectory, depth: 0 }];
   const programs: string[] = [];
+  let directoriesVisited = 0;
   while (stack.length > 0) {
-    const directory = stack.pop()!;
+    const { directory, depth } = stack.pop()!;
+    directoriesVisited += 1;
+    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
+      throw directoryTreeLimit(projectDirectory, directory, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+    }
     let entries;
     try {
       entries = await readStableDirectory(directory);
@@ -699,10 +725,14 @@ async function discoverRenderProgramDirectories(projectDirectory: string): Promi
       const path = join(directory, entry.name);
       const facts = await lstat(path);
       if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
+      const childDepth = depth + 1;
+      if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
+        throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
+      }
       if (entry.name === "render-program") {
         programs.push(path);
       } else {
-        stack.push(path);
+        stack.push({ directory: path, depth: childDepth });
       }
     }
   }
@@ -765,9 +795,14 @@ async function validateRenderProgramDirectory(
     }
   }
 
-  const stack = [programDirectory];
+  const stack = [{ directory: programDirectory, depth: 0 }];
+  let directoriesVisited = 0;
   while (stack.length > 0) {
-    const directory = stack.pop()!;
+    const { directory, depth } = stack.pop()!;
+    directoriesVisited += 1;
+    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
+      throw directoryTreeLimit(projectDirectory, directory, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+    }
     for (const entry of [...await readStableDirectory(directory)].reverse()) {
       const path = join(directory, entry.name);
       const component = relative(projectDirectory, path);
@@ -778,7 +813,13 @@ async function validateRenderProgramDirectory(
       if (facts.isSymbolicLink()) {
         throw invalidResource(path, component, `${component} 是符号链接；Render Program 树只允许普通文件和目录。`);
       }
-      if (facts.isDirectory()) stack.push(path);
+      if (facts.isDirectory()) {
+        const childDepth = depth + 1;
+        if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
+          throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
+        }
+        stack.push({ directory: path, depth: childDepth });
+      }
       else if (!facts.isFile() || facts.nlink !== 1) {
         throw invalidResource(path, component, `${component} 不是无硬链接的普通文件；请替换该资源。`);
       }

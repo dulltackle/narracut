@@ -1,0 +1,180 @@
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { handleRequest } from "../plugins/narracut/src/server";
+
+async function createProject(sceneCount = 1): Promise<string> {
+  const parent = await mkdtemp(join(tmpdir(), "narracut-plugin-"));
+  const projectDirectory = join(parent, "product-demo");
+  await Promise.all([
+    mkdir(join(projectDirectory, "assets"), { recursive: true }),
+    mkdir(join(projectDirectory, "speech"), { recursive: true }),
+    mkdir(join(projectDirectory, "renders"), { recursive: true }),
+    mkdir(join(projectDirectory, ".opaque", "revision-1", "render-program", "src"), {
+      recursive: true,
+    }),
+    mkdir(join(projectDirectory, ".opaque", "revision-1", "render-program", "resources"), {
+      recursive: true,
+    }),
+  ]);
+  await Promise.all([
+    writeFile(join(projectDirectory, "narracut.json"), JSON.stringify({
+      kind: "narracut-project",
+      formatVersion: 1,
+      projectId: "10000000-0000-4000-8000-000000000001",
+    })),
+    writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [],
+      scenes: Array.from({ length: sceneCount }, (_, index) => ({
+        id: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        narration: { text: `第 ${index + 1} 个 Scene 的 Narration` },
+        assetIds: [],
+      })),
+    })),
+    writeFile(join(projectDirectory, "video.md"), "# 产品演示\n"),
+    writeFile(
+      join(projectDirectory, ".opaque", "revision-1", "render-program", "program.json"),
+      JSON.stringify({ apiVersion: 1, output: { width: 1920, height: 1080, fps: 30 } }),
+    ),
+    writeFile(
+      join(projectDirectory, ".opaque", "revision-1", "render-program", "package.json"),
+      '{"private":true}',
+    ),
+    writeFile(
+      join(projectDirectory, ".opaque", "revision-1", "render-program", "pnpm-lock.yaml"),
+      "lockfileVersion: '9.0'\n",
+    ),
+    writeFile(
+      join(projectDirectory, ".opaque", "revision-1", "render-program", "src", "RenderProgram.tsx"),
+      "export const RenderProgram = () => null;\n",
+    ),
+  ]);
+  return projectDirectory;
+}
+
+async function request(method: string, params?: unknown): Promise<unknown> {
+  return handleRequest({ jsonrpc: "2.0", id: 1, method, params });
+}
+
+describe("Narracut Codex 插件", () => {
+  it("插件包声明本地 MCP 且不申请网络、Shell 或任意文件系统能力", async () => {
+    const manifest = JSON.parse(await readFile(
+      resolve("plugins/narracut/.codex-plugin/plugin.json"),
+      "utf8",
+    )) as Record<string, unknown>;
+    const mcp = JSON.parse(await readFile(resolve("plugins/narracut/.mcp.json"), "utf8")) as {
+      mcpServers: Record<string, Record<string, unknown>>;
+    };
+
+    expect(manifest).toMatchObject({
+      name: "narracut",
+      mcpServers: "./.mcp.json",
+    });
+    expect(mcp.mcpServers.narracut).toEqual({
+      command: "node",
+      args: ["${PLUGIN_ROOT}/server.mjs"],
+    });
+    expect(JSON.stringify(mcp.mcpServers.narracut)).not.toMatch(
+      /shell|network|http|https|allowedDirectories/i,
+    );
+  });
+
+  it("通过 MCP 握手、健康检查，并以结构化结果只读检查项目", async () => {
+    const projectDirectory = await createProject();
+    const initialized = await request("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "narracut-test", version: "1.0.0" },
+    });
+    expect(initialized).toMatchObject({
+      protocolVersion: "2025-06-18",
+      serverInfo: { name: "narracut", version: "0.1.0" },
+      capabilities: { tools: {}, resources: {} },
+    });
+    const futureVersion = await request("initialize", {
+      protocolVersion: "2099-01-01",
+      capabilities: {},
+      clientInfo: { name: "future-client", version: "1.0.0" },
+    });
+    expect(futureVersion).toMatchObject({ protocolVersion: "2025-06-18" });
+
+    const tools = await request("tools/list") as { tools: Array<Record<string, unknown>> };
+    expect(tools.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "health_check",
+        annotations: expect.objectContaining({ readOnlyHint: true, openWorldHint: false }),
+      }),
+      expect.objectContaining({
+        name: "inspect_project",
+        annotations: expect.objectContaining({ readOnlyHint: true, openWorldHint: false }),
+        _meta: { ui: { resourceUri: "ui://narracut/workbench-v1.html" } },
+      }),
+    ]));
+
+    const result = await request("tools/call", {
+      name: "inspect_project",
+      arguments: { projectDirectory },
+    }) as {
+      structuredContent: Record<string, unknown>;
+      content: Array<{ text: string }>;
+    };
+    expect(result.structuredContent).toMatchObject({
+      status: "valid",
+      connection: { status: "connected", readOnly: true },
+      project: {
+        directory: projectDirectory,
+        folderName: "product-demo",
+        projectId: "10000000-0000-4000-8000-000000000001",
+        sceneCount: 1,
+      },
+      checks: {
+        manifest: { status: "valid" },
+        dsl: { status: "valid" },
+        videoBrief: { status: "valid" },
+      },
+    });
+    expect(result.content[0]?.text).toContain("product-demo");
+  });
+
+  it("无效目录把同一错误写入结构化结果，且 UI 资源可独立读取", async () => {
+    const result = await request("tools/call", {
+      name: "inspect_project",
+      arguments: { projectDirectory: "/definitely/missing/narracut-project" },
+    }) as {
+      isError: boolean;
+      structuredContent: Record<string, unknown>;
+    };
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: {
+        status: "invalid",
+        connection: { status: "connected", readOnly: true },
+        error: { code: "PROJECT_PATH_UNAVAILABLE" },
+      },
+    });
+
+    const resource = await request("resources/read", {
+      uri: "ui://narracut/workbench-v1.html",
+    }) as {
+      contents: Array<{ mimeType: string; text: string; _meta: unknown }>;
+    };
+    expect(resource.contents[0]).toMatchObject({
+      mimeType: "text/html;profile=mcp-app",
+      _meta: {
+        ui: {
+          prefersBorder: false,
+          csp: { connectDomains: [], resourceDomains: [] },
+        },
+      },
+    });
+    expect(resource.contents[0]?.text).toContain("narracut-vnext-contact-sheet");
+    expect(resource.contents[0]?.text).toContain("data:image/webp;base64,");
+    expect(resource.contents[0]?.text).toContain("data:font/woff2;base64,");
+    expect(resource.contents[0]?.text).toContain('font-family:"Narracut Display"');
+    expect(resource.contents[0]?.text).not.toContain("/*__NARRACUT_MATERIALS__*/");
+    expect(Buffer.byteLength(resource.contents[0]!.text, "utf8")).toBeLessThan(1_000_000);
+  });
+});

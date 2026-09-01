@@ -304,6 +304,25 @@ describe("Project VNext 只读检查", () => {
     });
   });
 
+  it("在发现 Render Program 时拒绝过深的项目目录树", async () => {
+    const projectDirectory = await createProject();
+    let deepDirectory = join(projectDirectory, "deep-tree");
+    for (let depth = 0; depth < 33; depth += 1) {
+      deepDirectory = join(deepDirectory, `level-${depth}`);
+    }
+    await mkdir(deepDirectory, { recursive: true });
+
+    await expect(inspectProjectVNext(projectDirectory)).rejects.toMatchObject({
+      code: "PROJECT_CONTENT_INVALID",
+      path: expect.stringContaining("deep-tree"),
+      diagnostics: [{
+        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+        metric: "directoryDepth",
+        limit: 32,
+      }],
+    });
+  });
+
   it("在读取控制文件前拒绝符号链接逃逸", async () => {
     const projectDirectory = await createProject();
     const projectPath = join(projectDirectory, "project.json");

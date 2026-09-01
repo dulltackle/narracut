@@ -1,0 +1,20 @@
+{
+  "name": "narracut-local",
+  "interface": {
+    "displayName": "Narracut Local"
+  },
+  "plugins": [
+    {
+      "name": "narracut",
+      "source": {
+        "source": "local",
+        "path": "./plugins/narracut"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

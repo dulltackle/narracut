@@ -1,206 +1,257 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-19T07:20:52Z",
-  "title": "Design System: Narracut",
+  "generatedAt": "2026-09-01T20:21:48Z",
+  "title": "Design System: Narracut VNext Workbench",
   "extensions": {
     "colorMeta": {
-      "canvas": {
+      "darkroom": {
         "role": "neutral",
-        "displayName": "冷纸灰",
-        "canonical": "#f6f8fb",
-        "tonalRamp": ["oklch(15% 0.000 258.3)", "oklch(27% 0.000 258.3)", "oklch(39% 0.000 258.3)", "oklch(51% 0.000 258.3)", "oklch(63% 0.000 258.3)", "oklch(75% 0.000 258.3)", "oklch(87% 0.000 258.3)", "oklch(95% 0.000 258.3)"]
+        "displayName": "暗房黑",
+        "tonalRamp": ["oklch(15% 0.0069 214.4)", "oklch(27% 0.0069 214.4)", "oklch(39% 0.0069 214.4)", "oklch(51% 0.0069 214.4)", "oklch(63% 0.0069 214.4)", "oklch(75% 0.0069 214.4)", "oklch(87% 0.0069 214.4)", "oklch(95% 0.0069 214.4)"]
       },
-      "surface": {
+      "shell": {
         "role": "neutral",
-        "displayName": "纯净工作面",
-        "canonical": "#ffffff",
-        "tonalRamp": ["oklch(15% 0.000 89.9)", "oklch(27% 0.000 89.9)", "oklch(39% 0.000 89.9)", "oklch(51% 0.000 89.9)", "oklch(63% 0.000 89.9)", "oklch(75% 0.000 89.9)", "oklch(87% 0.000 89.9)", "oklch(95% 0.000 89.9)"]
+        "displayName": "机身黑",
+        "tonalRamp": ["oklch(15% 0.0080 211.1)", "oklch(27% 0.0080 211.1)", "oklch(39% 0.0080 211.1)", "oklch(51% 0.0080 211.1)", "oklch(63% 0.0080 211.1)", "oklch(75% 0.0080 211.1)", "oklch(87% 0.0080 211.1)", "oklch(95% 0.0080 211.1)"]
       },
-      "surface-mint": {
+      "film": {
         "role": "neutral",
-        "displayName": "薄荷雾面",
-        "canonical": "#eef8f6",
-        "tonalRamp": ["oklch(15% 0.011 182.9)", "oklch(27% 0.011 182.9)", "oklch(39% 0.011 182.9)", "oklch(51% 0.011 182.9)", "oklch(63% 0.011 182.9)", "oklch(75% 0.011 182.9)", "oklch(87% 0.011 182.9)", "oklch(95% 0.011 182.9)"]
+        "displayName": "胶片黑",
+        "tonalRamp": ["oklch(15% 0.0047 196.6)", "oklch(27% 0.0047 196.6)", "oklch(39% 0.0047 196.6)", "oklch(51% 0.0047 196.6)", "oklch(63% 0.0047 196.6)", "oklch(75% 0.0047 196.6)", "oklch(87% 0.0047 196.6)", "oklch(95% 0.0047 196.6)"]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "结构线",
+        "tonalRamp": ["oklch(15% 0.0097 207.1)", "oklch(27% 0.0097 207.1)", "oklch(39% 0.0097 207.1)", "oklch(51% 0.0097 207.1)", "oklch(63% 0.0097 207.1)", "oklch(75% 0.0097 207.1)", "oklch(87% 0.0097 207.1)", "oklch(95% 0.0097 207.1)"]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "背光纸白",
+        "tonalRamp": ["oklch(15% 0.0108 118.0)", "oklch(27% 0.0108 118.0)", "oklch(39% 0.0108 118.0)", "oklch(51% 0.0108 118.0)", "oklch(63% 0.0108 118.0)", "oklch(75% 0.0108 118.0)", "oklch(87% 0.0108 118.0)", "oklch(95% 0.0108 118.0)"]
+      },
+      "paper-hover": {
+        "role": "neutral",
+        "displayName": "纸面悬停",
+        "tonalRamp": ["oklch(15% 0.0127 126.4)", "oklch(27% 0.0127 126.4)", "oklch(39% 0.0127 126.4)", "oklch(51% 0.0127 126.4)", "oklch(63% 0.0127 126.4)", "oklch(75% 0.0127 126.4)", "oklch(87% 0.0127 126.4)", "oklch(95% 0.0127 126.4)"]
+      },
+      "paper-selected": {
+        "role": "neutral",
+        "displayName": "选中纸白",
+        "tonalRamp": ["oklch(15% 0.0080 114.2)", "oklch(27% 0.0080 114.2)", "oklch(39% 0.0080 114.2)", "oklch(51% 0.0080 114.2)", "oklch(63% 0.0080 114.2)", "oklch(75% 0.0080 114.2)", "oklch(87% 0.0080 114.2)", "oklch(95% 0.0080 114.2)"]
       },
       "ink": {
         "role": "neutral",
-        "displayName": "墨蓝黑",
-        "canonical": "#0f172a",
-        "tonalRamp": ["oklch(15% 0.040 265.8)", "oklch(27% 0.040 265.8)", "oklch(39% 0.040 265.8)", "oklch(51% 0.040 265.8)", "oklch(63% 0.040 265.8)", "oklch(75% 0.040 265.8)", "oklch(87% 0.040 265.8)", "oklch(95% 0.040 265.8)"]
-      },
-      "ink-secondary": {
-        "role": "neutral",
-        "displayName": "石板蓝灰",
-        "canonical": "#334155",
-        "tonalRamp": ["oklch(15% 0.039 257.3)", "oklch(27% 0.039 257.3)", "oklch(39% 0.039 257.3)", "oklch(51% 0.039 257.3)", "oklch(63% 0.039 257.3)", "oklch(75% 0.039 257.3)", "oklch(87% 0.039 257.3)", "oklch(95% 0.039 257.3)"]
+        "displayName": "纸面墨色",
+        "tonalRamp": ["oklch(15% 0.0060 196.7)", "oklch(27% 0.0060 196.7)", "oklch(39% 0.0060 196.7)", "oklch(51% 0.0060 196.7)", "oklch(63% 0.0060 196.7)", "oklch(75% 0.0060 196.7)", "oklch(87% 0.0060 196.7)", "oklch(95% 0.0060 196.7)"]
       },
       "muted": {
         "role": "neutral",
-        "displayName": "元数据灰",
-        "canonical": "#64748b",
-        "tonalRamp": ["oklch(15% 0.041 257.4)", "oklch(27% 0.041 257.4)", "oklch(39% 0.041 257.4)", "oklch(51% 0.041 257.4)", "oklch(63% 0.041 257.4)", "oklch(75% 0.041 257.4)", "oklch(87% 0.041 257.4)", "oklch(95% 0.041 257.4)"]
+        "displayName": "暗房灰",
+        "tonalRamp": ["oklch(15% 0.0108 181.2)", "oklch(27% 0.0108 181.2)", "oklch(39% 0.0108 181.2)", "oklch(51% 0.0108 181.2)", "oklch(63% 0.0108 181.2)", "oklch(75% 0.0108 181.2)", "oklch(87% 0.0108 181.2)", "oklch(95% 0.0108 181.2)"]
       },
-      "border": {
-        "role": "neutral",
-        "displayName": "冷界线",
-        "canonical": "#dbe4ee",
-        "tonalRamp": ["oklch(15% 0.017 250.9)", "oklch(27% 0.017 250.9)", "oklch(39% 0.017 250.9)", "oklch(51% 0.017 250.9)", "oklch(63% 0.017 250.9)", "oklch(75% 0.017 250.9)", "oklch(87% 0.017 250.9)", "oklch(95% 0.017 250.9)"]
-      },
-      "border-soft": {
-        "role": "neutral",
-        "displayName": "柔界线",
-        "canonical": "#edf2f7",
-        "tonalRamp": ["oklch(15% 0.009 247.9)", "oklch(27% 0.009 247.9)", "oklch(39% 0.009 247.9)", "oklch(51% 0.009 247.9)", "oklch(63% 0.009 247.9)", "oklch(75% 0.009 247.9)", "oklch(87% 0.009 247.9)", "oklch(95% 0.009 247.9)"]
-      },
-      "accent": {
+      "proof-blue": {
         "role": "primary",
-        "displayName": "自动化青绿",
-        "canonical": "#00a3a6",
-        "tonalRamp": ["oklch(15% 0.110 197.1)", "oklch(27% 0.110 197.1)", "oklch(39% 0.110 197.1)", "oklch(51% 0.110 197.1)", "oklch(63% 0.110 197.1)", "oklch(75% 0.110 197.1)", "oklch(87% 0.110 197.1)", "oklch(95% 0.110 197.1)"]
+        "displayName": "校片蓝",
+        "tonalRamp": ["oklch(15% 0.1452 258.3)", "oklch(27% 0.1452 258.3)", "oklch(39% 0.1452 258.3)", "oklch(51% 0.1452 258.3)", "oklch(63% 0.1452 258.3)", "oklch(75% 0.1452 258.3)", "oklch(87% 0.1452 258.3)", "oklch(95% 0.1452 258.3)"]
       },
-      "accent-hover": {
+      "proof-blue-deep": {
         "role": "primary",
-        "displayName": "深自动化青绿",
-        "canonical": "#008f92",
-        "tonalRamp": ["oklch(15% 0.100 197.4)", "oklch(27% 0.100 197.4)", "oklch(39% 0.100 197.4)", "oklch(51% 0.100 197.4)", "oklch(63% 0.100 197.4)", "oklch(75% 0.100 197.4)", "oklch(87% 0.100 197.4)", "oklch(95% 0.100 197.4)"]
+        "displayName": "深校片蓝",
+        "tonalRamp": ["oklch(15% 0.1356 256.9)", "oklch(27% 0.1356 256.9)", "oklch(39% 0.1356 256.9)", "oklch(51% 0.1356 256.9)", "oklch(63% 0.1356 256.9)", "oklch(75% 0.1356 256.9)", "oklch(87% 0.1356 256.9)", "oklch(95% 0.1356 256.9)"]
       },
-      "success": {
-        "role": "semantic",
-        "displayName": "完成绿",
-        "canonical": "#15803d",
-        "tonalRamp": ["oklch(15% 0.137 150.1)", "oklch(27% 0.137 150.1)", "oklch(39% 0.137 150.1)", "oklch(51% 0.137 150.1)", "oklch(63% 0.137 150.1)", "oklch(75% 0.137 150.1)", "oklch(87% 0.137 150.1)", "oklch(95% 0.137 150.1)"]
+      "readonly-amber": {
+        "role": "secondary",
+        "displayName": "只读琥珀",
+        "tonalRamp": ["oklch(15% 0.1298 73.8)", "oklch(27% 0.1298 73.8)", "oklch(39% 0.1298 73.8)", "oklch(51% 0.1298 73.8)", "oklch(63% 0.1298 73.8)", "oklch(75% 0.1298 73.8)", "oklch(87% 0.1298 73.8)", "oklch(95% 0.1298 73.8)"]
       },
-      "warning": {
-        "role": "semantic",
-        "displayName": "提醒琥珀",
-        "canonical": "#b45309",
-        "tonalRamp": ["oklch(15% 0.146 49.0)", "oklch(27% 0.146 49.0)", "oklch(39% 0.146 49.0)", "oklch(51% 0.146 49.0)", "oklch(63% 0.146 49.0)", "oklch(75% 0.146 49.0)", "oklch(87% 0.146 49.0)", "oklch(95% 0.146 49.0)"]
-      },
-      "danger": {
-        "role": "semantic",
-        "displayName": "阻断玫红",
-        "canonical": "#e11d48",
-        "tonalRamp": ["oklch(15% 0.220 17.6)", "oklch(27% 0.220 17.6)", "oklch(39% 0.220 17.6)", "oklch(51% 0.220 17.6)", "oklch(63% 0.220 17.6)", "oklch(75% 0.220 17.6)", "oklch(87% 0.220 17.6)", "oklch(95% 0.220 17.6)"]
+      "connected-green": {
+        "role": "secondary",
+        "displayName": "连接绿",
+        "tonalRamp": ["oklch(15% 0.1415 147.9)", "oklch(27% 0.1415 147.9)", "oklch(39% 0.1415 147.9)", "oklch(51% 0.1415 147.9)", "oklch(63% 0.1415 147.9)", "oklch(75% 0.1415 147.9)", "oklch(87% 0.1415 147.9)", "oklch(95% 0.1415 147.9)"]
       }
     },
     "typographyMeta": {
-      "display": { "displayName": "状态页主标题", "purpose": "加载、错误与其他居中状态页的主标题。" },
-      "headline": { "displayName": "空状态标题", "purpose": "空项目或首次使用引导的主标题。" },
-      "title": { "displayName": "面板标题", "purpose": "Pane、Dialog 与 Drawer 的局部标题。" },
-      "body": { "displayName": "叙事正文", "purpose": "Narration、说明与主要界面文字。" },
-      "label": { "displayName": "机器元数据", "purpose": "编号、路径、时间码、表头与技术状态。" },
-      "control": { "displayName": "紧凑控件", "purpose": "按钮、字段标签和 Inspector 控件内容。" }
+      "display": {
+        "displayName": "品牌展示",
+        "purpose": "仅用于 Narracut 品牌字样。"
+      },
+      "headline": {
+        "displayName": "Scene 编号",
+        "purpose": "用于 Scene 大编号及同等级校片标记。"
+      },
+      "title": {
+        "displayName": "Narration",
+        "purpose": "用于 Scene 的主要叙事内容。"
+      },
+      "body": {
+        "displayName": "工作台正文",
+        "purpose": "用于检查、说明、空状态与次级正文。"
+      },
+      "label": {
+        "displayName": "机器标签",
+        "purpose": "用于表头、边码、路径、时长与机器状态。"
+      },
+      "control": {
+        "displayName": "工作区控制",
+        "purpose": "用于工作区标签及同等级操作文字。"
+      }
     },
     "shadows": [
-      { "name": "ambient-float", "value": "0 20px 50px rgba(15, 23, 42, 0.1)", "purpose": "Player 画布、Popover、Modal、Drawer 与状态卡的环境悬浮。" },
-      { "name": "structural-outline", "value": "0 0 0 1px #dbe4ee", "purpose": "常驻 Pane 的平面结构描边。" },
-      { "name": "focus-halo", "value": "0 0 0 4px rgba(0, 163, 166, 0.24)", "purpose": "键盘焦点位置的可访问性反馈。" }
+      {
+        "name": "film-pressure",
+        "value": "0 26px 70px rgba(0,0,0,.58), inset 0 1px rgba(255,255,255,.045), inset 0 0 0 5px rgba(0,0,0,.18)",
+        "purpose": "把整张胶片接触印样压入暗房。"
+      },
+      {
+        "name": "paper-backlight",
+        "value": "0 0 34px rgba(241,243,235,.34), inset 0 0 36px rgba(68,76,72,.14)",
+        "purpose": "为背光纸面提供唯一的灯箱亮度。"
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 5px rgba(78,136,223,.24)",
+        "purpose": "与 2px 可见轮廓共同标识键盘焦点。"
+      },
+      {
+        "name": "inspection-drawer",
+        "value": "-18px 0 45px rgba(0,0,0,.48)",
+        "purpose": "仅用于窄屏项目检查抽屉。"
+      }
     ],
     "motion": [
-      { "name": "state-standard", "value": "160ms ease", "purpose": "按钮背景、边框与轻微位移的默认状态变化。" },
-      { "name": "reveal-fast", "value": "120ms ease", "purpose": "Narration 行内扩展按钮的显隐。" },
-      { "name": "loading-spin", "value": "900ms linear", "purpose": "加载状态的持续旋转；减少动态偏好下停用。" }
+      {
+        "name": "lightbox-entry",
+        "value": "420ms cubic-bezier(.16,1,.3,1)",
+        "purpose": "接触表首次出现时从稍暗状态亮起；仅在用户未请求 reduced motion 时运行。"
+      }
     ],
     "breakpoints": [
-      { "name": "desktop-floor", "value": "1180px" }
+      {
+        "name": "compact-desktop",
+        "value": "900px"
+      },
+      {
+        "name": "mobile-drawer",
+        "value": "700px"
+      }
     ]
   },
   "components": [
     {
-      "name": "Primary Button",
-      "kind": "button",
-      "refersTo": "button-primary",
-      "description": "当前上下文中唯一的主要动作，使用自动化青绿。",
-      "html": "<button class=\"ds-btn-primary\">检查并渲染</button>",
-      "css": ".ds-btn-primary { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 16px; border: 1px solid var(--accent, #00a3a6); border-radius: 9999px; background: var(--accent, #00a3a6); color: #fff; font: 650 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; cursor: pointer; transition: background 160ms, border-color 160ms, transform 160ms; } .ds-btn-primary:hover { border-color: var(--accent-hover, #008f92); background: var(--accent-hover, #008f92); } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-btn-primary:active { transform: translateY(1px); }"
+      "name": "Project Identity Rail",
+      "kind": "custom",
+      "description": "稳定展示品牌、项目文件夹、Project ID 与文字化连接状态。",
+      "html": "<header class=\"ds-project-rail\"><strong class=\"ds-brand\">Narracut</strong><span class=\"ds-folder\">product-demo</span><code class=\"ds-project-id\"><b>PROJECT ID</b> 10000000-0000-4000-8000-000000000001</code><span class=\"ds-connection\"><i aria-hidden=\"true\"></i>连接正常</span></header>",
+      "css": ".ds-project-rail { display:grid; grid-template-columns:180px minmax(180px,1fr) minmax(280px,1.6fr) auto; min-width:0; background:var(--darkroom,#090d0e); color:#d7dcda; border:1px solid #2a3031; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-project-rail > * { min-height:68px; display:flex; align-items:center; gap:10px; min-width:0; padding:0 22px; border-right:1px solid #2a3031; } .ds-brand { color:#f4f5ef; font-family:\"Narracut Display\",sans-serif; font-size:1.65rem; font-variation-settings:\"wdth\" 75,\"wght\" 800; letter-spacing:-.035em; } .ds-folder { color:#edf0ed; font-weight:650; } .ds-project-id { overflow:hidden; color:#959d9a; font:500 .78rem/1.4 ui-monospace,monospace; text-overflow:ellipsis; white-space:nowrap; } .ds-project-id b { color:#cbd1cf; margin-right:8px; } .ds-connection { border-right:0; white-space:nowrap; } .ds-connection i { width:12px; height:12px; flex:0 0 auto; border-radius:50%; background:var(--connected-green,#67c477); box-shadow:0 3px 9px rgba(103,196,119,.28); }"
     },
     {
-      "name": "Secondary Button",
-      "kind": "button",
-      "refersTo": "button-secondary",
-      "description": "默认工具动作，以白色工作面和冷界线维持低优先级。",
-      "html": "<button class=\"ds-btn-secondary\">批量添加</button>",
-      "css": ".ds-btn-secondary { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 16px; border: 1px solid var(--border, #dbe4ee); border-radius: 9999px; background: var(--surface, #fff); color: var(--ink, #0f172a); font: 650 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; cursor: pointer; transition: background 160ms, border-color 160ms, transform 160ms; } .ds-btn-secondary:hover { border-color: var(--ink-secondary, #334155); background: var(--surface-mint, #eef8f6); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-btn-secondary:active { transform: translateY(1px); }"
+      "name": "Selected Workspace Tab",
+      "kind": "nav",
+      "refersTo": "workspace-tab-selected",
+      "description": "以蓝色底边、白字和轻微蓝底共同表示当前稳定工作区。",
+      "html": "<nav class=\"ds-tabs\" aria-label=\"Narracut 工作区\"><button class=\"ds-tab ds-tab-active\" type=\"button\" aria-current=\"page\">表格工作区</button><button class=\"ds-tab\" type=\"button\">Agent 工作区</button></nav>",
+      "css": ".ds-tabs { display:flex; align-items:stretch; background:#141a1b; border:1px solid #2a3031; } .ds-tab { min-width:160px; min-height:54px; padding:0 28px; border:0; border-right:1px solid #303637; border-bottom:3px solid transparent; background:transparent; color:var(--muted,#909997); font:650 .96rem \"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; text-align:left; cursor:pointer; } .ds-tab:hover { color:#d7dcda; background:#171d1f; } .ds-tab-active { color:#fff; border-bottom-color:var(--proof-blue,#4e88df); background:rgba(78,136,223,.08); } .ds-tab:focus-visible { outline:2px solid #8ab7f8; outline-offset:3px; box-shadow:0 0 0 5px rgba(78,136,223,.24); } .ds-tab:active { background:rgba(78,136,223,.13); }"
     },
     {
-      "name": "Filter Chip",
-      "kind": "chip",
-      "refersTo": "filter-selected",
-      "description": "脚本表过滤器的已选与未选状态，不与主动作争夺强调色。",
-      "html": "<div class=\"ds-filter\"><button class=\"ds-filter-active\">全部</button><button>待修复</button></div>",
-      "css": ".ds-filter { display: inline-flex; gap: 4px; padding: 4px; border-radius: 9999px; background: var(--canvas, #f6f8fb); } .ds-filter button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 9999px; background: transparent; color: var(--muted, #64748b); font: 400 12px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; cursor: pointer; } .ds-filter .ds-filter-active { background: var(--surface, #fff); color: var(--ink, #0f172a); box-shadow: 0 0 0 1px var(--border, #dbe4ee); } .ds-filter button:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; }"
-    },
-    {
-      "name": "Inspector Input",
-      "kind": "input",
-      "refersTo": "input",
-      "description": "Inspector 中用于结构化字段的紧凑输入控件。",
-      "html": "<label class=\"ds-field\">Visual Type<input value=\"Video + Caption\" readonly></label>",
-      "css": ".ds-field { display: grid; gap: 8px; color: var(--ink-secondary, #334155); font: 650 12px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-field input { width: 100%; min-height: 44px; padding: 12px; border: 1px solid var(--border, #dbe4ee); border-radius: 12px; background: var(--surface, #fff); color: var(--ink-secondary, #334155); font: inherit; } .ds-field input:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); }"
-    },
-    {
-      "name": "Pane Container",
+      "name": "Contact Sheet",
       "kind": "card",
-      "refersTo": "pane",
-      "description": "脚本表、Player 与 Inspector 共用的常驻工作面。",
-      "html": "<section class=\"ds-pane\"><header><strong>Inspector</strong><span>Video + Caption</span></header><div class=\"ds-pane-body\">结构化编辑内容</div></section>",
-      "css": ".ds-pane { overflow: hidden; border: 1px solid var(--border, #dbe4ee); border-radius: 18px; background: var(--surface, #fff); color: var(--ink, #0f172a); box-shadow: 0 0 0 1px var(--border, #dbe4ee); font: 400 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-pane header { min-height: 54px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--border, #dbe4ee); background: #f9fbfd; } .ds-pane header strong { font-size: 16px; } .ds-pane header span { color: var(--muted, #64748b); font-size: 12px; } .ds-pane-body { min-height: 96px; padding: 16px; }"
+      "refersTo": "contact-frame",
+      "description": "背光纸面、胶片边码与校片角标组成的签名 Scene 容器。",
+      "html": "<section class=\"ds-contact\"><div class=\"ds-film-edge\"><span>NCUT · 10000000-0000</span><span>CONTACT SHEET</span><span>8 SCENES</span></div><div class=\"ds-paper\"><div class=\"ds-sheet-head\"><span>SCENE</span><span>NARRATION</span><span>ASSET</span></div><div class=\"ds-sheet-sample\"><strong>01</strong><span>在每一个认真生活的日常里，总有一些被忽略的细节。</span><small>1 Asset<br>assets/scene-1.png</small></div></div><div class=\"ds-film-edge\"><span>READ ONLY</span><span>8 SCENES</span><span>NCUT 01</span></div></section>",
+      "css": ".ds-contact { display:grid; grid-template-rows:30px minmax(150px,1fr) 26px; padding:0 18px; border:1px solid #343b3c; border-radius:9px; background:var(--film,#050707); color:var(--readonly-amber,#d89a3d); box-shadow:0 26px 70px rgba(0,0,0,.58),inset 0 1px rgba(255,255,255,.045),inset 0 0 0 5px rgba(0,0,0,.18); font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; overflow:hidden; } .ds-film-edge { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:12px; color:#c98f37; font:600 .62rem/1 ui-monospace,monospace; letter-spacing:.06em; } .ds-film-edge span:last-child { text-align:right; } .ds-paper { position:relative; color:var(--ink,#171b1b); background:var(--paper,#f1f3eb); border:1px solid #777c76; box-shadow:0 0 34px rgba(241,243,235,.34),inset 0 0 36px rgba(68,76,72,.14); } .ds-paper:before,.ds-paper:after { content:\"\"; position:absolute; width:15px; height:15px; border-color:var(--proof-blue-deep,#245da9); } .ds-paper:before { top:7px; left:7px; border-top:2px solid; border-left:2px solid; } .ds-paper:after { right:7px; bottom:7px; border-right:2px solid; border-bottom:2px solid; } .ds-sheet-head,.ds-sheet-sample { display:grid; grid-template-columns:64px minmax(180px,1fr) 130px; align-items:center; } .ds-sheet-head { height:34px; border-bottom:1px solid #9fa49e; color:#59605e; font:700 .6rem/1 ui-monospace,monospace; letter-spacing:.08em; } .ds-sheet-head span,.ds-sheet-sample > * { padding:0 12px; } .ds-sheet-sample { min-height:112px; box-shadow:inset 0 0 0 3px var(--proof-blue,#4e88df); } .ds-sheet-sample strong { font:720 1.6rem/1 \"Narracut Display\",sans-serif; } .ds-sheet-sample > span { font-size:1rem; font-weight:680; line-height:1.65; } .ds-sheet-sample small { color:#676e6b; font:500 .66rem/1.45 ui-monospace,monospace; }"
     },
     {
       "name": "Selected Scene Row",
       "kind": "custom",
-      "description": "Scene 表的签名选中状态；序号是显式选择并跳转预览的按钮，获得焦点本身不会切换 Scene。",
-      "html": "<div class=\"ds-scene-row\"><button class=\"ds-scene-index\" aria-label=\"选择并预览 Scene 01\">01</button><div><strong>取 100 毫升生理盐水</strong><span>Video + Caption · 缺少 Speech</span></div><span class=\"ds-scene-status\">可编辑草稿</span></div>",
-      "css": ".ds-scene-row { min-height: 88px; display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 12px 8px 8px; background: var(--surface-mint, #eef8f6); color: var(--ink, #0f172a); box-shadow: inset 3px 0 var(--ink, #0f172a); font: 400 14px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-scene-index { width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--muted, #64748b); font: 650 12px \"SF Mono\", ui-monospace, Menlo, monospace; cursor: pointer; } .ds-scene-index:hover { background: var(--canvas, #f6f8fb); color: var(--ink, #0f172a); } .ds-scene-index:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-scene-index:active { transform: translateY(1px); } .ds-scene-row strong, .ds-scene-row div span { display: block; } .ds-scene-row div span { color: var(--muted, #64748b); font-size: 12px; } .ds-scene-status { padding: 6px 8px; border-radius: 12px; background: #eefbf2; color: var(--success, #15803d); font-size: 12px; }"
+      "refersTo": "scene-row-selected",
+      "description": "Narration 优先的 112px 校片行，以蓝框、三角与边码圈记共同表示显式选择。",
+      "html": "<button class=\"ds-scene-row\" type=\"button\" aria-pressed=\"true\"><span class=\"ds-scene-no\"><strong>03</strong><small>03A</small></span><span class=\"ds-narration\">它不张扬，却恰到好处；它懂你所需，更懂你未说出口的期待。</span><span class=\"ds-asset\"><b>ASSET</b><strong>无 Asset</strong><small>未绑定文件</small></span><span class=\"ds-speech\"><b>SPEECH</b><strong>已生成</strong><small>2160 ms</small></span></button>",
+      "css": ".ds-scene-row { position:relative; width:100%; min-height:112px; display:grid; grid-template-columns:72px minmax(220px,1fr) 132px 112px; align-items:stretch; padding:0; border:0; background:var(--paper-selected,#fafbf5); color:var(--ink,#171b1b); box-shadow:inset 0 0 0 3px var(--proof-blue,#4e88df); text-align:left; cursor:pointer; } .ds-scene-row:before { content:\"\"; position:absolute; left:5px; top:50%; border-top:8px solid transparent; border-bottom:8px solid transparent; border-left:11px solid var(--proof-blue-deep,#245da9); transform:translateY(-50%); } .ds-scene-row:hover { background:var(--paper-hover,#e4e8df); } .ds-scene-row:focus-visible { outline:2px solid #8ab7f8; outline-offset:3px; box-shadow:inset 0 0 0 3px var(--proof-blue,#4e88df),0 0 0 5px rgba(78,136,223,.24); } .ds-scene-row:active { filter:brightness(.97); } .ds-scene-row > span { border-right:1px solid #c5c9c2; } .ds-scene-no { display:grid; place-content:center; justify-items:center; gap:7px; font-family:\"Narracut Display\",sans-serif; font-variation-settings:\"wdth\" 75; } .ds-scene-no strong { font-size:1.8rem; font-weight:720; line-height:1; } .ds-scene-no small { color:var(--proof-blue-deep,#245da9); font-size:.76rem; font-weight:700; letter-spacing:.08em; transform:rotate(-4deg); } .ds-narration { display:flex; align-items:center; padding:16px 22px; font:680 1rem/1.65 \"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-asset,.ds-speech { display:flex; flex-direction:column; justify-content:center; gap:7px; padding:12px 16px; } .ds-asset b,.ds-speech b { color:#626866; font:700 .62rem/1 ui-monospace,monospace; letter-spacing:.07em; } .ds-asset strong,.ds-speech strong { font-size:.84rem; } .ds-speech strong { color:var(--proof-blue-deep,#245da9); } .ds-asset small,.ds-speech small { overflow:hidden; color:#676e6b; font:500 .67rem/1.35 ui-monospace,monospace; text-overflow:ellipsis; white-space:nowrap; }"
     },
     {
-      "name": "Warning Note",
+      "name": "Project Inspection",
       "kind": "card",
-      "description": "不阻断编辑但必须被理解的 Render-ready 提示。",
-      "html": "<div class=\"ds-warning-note\">缺少 Speech 时使用 Draft Duration；最终渲染前仍需补齐。</div>",
-      "css": ".ds-warning-note { display: flex; gap: 8px; padding: 12px; border-radius: 12px; background: #fff7ed; color: var(--warning, #b45309); font: 400 12px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; }"
+      "description": "以点、文字与状态词同时展示控制文件检查和当前 Scene 上下文。",
+      "html": "<aside class=\"ds-inspection\"><h2>项目检查</h2><div class=\"ds-check\"><i aria-hidden=\"true\"></i><span>项目清单</span><strong>有效</strong></div><div class=\"ds-check\"><i aria-hidden=\"true\"></i><span>Project DSL</span><strong>有效</strong></div><div class=\"ds-check\"><i aria-hidden=\"true\"></i><span>video.md</span><strong>有效</strong></div><hr><h3>Scene 03</h3><p>它不张扬，却恰到好处；它懂你所需。</p><dl><dt>Scene ID</dt><dd>30000000-…-0001</dd><dt>Asset</dt><dd>0</dd><dt>Speech</dt><dd>已生成</dd></dl></aside>",
+      "css": ".ds-inspection { max-width:320px; padding:22px 20px; border:1px solid var(--line,#303738); background:#0d1213; color:#b7bfbc; font:400 .82rem/1.6 \"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-inspection h2,.ds-inspection h3 { margin:0 0 18px; color:#e7ebe8; font-size:1.08rem; font-weight:680; letter-spacing:-.02em; } .ds-inspection h3 { color:var(--proof-blue,#4e88df); } .ds-check { display:grid; grid-template-columns:12px minmax(0,1fr) auto; align-items:center; gap:10px; margin:14px 0; } .ds-check i { width:9px; height:9px; border-radius:50%; background:var(--connected-green,#67c477); } .ds-check strong { color:var(--connected-green,#67c477); font-weight:650; } .ds-inspection hr { height:1px; margin:18px 0; border:0; background:#353d3e; } .ds-inspection p { color:#b2bab7; font-size:.79rem; line-height:1.75; } .ds-inspection dl { display:grid; grid-template-columns:78px minmax(0,1fr); gap:9px 10px; color:#929b98; font:500 .69rem/1.4 ui-monospace,monospace; } .ds-inspection dt,.ds-inspection dd { margin:0; } .ds-inspection dd { color:#c0c7c5; text-align:right; overflow-wrap:anywhere; }"
     },
     {
-      "name": "Player Context and Control",
-      "kind": "custom",
-      "description": "Player 同时展示选中 Scene 与正在播放 Scene，并以墨蓝黑圆形按钮控制项目级预览。",
-      "html": "<div class=\"ds-player-control\"><div class=\"ds-player-context\"><span>选中 Scene <strong>03</strong></span><span>正在播放 <strong>05</strong></span></div><button class=\"ds-play\" aria-label=\"播放\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 5v14l11-7z\" fill=\"currentColor\"/></svg></button><code>00:18 / 01:42</code></div>",
-      "css": ".ds-player-control { display: flex; align-items: center; gap: 12px; color: var(--muted, #64748b); font: 400 12px/1.55 \"Microsoft YaHei\", \"微软雅黑\", sans-serif; } .ds-player-context { display: grid; gap: 2px; min-width: 112px; } .ds-player-context strong { color: var(--ink, #0f172a); font: 650 12px \"SF Mono\", ui-monospace, Menlo, monospace; } .ds-play { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--ink, #0f172a); color: #fff; cursor: pointer; } .ds-play svg { width: 20px; height: 20px; } .ds-play:hover { background: var(--ink-secondary, #334155); } .ds-play:focus-visible { outline: 2px solid var(--accent, #00a3a6); outline-offset: 1px; box-shadow: 0 0 0 4px rgba(0, 163, 166, 0.24); } .ds-play:active { transform: translateY(1px); } .ds-player-control code { color: var(--ink-secondary, #334155); font: 12px \"SF Mono\", ui-monospace, Menlo, monospace; }"
+      "name": "Disabled Composer",
+      "kind": "input",
+      "refersTo": "composer-disabled",
+      "description": "持续可见并以可见文字和 aria-describedby 共同解释当前只读边界。",
+      "html": "<div class=\"ds-composer\"><label for=\"ds-composer-input\">Composer</label><div><input id=\"ds-composer-input\" aria-describedby=\"ds-composer-reason\" disabled><span>Composer 将在后续功能中启用</span><small id=\"ds-composer-reason\">当前交付只支持只读检查</small></div><i class=\"ds-lock\" aria-hidden=\"true\"></i></div>",
+      "css": ".ds-composer { display:grid; grid-template-columns:auto minmax(0,1fr) 54px; align-items:center; gap:16px; padding:14px 16px; border:1px solid var(--line,#303738); background:#0b1011; color:#b6bebb; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-composer label { font-size:.95rem; font-weight:680; } .ds-composer > div { position:relative; min-width:0; } .ds-composer input { width:100%; min-height:48px; padding:0 18px; border:1px solid #3d4647; border-radius:7px; background:#171d1f; color:#a7afac; opacity:1; -webkit-text-fill-color:#a7afac; } .ds-composer span,.ds-composer small { position:absolute; left:18px; pointer-events:none; } .ds-composer span { top:8px; color:#a7afac; font-size:.8rem; } .ds-composer small { top:27px; color:#939c99; font:500 .75rem/1.2 ui-monospace,monospace; } .ds-lock { position:relative; width:18px; height:15px; place-self:center; border:2px solid #69716f; border-radius:2px; } .ds-lock:before { content:\"\"; position:absolute; width:10px; height:9px; left:2px; top:-10px; border:2px solid #69716f; border-bottom:0; border-radius:8px 8px 0 0; }"
     }
   ],
   "narrative": {
-    "northStar": "精密叙事台",
-    "overview": "Narracut 的界面是一张为脚本、画面和 Speech 精确装配而设的工作台。冷纸灰承托纯净工作面，墨蓝黑建立清晰的信息骨架，自动化青绿只在需要行动与聚焦的位置出现；整体克制、可靠、精密、平静。\n\n系统以高密度但有秩序的操作空间为主，而不是营销式展示空间。边框、轻微色调差和稳定的网格帮助创作者同时掌握脚本表、Player 与 Inspector；圆润的组件削弱传统专业软件的生硬感，但不牺牲状态辨识和工作效率。它明确避免炫技式 AI 科幻感，也避免传统专业剪辑软件的视觉噪声。",
+    "northStar": "暗房接触印样台",
+    "overview": "Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。\n\n这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是主工作面，项目检查是窄侧台，Composer 是固定在灯箱下沿的批注槽。当前只读交付把不可用能力留在可见位置并解释原因；视觉不能暗示文件选择、编辑、Asset Preview、TTS、Render 或 Agent 创作已经可用。",
     "keyCharacteristics": [
-      "冷灰白工作面、墨蓝黑信息骨架与稀少的青绿色行动信号。",
-      "脚本表优先的高密度布局，Player 与 Inspector 作为并列工作上下文。",
-      "中文正文与等宽元数据组成双重信息声音。",
-      "圆润、稳健、直接的控件，以及清楚但克制的状态反馈。",
-      "分层为主、悬浮为辅；常驻界面保持平整，临时层才获得明显深度。"
+      "黑色暗房外壳包围背光暖白接触表，主内容拥有最高亮度与面积。",
+      "Scene 是连续校片行；Narration 居主列，Asset 仅显示身份、路径或占位。",
+      "蓝色校片线同时配合三角指示与圈记边码表达选择，不只依赖颜色。",
+      "琥珀只用于胶片边码、只读与诊断提示；绿色只用于明确的有效与连接状态。",
+      "自托管窄体展示字、中文 UI sans 与等宽标签构成三种受控声音。",
+      "纸张与胶片 raster 由插件以内嵌 data URI 提供，界面不依赖网络材料。"
     ],
     "rules": [
-      { "name": "The One Accent Rule", "body": "自动化青绿只用于行动、焦点和进度；不要把它铺成大面积背景或装饰色。", "section": "colors" },
-      { "name": "The Semantic Status Rule", "body": "绿、琥珀和玫红只表达状态含义，不承担品牌装饰或布局分区。", "section": "colors" },
-      { "name": "The Dual Voice Rule", "body": "叙事内容使用中文无衬线体，结构与机器状态使用等宽体；不要用更多字体制造层级。", "section": "typography" },
-      { "name": "The Workspace First Rule", "body": "新功能优先进入脚本表、Player、Inspector 或任务抽屉的既有职责，不为单一功能轻易增加新的顶层导航或独立画布。", "section": "layout" },
-      { "name": "The Flat-by-Default Rule", "body": "常驻工作面保持平整；只有真正覆盖、浮出或承载预览内容的元素才能使用环境阴影。", "section": "elevation" },
-      { "name": "The Radius Hierarchy Rule", "body": "圆角大小随容器层级增加；不要随机混用圆角，也不要把常驻大面板做成胶囊形。", "section": "shapes" }
+      {
+        "name": "The Proofing Blue Rule",
+        "body": "校片蓝只表示当前工作区、焦点或显式选择；选中状态还必须拥有线框、位置标记或文字语义。",
+        "section": "colors"
+      },
+      {
+        "name": "The Amber Boundary Rule",
+        "body": "琥珀只说明胶片边码、只读边界与需要注意的诊断，不把整块面板染成警告色。",
+        "section": "colors"
+      },
+      {
+        "name": "The Lit Content Rule",
+        "body": "最高亮度留给 Scene 内容纸面；暗房中的导航、检查和 Composer 不得与接触表争夺亮度。",
+        "section": "colors"
+      },
+      {
+        "name": "The Three Voices Rule",
+        "body": "展示字负责身份与校片，中文 UI sans 负责内容，等宽体负责机器事实；不要用展示字排中文长文，也不要用等宽体承担 Narration。",
+        "section": "typography"
+      },
+      {
+        "name": "The Identity Before Tools Rule",
+        "body": "所有尺寸都保留文件夹、Project ID 与连接文字的稳定位置；不要为了节省空间把身份藏进菜单。",
+        "section": "layout"
+      },
+      {
+        "name": "The Contact Sheet Dominance Rule",
+        "body": "在承载 Scene 检查的表面，接触表始终是面积与亮度的主角，检查栏只提供上下文，不扩张成同权三栏 IDE。",
+        "section": "layout"
+      },
+      {
+        "name": "The One Lightbox Rule",
+        "body": "每个工作区最多有一个背光主面；不要把普通面板、按钮或提示也做成发光玻璃。",
+        "section": "elevation"
+      },
+      {
+        "name": "The Cut Edge Rule",
+        "body": "圆角用于可触控控件和整张材料框，不用于把每条 Scene、每项检查或每段文字包成卡片。",
+        "section": "shapes"
+      }
     ],
     "dos": [
-      "Do 保留脚本表优先、Player 与 Inspector 并列的工作台结构。",
-      "Do 用自动化青绿标识主要动作、焦点与进度，并让它在每个视图中保持稀少。",
-      "Do 用等宽字体区分路径、编号、时间码、表头和机器状态。",
-      "Do 保持 44px 最小操作高度，并通过 8 / 12 / 16px 节奏组织高密度界面。",
-      "Do 用边框和色调建立常驻层次，只在浮层、预览与关键状态卡上使用环境阴影。",
-      "Do 区分 Scene 的编辑选择与 Player 的播放位置，并让键盘用户通过显式 Scene 序号按钮执行选择和跳转。"
+      "Do 让项目身份先于工作区工具，并在移动端继续展示 Project ID 与连接文字。",
+      "Do 让 Narration 成为每条 Scene 的视觉主内容；Asset 只显示 identity、path 或 placeholder。",
+      "Do 用蓝色线框、位置标记和程序化状态共同表达选择，让焦点与选择保持独立。",
+      "Do 把琥珀限制在胶片边码、只读与诊断提醒，把绿色限制在真实有效状态。",
+      "Do 保持项目检查在桌面端为窄侧栏、移动端为抽屉，并让 Composer 在所有尺寸下可见。",
+      "Do 以内嵌本地字体与 raster 建立材料感，同时尊重 `prefers-reduced-motion`。"
     ],
     "donts": [
-      "Don't 引入霓虹渐变、发光装饰或炫技式 AI 科幻视觉。",
-      "Don't 模仿传统多轨剪辑器，把 Scene 工作流重新视觉化为复杂时间线。",
-      "Don't 用多个高彩度品牌色争夺注意力，或把状态色当作装饰色。",
-      "Don't 给每个面板和控件增加阴影；常驻工作面必须保持平整。",
-      "Don't 为了“简洁”隐藏关键的 Asset、Speech、状态或 Render-ready 上下文。",
-      "Don't 让焦点移动隐式切换 Scene，也不要把 Player 扩展成多轨或完整时间线。"
+      "Don't 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。",
+      "Don't 在当前只读表面加入写操作、文件选择器、Asset Preview、TTS、Render、导入或 Legacy 项目入口。",
+      "Don't 用颜色作为选择、连接、有效或只读状态的唯一信号。",
+      "Don't 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene。",
+      "Don't 隐藏或启用 Composer；禁用原因必须同时可见且可被辅助技术读取。",
+      "Don't 引入霓虹 AI、玻璃拟态、渐变品牌面或大量圆角卡片，稀释暗房与接触印样的材料逻辑。"
     ]
   }
 }
