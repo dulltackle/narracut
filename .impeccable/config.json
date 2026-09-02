@@ -1,3 +1,21 @@
 {
-  "buildPath": "comp"
+  "buildPath": "comp",
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "narracut display\"'))",
+        "createdAt": "2026-09-02T16:27:42.198Z",
+        "reason": "测试断言验证 DESIGN.md 已声明的 Narracut Display 内嵌字体，不是新增视觉字体"
+      },
+      {
+        "rule": "side-tab",
+        "value": "border-left:11px solid var(--blue-deep)",
+        "createdAt": "2026-09-02T16:46:31.742Z",
+        "reason": "DESIGN.md 明确要求蓝色三角形 Scene 选中标记，并非卡片装饰侧边框"
+      }
+    ]
+  }
 }

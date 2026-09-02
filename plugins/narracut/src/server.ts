@@ -2,6 +2,11 @@ import { readFile } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CodexAppServerHost } from "./codex-app-server-host";
+import {
+  AgentHostValidationService,
+  type CodexHostAdapter,
+} from "./codex-host";
 import {
   inspectProjectVNext,
   ProjectInspectionError,
@@ -34,10 +39,17 @@ type ToolResult = {
   isError?: boolean;
 };
 
-const toolAnnotations = {
+const readOnlyToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
+  openWorldHint: false,
+};
+
+const taskToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
   openWorldHint: false,
 };
 
@@ -57,7 +69,7 @@ const tools = [
       },
       additionalProperties: false,
     },
-    annotations: toolAnnotations,
+    annotations: readOnlyToolAnnotations,
   },
   {
     name: "inspect_project",
@@ -77,8 +89,63 @@ const tools = [
       additionalProperties: false,
     },
     outputSchema: { type: "object" },
-    annotations: toolAnnotations,
+    annotations: readOnlyToolAnnotations,
     _meta: { ui: { resourceUri: WORKBENCH_URI } },
+  },
+  {
+    name: "start_agent_host_validation",
+    title: "开始 Codex 创作线程验证",
+    description:
+      "为用户明确给出的 Project VNext 目录创建专用 Codex 创作线程，并运行固定的只读宿主验证任务。不会修改项目内容。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+  },
+  {
+    name: "get_agent_host_validation",
+    title: "读取 Codex 创作线程验证状态",
+    description: "只读返回一次临时宿主验证任务的当前稳定状态。",
+    inputSchema: {
+      type: "object",
+      required: ["taskId"],
+      properties: { taskId: { type: "string", minLength: 1 } },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: readOnlyToolAnnotations,
+  },
+  {
+    name: "stop_agent_host_validation",
+    title: "停止 Codex 创作线程验证",
+    description: "撤销当前 Codex 创作线程的驱动权并停止验证 Turn，保留最小可继续检查点。",
+    inputSchema: {
+      type: "object",
+      required: ["taskId"],
+      properties: { taskId: { type: "string", minLength: 1 } },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: { ...taskToolAnnotations, idempotentHint: true },
+  },
+  {
+    name: "continue_agent_host_validation",
+    title: "继续 Codex 创作线程验证",
+    description: "恢复可用的原 Codex 创作线程；线程已失效时自动创建替代线程并重新验证。",
+    inputSchema: {
+      type: "object",
+      required: ["taskId"],
+      properties: { taskId: { type: "string", minLength: 1 } },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
   },
 ] as const;
 
@@ -207,7 +274,25 @@ async function inspectProject(argumentsValue: unknown): Promise<ToolResult> {
   }
 }
 
-async function callTool(params: unknown): Promise<ToolResult> {
+function stringArgument(argumentsValue: unknown, name: string): string | null {
+  if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+    return null;
+  }
+  const value = (argumentsValue as Record<string, unknown>)[name];
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function hostValidationResult(hostValidation: Record<string, unknown>, text: string): ToolResult {
+  return {
+    structuredContent: { hostValidation },
+    content: [{ type: "text", text }],
+  };
+}
+
+async function callTool(
+  params: unknown,
+  hostValidation: AgentHostValidationService,
+): Promise<ToolResult> {
   if (typeof params !== "object" || params === null || Array.isArray(params)) {
     throw new Error("tools/call 缺少参数。");
   }
@@ -219,22 +304,92 @@ async function callTool(params: unknown): Promise<ToolResult> {
     };
   }
   if (name === "inspect_project") return inspectProject(argumentsValue);
+  if (name === "start_agent_host_validation") {
+    const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
+    if (projectDirectory === null || !isAbsolute(projectDirectory)) {
+      return {
+        isError: true,
+        structuredContent: {
+          error: { code: "INVALID_TOOL_INPUT", message: "projectDirectory 必须是绝对目录路径。" },
+        },
+        content: [{ type: "text", text: "无法开始宿主验证：projectDirectory 必须是绝对目录路径。" }],
+      };
+    }
+    try {
+      const inspection = await inspectProjectVNext(projectDirectory);
+      const state = await hostValidation.start({
+        projectDirectory: inspection.projectDirectory,
+        projectId: inspection.manifest.projectId,
+        sceneCount: inspection.project.scenes.length,
+      });
+      return hostValidationResult(
+        state as unknown as Record<string, unknown>,
+        state.status === "running"
+          ? "Codex 创作线程验证已开始；项目保持只读。"
+          : "Codex 宿主当前不可用；验证已停止，可稍后继续。",
+      );
+    } catch (error) {
+      if (error instanceof ProjectInspectionError) {
+        return {
+          isError: true,
+          structuredContent: {
+            error: { code: error.code, message: error.message },
+          },
+          content: [{ type: "text", text: `无法开始宿主验证：${error.message}` }],
+        };
+      }
+      throw error;
+    }
+  }
+  if (
+    name === "get_agent_host_validation" ||
+    name === "stop_agent_host_validation" ||
+    name === "continue_agent_host_validation"
+  ) {
+    const taskId = stringArgument(argumentsValue, "taskId");
+    if (taskId === null) {
+      return {
+        isError: true,
+        structuredContent: { error: { code: "INVALID_TOOL_INPUT", message: "taskId 不能为空。" } },
+        content: [{ type: "text", text: "无法操作宿主验证：taskId 不能为空。" }],
+      };
+    }
+    const state = name === "get_agent_host_validation"
+      ? hostValidation.get(taskId)
+      : name === "stop_agent_host_validation"
+        ? await hostValidation.stop(taskId)
+        : await hostValidation.continue(taskId);
+    return hostValidationResult(
+      state as unknown as Record<string, unknown>,
+      `Codex 创作线程验证状态：${state.status}。`,
+    );
+  }
   throw new Error(`未知工具：${String(name)}`);
 }
 
-export async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
-  switch (request.method) {
+export type NarracutRequestHandler = ((request: JsonRpcRequest) => Promise<unknown>) & {
+  dispose: () => Promise<void>;
+};
+
+export function createNarracutRequestHandler(
+  options: { codexHost?: CodexHostAdapter } = {},
+): NarracutRequestHandler {
+  const hostValidation = new AgentHostValidationService(
+    options.codexHost ?? new CodexAppServerHost(),
+  );
+  const requestHandler = async (request: JsonRpcRequest): Promise<unknown> => {
+    switch (request.method) {
     case "initialize": {
       return {
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {}, resources: {} },
         serverInfo: { name: "narracut", version: SERVER_VERSION },
-        instructions: "只检查用户明确给出的 Project VNext 目录。不要把工具用于目录浏览；所有能力均为只读。",
+        instructions: "只接触用户明确给出的 Project VNext 目录。项目内容保持只读；Agent 工作区可运行固定的 Codex 创作线程宿主验证。",
       };
     }
     case "ping": return {};
     case "tools/list": return { tools };
-    case "tools/call": return callTool(request.params);
+    case "tools/call": return callTool(request.params, hostValidation);
     case "resources/list": return {
       resources: [{
         uri: WORKBENCH_URI,
@@ -262,15 +417,21 @@ export async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
         }],
       };
     }
-    default: throw new Error(`不支持的方法：${request.method}`);
-  }
+      default: throw new Error(`不支持的方法：${request.method}`);
+    }
+  };
+  return Object.assign(requestHandler, {
+    dispose: () => hostValidation.dispose(),
+  });
 }
+
+export const handleRequest = createNarracutRequestHandler();
 
 function writeMessage(message: unknown): void {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-async function handleLine(line: string): Promise<void> {
+async function handleLine(line: string, requestHandler: NarracutRequestHandler): Promise<void> {
   if (line.trim() === "") return;
   let request: JsonRpcRequest;
   try {
@@ -281,7 +442,7 @@ async function handleLine(line: string): Promise<void> {
   }
   if (request.id === undefined) return;
   try {
-    writeMessage({ jsonrpc: "2.0", id: request.id, result: await handleRequest(request) });
+    writeMessage({ jsonrpc: "2.0", id: request.id, result: await requestHandler(request) });
   } catch (error) {
     writeMessage({
       jsonrpc: "2.0",
@@ -291,7 +452,9 @@ async function handleLine(line: string): Promise<void> {
   }
 }
 
-export async function startStdioServer(): Promise<void> {
+export async function startStdioServer(
+  requestHandler: NarracutRequestHandler = handleRequest,
+): Promise<void> {
   let inputBuffer = "";
   process.stdin.setEncoding("utf8");
   const keepAlive = setInterval(() => undefined, 60_000);
@@ -300,11 +463,12 @@ export async function startStdioServer(): Promise<void> {
       inputBuffer += chunk;
       const lines = inputBuffer.split("\n");
       inputBuffer = lines.pop() ?? "";
-      for (const line of lines) await handleLine(line);
+      for (const line of lines) await handleLine(line, requestHandler);
     }
-    if (inputBuffer.trim() !== "") await handleLine(inputBuffer);
+    if (inputBuffer.trim() !== "") await handleLine(inputBuffer, requestHandler);
   } finally {
     clearInterval(keepAlive);
+    await requestHandler.dispose();
   }
 }
 

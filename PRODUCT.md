@@ -22,26 +22,29 @@ Narracut 以脚本和 Scene 为内容骨架，让 AI 创作独立的 Render Prog
 
 Narracut 不是传统视频编辑器，也不是在通用 IDE 三栏里堆叠媒体工具。Scene 是稳定、可扫描的内容与时间单位；Project DSL 保存最小内容事实，Render Program 独占成片表现，Narration 与 Speech 决定时间。
 
-当前表格工作区把 Scene 表现为接触印样中的连续校片行：Narration 是主内容，Asset 只呈现身份、相对路径或缺失占位，不以缩略图画廊主导阅读。Agent 工作区与 Composer 已保留稳定位置，但在本次交付中只显示诚实的禁用外壳。
+当前表格工作区把 Scene 表现为接触印样中的连续校片行：Narration 是主内容，Asset 只呈现身份、相对路径或缺失占位，不以缩略图画廊主导阅读。Agent 工作区提供一项固定、只读的 Codex 创作线程宿主验证，用于核对专用线程的创建、恢复、替换、停止与有界结果回传；它不是自由输入的创作任务。Composer 继续保留稳定位置并诚实禁用。
 
 ## Operating Context
 
 - 用户在 Codex 中连接本地 Narracut MCP；`health_check` 只确认服务与只读能力边界。
 - `inspect_project` 只接受用户明确给出的 Project VNext 绝对目录，不负责浏览或选择目录。
 - MCP 同时返回结构化检查结果与内嵌工作台；模型和用户看到同一项目身份、检查结论与错误语义。
+- Agent 宿主验证由工作台自动创建或恢复专用 Codex 线程；用户不选择 Thread，也不输入 Thread ID。线程失效时继续操作会自动绑定替代线程。
 - 工作台顶部持续显示项目文件夹、Project ID 和连接文字；表格工作区与 Agent 工作区共享所选 Scene，禁用 Composer 固定在底部。
 - 桌面端同时显示 Scene 接触表与项目检查；移动端保留 Project ID 和连接文字，并把项目检查收进可打开的抽屉。
 - 字体与两张纸张/胶片 raster 由插件资源以内嵌 data URI 提供；工作台运行时不依赖公网资源。
 
 ## Capabilities and Constraints
 
-- 当前只有连接检查与项目检查两个工具；工具均声明只读、幂等、非破坏且不访问开放世界。
+- 当前共有六个工具：连接检查、项目检查，以及宿主验证的开始、状态读取、停止、继续。前两个检查工具与状态读取保持只读；任务控制工具不修改项目，但会创建、恢复或中断专用 Codex 线程。
 - 项目检查读取并校验 `narracut.json`、`project.json` 与 `video.md`，返回项目身份、Scene 顺序、Narration、Asset ID/路径引用、Speech 可用性与 Duration 信息。
 - Asset 在当前工作台只显示数量、相对路径或未绑定占位；不读取或展示 Asset 预览，不提供文件选择器或导入。
 - 点击或键盘激活 Scene 行才改变选择；焦点移动本身不得隐式选择 Scene。
 - 失败状态向模型和工作台返回相同的稳定错误与有界诊断，并明确说明目录未被修改。
-- 当前交付不写文件，不执行 Shell，不访问网络，也不提供 Scene 编辑、TTS、Asset 导入、Preview、Render、候选管理或 Agent 创作任务。
-- Composer 必须保持可见且禁用，并通过 `aria-describedby` 解释“当前交付只支持只读检查”。
+- 当前交付不写文件、不访问网络，也不提供 Scene 编辑、TTS、Asset 导入、Preview、Render、候选管理或自由 Agent 创作任务。固定宿主验证会调用本地 Codex app-server，并把验证线程限制在只读、无网络、无需写入审批的边界内。
+- Composer 必须保持可见且禁用，并通过 `aria-describedby` 区分表格工作区的只读检查边界与 Agent 工作区尚未启用的完整创作指令。
+- 每个临时宿主验证任务同一时刻只有一个当前线程驱动；停止、重绑或线程失效会先撤销旧驱动写权，迟到回调只能产生有界诊断。
+- 持久检查点只包含任务 ID、状态、停止原因与可失效线程指针，不保存对话副本、推理、工具日志或未提交修改。
 - Project VNext 是对 V1–V3、封闭 Visual Type、Text Preset、固定 Composition 与独立浏览器工作台的破坏性替代；不兼容、不迁移，也不只读打开 Legacy Project。
 
 以下是仍然有效的稳定领域承诺，而不是当前只读工作台已经提供的操作能力：
@@ -65,9 +68,9 @@ Narracut 不是传统视频编辑器，也不是在通用 IDE 三栏里堆叠媒
 
 - `docs/spec/project-vnext.md`：Project VNext 唯一规范性产品行为、持久格式、协议、门禁与错误语义来源。
 - `CONTEXT.md`：领域术语、内容与表现权威、时间模型、Asset、Speech、Preview 与 Render 的稳定定义。
-- `plugins/narracut/src/server.ts`：当前只读 MCP 工具、结构化输出、UI Resource 与内嵌本地材料的实现。
-- `plugins/narracut/workbench.html`：当前双工作区外壳、Scene 接触表、项目检查、移动端抽屉和禁用 Composer 的实现。
-- `tests/narracut-plugin.test.ts`、`tests/project-vnext-inspection.test.ts` 与 `tests/e2e/plugin-workbench.spec.ts`：当前插件契约、只读检查与工作台行为证据。
+- `plugins/narracut/src/server.ts`、`plugins/narracut/src/codex-host.ts` 与 `plugins/narracut/src/codex-app-server-host.ts`：MCP 工具、宿主状态机、Codex app-server 适配器、结构化输出与 UI Resource 的实现。
+- `plugins/narracut/workbench.html`：当前双工作区外壳、Scene 接触表、Agent 宿主验证、项目检查、移动端抽屉和禁用 Composer 的实现。
+- `tests/narracut-plugin.test.ts`、`tests/codex-host-validation.test.ts`、`tests/narracut-codex-host.live.test.ts`、`tests/project-vnext-inspection.test.ts` 与 `tests/e2e/plugin-workbench.spec.ts`：插件契约、协议假体、真实宿主验收、只读检查与工作台行为证据。
 - 当前没有已确认的客户证言、公开案例、性能基准、商业数据或行业背书；产品界面不得自行编造。
 
 ## Product Principles

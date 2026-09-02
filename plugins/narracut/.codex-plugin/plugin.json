@@ -1,7 +1,7 @@
 {
   "name": "narracut",
   "version": "0.1.0",
-  "description": "在 Codex 中只读检查 Project VNext，并打开 Narracut 工作台。",
+  "description": "在 Codex 中检查 Project VNext，并验证专用创作线程宿主边界。",
   "author": {
     "name": "Narracut contributors",
     "url": "https://github.com/dulltackle/narracut"
@@ -9,17 +9,18 @@
   "homepage": "https://github.com/dulltackle/narracut",
   "repository": "https://github.com/dulltackle/narracut",
   "license": "MIT",
-  "keywords": ["video", "scene", "project-inspection", "read-only"],
+  "keywords": ["video", "scene", "project-inspection", "codex-thread"],
   "interface": {
     "displayName": "Narracut",
-    "shortDescription": "只读检查 Narracut 项目并打开工作台。",
-    "longDescription": "连接本地 Narracut Project VNext，通过受控只读工具检查项目身份与内容，并在 Codex 中打开双工作区外壳。",
+    "shortDescription": "检查项目并验证 Codex 创作线程边界。",
+    "longDescription": "连接本地 Narracut Project VNext，通过受控工具检查项目身份与内容，并在 Agent 工作区运行固定、只读的 Codex 创作线程宿主验证。",
     "developerName": "Narracut contributors",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read"],
     "defaultPrompt": [
       "检查这个 Narracut 项目并打开工作台。",
-      "确认 Narracut 插件连接是否正常。"
+      "确认 Narracut 插件连接是否正常。",
+      "运行一次 Codex 创作线程宿主验证。"
     ],
     "brandColor": "#3F78C5"
   },

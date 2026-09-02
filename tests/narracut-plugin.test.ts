@@ -4,7 +4,54 @@ import { join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { handleRequest } from "../plugins/narracut/src/server";
+import type {
+  CodexHostAdapter,
+  CodexHostEvent,
+  StartCodexTurnInput,
+} from "../plugins/narracut/src/codex-host";
+import { createNarracutRequestHandler, handleRequest } from "../plugins/narracut/src/server";
+
+class PluginTestHost implements CodexHostAdapter {
+  turn: (StartCodexTurnInput & { turnId: string }) | null = null;
+  #listener: ((event: CodexHostEvent) => void) | undefined;
+
+  subscribe(listener: (event: CodexHostEvent) => void): () => void {
+    this.#listener = listener;
+    return () => undefined;
+  }
+
+  async createThread(): Promise<{ threadId: string }> {
+    return { threadId: "thread-plugin-test" };
+  }
+
+  async resumeThread(input: { threadId: string }): Promise<{ threadId: string }> {
+    return { threadId: input.threadId };
+  }
+
+  async startTurn(input: StartCodexTurnInput): Promise<{ turnId: string }> {
+    this.turn = { ...input, turnId: "turn-plugin-test" };
+    return { turnId: "turn-plugin-test" };
+  }
+
+  async interruptTurn(): Promise<void> {}
+  async dispose(): Promise<void> {}
+
+  complete(projectId: string, sceneCount: number): void {
+    if (this.turn === null) throw new Error("验证 Turn 尚未开始。");
+    this.#listener?.({
+      type: "turn-completed",
+      threadId: this.turn.threadId,
+      turnId: this.turn.turnId,
+      status: "completed",
+      output: JSON.stringify({
+        verificationToken: this.turn.verificationToken,
+        projectId,
+        sceneCount,
+        summary: "已通过插件工具完成只读宿主验证。",
+      }),
+    });
+  }
+}
 
 async function createProject(sceneCount = 1): Promise<string> {
   const parent = await mkdtemp(join(tmpdir(), "narracut-plugin-"));
@@ -176,5 +223,64 @@ describe("Narracut Codex 插件", () => {
     expect(resource.contents[0]?.text).toContain('font-family:"Narracut Display"');
     expect(resource.contents[0]?.text).not.toContain("/*__NARRACUT_MATERIALS__*/");
     expect(Buffer.byteLength(resource.contents[0]!.text, "utf8")).toBeLessThan(1_000_000);
+  });
+
+  it("工作台工具可启动并查询专用 Codex 创作线程验证，且不修改项目内容", async () => {
+    const projectDirectory = await createProject(2);
+    const host = new PluginTestHost();
+    const pluginRequest = createNarracutRequestHandler({ codexHost: host });
+    const before = await Promise.all([
+      readFile(join(projectDirectory, "narracut.json"), "utf8"),
+      readFile(join(projectDirectory, "project.json"), "utf8"),
+      readFile(join(projectDirectory, "video.md"), "utf8"),
+    ]);
+
+    const listed = await pluginRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" }) as {
+      tools: Array<{ name: string }>;
+    };
+    expect(listed.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
+      "start_agent_host_validation",
+      "get_agent_host_validation",
+      "stop_agent_host_validation",
+      "continue_agent_host_validation",
+    ]));
+
+    const started = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "start_agent_host_validation",
+        arguments: { projectDirectory },
+      },
+    }) as { structuredContent: { hostValidation: { taskId: string; status: string } } };
+    expect(started.structuredContent.hostValidation).toMatchObject({
+      status: "running",
+      connection: { status: "connected", threadId: "thread-plugin-test" },
+      projectModified: false,
+    });
+
+    host.complete("10000000-0000-4000-8000-000000000001", 2);
+    const status = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "get_agent_host_validation",
+        arguments: { taskId: started.structuredContent.hostValidation.taskId },
+      },
+    }) as { structuredContent: { hostValidation: { status: string } } };
+    expect(status.structuredContent.hostValidation).toMatchObject({
+      status: "succeeded",
+      projectModified: false,
+      result: { projectId: "10000000-0000-4000-8000-000000000001", sceneCount: 2 },
+    });
+
+    const after = await Promise.all([
+      readFile(join(projectDirectory, "narracut.json"), "utf8"),
+      readFile(join(projectDirectory, "project.json"), "utf8"),
+      readFile(join(projectDirectory, "video.md"), "utf8"),
+    ]);
+    expect(after).toEqual(before);
   });
 });

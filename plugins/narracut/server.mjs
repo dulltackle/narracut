@@ -3,6 +3,569 @@ import { readFile } from "node:fs/promises";
 import { basename, isAbsolute as isAbsolute2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// plugins/narracut/src/codex-app-server-host.ts
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+
+// plugins/narracut/src/codex-host.ts
+import { randomUUID } from "node:crypto";
+var CodexThreadUnavailableError = class extends Error {
+  threadId;
+  constructor(threadId) {
+    super(`Codex \u521B\u4F5C\u7EBF\u7A0B ${threadId} \u4E0D\u53EF\u7528\u3002`);
+    this.name = "CodexThreadUnavailableError";
+    this.threadId = threadId;
+  }
+};
+var validationOutputSchema = {
+  type: "object",
+  required: ["verificationToken", "projectId", "sceneCount", "summary"],
+  properties: {
+    verificationToken: { type: "string" },
+    projectId: { type: "string" },
+    sceneCount: { type: "integer", minimum: 0 },
+    summary: { type: "string", maxLength: 240 }
+  },
+  additionalProperties: false
+};
+function checkpointFor(task) {
+  if (task.state.status === "succeeded") return null;
+  return {
+    taskId: task.state.taskId,
+    status: task.state.status,
+    reason: task.state.reason,
+    threadPointer: task.state.connection.threadId
+  };
+}
+function availableActions(status) {
+  if (status === "running") return ["stop"];
+  if (status === "stopped") return ["continue"];
+  return [];
+}
+function publicState(task) {
+  return {
+    ...task.state,
+    connection: { ...task.state.connection },
+    result: task.state.result === null ? null : { ...task.state.result, verification: { ...task.state.result.verification } },
+    diagnostic: task.state.diagnostic === null ? null : { ...task.state.diagnostic },
+    checkpoint: checkpointFor(task),
+    availableActions: [...task.state.availableActions]
+  };
+}
+function boundedMessage(message, fallback) {
+  if (typeof message !== "string" || message.trim() === "") return fallback;
+  return message.trim().slice(0, 240);
+}
+function validationPrompt(task, verificationToken) {
+  return [
+    "\u8FD9\u662F Narracut \u7684\u4E00\u6B21\u56FA\u5B9A Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\uFF0C\u4E0D\u662F\u521B\u4F5C\u4EFB\u52A1\u3002",
+    "\u53EA\u8BFB\u68C0\u67E5\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\u4E2D\u7684 narracut.json \u4E0E project.json\uFF1B\u4E0D\u8981\u521B\u5EFA\u3001\u4FEE\u6539\u6216\u5220\u9664\u4EFB\u4F55\u6587\u4EF6\uFF0C\u4E5F\u4E0D\u8981\u6267\u884C\u7F51\u7EDC\u64CD\u4F5C\u3002",
+    `\u786E\u8BA4 Project ID \u662F ${task.request.projectId}\uFF0CScene \u6570\u91CF\u662F ${task.request.sceneCount}\u3002`,
+    `\u6700\u7EC8\u53EA\u8FD4\u56DE\u7B26\u5408\u7ED9\u5B9A JSON Schema \u7684\u5BF9\u8C61\uFF0C\u5176\u4E2D verificationToken \u5FC5\u987B\u539F\u6837\u8FD4\u56DE ${verificationToken}\u3002`,
+    "summary \u7528\u4E00\u53E5\u4E2D\u6587\u8BF4\u660E\u5DF2\u5728\u53EA\u8BFB\u8FB9\u754C\u5185\u6838\u5BF9 Project VNext \u8EAB\u4EFD\u3002"
+  ].join("\n");
+}
+var AgentHostValidationService = class {
+  #host;
+  #idFactory;
+  #tasks = /* @__PURE__ */ new Map();
+  #driverOwners = /* @__PURE__ */ new Map();
+  #unsubscribe;
+  constructor(host, options = {}) {
+    this.#host = host;
+    this.#idFactory = options.idFactory ?? randomUUID;
+    this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
+  }
+  async start(request) {
+    const taskId = this.#idFactory();
+    const task = {
+      request,
+      activeDriver: null,
+      state: {
+        taskId,
+        status: "stopped",
+        reason: "CODEX_UNAVAILABLE",
+        connection: { status: "unavailable", threadId: null, replaced: false },
+        result: null,
+        diagnostic: null,
+        checkpoint: null,
+        availableActions: ["continue"],
+        projectModified: false
+      }
+    };
+    this.#tasks.set(taskId, task);
+    await this.#bindAndRun(task, null);
+    return publicState(task);
+  }
+  get(taskId) {
+    return publicState(this.#requireTask(taskId));
+  }
+  async stop(taskId) {
+    const task = this.#requireTask(taskId);
+    const driver = task.activeDriver;
+    task.activeDriver = null;
+    this.#setStopped(task, "USER_STOPPED");
+    if (driver !== null) {
+      try {
+        await this.#host.interruptTurn({ threadId: driver.threadId, turnId: driver.turnId });
+      } catch (error) {
+        task.state.diagnostic = {
+          code: "HOST_INTERRUPT_FAILED",
+          message: boundedMessage(error instanceof Error ? error.message : error, "Codex Turn \u672A\u80FD\u786E\u8BA4\u4E2D\u65AD\u3002")
+        };
+      }
+    }
+    return publicState(task);
+  }
+  async continue(taskId) {
+    const task = this.#requireTask(taskId);
+    if (task.state.status !== "stopped") {
+      throw new Error("\u53EA\u6709\u5DF2\u505C\u6B62\u7684\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\u53EF\u4EE5\u7EE7\u7EED\u3002");
+    }
+    const threadPointer = task.state.connection.threadId;
+    await this.#bindAndRun(task, threadPointer);
+    return publicState(task);
+  }
+  async dispose() {
+    this.#unsubscribe();
+    await this.#host.dispose();
+  }
+  #requireTask(taskId) {
+    const task = this.#tasks.get(taskId);
+    if (task === void 0) throw new Error(`\u672A\u77E5\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\uFF1A${taskId}`);
+    return task;
+  }
+  async #bindAndRun(task, threadPointer) {
+    task.state.diagnostic = null;
+    let threadId = threadPointer;
+    let replaced = false;
+    try {
+      if (threadPointer === null) {
+        ({ threadId } = await this.#host.createThread({
+          projectDirectory: task.request.projectDirectory
+        }));
+      } else {
+        try {
+          ({ threadId } = await this.#host.resumeThread({
+            threadId: threadPointer,
+            projectDirectory: task.request.projectDirectory
+          }));
+        } catch (error) {
+          if (!(error instanceof CodexThreadUnavailableError)) throw error;
+          ({ threadId } = await this.#host.createThread({
+            projectDirectory: task.request.projectDirectory
+          }));
+          replaced = true;
+        }
+      }
+      if (threadId === null) throw new Error("Codex Thread \u7ED1\u5B9A\u672A\u8FD4\u56DE\u6709\u6548\u6307\u9488\u3002");
+      const driverId = this.#idFactory();
+      const verificationToken = this.#idFactory();
+      const { turnId } = await this.#host.startTurn({
+        threadId,
+        projectDirectory: task.request.projectDirectory,
+        verificationToken,
+        prompt: validationPrompt(task, verificationToken),
+        outputSchema: validationOutputSchema
+      });
+      const driver = { id: driverId, threadId, turnId, verificationToken };
+      task.activeDriver = driver;
+      this.#driverOwners.set(`${threadId}:${turnId}`, task.state.taskId);
+      task.state.status = "running";
+      task.state.reason = null;
+      task.state.connection = { status: "connected", threadId, replaced };
+      task.state.result = null;
+      task.state.availableActions = availableActions("running");
+      task.state.checkpoint = checkpointFor(task);
+    } catch (error) {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_UNAVAILABLE");
+      task.state.connection = {
+        status: "unavailable",
+        threadId,
+        replaced
+      };
+      task.state.diagnostic = {
+        code: "CODEX_HOST_UNAVAILABLE",
+        message: boundedMessage(error instanceof Error ? error.message : error, "Codex \u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002")
+      };
+    }
+  }
+  #setStopped(task, reason) {
+    task.state.status = "stopped";
+    task.state.reason = reason;
+    task.state.result = null;
+    task.state.availableActions = availableActions("stopped");
+    task.state.checkpoint = checkpointFor(task);
+  }
+  #handleHostEvent(event) {
+    if (event.type === "host-unavailable") {
+      for (const task2 of this.#tasks.values()) {
+        if (task2.state.status === "succeeded") continue;
+        if (task2.activeDriver !== null) {
+          task2.activeDriver = null;
+          this.#setStopped(task2, "CODEX_UNAVAILABLE");
+        }
+        task2.state.connection.status = "unavailable";
+        task2.state.diagnostic = {
+          code: "CODEX_HOST_UNAVAILABLE",
+          message: boundedMessage(event.error, "Codex \u5BBF\u4E3B\u8FDE\u63A5\u5DF2\u4E2D\u65AD\u3002")
+        };
+      }
+      return;
+    }
+    const turnKey = event.turnId === void 0 ? null : `${event.threadId}:${event.turnId}`;
+    let task = turnKey === null ? void 0 : this.#tasks.get(this.#driverOwners.get(turnKey) ?? "");
+    task ??= [...this.#tasks.values()].find(
+      (candidate) => candidate.state.connection.threadId === event.threadId
+    );
+    if (task === void 0) return;
+    const driver = task.activeDriver;
+    if (event.type === "thread-unavailable" && driver === null && task.state.status === "stopped" && task.state.connection.threadId === event.threadId) {
+      task.state.connection.status = "unavailable";
+      task.state.diagnostic = {
+        code: "CODEX_THREAD_UNAVAILABLE",
+        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
+      };
+      return;
+    }
+    const isCurrent = driver !== null && driver.threadId === event.threadId && (event.turnId === void 0 || driver.turnId === event.turnId);
+    if (!isCurrent) {
+      task.state.diagnostic = {
+        code: "LATE_DRIVER_CALLBACK_REJECTED",
+        message: "\u5DF2\u62D2\u7EDD\u5931\u53BB\u5199\u6743\u7684\u65E7 Codex \u521B\u4F5C\u7EBF\u7A0B\u56DE\u8C03\uFF1B\u5F53\u524D\u4EFB\u52A1\u72B6\u6001\u672A\u6539\u53D8\u3002"
+      };
+      return;
+    }
+    if (event.type === "thread-unavailable") {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_THREAD_UNAVAILABLE");
+      task.state.connection.status = "unavailable";
+      task.state.diagnostic = {
+        code: "CODEX_THREAD_UNAVAILABLE",
+        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
+      };
+      return;
+    }
+    if (event.status !== "completed" || event.output === void 0) {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_INTERRUPTED");
+      task.state.diagnostic = {
+        code: "CODEX_TURN_INTERRUPTED",
+        message: boundedMessage(event.error, "Codex \u9A8C\u8BC1 Turn \u672A\u5B8C\u6210\u3002")
+      };
+      return;
+    }
+    let parsed;
+    try {
+      const value = JSON.parse(event.output);
+      if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error();
+      parsed = value;
+    } catch {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_INTERRUPTED");
+      task.state.diagnostic = {
+        code: "HOST_VALIDATION_RESULT_INVALID",
+        message: "Codex \u8FD4\u56DE\u4E86\u65E0\u6CD5\u9A8C\u8BC1\u7684\u7ED3\u6784\u5316\u7ED3\u679C\u3002"
+      };
+      return;
+    }
+    const summary = parsed.summary;
+    const normalizedSummary = typeof summary === "string" ? summary.trim() : "";
+    const valid = parsed.verificationToken === driver.verificationToken && parsed.projectId === task.request.projectId && parsed.sceneCount === task.request.sceneCount && typeof summary === "string" && normalizedSummary !== "" && summary.length <= 240;
+    if (!valid) {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_INTERRUPTED");
+      task.state.diagnostic = {
+        code: "HOST_VALIDATION_IDENTITY_MISMATCH",
+        message: "Codex \u7ED3\u679C\u672A\u901A\u8FC7\u4EFB\u52A1\u3001\u9A71\u52A8\u6216\u9879\u76EE\u8EAB\u4EFD\u6821\u9A8C\u3002"
+      };
+      return;
+    }
+    task.activeDriver = null;
+    task.state.status = "succeeded";
+    task.state.reason = null;
+    task.state.result = {
+      projectId: task.request.projectId,
+      sceneCount: task.request.sceneCount,
+      summary: normalizedSummary,
+      verification: { taskId: task.state.taskId, driverId: driver.id }
+    };
+    task.state.availableActions = availableActions("succeeded");
+    task.state.checkpoint = null;
+  }
+};
+
+// plugins/narracut/src/codex-app-server-host.ts
+function objectValue(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
+}
+function rpcError(method, error) {
+  const message = error?.message?.trim() || "\u672A\u77E5 App Server \u9519\u8BEF";
+  return new Error(`${method} \u5931\u8D25\uFF1A${message}`);
+}
+var CodexAppServerHost = class {
+  #command;
+  #commandArgs;
+  #requestTimeoutMs;
+  #listeners = /* @__PURE__ */ new Set();
+  #pending = /* @__PURE__ */ new Map();
+  #agentMessages = /* @__PURE__ */ new Map();
+  #activeTurns = /* @__PURE__ */ new Map();
+  #child = null;
+  #lineReader = null;
+  #ready = null;
+  #requestId = 0;
+  #stderrTail = "";
+  #disposed = false;
+  constructor(options = {}) {
+    this.#command = options.command ?? (process.env.NARRACUT_CODEX_COMMAND?.trim() || "codex");
+    this.#commandArgs = options.commandArgs ?? ["app-server", "--stdio"];
+    this.#requestTimeoutMs = options.requestTimeoutMs ?? 15e3;
+  }
+  subscribe(listener) {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+  async createThread(input) {
+    await this.#ensureReady();
+    const result = await this.#request("thread/start", {
+      cwd: input.projectDirectory,
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      serviceName: "narracut-host-validation",
+      developerInstructions: [
+        "\u4F60\u6B63\u5728\u6267\u884C Narracut \u7684\u56FA\u5B9A\u5BBF\u4E3B\u8FB9\u754C\u9A8C\u8BC1\u3002",
+        "\u53EA\u5141\u8BB8\u8BFB\u53D6\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\uFF1B\u4E0D\u5F97\u521B\u5EFA\u3001\u4FEE\u6539\u6216\u5220\u9664\u6587\u4EF6\uFF0C\u4E0D\u5F97\u8BBF\u95EE\u7F51\u7EDC\u3002",
+        "\u6700\u7EC8\u54CD\u5E94\u5FC5\u987B\u4E25\u683C\u7B26\u5408 turn/start \u63D0\u4F9B\u7684 outputSchema\u3002"
+      ].join("\n")
+    });
+    const threadId = result.thread?.id;
+    if (typeof threadId !== "string" || threadId === "") {
+      throw new Error("thread/start \u672A\u8FD4\u56DE Codex Thread ID\u3002");
+    }
+    return { threadId };
+  }
+  async resumeThread(input) {
+    await this.#ensureReady();
+    let result;
+    try {
+      result = await this.#request("thread/resume", {
+        threadId: input.threadId,
+        cwd: input.projectDirectory,
+        approvalPolicy: "never",
+        sandbox: "read-only",
+        excludeTurns: true
+      });
+    } catch {
+      throw new CodexThreadUnavailableError(input.threadId);
+    }
+    const threadId = result.thread?.id;
+    if (threadId !== input.threadId) throw new CodexThreadUnavailableError(input.threadId);
+    return { threadId: input.threadId };
+  }
+  async startTurn(input) {
+    await this.#ensureReady();
+    const result = await this.#request("turn/start", {
+      threadId: input.threadId,
+      input: [{ type: "text", text: input.prompt, text_elements: [] }],
+      cwd: input.projectDirectory,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      outputSchema: input.outputSchema
+    });
+    const turnId = result.turn?.id;
+    if (typeof turnId !== "string" || turnId === "") {
+      throw new Error("turn/start \u672A\u8FD4\u56DE Codex Turn ID\u3002");
+    }
+    this.#activeTurns.set(input.threadId, turnId);
+    return { turnId };
+  }
+  async interruptTurn(input) {
+    await this.#ensureReady();
+    await this.#request("turn/interrupt", input);
+  }
+  async dispose() {
+    this.#disposed = true;
+    const child = this.#child;
+    const error = new Error("Codex App Server \u5DF2\u5173\u95ED\u3002");
+    if (child !== null) this.#shutdownChild(child, error, false);
+    else this.#clearTransientState(error);
+  }
+  async #ensureReady() {
+    if (this.#disposed) throw new Error("Codex App Server \u9002\u914D\u5668\u5DF2\u5173\u95ED\u3002");
+    if (this.#ready !== null) return this.#ready;
+    this.#ready = this.#start();
+    try {
+      await this.#ready;
+    } catch (error) {
+      this.#ready = null;
+      throw error;
+    }
+  }
+  async #start() {
+    const child = spawn(this.#command, this.#commandArgs, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env
+    });
+    this.#child = child;
+    this.#stderrTail = "";
+    this.#lineReader = createInterface({ input: child.stdout });
+    this.#lineReader.on("line", (line) => this.#handleLine(line));
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      this.#stderrTail = `${this.#stderrTail}${chunk}`.slice(-2e3);
+    });
+    child.once("error", (error) => this.#handleExit(child, error));
+    child.once("exit", (code, signal) => {
+      if (this.#child !== child) return;
+      const detail = this.#stderrTail.trim();
+      this.#handleExit(child, new Error(
+        detail || `Codex App Server \u5DF2\u9000\u51FA\uFF08code=${String(code)}, signal=${String(signal)}\uFF09\u3002`
+      ));
+    });
+    try {
+      await this.#request("initialize", {
+        clientInfo: { name: "narracut", title: "Narracut", version: "0.1.0" },
+        capabilities: { experimentalApi: true, requestAttestation: false }
+      });
+      this.#notify("initialized");
+    } catch (error) {
+      const reason = error instanceof Error ? error : new Error(String(error));
+      this.#shutdownChild(child, reason, false);
+      throw reason;
+    }
+  }
+  #request(method, params) {
+    const child = this.#child;
+    if (child === null || child.stdin.destroyed) {
+      return Promise.reject(new Error("Codex App Server \u672A\u8FDE\u63A5\u3002"));
+    }
+    const id = ++this.#requestId;
+    return new Promise((resolve2, reject) => {
+      const timer = setTimeout(() => {
+        if (!this.#pending.delete(id)) return;
+        const error = new Error(`${method} \u8D85\u8FC7 ${this.#requestTimeoutMs}ms \u672A\u54CD\u5E94\u3002`);
+        reject(error);
+        this.#handleExit(child, error);
+      }, this.#requestTimeoutMs);
+      this.#pending.set(id, { method, resolve: resolve2, reject, timer });
+      child.stdin.write(`${JSON.stringify({ method, id, params })}
+`, (error) => {
+        if (error === null || error === void 0) return;
+        const pending = this.#pending.get(id);
+        if (pending === void 0) return;
+        clearTimeout(pending.timer);
+        this.#pending.delete(id);
+        reject(error);
+        this.#handleExit(child, error);
+      });
+    });
+  }
+  #notify(method, params = {}) {
+    const child = this.#child;
+    if (child === null || child.stdin.destroyed) return;
+    child.stdin.write(`${JSON.stringify({ method, params })}
+`);
+  }
+  #handleLine(line) {
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      const child = this.#child;
+      if (child !== null) this.#handleExit(child, new Error("Codex App Server \u8FD4\u56DE\u4E86\u65E0\u6548 JSON\u3002"));
+      return;
+    }
+    if (message.id !== void 0 && message.method === void 0) {
+      const pending = this.#pending.get(message.id);
+      if (pending === void 0) return;
+      clearTimeout(pending.timer);
+      this.#pending.delete(message.id);
+      if (message.error !== void 0) pending.reject(rpcError(pending.method, message.error));
+      else pending.resolve(message.result);
+      return;
+    }
+    if (message.id !== void 0 && message.method !== void 0) {
+      this.#child?.stdin.write(`${JSON.stringify({
+        id: message.id,
+        error: { code: -32601, message: `Narracut \u4E0D\u652F\u6301\u5BBF\u4E3B\u8BF7\u6C42 ${message.method}\u3002` }
+      })}
+`);
+      return;
+    }
+    const params = objectValue(message.params);
+    if (message.method === "item/completed" && params !== null) {
+      const item = objectValue(params.item);
+      if (typeof params.threadId === "string" && typeof params.turnId === "string" && item?.type === "agentMessage" && typeof item.text === "string") {
+        this.#agentMessages.set(`${params.threadId}:${params.turnId}`, item.text);
+      }
+      return;
+    }
+    if (message.method === "turn/completed" && params !== null) {
+      const threadId = params.threadId;
+      const turn = objectValue(params.turn);
+      const turnId = turn?.id;
+      const status = turn?.status;
+      if (turn === null || typeof threadId !== "string" || typeof turnId !== "string" || status !== "completed" && status !== "interrupted" && status !== "failed") return;
+      const items = Array.isArray(turn.items) ? turn.items : [];
+      const finalMessage = items.map(objectValue).filter((item) => item?.type === "agentMessage" && typeof item.text === "string").at(-1)?.text;
+      const messageKey = `${threadId}:${turnId}`;
+      const output = typeof finalMessage === "string" ? finalMessage : this.#agentMessages.get(messageKey);
+      this.#agentMessages.delete(messageKey);
+      this.#activeTurns.delete(threadId);
+      this.#emit({
+        type: "turn-completed",
+        threadId,
+        turnId,
+        status,
+        ...output === void 0 ? {} : { output },
+        ...turn.error === null || turn.error === void 0 ? {} : { error: JSON.stringify(turn.error).slice(0, 240) }
+      });
+      return;
+    }
+    if ((message.method === "thread/closed" || message.method === "thread/deleted") && params !== null) {
+      const threadId = params.threadId;
+      if (typeof threadId !== "string") return;
+      const turnId = this.#activeTurns.get(threadId);
+      this.#activeTurns.delete(threadId);
+      if (turnId !== void 0) this.#agentMessages.delete(`${threadId}:${turnId}`);
+      this.#emit({
+        type: "thread-unavailable",
+        threadId,
+        turnId
+      });
+    }
+  }
+  #clearTransientState(error) {
+    this.#lineReader?.close();
+    this.#lineReader = null;
+    for (const pending of this.#pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.#pending.clear();
+    this.#agentMessages.clear();
+    this.#activeTurns.clear();
+  }
+  #shutdownChild(child, error, emitUnavailable) {
+    if (this.#child !== child) return;
+    this.#child = null;
+    this.#ready = null;
+    this.#clearTransientState(error);
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    if (emitUnavailable && !this.#disposed) {
+      this.#emit({ type: "host-unavailable", error: error.message });
+    }
+  }
+  #handleExit(child, error) {
+    this.#shutdownChild(child, error, true);
+  }
+  #emit(event) {
+    for (const listener of this.#listeners) listener(event);
+  }
+};
+
 // src/server/project-vnext-inspection.ts
 import { createHash } from "node:crypto";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
@@ -1070,10 +1633,16 @@ var ASSET_BASE = import.meta.url.endsWith("/server.mjs") ? "./assets/" : "../ass
 var PAPER_TEXTURE_PATH = fileURLToPath(new URL(`${ASSET_BASE}contact-paper-texture.webp`, import.meta.url));
 var FILM_TEXTURE_PATH = fileURLToPath(new URL(`${ASSET_BASE}film-edge-texture.webp`, import.meta.url));
 var DISPLAY_FONT_PATH = fileURLToPath(new URL(`${ASSET_BASE}fonts/ubuntu-sans-display.woff2`, import.meta.url));
-var toolAnnotations = {
+var readOnlyToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
+  openWorldHint: false
+};
+var taskToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
   openWorldHint: false
 };
 var tools = [
@@ -1092,7 +1661,7 @@ var tools = [
       },
       additionalProperties: false
     },
-    annotations: toolAnnotations
+    annotations: readOnlyToolAnnotations
   },
   {
     name: "inspect_project",
@@ -1111,8 +1680,62 @@ var tools = [
       additionalProperties: false
     },
     outputSchema: { type: "object" },
-    annotations: toolAnnotations,
+    annotations: readOnlyToolAnnotations,
     _meta: { ui: { resourceUri: WORKBENCH_URI } }
+  },
+  {
+    name: "start_agent_host_validation",
+    title: "\u5F00\u59CB Codex \u521B\u4F5C\u7EBF\u7A0B\u9A8C\u8BC1",
+    description: "\u4E3A\u7528\u6237\u660E\u786E\u7ED9\u51FA\u7684 Project VNext \u76EE\u5F55\u521B\u5EFA\u4E13\u7528 Codex \u521B\u4F5C\u7EBF\u7A0B\uFF0C\u5E76\u8FD0\u884C\u56FA\u5B9A\u7684\u53EA\u8BFB\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\u3002\u4E0D\u4F1A\u4FEE\u6539\u9879\u76EE\u5185\u5BB9\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations
+  },
+  {
+    name: "get_agent_host_validation",
+    title: "\u8BFB\u53D6 Codex \u521B\u4F5C\u7EBF\u7A0B\u9A8C\u8BC1\u72B6\u6001",
+    description: "\u53EA\u8BFB\u8FD4\u56DE\u4E00\u6B21\u4E34\u65F6\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\u7684\u5F53\u524D\u7A33\u5B9A\u72B6\u6001\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["taskId"],
+      properties: { taskId: { type: "string", minLength: 1 } },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: readOnlyToolAnnotations
+  },
+  {
+    name: "stop_agent_host_validation",
+    title: "\u505C\u6B62 Codex \u521B\u4F5C\u7EBF\u7A0B\u9A8C\u8BC1",
+    description: "\u64A4\u9500\u5F53\u524D Codex \u521B\u4F5C\u7EBF\u7A0B\u7684\u9A71\u52A8\u6743\u5E76\u505C\u6B62\u9A8C\u8BC1 Turn\uFF0C\u4FDD\u7559\u6700\u5C0F\u53EF\u7EE7\u7EED\u68C0\u67E5\u70B9\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["taskId"],
+      properties: { taskId: { type: "string", minLength: 1 } },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: { ...taskToolAnnotations, idempotentHint: true }
+  },
+  {
+    name: "continue_agent_host_validation",
+    title: "\u7EE7\u7EED Codex \u521B\u4F5C\u7EBF\u7A0B\u9A8C\u8BC1",
+    description: "\u6062\u590D\u53EF\u7528\u7684\u539F Codex \u521B\u4F5C\u7EBF\u7A0B\uFF1B\u7EBF\u7A0B\u5DF2\u5931\u6548\u65F6\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u5E76\u91CD\u65B0\u9A8C\u8BC1\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["taskId"],
+      properties: { taskId: { type: "string", minLength: 1 } },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations
   }
 ];
 function connectedState() {
@@ -1228,7 +1851,20 @@ async function inspectProject(argumentsValue) {
     throw error;
   }
 }
-async function callTool(params) {
+function stringArgument(argumentsValue, name) {
+  if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+    return null;
+  }
+  const value = argumentsValue[name];
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+function hostValidationResult(hostValidation, text) {
+  return {
+    structuredContent: { hostValidation },
+    content: [{ type: "text", text }]
+  };
+}
+async function callTool(params, hostValidation) {
   if (typeof params !== "object" || params === null || Array.isArray(params)) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
@@ -1240,59 +1876,118 @@ async function callTool(params) {
     };
   }
   if (name === "inspect_project") return inspectProject(argumentsValue);
+  if (name === "start_agent_host_validation") {
+    const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
+    if (projectDirectory === null || !isAbsolute2(projectDirectory)) {
+      return {
+        isError: true,
+        structuredContent: {
+          error: { code: "INVALID_TOOL_INPUT", message: "projectDirectory \u5FC5\u987B\u662F\u7EDD\u5BF9\u76EE\u5F55\u8DEF\u5F84\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u5F00\u59CB\u5BBF\u4E3B\u9A8C\u8BC1\uFF1AprojectDirectory \u5FC5\u987B\u662F\u7EDD\u5BF9\u76EE\u5F55\u8DEF\u5F84\u3002" }]
+      };
+    }
+    try {
+      const inspection = await inspectProjectVNext(projectDirectory);
+      const state = await hostValidation.start({
+        projectDirectory: inspection.projectDirectory,
+        projectId: inspection.manifest.projectId,
+        sceneCount: inspection.project.scenes.length
+      });
+      return hostValidationResult(
+        state,
+        state.status === "running" ? "Codex \u521B\u4F5C\u7EBF\u7A0B\u9A8C\u8BC1\u5DF2\u5F00\u59CB\uFF1B\u9879\u76EE\u4FDD\u6301\u53EA\u8BFB\u3002" : "Codex \u5BBF\u4E3B\u5F53\u524D\u4E0D\u53EF\u7528\uFF1B\u9A8C\u8BC1\u5DF2\u505C\u6B62\uFF0C\u53EF\u7A0D\u540E\u7EE7\u7EED\u3002"
+      );
+    } catch (error) {
+      if (error instanceof ProjectInspectionError) {
+        return {
+          isError: true,
+          structuredContent: {
+            error: { code: error.code, message: error.message }
+          },
+          content: [{ type: "text", text: `\u65E0\u6CD5\u5F00\u59CB\u5BBF\u4E3B\u9A8C\u8BC1\uFF1A${error.message}` }]
+        };
+      }
+      throw error;
+    }
+  }
+  if (name === "get_agent_host_validation" || name === "stop_agent_host_validation" || name === "continue_agent_host_validation") {
+    const taskId = stringArgument(argumentsValue, "taskId");
+    if (taskId === null) {
+      return {
+        isError: true,
+        structuredContent: { error: { code: "INVALID_TOOL_INPUT", message: "taskId \u4E0D\u80FD\u4E3A\u7A7A\u3002" } },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u64CD\u4F5C\u5BBF\u4E3B\u9A8C\u8BC1\uFF1AtaskId \u4E0D\u80FD\u4E3A\u7A7A\u3002" }]
+      };
+    }
+    const state = name === "get_agent_host_validation" ? hostValidation.get(taskId) : name === "stop_agent_host_validation" ? await hostValidation.stop(taskId) : await hostValidation.continue(taskId);
+    return hostValidationResult(
+      state,
+      `Codex \u521B\u4F5C\u7EBF\u7A0B\u9A8C\u8BC1\u72B6\u6001\uFF1A${state.status}\u3002`
+    );
+  }
   throw new Error(`\u672A\u77E5\u5DE5\u5177\uFF1A${String(name)}`);
 }
-async function handleRequest(request) {
-  switch (request.method) {
-    case "initialize": {
-      return {
-        protocolVersion: MCP_PROTOCOL_VERSION,
-        capabilities: { tools: {}, resources: {} },
-        serverInfo: { name: "narracut", version: SERVER_VERSION },
-        instructions: "\u53EA\u68C0\u67E5\u7528\u6237\u660E\u786E\u7ED9\u51FA\u7684 Project VNext \u76EE\u5F55\u3002\u4E0D\u8981\u628A\u5DE5\u5177\u7528\u4E8E\u76EE\u5F55\u6D4F\u89C8\uFF1B\u6240\u6709\u80FD\u529B\u5747\u4E3A\u53EA\u8BFB\u3002"
-      };
-    }
-    case "ping":
-      return {};
-    case "tools/list":
-      return { tools };
-    case "tools/call":
-      return callTool(request.params);
-    case "resources/list":
-      return {
-        resources: [{
-          uri: WORKBENCH_URI,
-          name: "Narracut \u5DE5\u4F5C\u53F0",
-          description: "Project VNext \u53EA\u8BFB\u53CC\u5DE5\u4F5C\u533A\u5916\u58F3",
-          mimeType: "text/html;profile=mcp-app"
-        }]
-      };
-    case "resources/read": {
-      const uri = typeof request.params === "object" && request.params !== null ? request.params.uri : void 0;
-      if (uri !== WORKBENCH_URI) throw new Error(`\u672A\u77E5\u8D44\u6E90\uFF1A${String(uri)}`);
-      return {
-        contents: [{
-          uri: WORKBENCH_URI,
-          mimeType: "text/html;profile=mcp-app",
-          text: await loadWorkbench(),
-          _meta: {
-            ui: {
-              prefersBorder: false,
-              csp: { connectDomains: [], resourceDomains: [] }
+function createNarracutRequestHandler(options = {}) {
+  const hostValidation = new AgentHostValidationService(
+    options.codexHost ?? new CodexAppServerHost()
+  );
+  const requestHandler = async (request) => {
+    switch (request.method) {
+      case "initialize": {
+        return {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: { tools: {}, resources: {} },
+          serverInfo: { name: "narracut", version: SERVER_VERSION },
+          instructions: "\u53EA\u63A5\u89E6\u7528\u6237\u660E\u786E\u7ED9\u51FA\u7684 Project VNext \u76EE\u5F55\u3002\u9879\u76EE\u5185\u5BB9\u4FDD\u6301\u53EA\u8BFB\uFF1BAgent \u5DE5\u4F5C\u533A\u53EF\u8FD0\u884C\u56FA\u5B9A\u7684 Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\u3002"
+        };
+      }
+      case "ping":
+        return {};
+      case "tools/list":
+        return { tools };
+      case "tools/call":
+        return callTool(request.params, hostValidation);
+      case "resources/list":
+        return {
+          resources: [{
+            uri: WORKBENCH_URI,
+            name: "Narracut \u5DE5\u4F5C\u53F0",
+            description: "Project VNext \u53EA\u8BFB\u53CC\u5DE5\u4F5C\u533A\u5916\u58F3",
+            mimeType: "text/html;profile=mcp-app"
+          }]
+        };
+      case "resources/read": {
+        const uri = typeof request.params === "object" && request.params !== null ? request.params.uri : void 0;
+        if (uri !== WORKBENCH_URI) throw new Error(`\u672A\u77E5\u8D44\u6E90\uFF1A${String(uri)}`);
+        return {
+          contents: [{
+            uri: WORKBENCH_URI,
+            mimeType: "text/html;profile=mcp-app",
+            text: await loadWorkbench(),
+            _meta: {
+              ui: {
+                prefersBorder: false,
+                csp: { connectDomains: [], resourceDomains: [] }
+              }
             }
-          }
-        }]
-      };
+          }]
+        };
+      }
+      default:
+        throw new Error(`\u4E0D\u652F\u6301\u7684\u65B9\u6CD5\uFF1A${request.method}`);
     }
-    default:
-      throw new Error(`\u4E0D\u652F\u6301\u7684\u65B9\u6CD5\uFF1A${request.method}`);
-  }
+  };
+  return Object.assign(requestHandler, {
+    dispose: () => hostValidation.dispose()
+  });
 }
+var handleRequest = createNarracutRequestHandler();
 function writeMessage(message) {
   process.stdout.write(`${JSON.stringify(message)}
 `);
 }
-async function handleLine(line) {
+async function handleLine(line, requestHandler) {
   if (line.trim() === "") return;
   let request;
   try {
@@ -1303,7 +1998,7 @@ async function handleLine(line) {
   }
   if (request.id === void 0) return;
   try {
-    writeMessage({ jsonrpc: "2.0", id: request.id, result: await handleRequest(request) });
+    writeMessage({ jsonrpc: "2.0", id: request.id, result: await requestHandler(request) });
   } catch (error) {
     writeMessage({
       jsonrpc: "2.0",
@@ -1312,7 +2007,7 @@ async function handleLine(line) {
     });
   }
 }
-async function startStdioServer() {
+async function startStdioServer(requestHandler = handleRequest) {
   let inputBuffer = "";
   process.stdin.setEncoding("utf8");
   const keepAlive = setInterval(() => void 0, 6e4);
@@ -1321,15 +2016,17 @@ async function startStdioServer() {
       inputBuffer += chunk;
       const lines = inputBuffer.split("\n");
       inputBuffer = lines.pop() ?? "";
-      for (const line of lines) await handleLine(line);
+      for (const line of lines) await handleLine(line, requestHandler);
     }
-    if (inputBuffer.trim() !== "") await handleLine(inputBuffer);
+    if (inputBuffer.trim() !== "") await handleLine(inputBuffer, requestHandler);
   } finally {
     clearInterval(keepAlive);
+    await requestHandler.dispose();
   }
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) await startStdioServer();
 export {
+  createNarracutRequestHandler,
   handleRequest,
   startStdioServer
 };

@@ -1,11 +1,15 @@
 ---
 name: Narracut VNext Workbench
-description: 以暗房接触印样组织 Project VNext Scene 检查的只读 Codex 插件工作台。
+description: 以暗房接触印样组织 Project VNext 检查与只读 Codex 宿主验证的 Operate 工作台。
 colors:
   darkroom: "#090d0e"
   shell: "#101516"
   film: "#050707"
+  stage: "#111718"
+  panel: "#0d1213"
+  control: "#151b1c"
   line: "#303738"
+  separator: "#364041"
   paper: "#f1f3eb"
   paper-hover: "#e4e8df"
   paper-selected: "#fafbf5"
@@ -101,6 +105,42 @@ components:
     rounded: "0"
     padding: "0"
     height: "112px"
+  agent-panel:
+    backgroundColor: "{colors.panel}"
+    textColor: "#d5dbd8"
+    rounded: "{rounded.frame}"
+    padding: "0"
+  status-running:
+    backgroundColor: "{colors.proof-blue}"
+    rounded: "{rounded.circle}"
+    size: "10px"
+  status-success:
+    backgroundColor: "{colors.connected-green}"
+    rounded: "{rounded.circle}"
+    size: "10px"
+  status-stopped:
+    backgroundColor: "transparent"
+    textColor: "{colors.readonly-amber}"
+    rounded: "{rounded.micro}"
+    size: "10px"
+  agent-action-primary:
+    backgroundColor: "{colors.proof-blue-deep}"
+    textColor: "#ffffff"
+    rounded: "{rounded.control}"
+    padding: "0 18px"
+    height: "44px"
+  agent-action-stop:
+    backgroundColor: "{colors.control}"
+    textColor: "#e1b36c"
+    rounded: "{rounded.control}"
+    padding: "0 18px"
+    height: "44px"
+  agent-action-disabled:
+    backgroundColor: "#111617"
+    textColor: "#68716f"
+    rounded: "{rounded.control}"
+    padding: "0 18px"
+    height: "44px"
   composer-disabled:
     backgroundColor: "#171d1f"
     textColor: "#a7afac"
@@ -117,14 +157,17 @@ components:
 
 Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。
 
-这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是主工作面，项目检查是窄侧台，Composer 是固定在灯箱下沿的批注槽。当前只读交付把不可用能力留在可见位置并解释原因；视觉不能暗示文件选择、编辑、Asset Preview、TTS、Render 或 Agent 创作已经可用。
+这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的批注槽，始终禁用并说明完整创作指令将在后续功能中启用。
+
+当前只读交付把不可用能力留在可见位置并解释原因。状态台只展示当前任务、连接、有界结果与可用操作；它不展示候选 Render Program、预览、对话或日志历史，也不暗示项目会被写入。
 
 **Key Characteristics:**
 
 - 黑色暗房外壳包围背光暖白接触表，主内容拥有最高亮度与面积。
 - Scene 是连续校片行；Narration 居主列，Asset 仅显示身份、路径或占位。
 - 蓝色校片线同时配合三角指示与圈记边码表达选择，不只依赖颜色。
-- 琥珀只用于胶片边码、只读与诊断提示；绿色只用于明确的有效与连接状态。
+- Agent 工作区是单任务验证台：桌面任务/结果双列，窄屏顺序叠放，不出现对话气泡。
+- 状态同时使用文字与形状：蓝色圆点表示运行，绿色圆点表示连接或成功，琥珀方形表示停止或不可用。
 - 自托管窄体展示字、中文 UI sans 与等宽标签构成三种受控声音。
 - 纸张与胶片 raster 由插件以内嵌 data URI 提供，界面不依赖网络材料。
 
@@ -134,20 +177,24 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 ### Primary
 
-- **校片蓝** (`proof-blue`): 选中 Scene 的内描边、当前工作区下划线与高优先级检查状态；它是操作反馈，不是大面积品牌填充。
+- **校片蓝** (`proof-blue`): 选中 Scene 的内描边、当前工作区下划线与 Agent 运行状态；它是操作反馈，不是大面积品牌填充。
 - **深校片蓝** (`proof-blue-deep`): Scene 边码、选择三角和纸面上的次级校片记号。
 
 ### Secondary
 
-- **只读琥珀** (`readonly-amber`): 胶片边码、只读标签与诊断代码；稀少使用让边界保持可信。
-- **连接绿** (`connected-green`): 连接正常、控制文件有效与 Speech 可用等肯定状态。
+- **只读琥珀** (`readonly-amber`): 胶片边码、只读标签、诊断代码、停止与不可用状态；稀少使用让边界保持可信。
+- **连接绿** (`connected-green`): 连接正常、控制文件有效、Speech 可用与宿主验证成功等肯定状态。
 
 ### Neutral
 
 - **暗房黑** (`darkroom`): 应用最外层画布。
 - **机身黑** (`shell`): 工作台框体与稳定结构面。
 - **胶片黑** (`film`): 接触表外框，让边码与纸面亮度成立。
+- **舞台黑** (`stage`): 主工作区地面与 Agent 结果凭证单元。
+- **状态台黑** (`panel`): 项目检查、空/错误面与 Agent 验证框体。
+- **控件黑** (`control`): 休止态按钮、抽屉控件与锁定器件。
 - **结构线** (`line`): 暗色区域的边界与分隔。
+- **状态分隔** (`separator`): Agent 标题、任务、结果与操作区之间的结构分隔。
 - **背光纸白** (`paper`): Scene 接触表的主阅读面。
 - **纸面悬停** (`paper-hover`): 可激活 Scene 行的指针反馈。
 - **选中纸白** (`paper-selected`): 被校片线框住的当前 Scene。
@@ -161,6 +208,8 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 **The Amber Boundary Rule.** 琥珀只说明胶片边码、只读边界与需要注意的诊断，不把整块面板染成警告色。
 
 **The Lit Content Rule.** 最高亮度留给 Scene 内容纸面；暗房中的导航、检查和 Composer 不得与接触表争夺亮度。
+
+**The Status Shape Rule.** 任务状态必须同时有文字与形状：蓝色实心圆点是运行，绿色实心圆点是连接或成功，琥珀方形轮廓是停止或不可用。
 
 ## Typography
 
@@ -189,7 +238,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 首屏采用四层固定结构：项目身份栏（`68px`）、工作区标签（`54px`）、可伸缩主工作区、底部 Composer（`102px`）。主工作区是接触表与 `320px` 项目检查的两列布局；舞台内边距为 `14px`，胶片框左右内边距为 `24px`。Scene 行固定为 `112px` 高，桌面列依次为 Scene、Narration、Asset、Speech，Narration 获得唯一弹性主列。
 
-在 `900px` 以下，项目检查收窄到 `280px`，Scene/Speech 最右列隐藏；在 `700px` 以下，Project ID 移到独立第二行，连接文字继续可见，项目检查改为从右侧打开的抽屉，Composer 仍固定在底部。移动端接触表保留 Scene、Narration 与 Asset 三列并允许横向内容自然裁切；它不退化成卡片流或缩略图画廊。
+在 Agent 工作区，桌面主面以 `.82fr / 1.18fr` 并置“临时任务状态”与“验证结果”，底部操作栏固定承载开始验证、停止和继续。在 `900px` 以下，项目检查收窄到 `280px`，Scene/Speech 最右列隐藏，Agent 的任务与结果改为单列；在 `700px` 以下，Project ID 移到独立第二行，连接文字继续可见，项目检查改为从右侧打开的抽屉，Composer 仍固定在底部。移动端接触表保留 Scene、Narration 与 Asset 三列并允许横向内容自然裁切；Agent 舞台则由外层自然滚动，标题、任务状态、验证结果和操作按钮依次纵向排列。
 
 键盘焦点只表示下一次操作位置，不能自动改变所选 Scene。Scene 行通过显式激活改变选择；移动端抽屉按钮以 `aria-expanded` 表达状态，Composer 通过 `aria-describedby` 解释禁用原因。
 
@@ -197,9 +246,11 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 **The Contact Sheet Dominance Rule.** 在承载 Scene 检查的表面，接触表始终是面积与亮度的主角，检查栏只提供上下文，不扩张成同权三栏 IDE。
 
+**The One Task Stack Rule.** Agent 工作区只为一个当前宿主验证任务编排状态、结果与操作；窄屏改变排布而不增加导航或历史层级。
+
 ## Elevation & Depth
 
-系统通过灯箱明度、内嵌暗边和少量结构阴影建立深度。胶片框使用重环境阴影压入暗房；纸面使用柔和背光与内阴影模拟光箱玻璃；常驻导航和检查栏依赖边线而不是漂浮卡片。移动端项目检查是唯一明显横向悬浮层。
+系统通过灯箱明度、内嵌暗边和少量结构阴影建立深度。胶片框使用重环境阴影压入暗房；纸面使用柔和背光与内阴影模拟光箱玻璃；Agent 验证台与常驻导航、检查栏一样依赖色阶和分隔线，不为任务或结果制造漂浮卡片。移动端项目检查是唯一明显横向悬浮层。
 
 ### Shadow Vocabulary
 
@@ -214,7 +265,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 ## Shapes
 
-形状语言接近切割纸张与机械框体。Scene 行、标签和大部分结构保持直角；文件夹图标使用紧凑 `2px` 圆角，抽屉按钮使用 `6px`，Composer 字段使用 `7px`，整张胶片框和状态面使用 `9px`。连接灯是圆形；选中 Scene 的小边码使用轻微旋转和不规则椭圆圈记，作为人工校片痕迹。
+形状语言接近切割纸张与机械框体。Scene 行、标签和大部分结构保持直角；文件夹图标与“停止/不可用”指示使用紧凑 `2px` 圆角，抽屉与 Agent 操作按钮使用 `6px`，Composer 字段使用 `7px`，整张胶片框和状态面使用 `9px`。运行、连接与成功指示是圆形；选中 Scene 的小边码使用轻微旋转和不规则椭圆圈记，作为人工校片痕迹。
 
 **The Cut Edge Rule.** 圆角用于可触控控件和整张材料框，不用于把每条 Scene、每项检查或每段文字包成卡片。
 
@@ -240,9 +291,21 @@ Scene 行是签名组件：大号 Scene 编号、校片边码、最多两行 Nar
 
 检查栏是暗色窄侧台，以点、文字和状态词同时表达控制文件有效性。当前 Scene 显示 Narration 与 Scene ID、Asset 数量、Speech 状态；只读段落以琥珀展示标签、以灰色正文解释影响。窄屏时它成为可关闭抽屉，并保留最小 `44px` 关闭目标。
 
+### Agent Host Validation
+
+Agent 工作区是单任务 Codex 宿主验证状态台，不是聊天界面。顶部只说明固定、只读的宿主任务和协议边界；中部桌面端以任务/结果双列呈现，在 `900px` 以下转为单列。只显示当前任务身份、线程连接、所选 Scene、有界验证结果与最小诊断；不展示候选 Render Program、预览、对话、推理、工具日志或历史列表。界面必须明说验证不会修改项目内容。
+
+### Agent Status Ledger
+
+状态台以紧凑分隔行展示任务状态、线程连接、当前 Scene、Task ID 与 Thread。每个可变状态同时提供简短文字和符合“蓝圆运行、绿圆连接/成功、琥珀方形停止/不可用”的形状。状态刷新应先比对有界状态，无变化时不全页重绘；独立隐藏的 `role="status"` / `aria-live="polite"` 区域只播报简短状态与细节，不复读整个面板。
+
+### Agent Validation Actions
+
+底部操作栏只包含“开始验证”、“停止”和“继续”，按任务状态启用唯一可用的下一步。开始与继续使用深校片蓝实心按钮，停止使用控件黑与琥珀文字，禁用态降低对比并保留标签。所有按钮最小高度为 `44px`；在 `700px` 以下改为纵向、通栏排列。
+
 ### Disabled Composer
 
-Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案说明后续启用，第二行明确“当前交付只支持只读检查”，并通过 `aria-describedby` 与输入建立程序化关联。锁形图标辅助表达状态，但不能替代文字。
+Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案说明后续启用；第二行在表格工作区明确“当前交付只支持只读检查”，在 Agent 工作区明确“完整创作指令将在后续功能中启用”，并通过 `aria-describedby` 与输入建立程序化关联。锁形图标辅助表达状态，但不能替代文字。
 
 ### Empty, Loading, and Invalid States
 
@@ -258,6 +321,8 @@ Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案
 - **Do** 把琥珀限制在胶片边码、只读与诊断提醒，把绿色限制在真实有效状态。
 - **Do** 保持项目检查在桌面端为窄侧栏、移动端为抽屉，并让 Composer 在所有尺寸下可见。
 - **Do** 以内嵌本地字体与 raster 建立材料感，同时尊重 `prefers-reduced-motion`。
+- **Do** 把 Agent 工作区保持为单任务状态台，并在桌面双列、窄屏单列之间保留状态、结果与操作顺序。
+- **Do** 用文字与形状共同表达 Agent 状态，且只在有界状态变化时更新可见面板与隐藏播报。
 
 ### Don't:
 
@@ -266,4 +331,6 @@ Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案
 - **Don't** 用颜色作为选择、连接、有效或只读状态的唯一信号。
 - **Don't** 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene。
 - **Don't** 隐藏或启用 Composer；禁用原因必须同时可见且可被辅助技术读取。
+- **Don't** 把 Agent 工作区做成聊天，或展示候选 Render Program、预览、对话、推理、工具日志与历史。
+- **Don't** 用 Agent 状态或验证结果暗示 Scene、Render Program 或任何项目文件已被写入。
 - **Don't** 引入霓虹 AI、玻璃拟态、渐变品牌面或大量圆角卡片，稀释暗房与接触印样的材料逻辑。

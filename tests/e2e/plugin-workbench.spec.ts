@@ -68,6 +68,35 @@ async function sendResult(page: Page, structuredContent: unknown): Promise<void>
   }, structuredContent);
 }
 
+async function installHostToolBridge(
+  page: Page,
+  handler: (name: string, args: Record<string, unknown>) => unknown,
+): Promise<void> {
+  await page.exposeFunction("handleNarracutHostTool", handler);
+  await page.evaluate(() => {
+    window.addEventListener("message", async (event) => {
+      const message = event.data;
+      if (message?.jsonrpc !== "2.0" || message.method !== "tools/call") return;
+      try {
+        const result = await (window as unknown as {
+          handleNarracutHostTool: (name: string, args: Record<string, unknown>) => unknown;
+        }).handleNarracutHostTool(message.params.name, message.params.arguments ?? {});
+        window.postMessage({
+          jsonrpc: "2.0",
+          id: message.id,
+          result: { structuredContent: { hostValidation: result } },
+        }, "*");
+      } catch (error) {
+        window.postMessage({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32000, message: error instanceof Error ? error.message : "宿主请求失败" },
+        }, "*");
+      }
+    });
+  });
+}
+
 test("初始加载态不会提前宣称连接正常", async ({ page }) => {
   await loadWorkbench(page);
 
@@ -159,4 +188,196 @@ test("窄面板把项目检查收进可操作抽屉，Composer 仍可见", async
   await inspectionToggle.click();
   await expect(page.getByRole("complementary", { name: "项目检查" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Composer" })).toBeInViewport();
+});
+
+test("Agent 工作区运行固定宿主验证并展示经过身份校验的有界结果", async ({ page }) => {
+  await loadWorkbench(page);
+  await sendResult(page, validResult());
+  let statusReads = 0;
+  await installHostToolBridge(page, (name, args) => {
+    if (name === "start_agent_host_validation") {
+      expect(args).toEqual({ projectDirectory: "/work/projects/product-demo" });
+      return {
+        taskId: "task-64",
+        status: "running",
+        reason: null,
+        connection: { status: "connected", threadId: "thread-specialized", replaced: false },
+        result: null,
+        diagnostic: null,
+        availableActions: ["stop"],
+        projectModified: false,
+      };
+    }
+    if (name === "get_agent_host_validation") {
+      statusReads += 1;
+      if (statusReads === 1) throw new Error("临时状态读取失败");
+      return {
+        taskId: "task-64",
+        status: "succeeded",
+        reason: null,
+        connection: { status: "connected", threadId: "thread-specialized", replaced: false },
+        result: {
+          projectId: "10000000-0000-4000-8000-000000000001",
+          sceneCount: 5,
+          summary: "Codex 已在只读边界内核对 Project VNext 身份。",
+          verification: { taskId: "task-64", driverId: "driver-current" },
+        },
+        diagnostic: null,
+        availableActions: [],
+        projectModified: false,
+      };
+    }
+    throw new Error(`意外工具：${name}`);
+  });
+
+  await page.getByRole("tab", { name: "Agent 工作区" }).click();
+  await expect(page.getByRole("heading", { name: "Codex 创作线程验证" })).toBeVisible();
+  await expect(page.getByText("未开始", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "开始验证" }).click();
+
+  await expect(page.getByRole("heading", { name: "验证成功", exact: true })).toBeVisible();
+  expect(statusReads).toBeGreaterThan(0);
+  await expect(page.getByText("task-64", { exact: true })).toBeVisible();
+  await expect(page.getByText("Codex 创作线程已连接", { exact: true })).toBeVisible();
+  await expect(page.getByText("Codex 已在只读边界内核对 Project VNext 身份。", { exact: true })).toBeVisible();
+  await expect(page.getByText("任务与当前驱动身份已校验", { exact: true })).toBeVisible();
+  await expect(page.getByText("项目内容未修改", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-chat-message]")).toHaveCount(0);
+  await expect(page.getByText("不保存对话副本、推理、工具日志或未提交修改", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Composer" })).toBeDisabled();
+  await expect(page.getByText("完整创作指令将在后续功能中启用", { exact: true })).toBeVisible();
+});
+
+test("Agent 验证可停止、继续，并在窄面板纵向排列状态与操作", async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 860 });
+  await loadWorkbench(page);
+  await sendResult(page, validResult());
+  await installHostToolBridge(page, (name) => {
+    if (name === "start_agent_host_validation") {
+      return {
+        taskId: "task-mobile",
+        status: "running",
+        reason: null,
+        connection: { status: "connected", threadId: "thread-1", replaced: false },
+        result: null,
+        diagnostic: null,
+        availableActions: ["stop"],
+        projectModified: false,
+      };
+    }
+    if (name === "stop_agent_host_validation") {
+      return {
+        taskId: "task-mobile",
+        status: "stopped",
+        reason: "USER_STOPPED",
+        connection: { status: "connected", threadId: "thread-1", replaced: false },
+        result: null,
+        diagnostic: null,
+        availableActions: ["continue"],
+        projectModified: false,
+      };
+    }
+    if (name === "continue_agent_host_validation") {
+      return {
+        taskId: "task-mobile",
+        status: "running",
+        reason: null,
+        connection: { status: "connected", threadId: "thread-2", replaced: true },
+        result: null,
+        diagnostic: null,
+        availableActions: ["stop"],
+        projectModified: false,
+      };
+    }
+    if (name === "get_agent_host_validation") {
+      return {
+        taskId: "task-mobile",
+        status: "running",
+        reason: null,
+        connection: { status: "connected", threadId: "thread-2", replaced: true },
+        result: null,
+        diagnostic: null,
+        availableActions: ["stop"],
+        projectModified: false,
+      };
+    }
+    throw new Error(`意外工具：${name}`);
+  });
+
+  await page.getByRole("tab", { name: "Agent 工作区" }).click();
+  await page.getByRole("button", { name: "开始验证" }).click();
+  await page.getByRole("button", { name: "停止" }).click();
+  await expect(page.getByText("已停止", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "继续" })).toBeEnabled();
+  await page.getByRole("button", { name: "继续" }).click();
+  await expect(page.getByText("替代线程已接管", { exact: true })).toBeVisible();
+
+  const agentColumns = await page.locator(".agent-main").evaluate((element) =>
+    getComputedStyle(element).gridTemplateColumns
+  );
+  expect(agentColumns.split(" ")).toHaveLength(1);
+  await expect(page.locator(".task-board")).toHaveCSS("border-right-width", "0px");
+  const verticalOrder = await page.locator(".agent-panel").evaluate((panel) => {
+    const task = panel.querySelector<HTMLElement>(".task-board")!;
+    const result = panel.querySelector<HTMLElement>(".result-board")!;
+    const actions = panel.querySelector<HTMLElement>(".agent-actions")!;
+    return [task, result, actions].map((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { top: bounds.top, bottom: bounds.bottom };
+    });
+  });
+  expect(verticalOrder[1]!.top).toBeGreaterThanOrEqual(verticalOrder[0]!.bottom - 1);
+  expect(verticalOrder[2]!.top).toBeGreaterThanOrEqual(verticalOrder[1]!.bottom - 1);
+  const actionDirection = await page.locator(".agent-actions").evaluate((element) =>
+    getComputedStyle(element).flexDirection
+  );
+  expect(actionDirection).toBe("column");
+  const stopButton = page.getByRole("button", { name: "停止" });
+  await stopButton.scrollIntoViewIfNeeded();
+  await expect(stopButton).toBeInViewport();
+  await stopButton.focus();
+  const scrollTop = await page.locator(".stage").evaluate((element) => element.scrollTop);
+  await page.waitForTimeout(650);
+  await expect(stopButton).toBeFocused();
+  await expect.poll(() => page.locator(".stage").evaluate((element) => element.scrollTop)).toBe(scrollTop);
+});
+
+test("线程丢失态保留恢复指针但显示不可用语义", async ({ page }) => {
+  await loadWorkbench(page);
+  await sendResult(page, validResult());
+  await page.getByRole("tab", { name: "Agent 工作区" }).click();
+  await sendResult(page, {
+    hostValidation: {
+      taskId: "task-lost",
+      status: "stopped",
+      reason: "CODEX_THREAD_UNAVAILABLE",
+      connection: { status: "unavailable", threadId: "thread-lost", replaced: false },
+      result: null,
+      diagnostic: {
+        code: "CODEX_THREAD_UNAVAILABLE",
+        message: "Codex 创作线程不可用；继续时将自动创建替代线程。",
+      },
+      availableActions: ["continue"],
+      projectModified: false,
+    },
+  });
+
+  await expect(page.getByText("Codex 创作线程不可用", { exact: true })).toBeVisible();
+  await expect(page.locator('.status-mark[data-status="unavailable"]')).toHaveCSS("border-radius", "2px");
+  await expect(page.getByText("thread-lost", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "继续" })).toBeEnabled();
+});
+
+test("Agent 标题在支持的窄屏与桌面宽度不产生孤字换行或溢出", async ({ page }) => {
+  await loadWorkbench(page);
+  await sendResult(page, validResult());
+  await page.getByRole("tab", { name: "Agent 工作区" }).click();
+
+  for (const width of [320, 430, 1440]) {
+    await page.setViewportSize({ width, height: 860 });
+    const titleFits = await page.getByRole("heading", { name: "Codex 创作线程验证" }).evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    );
+    expect(titleFits).toBe(true);
+  }
 });

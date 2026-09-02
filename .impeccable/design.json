@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-01T20:21:48Z",
+  "generatedAt": "2026-09-02T17:15:41Z",
   "title": "Design System: Narracut VNext Workbench",
   "extensions": {
     "colorMeta": {
@@ -19,10 +19,30 @@
         "displayName": "胶片黑",
         "tonalRamp": ["oklch(15% 0.0047 196.6)", "oklch(27% 0.0047 196.6)", "oklch(39% 0.0047 196.6)", "oklch(51% 0.0047 196.6)", "oklch(63% 0.0047 196.6)", "oklch(75% 0.0047 196.6)", "oklch(87% 0.0047 196.6)", "oklch(95% 0.0047 196.6)"]
       },
+      "stage": {
+        "role": "neutral",
+        "displayName": "舞台黑",
+        "tonalRamp": ["oklch(15% 0.0090 205)", "oklch(27% 0.0090 205)", "oklch(39% 0.0090 205)", "oklch(51% 0.0090 205)", "oklch(63% 0.0090 205)", "oklch(75% 0.0090 205)", "oklch(87% 0.0090 205)", "oklch(95% 0.0090 205)"]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "状态台黑",
+        "tonalRamp": ["oklch(15% 0.0070 205)", "oklch(27% 0.0070 205)", "oklch(39% 0.0070 205)", "oklch(51% 0.0070 205)", "oklch(63% 0.0070 205)", "oklch(75% 0.0070 205)", "oklch(87% 0.0070 205)", "oklch(95% 0.0070 205)"]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "控件黑",
+        "tonalRamp": ["oklch(15% 0.0090 205)", "oklch(27% 0.0090 205)", "oklch(39% 0.0090 205)", "oklch(51% 0.0090 205)", "oklch(63% 0.0090 205)", "oklch(75% 0.0090 205)", "oklch(87% 0.0090 205)", "oklch(95% 0.0090 205)"]
+      },
       "line": {
         "role": "neutral",
         "displayName": "结构线",
         "tonalRamp": ["oklch(15% 0.0097 207.1)", "oklch(27% 0.0097 207.1)", "oklch(39% 0.0097 207.1)", "oklch(51% 0.0097 207.1)", "oklch(63% 0.0097 207.1)", "oklch(75% 0.0097 207.1)", "oklch(87% 0.0097 207.1)", "oklch(95% 0.0097 207.1)"]
+      },
+      "separator": {
+        "role": "neutral",
+        "displayName": "状态分隔",
+        "tonalRamp": ["oklch(15% 0.0110 205)", "oklch(27% 0.0110 205)", "oklch(39% 0.0110 205)", "oklch(51% 0.0110 205)", "oklch(63% 0.0110 205)", "oklch(75% 0.0110 205)", "oklch(87% 0.0110 205)", "oklch(95% 0.0110 205)"]
       },
       "paper": {
         "role": "neutral",
@@ -128,11 +148,13 @@
     "breakpoints": [
       {
         "name": "compact-desktop",
-        "value": "900px"
+        "value": "900px",
+        "purpose": "Agent 任务/结果由双列改为单列，同时收窄项目检查并隐藏 Scene 的 Speech 列。"
       },
       {
         "name": "mobile-drawer",
-        "value": "700px"
+        "value": "700px",
+        "purpose": "项目检查转为抽屉；Agent 外层自然滚动，状态、结果与操作纵向排布。"
       }
     ]
   },
@@ -176,22 +198,39 @@
       "css": ".ds-inspection { max-width:320px; padding:22px 20px; border:1px solid var(--line,#303738); background:#0d1213; color:#b7bfbc; font:400 .82rem/1.6 \"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-inspection h2,.ds-inspection h3 { margin:0 0 18px; color:#e7ebe8; font-size:1.08rem; font-weight:680; letter-spacing:-.02em; } .ds-inspection h3 { color:var(--proof-blue,#4e88df); } .ds-check { display:grid; grid-template-columns:12px minmax(0,1fr) auto; align-items:center; gap:10px; margin:14px 0; } .ds-check i { width:9px; height:9px; border-radius:50%; background:var(--connected-green,#67c477); } .ds-check strong { color:var(--connected-green,#67c477); font-weight:650; } .ds-inspection hr { height:1px; margin:18px 0; border:0; background:#353d3e; } .ds-inspection p { color:#b2bab7; font-size:.79rem; line-height:1.75; } .ds-inspection dl { display:grid; grid-template-columns:78px minmax(0,1fr); gap:9px 10px; color:#929b98; font:500 .69rem/1.4 ui-monospace,monospace; } .ds-inspection dt,.ds-inspection dd { margin:0; } .ds-inspection dd { color:#c0c7c5; text-align:right; overflow-wrap:anywhere; }"
     },
     {
+      "name": "Agent Host Validation",
+      "kind": "custom",
+      "refersTo": "agent-panel",
+      "description": "克制的单任务 Codex 宿主验证状态台：桌面任务/结果双列，900px 以下单列，不呈现聊天、预览或历史。",
+      "html": "<section class=\"ds-agent-panel\" aria-labelledby=\"ds-agent-title\"><header class=\"ds-agent-head\"><div><h1 id=\"ds-agent-title\">Codex 创作线程验证</h1><p>运行一次固定、只读的宿主任务。验证结果不是候选 Render Program，也不会修改项目内容。</p></div><b>APP SERVER · READ ONLY</b></header><div class=\"ds-agent-main\"><section class=\"ds-task-board\"><h2>临时任务状态 <small>ONE TASK · ONE DRIVER</small></h2><dl><div><i class=\"ds-status ds-running\" aria-hidden=\"true\"></i><dt>任务状态</dt><dd>运行中<small>正在等待 Codex 返回结构化结果</small></dd></div><div><i class=\"ds-status ds-success\" aria-hidden=\"true\"></i><dt>线程连接</dt><dd>Codex 创作线程已连接</dd></div><div><i class=\"ds-status\" aria-hidden=\"true\"></i><dt>当前 Scene</dt><dd>Scene 03 保持选中</dd></div></dl></section><section class=\"ds-result-board\"><h2>验证结果 <small>BOUNDED RESULT</small></h2><div class=\"ds-result\"><h3>正在验证</h3><p>结果只有通过任务身份、当前驱动身份和项目身份校验后才会进入这里。</p></div></section></div><div class=\"ds-sr-only\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\">运行中。正在等待 Codex 返回结构化结果。</div></section>",
+      "css": ".ds-agent-panel { overflow:hidden; border:1px solid #3d4546; border-radius:9px; background:#0d1213; color:#d5dbd8; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; box-shadow:0 18px 54px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.035); } .ds-agent-head { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:24px; padding:28px 30px 24px; border-bottom:1px solid #364041; } .ds-agent-head h1 { margin:0; color:#f1f3ee; font-family:\"Narracut Display\",sans-serif; font-size:2rem; font-weight:760; letter-spacing:-.025em; line-height:1; } .ds-agent-head p { max-width:68ch; margin:13px 0 0; color:#adb6b3; font-size:.82rem; line-height:1.7; } .ds-agent-head b { color:var(--amber,#d89a3d); font:700 .64rem/1.4 ui-monospace,monospace; letter-spacing:.07em; } .ds-agent-main { display:grid; grid-template-columns:minmax(250px,.82fr) minmax(300px,1.18fr); } .ds-task-board,.ds-result-board { min-width:0; padding:26px 30px; } .ds-task-board { border-right:1px solid #364041; } .ds-task-board h2,.ds-result-board h2 { display:flex; justify-content:space-between; gap:14px; margin:0 0 18px; font-size:.82rem; } .ds-task-board h2 small,.ds-result-board h2 small { color:#87918e; font:600 .62rem/1 ui-monospace,monospace; letter-spacing:.07em; } .ds-task-board dl { margin:0; } .ds-task-board dl>div { display:grid; grid-template-columns:16px 96px minmax(0,1fr); align-items:center; gap:10px; min-height:47px; border-top:1px solid #30393a; } .ds-task-board dl>div:last-child { border-bottom:1px solid #30393a; } .ds-task-board dt { color:#899390; font:600 .65rem/1.35 ui-monospace,monospace; } .ds-task-board dd { margin:0; font-size:.78rem; font-weight:620; } .ds-task-board dd small { display:block; margin-top:4px; color:#9dbcf0; font:600 .64rem/1.35 ui-monospace,monospace; } .ds-status { width:10px; height:10px; border:2px solid #76817e; border-radius:50%; } .ds-status.ds-running { border-color:var(--blue,#4e88df); background:var(--blue,#4e88df); } .ds-status.ds-success { border-color:var(--green,#67c477); background:var(--green,#67c477); } .ds-status.ds-stopped { border-color:var(--amber,#d89a3d); border-radius:2px; } .ds-result { min-height:156px; padding:22px 0; border-top:1px solid #30393a; border-bottom:1px solid #30393a; } .ds-result h3 { margin:0; color:#f1f3ee; font-size:1.35rem; } .ds-result p { max-width:65ch; margin:12px 0 0; color:#aeb7b4; font-size:.82rem; line-height:1.75; } .ds-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; } @media(max-width:900px) { .ds-agent-main { grid-template-columns:1fr; } .ds-task-board { border-right:0; border-bottom:1px solid #364041; } } @media(max-width:700px) { .ds-agent-head { grid-template-columns:1fr; } .ds-task-board,.ds-result-board { padding:20px 18px; } }"
+    },
+    {
+      "name": "Agent Validation Actions",
+      "kind": "button",
+      "refersTo": "agent-action-primary",
+      "description": "底部只保留开始验证、停止、继续，并根据单任务状态启用唯一下一步。",
+      "html": "<footer class=\"ds-agent-actions\" aria-label=\"宿主验证操作\"><button class=\"ds-agent-action ds-primary\" type=\"button\">开始验证</button><button class=\"ds-agent-action ds-stop\" type=\"button\" disabled>停止</button><button class=\"ds-agent-action ds-primary\" type=\"button\" disabled>继续</button><small>不保存对话副本、推理、工具日志或未提交修改</small></footer>",
+      "css": ".ds-agent-actions { display:flex; align-items:center; gap:10px; padding:16px 30px; border:1px solid #364041; background:#0a0f10; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-agent-action { min-width:126px; min-height:44px; padding:0 18px; border:1px solid #465152; border-radius:6px; background:#151b1c; color:#d4dad7; cursor:pointer; font-size:.78rem; font-weight:680; } .ds-agent-action:hover:not(:disabled) { border-color:#72807e; background:#1a2223; } .ds-agent-action:focus-visible { outline:2px solid #8ab7f8; outline-offset:3px; box-shadow:0 0 0 5px rgba(78,136,223,.24); } .ds-agent-action.ds-primary { border-color:var(--blue,#4e88df); background:#245da9; color:#fff; } .ds-agent-action.ds-primary:hover:not(:disabled) { background:#2e6abb; } .ds-agent-action.ds-stop { color:#e1b36c; } .ds-agent-action:disabled { cursor:not-allowed; color:#68716f; border-color:#2c3435; background:#111617; opacity:.72; } .ds-agent-actions small { margin-left:auto; color:#808a87; font:600 .62rem/1.45 ui-monospace,monospace; text-align:right; } @media(max-width:700px) { .ds-agent-actions { flex-direction:column; align-items:stretch; padding:14px 18px; } .ds-agent-action { width:100%; } .ds-agent-actions small { margin:4px 0 0; text-align:left; } }"
+    },
+    {
       "name": "Disabled Composer",
       "kind": "input",
       "refersTo": "composer-disabled",
-      "description": "持续可见并以可见文字和 aria-describedby 共同解释当前只读边界。",
-      "html": "<div class=\"ds-composer\"><label for=\"ds-composer-input\">Composer</label><div><input id=\"ds-composer-input\" aria-describedby=\"ds-composer-reason\" disabled><span>Composer 将在后续功能中启用</span><small id=\"ds-composer-reason\">当前交付只支持只读检查</small></div><i class=\"ds-lock\" aria-hidden=\"true\"></i></div>",
+      "description": "始终禁用，并按工作区以可见文字和 aria-describedby 解释只读边界或完整创作指令的后续启用。",
+      "html": "<div class=\"ds-composer\"><label for=\"ds-composer-input\">Composer</label><div><input id=\"ds-composer-input\" aria-describedby=\"ds-composer-reason\" disabled><span>Composer 将在后续功能中启用</span><small id=\"ds-composer-reason\">完整创作指令将在后续功能中启用</small></div><i class=\"ds-lock\" aria-hidden=\"true\"></i></div>",
       "css": ".ds-composer { display:grid; grid-template-columns:auto minmax(0,1fr) 54px; align-items:center; gap:16px; padding:14px 16px; border:1px solid var(--line,#303738); background:#0b1011; color:#b6bebb; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-composer label { font-size:.95rem; font-weight:680; } .ds-composer > div { position:relative; min-width:0; } .ds-composer input { width:100%; min-height:48px; padding:0 18px; border:1px solid #3d4647; border-radius:7px; background:#171d1f; color:#a7afac; opacity:1; -webkit-text-fill-color:#a7afac; } .ds-composer span,.ds-composer small { position:absolute; left:18px; pointer-events:none; } .ds-composer span { top:8px; color:#a7afac; font-size:.8rem; } .ds-composer small { top:27px; color:#939c99; font:500 .75rem/1.2 ui-monospace,monospace; } .ds-lock { position:relative; width:18px; height:15px; place-self:center; border:2px solid #69716f; border-radius:2px; } .ds-lock:before { content:\"\"; position:absolute; width:10px; height:9px; left:2px; top:-10px; border:2px solid #69716f; border-bottom:0; border-radius:8px 8px 0 0; }"
     }
   ],
   "narrative": {
     "northStar": "暗房接触印样台",
-    "overview": "Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。\n\n这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是主工作面，项目检查是窄侧台，Composer 是固定在灯箱下沿的批注槽。当前只读交付把不可用能力留在可见位置并解释原因；视觉不能暗示文件选择、编辑、Asset Preview、TTS、Render 或 Agent 创作已经可用。",
+    "overview": "Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。\n\n这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的批注槽，始终禁用并说明完整创作指令将在后续功能中启用。\n\n当前只读交付把不可用能力留在可见位置并解释原因。状态台只展示当前任务、连接、有界结果与可用操作；它不展示候选 Render Program、预览、对话或日志历史，也不暗示项目会被写入。",
     "keyCharacteristics": [
       "黑色暗房外壳包围背光暖白接触表，主内容拥有最高亮度与面积。",
       "Scene 是连续校片行；Narration 居主列，Asset 仅显示身份、路径或占位。",
       "蓝色校片线同时配合三角指示与圈记边码表达选择，不只依赖颜色。",
-      "琥珀只用于胶片边码、只读与诊断提示；绿色只用于明确的有效与连接状态。",
+      "Agent 工作区是单任务验证台：桌面任务/结果双列，窄屏顺序叠放，不出现对话气泡。",
+      "状态同时使用文字与形状：蓝色圆点表示运行，绿色圆点表示连接或成功，琥珀方形表示停止或不可用。",
       "自托管窄体展示字、中文 UI sans 与等宽标签构成三种受控声音。",
       "纸张与胶片 raster 由插件以内嵌 data URI 提供，界面不依赖网络材料。"
     ],
@@ -212,6 +251,11 @@
         "section": "colors"
       },
       {
+        "name": "The Status Shape Rule",
+        "body": "任务状态必须同时有文字与形状：蓝色实心圆点是运行，绿色实心圆点是连接或成功，琥珀方形轮廓是停止或不可用。",
+        "section": "colors"
+      },
+      {
         "name": "The Three Voices Rule",
         "body": "展示字负责身份与校片，中文 UI sans 负责内容，等宽体负责机器事实；不要用展示字排中文长文，也不要用等宽体承担 Narration。",
         "section": "typography"
@@ -224,6 +268,11 @@
       {
         "name": "The Contact Sheet Dominance Rule",
         "body": "在承载 Scene 检查的表面，接触表始终是面积与亮度的主角，检查栏只提供上下文，不扩张成同权三栏 IDE。",
+        "section": "layout"
+      },
+      {
+        "name": "The One Task Stack Rule",
+        "body": "Agent 工作区只为一个当前宿主验证任务编排状态、结果与操作；窄屏改变排布而不增加导航或历史层级。",
         "section": "layout"
       },
       {
@@ -243,7 +292,9 @@
       "Do 用蓝色线框、位置标记和程序化状态共同表达选择，让焦点与选择保持独立。",
       "Do 把琥珀限制在胶片边码、只读与诊断提醒，把绿色限制在真实有效状态。",
       "Do 保持项目检查在桌面端为窄侧栏、移动端为抽屉，并让 Composer 在所有尺寸下可见。",
-      "Do 以内嵌本地字体与 raster 建立材料感，同时尊重 `prefers-reduced-motion`。"
+      "Do 以内嵌本地字体与 raster 建立材料感，同时尊重 `prefers-reduced-motion`。",
+      "Do 把 Agent 工作区保持为单任务状态台，并在桌面双列、窄屏单列之间保留状态、结果与操作顺序。",
+      "Do 用文字与形状共同表达 Agent 状态，且只在有界状态变化时更新可见面板与隐藏播报。"
     ],
     "donts": [
       "Don't 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。",
@@ -251,6 +302,8 @@
       "Don't 用颜色作为选择、连接、有效或只读状态的唯一信号。",
       "Don't 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene。",
       "Don't 隐藏或启用 Composer；禁用原因必须同时可见且可被辅助技术读取。",
+      "Don't 把 Agent 工作区做成聊天，或展示候选 Render Program、预览、对话、推理、工具日志与历史。",
+      "Don't 用 Agent 状态或验证结果暗示 Scene、Render Program 或任何项目文件已被写入。",
       "Don't 引入霓虹 AI、玻璃拟态、渐变品牌面或大量圆角卡片，稀释暗房与接触印样的材料逻辑。"
     ]
   }
