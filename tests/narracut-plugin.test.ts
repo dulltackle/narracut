@@ -186,6 +186,83 @@ describe("Narracut Codex 插件", () => {
     expect(result.content[0]?.text).toContain("product-demo");
   });
 
+  it("提供无项目启动器，并让 create/open 复用严格创建与独占租约语义", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-launcher-"));
+    const projectDirectory = join(parentDirectory, "new-project");
+    const pluginRequest = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+    const competingRequest = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+
+    const listed = await pluginRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" }) as {
+      tools: Array<{ name: string; annotations: { readOnlyHint: boolean }; _meta?: unknown }>;
+    };
+    expect(listed.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "show_launcher",
+        annotations: expect.objectContaining({ readOnlyHint: true }),
+        _meta: { ui: { resourceUri: "ui://narracut/workbench-v1.html" } },
+      }),
+      expect.objectContaining({
+        name: "create_project",
+        annotations: expect.objectContaining({ readOnlyHint: false, openWorldHint: false }),
+      }),
+      expect.objectContaining({
+        name: "open_project",
+        annotations: expect.objectContaining({ readOnlyHint: false, openWorldHint: false }),
+      }),
+    ]));
+
+    const launcher = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "show_launcher", arguments: {} },
+    }) as { structuredContent: Record<string, unknown> };
+    expect(launcher.structuredContent).toEqual({
+      status: "launcher",
+      connection: { status: "connected", readOnly: false },
+    });
+
+    const created = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "create_project", arguments: { projectDirectory } },
+    }) as { structuredContent: Record<string, unknown> };
+    expect(created.structuredContent).toMatchObject({
+      status: "valid",
+      operation: "created",
+      project: { directory: projectDirectory, sceneCount: 0 },
+    });
+
+    const occupied = await competingRequest({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: { name: "open_project", arguments: { projectDirectory } },
+    }) as { isError: boolean; structuredContent: Record<string, unknown> };
+    expect(occupied).toMatchObject({
+      isError: true,
+      structuredContent: {
+        status: "invalid",
+        error: { code: "PROJECT_IN_USE", path: projectDirectory },
+      },
+    });
+
+    await pluginRequest.dispose();
+    const opened = await competingRequest({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: { name: "open_project", arguments: { projectDirectory } },
+    }) as { structuredContent: Record<string, unknown> };
+    expect(opened.structuredContent).toMatchObject({
+      status: "valid",
+      operation: "opened",
+      project: { directory: projectDirectory, sceneCount: 0 },
+    });
+    await competingRequest.dispose();
+  });
+
   it("无效目录把同一错误写入结构化结果，且 UI 资源可独立读取", async () => {
     const result = await request("tools/call", {
       name: "inspect_project",

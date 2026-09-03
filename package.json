@@ -9,6 +9,8 @@
     "test:plugin": "pnpm build:plugin && bash scripts/test-plugin-stdio.sh",
     "prestart": "pnpm build",
     "start": "tsx src/server/cli.ts",
+    "create": "tsx src/server/cli.ts create",
+    "open": "tsx src/server/cli.ts open",
     "inspect": "tsx src/server/cli.ts inspect",
     "dry-run": "tsx src/server/cli.ts dry-run",
     "test": "pnpm test:schema && pnpm test:plugin && pnpm test:unit && pnpm test:e2e",

@@ -1,10 +1,17 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { formatCliError, runCli, runDryRunCli, runInspectCli } from "../src/server/cli";
+import {
+  formatCliError,
+  runCli,
+  runCreateCli,
+  runDryRunCli,
+  runInspectCli,
+  runOpenProjectCli,
+} from "../src/server/cli";
 import { startNarracutServer, type RunningServer } from "../src/server/server";
 
 const runningServers: RunningServer[] = [];
@@ -253,5 +260,69 @@ describe("inspect <Project VNext 路径>", () => {
       "PROJECT_DSL_SCHEMA_INVALID",
     ]);
     expect(output).toContain("\\nPROJECT_VALID /forged");
+  });
+});
+
+describe("create/open Project VNext", () => {
+  it("create 默认完成后退出，只有显式 --open 才进入工作区", async () => {
+    const root = await mkdtemp(join(tmpdir(), "narracut-cli-create-"));
+    const firstProject = join(root, "first");
+    const secondProject = join(root, "second");
+    const startServer = vi.fn(async () => ({
+      url: "http://127.0.0.1:3579",
+      port: 3579,
+      releaseProjectLease: async () => undefined,
+      close: async () => undefined,
+    }));
+
+    const created = await runCreateCli({
+      args: [firstProject],
+      log: () => undefined,
+      startServer,
+      staticDirectory: "/client",
+      envFile: join(root, "missing.env"),
+    });
+    expect(created.server).toBeUndefined();
+    expect(startServer).not.toHaveBeenCalled();
+    await expect(access(firstProject)).resolves.toBeUndefined();
+
+    const createdAndOpened = await runCreateCli({
+      args: [secondProject, "--open"],
+      log: () => undefined,
+      startServer,
+      staticDirectory: "/client",
+      envFile: join(root, "missing.env"),
+    });
+    expect(createdAndOpened.server?.url).toBe("http://127.0.0.1:3579");
+    expect(startServer).toHaveBeenCalledTimes(1);
+    await createdAndOpened.server?.close();
+  });
+
+  it("open 严格校验后取得租约并进入工作区", async () => {
+    const root = await mkdtemp(join(tmpdir(), "narracut-cli-open-"));
+    const projectDirectory = join(root, "project");
+    await runCreateCli({ args: [projectDirectory], log: () => undefined });
+    const startServer = vi.fn(async () => ({
+      url: "http://127.0.0.1:3579",
+      port: 3579,
+      releaseProjectLease: async () => undefined,
+      close: async () => undefined,
+    }));
+
+    const server = await runOpenProjectCli({
+      args: [projectDirectory],
+      log: () => undefined,
+      startServer,
+      staticDirectory: "/client",
+      envFile: join(root, "missing.env"),
+    });
+    await expect(runOpenProjectCli({
+      args: [projectDirectory],
+      log: () => undefined,
+      startServer,
+      staticDirectory: "/client",
+      envFile: join(root, "missing.env"),
+    })).rejects.toMatchObject({ code: "PROJECT_IN_USE" });
+    await server.close();
   });
 });

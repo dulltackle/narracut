@@ -29,7 +29,7 @@ const scenes = Array.from({ length: 8 }, (_, offset) => {
     speech: index === 6 ? { status: "missing" } : { status: "available", durationMs: 1800 + index * 120 },
   };
 });
-const result = {
+const workbenchResult = {
   status: "valid",
   connection: { status: "connected", readOnly: true },
   project: {
@@ -47,14 +47,26 @@ const result = {
   scenes,
   warnings: [],
 };
+const launcherResult = {
+  status: "launcher",
+  connection: { status: "connected", readOnly: false },
+};
+const launcher = process.argv.includes("--launcher");
+const result = launcher ? launcherResult : workbenchResult;
 
 await mkdir(resolve(".impeccable/review"), { recursive: true });
 const browser = await chromium.launch({ headless: true });
-for (const capture of [
-  { name: "hero-repro", width: 1586, height: 992 },
-  { name: "desktop", width: 1440, height: 900 },
-  { name: "mobile", width: 430, height: 860 },
-]) {
+const captures = launcher
+  ? [
+      { name: "launcher-desktop", width: 1440, height: 900 },
+      { name: "launcher-mobile", width: 430, height: 860 },
+    ]
+  : [
+      { name: "hero-repro", width: 1586, height: 992 },
+      { name: "desktop", width: 1440, height: 900 },
+      { name: "mobile", width: 430, height: 860 },
+    ];
+for (const capture of captures) {
   const page = await browser.newPage({ viewport: { width: capture.width, height: capture.height } });
   await page.setContent(html, { waitUntil: "domcontentloaded" });
   await page.evaluate(() => document.fonts.ready);

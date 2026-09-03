@@ -12,6 +12,12 @@ import {
   ProjectInspectionError,
   type ProjectVNextInspection,
 } from "./project-vnext-inspection";
+import {
+  createProjectVNext,
+  openProjectVNext,
+  ProjectLifecycleError,
+  type CreatedProjectVNext,
+} from "./project-lifecycle";
 
 type CliOptions = {
   args: string[];
@@ -28,6 +34,10 @@ type InspectCliOptions = {
   log?: (message: string) => void;
   command?: "inspect" | "dry-run";
 };
+
+type ProjectWorkspaceCliOptions = Omit<CliOptions, "args"> & { args: string[] };
+
+export type CreateCliResult = CreatedProjectVNext & { server?: RunningServer };
 
 class CliArgumentError extends Error {
   readonly code = "CLI_ARGUMENT_INVALID";
@@ -123,8 +133,109 @@ export async function runDryRunCli(options: InspectCliOptions): Promise<ProjectV
   return runInspectCli({ ...options, command: "dry-run" });
 }
 
+async function startWorkspaceServer(
+  projectDirectory: string,
+  {
+    staticDirectory = DEFAULT_STATIC_DIRECTORY,
+    initialPort = 3579,
+    log = console.log,
+    envFile = DEFAULT_ENV_FILE,
+    environment = process.env,
+    startServer = startNarracutServer,
+  }: Omit<ProjectWorkspaceCliOptions, "args">,
+): Promise<RunningServer> {
+  loadOptionalEnvFile(envFile);
+  const host = environment.NARRACUT_HOST ?? DEFAULT_SERVER_HOST;
+  let server: RunningServer;
+  try {
+    server = await startServer({ projectDirectory, staticDirectory, host, initialPort });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EADDRNOTAVAIL") {
+      throw new Error(
+        `无法监听 ${host}：该地址在当前机器上不可用（EADDRNOTAVAIL：${error.message}）。` +
+          "请启动对应网络接口，或设置 NARRACUT_HOST=127.0.0.1 覆盖。",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+  log(`Narracut 已打开 ${projectDirectory}`);
+  log(`本地工作台：${server.url}`);
+  return server;
+}
+
+function parseCreateArguments(args: readonly string[]): {
+  projectDirectory: string;
+  open: boolean;
+  confirmTemporaryCleanup: boolean;
+} {
+  const flags = new Set(args.filter((argument) => argument.startsWith("--")));
+  const paths = args.filter((argument) => !argument.startsWith("--"));
+  if (
+    paths.length !== 1 ||
+    [...flags].some((flag) => flag !== "--open" && flag !== "--confirm-cleanup") ||
+    flags.size !== args.length - paths.length
+  ) {
+    throw new CliArgumentError(
+      resolve(paths[0] ?? "."),
+      "参数无效。用法：pnpm start create <不存在的 Project VNext 路径> [--open] [--confirm-cleanup]",
+    );
+  }
+  return {
+    projectDirectory: resolve(paths[0]!),
+    open: flags.has("--open"),
+    confirmTemporaryCleanup: flags.has("--confirm-cleanup"),
+  };
+}
+
+export async function runCreateCli(options: ProjectWorkspaceCliOptions): Promise<CreateCliResult> {
+  const parsed = parseCreateArguments(options.args);
+  const created = await createProjectVNext(parsed.projectDirectory, {
+    confirmTemporaryCleanup: parsed.confirmTemporaryCleanup,
+  });
+  options.log?.(JSON.stringify({ code: "PROJECT_CREATED", path: created.projectDirectory }));
+  if (!parsed.open) return created;
+  const server = await runOpenProjectCli({ ...options, args: [created.projectDirectory] });
+  return { ...created, server };
+}
+
+export async function runOpenProjectCli(
+  options: ProjectWorkspaceCliOptions,
+): Promise<RunningServer> {
+  const [projectPath, ...unexpectedArguments] = options.args;
+  if (projectPath === undefined || unexpectedArguments.length > 0) {
+    throw new CliArgumentError(
+      resolve(projectPath ?? "."),
+      "参数无效。用法：pnpm start open <Project VNext 路径>",
+    );
+  }
+  const opened = await openProjectVNext(projectPath);
+  try {
+    const server = await startWorkspaceServer(opened.inspection.projectDirectory, options);
+    let closed = false;
+    return {
+      ...server,
+      close: async () => {
+        if (closed) return;
+        closed = true;
+        try {
+          await server.close();
+        } finally {
+          await opened.release();
+        }
+      },
+    };
+  } catch (error) {
+    await opened.release();
+    throw error;
+  }
+}
+
 export function formatCliError(error: unknown): string {
   if (error instanceof CliArgumentError) {
+    return JSON.stringify({ code: error.code, path: error.path, message: error.message });
+  }
+  if (error instanceof ProjectLifecycleError) {
     return JSON.stringify({ code: error.code, path: error.path, message: error.message });
   }
   if (!(error instanceof ProjectInspectionError)) {
@@ -147,6 +258,16 @@ export function formatCliError(error: unknown): string {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  if (args[0] === "create") {
+    const created = await runCreateCli({ args: args.slice(1) });
+    if (created.server === undefined) return;
+    registerShutdown(created.server);
+    return;
+  }
+  if (args[0] === "open") {
+    registerShutdown(await runOpenProjectCli({ args: args.slice(1) }));
+    return;
+  }
   if (args[0] === "inspect") {
     await runInspectCli({ args: args.slice(1) });
     return;
@@ -155,7 +276,10 @@ async function main(): Promise<void> {
     await runDryRunCli({ args: args.slice(1) });
     return;
   }
-  const server = await runCli({ args });
+  registerShutdown(await runCli({ args }));
+}
+
+function registerShutdown(server: RunningServer): void {
   const shutdown = () => {
     void server
       .close()

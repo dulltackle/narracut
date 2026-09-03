@@ -1,6 +1,6 @@
 // plugins/narracut/src/server.ts
-import { readFile } from "node:fs/promises";
-import { basename, isAbsolute as isAbsolute2 } from "node:path";
+import { readFile as readFile2 } from "node:fs/promises";
+import { basename as basename2, isAbsolute as isAbsolute2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -442,14 +442,14 @@ var CodexAppServerHost = class {
       return Promise.reject(new Error("Codex App Server \u672A\u8FDE\u63A5\u3002"));
     }
     const id = ++this.#requestId;
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       const timer = setTimeout(() => {
         if (!this.#pending.delete(id)) return;
         const error = new Error(`${method} \u8D85\u8FC7 ${this.#requestTimeoutMs}ms \u672A\u54CD\u5E94\u3002`);
         reject(error);
         this.#handleExit(child, error);
       }, this.#requestTimeoutMs);
-      this.#pending.set(id, { method, resolve: resolve2, reject, timer });
+      this.#pending.set(id, { method, resolve: resolve3, reject, timer });
       child.stdin.write(`${JSON.stringify({ method, id, params })}
 `, (error) => {
         if (error === null || error === void 0) return;
@@ -1621,6 +1621,654 @@ async function inspectProjectVNext(inputPath) {
   };
 }
 
+// src/server/project-lifecycle.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
+import {
+  lstat as lstat2,
+  mkdir,
+  open as openFile,
+  readFile,
+  readdir as readdir2,
+  realpath as realpath2,
+  rename,
+  rmdir,
+  rm,
+  unlink,
+  writeFile
+} from "node:fs/promises";
+import { basename, dirname, join as join2, resolve as resolve2 } from "node:path";
+var STARTER_REACT_VERSION = "19.2.8";
+var STARTER_REMOTION_VERSION = "4.0.512";
+var ProjectLifecycleError = class extends Error {
+  constructor(code, path, message, options = {}) {
+    super(message, options);
+    this.code = code;
+    this.path = path;
+    this.name = "ProjectLifecycleError";
+  }
+  code;
+  path;
+};
+var OPERATION_MARKER = ".narracut-operation.json";
+var activeLeasePaths = /* @__PURE__ */ new Set();
+function isCreateOperationMarker(value, projectDirectory, operationToken) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const marker = value;
+  return Object.keys(marker).length === 5 && marker.kind === "narracut-operation" && marker.version === 1 && marker.operation === "create" && marker.targetDirectory === projectDirectory && typeof marker.operationToken === "string" && marker.operationToken.length > 0 && (operationToken === void 0 || marker.operationToken === operationToken);
+}
+async function pathExists(path) {
+  try {
+    await lstat2(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory, confirmed) {
+  const facts = await lstat2(temporaryDirectory);
+  if (!facts.isDirectory() || facts.isSymbolicLink()) {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
+      temporaryDirectory,
+      `\u4E34\u65F6\u8DEF\u5F84\u4E0D\u662F\u53EF\u786E\u8BA4\u5F52\u5C5E\u7684\u666E\u901A\u76EE\u5F55\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
+    );
+  }
+  const markerPath = join2(temporaryDirectory, OPERATION_MARKER);
+  let marker;
+  try {
+    const markerFacts = await lstat2(markerPath);
+    if (!markerFacts.isFile() || markerFacts.isSymbolicLink() || markerFacts.nlink !== 1 || markerFacts.size > 4096) {
+      throw new Error("invalid marker");
+    }
+    marker = JSON.parse(await readFile(markerPath, "utf8"));
+  } catch {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
+      temporaryDirectory,
+      `\u4E34\u65F6\u76EE\u5F55\u7F3A\u5C11\u53EF\u9A8C\u8BC1\u7684\u521B\u5EFA\u6807\u8BB0\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
+    );
+  }
+  if (!isCreateOperationMarker(marker, projectDirectory)) {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
+      temporaryDirectory,
+      `\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u4E0E\u672C\u6B21\u521B\u5EFA\u76EE\u6807\u4E0D\u5339\u914D\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
+    );
+  }
+  if (!confirmed) {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE",
+      temporaryDirectory,
+      `\u53D1\u73B0\u4E0E\u672C\u6B21\u76EE\u6807\u5339\u914D\u7684\u521B\u5EFA\u6B8B\u7559\uFF1A${temporaryDirectory}\u3002\u8BF7\u786E\u8BA4\u6E05\u7406\u540E\u4ECE\u5934\u91CD\u8BD5\u3002`
+    );
+  }
+  const currentFacts = await lstat2(temporaryDirectory);
+  if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino || !currentFacts.isDirectory()) {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
+      temporaryDirectory,
+      `\u4E34\u65F6\u76EE\u5F55\u5728\u786E\u8BA4\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
+    );
+  }
+  await rm(temporaryDirectory, { recursive: true });
+}
+function starterLockfile() {
+  return `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      react:
+        specifier: ${STARTER_REACT_VERSION}
+        version: ${STARTER_REACT_VERSION}
+      react-dom:
+        specifier: ${STARTER_REACT_VERSION}
+        version: ${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION})
+      remotion:
+        specifier: ${STARTER_REMOTION_VERSION}
+        version: ${STARTER_REMOTION_VERSION}(react-dom@${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION}))(react@${STARTER_REACT_VERSION})
+
+packages:
+
+  react-dom@${STARTER_REACT_VERSION}:
+    resolution: {integrity: sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==}
+    peerDependencies:
+      react: ^${STARTER_REACT_VERSION}
+
+  react@${STARTER_REACT_VERSION}:
+    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
+    engines: {node: '>=0.10.0'}
+
+  remotion@${STARTER_REMOTION_VERSION}:
+    resolution: {integrity: sha512-L47ImosLFn/uSEGhgV6nO9agEjrRTD+xfeIC4QlGSkCkHjG4IpH2dm0psRoLrK0eo8iiUc4rwUFNnNxQpLnx2w==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+
+  scheduler@0.27.0:
+    resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
+
+snapshots:
+
+  react-dom@${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION}):
+    dependencies:
+      react: ${STARTER_REACT_VERSION}
+      scheduler: 0.27.0
+
+  react@${STARTER_REACT_VERSION}: {}
+
+  remotion@${STARTER_REMOTION_VERSION}(react-dom@${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION}))(react@${STARTER_REACT_VERSION}):
+    dependencies:
+      react: ${STARTER_REACT_VERSION}
+      react-dom: ${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION})
+
+  scheduler@0.27.0: {}
+`;
+}
+function starterManifest(projectId) {
+  return JSON.stringify({ kind: "narracut-project", formatVersion: 1, projectId });
+}
+function starterCurrent(revisionId) {
+  return JSON.stringify({ revisionId });
+}
+function starterRevision(revisionId) {
+  return JSON.stringify({
+    revisionId,
+    previousRevisionId: null,
+    source: "starter",
+    summary: "Narracut starter Render Program"
+  });
+}
+function starterProgramManifest() {
+  return JSON.stringify({ apiVersion: 1, output: { width: 1920, height: 1080, fps: 30 } });
+}
+function starterPackageManifest() {
+  return JSON.stringify({
+    private: true,
+    dependencies: {
+      react: STARTER_REACT_VERSION,
+      "react-dom": STARTER_REACT_VERSION,
+      remotion: STARTER_REMOTION_VERSION
+    }
+  });
+}
+function starterSource() {
+  return 'import { AbsoluteFill } from "remotion";\n\ntype RenderProgramInputV1 = Readonly<{ apiVersion: 1 }>;\n\nexport function RenderProgram(input: RenderProgramInputV1) {\n  void input;\n  return <AbsoluteFill style={{ backgroundColor: "#090d0e" }} />;\n}\n';
+}
+async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
+  const renderProgramDirectory = join2(
+    temporaryDirectory,
+    ".narracut",
+    "revisions",
+    revisionId,
+    "render-program"
+  );
+  await Promise.all([
+    mkdir(join2(temporaryDirectory, "assets"), { recursive: true }),
+    mkdir(join2(temporaryDirectory, "speech"), { recursive: true }),
+    mkdir(join2(temporaryDirectory, "renders"), { recursive: true }),
+    mkdir(join2(renderProgramDirectory, "src"), { recursive: true }),
+    mkdir(join2(renderProgramDirectory, "resources"), { recursive: true })
+  ]);
+  await Promise.all([
+    writeFile(join2(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
+    writeFile(join2(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
+    writeFile(join2(temporaryDirectory, "video.md"), ""),
+    writeFile(join2(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
+    writeFile(
+      join2(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
+      starterRevision(revisionId)
+    ),
+    writeFile(join2(renderProgramDirectory, "program.json"), starterProgramManifest()),
+    writeFile(join2(renderProgramDirectory, "package.json"), starterPackageManifest()),
+    writeFile(join2(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
+    writeFile(join2(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
+  ]);
+}
+async function validateStarterProject(temporaryDirectory, projectId, revisionId) {
+  const renderProgramDirectory = join2(
+    temporaryDirectory,
+    ".narracut",
+    "revisions",
+    revisionId,
+    "render-program"
+  );
+  const [
+    inspection,
+    manifest,
+    projectDsl,
+    videoBrief,
+    current,
+    revision,
+    programManifest,
+    packageManifest,
+    lockfile,
+    source
+  ] = await Promise.all([
+    inspectProjectVNext(temporaryDirectory),
+    readFile(join2(temporaryDirectory, "narracut.json"), "utf8"),
+    readFile(join2(temporaryDirectory, "project.json"), "utf8"),
+    readFile(join2(temporaryDirectory, "video.md"), "utf8"),
+    readFile(join2(temporaryDirectory, ".narracut", "current.json"), "utf8"),
+    readFile(join2(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
+    readFile(join2(renderProgramDirectory, "program.json"), "utf8"),
+    readFile(join2(renderProgramDirectory, "package.json"), "utf8"),
+    readFile(join2(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
+    readFile(join2(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
+  ]);
+  if (inspection.manifest.projectId !== projectId || inspection.project.assets.length !== 0 || inspection.project.scenes.length !== 0 || inspection.videoBrief !== "" || manifest !== starterManifest(projectId) || projectDsl !== '{"assets":[],"scenes":[]}' || videoBrief !== "" || current !== starterCurrent(revisionId) || revision !== starterRevision(revisionId) || programManifest !== starterProgramManifest() || packageManifest !== starterPackageManifest() || lockfile !== starterLockfile() || source !== starterSource()) {
+    throw new Error("starter \u9879\u76EE\u590D\u6838\u7ED3\u679C\u4E0E\u521B\u5EFA\u8F93\u5165\u4E0D\u4E00\u81F4\u3002");
+  }
+}
+var INTERNAL_JSON_LIMITS = {
+  maxDepth: 8,
+  maxArrayItems: 32,
+  maxObjectFields: 64,
+  maxNodes: 256,
+  maxStringScalars: 4096,
+  maxStringBytes: 16384,
+  maxNumberBytes: 32
+};
+var UUID_PATTERN2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+function isPlainRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+async function readRegularUtf8(path, maxBytes) {
+  const facts = await lstat2(path);
+  if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > maxBytes) {
+    throw new Error(`\u4E0D\u662F\u53D7\u652F\u6301\u7684\u666E\u901A\u6587\u4EF6\uFF1A${path}`);
+  }
+  return readFile(path, "utf8");
+}
+async function validateCurrentProjectState(inspection) {
+  const projectDirectory = inspection.projectDirectory;
+  const currentPath = join2(projectDirectory, ".narracut", "current.json");
+  try {
+    const current = parseStrictJson(
+      await readRegularUtf8(currentPath, 4096),
+      INTERNAL_JSON_LIMITS
+    );
+    if (!isPlainRecord(current) || Object.keys(current).length !== 1 || typeof current.revisionId !== "string" || !UUID_PATTERN2.test(current.revisionId)) {
+      throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6307\u9488\u65E0\u6548\u3002");
+    }
+    const revisionId = current.revisionId;
+    const revisionDirectory = join2(projectDirectory, ".narracut", "revisions", revisionId);
+    const renderProgramDirectory = join2(revisionDirectory, "render-program");
+    if (!inspection.renderPrograms.directories.includes(renderProgramDirectory)) {
+      throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6CA1\u6709\u53EF\u68C0\u67E5\u7684 Render Program\u3002");
+    }
+    const [revision, program, packageJson, lockfile, source] = await Promise.all([
+      readRegularUtf8(join2(revisionDirectory, "revision.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join2(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join2(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join2(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
+      readRegularUtf8(join2(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
+    ]);
+    if (!isPlainRecord(revision) || Object.keys(revision).some(
+      (key) => !["revisionId", "previousRevisionId", "source", "summary"].includes(key)
+    ) || revision.revisionId !== revisionId || !(revision.previousRevisionId === null || typeof revision.previousRevisionId === "string" && UUID_PATTERN2.test(revision.previousRevisionId)) || typeof revision.source !== "string" || typeof revision.summary !== "string") {
+      throw new Error("\u5F53\u524D\u4FEE\u8BA2\u5143\u6570\u636E\u65E0\u6548\u3002");
+    }
+    const output = isPlainRecord(program) && isPlainRecord(program.output) ? program.output : null;
+    if (!isPlainRecord(program) || program.apiVersion !== 1 || output === null || ![output.width, output.height, output.fps].every(
+      (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    )) {
+      throw new Error("\u5F53\u524D Render Program manifest \u65E0\u6548\u3002");
+    }
+    if (!isPlainRecord(packageJson) || !isPlainRecord(packageJson.dependencies)) {
+      throw new Error("\u5F53\u524D Render Program package manifest \u65E0\u6548\u3002");
+    }
+    const dependencies = Object.entries(packageJson.dependencies);
+    if (packageJson.private !== true || dependencies.length === 0 || dependencies.some(
+      ([, version]) => typeof version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)
+    ) || dependencies.some(
+      ([name, version]) => !lockfile.includes(`      ${name}:
+        specifier: ${String(version)}
+`)
+    ) || !source.includes("export function RenderProgram(input:")) {
+      throw new Error("\u5F53\u524D Render Program \u4F9D\u8D56\u6216\u5165\u53E3\u65E0\u6548\u3002");
+    }
+  } catch (cause) {
+    if (cause instanceof ProjectLifecycleError) throw cause;
+    throw new ProjectLifecycleError(
+      "PROJECT_CURRENT_INVALID",
+      currentPath,
+      `\u5F53\u524D Render Program \u4FEE\u8BA2\u65E0\u6548\uFF1A${projectDirectory}\u3002Narracut \u4E0D\u4F1A\u6253\u5F00\u6216\u4FEE\u590D\u8BE5\u9879\u76EE\u3002`,
+      { cause }
+    );
+  }
+}
+async function captureDirectoryIdentity(path) {
+  const facts = await lstat2(path);
+  if (!facts.isDirectory() || facts.isSymbolicLink()) {
+    throw new Error(`\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u76EE\u5F55\uFF1A${path}`);
+  }
+  return { dev: facts.dev, ino: facts.ino };
+}
+function hasIdentity(facts, identity) {
+  return facts.dev === identity.dev && facts.ino === identity.ino;
+}
+async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity, markerWritten, projectDirectory, operationToken) {
+  let facts;
+  try {
+    facts = await lstat2(temporaryDirectory);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity)) {
+    throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u5DF2\u88AB\u66FF\u6362\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
+  }
+  if (markerWritten) {
+    const marker = JSON.parse(await readRegularUtf8(
+      join2(temporaryDirectory, OPERATION_MARKER),
+      4096
+    ));
+    if (!isCreateOperationMarker(marker, projectDirectory, operationToken)) {
+      throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u5DF2\u53D8\u5316\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
+    }
+  }
+  await rm(temporaryDirectory, { recursive: true });
+}
+async function cleanupTargetReservation(projectDirectory, identity) {
+  let facts;
+  try {
+    facts = await lstat2(projectDirectory);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity)) {
+    throw new Error("\u53D1\u5E03\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u5DF2\u88AB\u66FF\u6362\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
+  }
+  if ((await readdir2(projectDirectory)).length !== 0) {
+    throw new Error("\u53D1\u5E03\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u51FA\u73B0\u5916\u90E8\u5185\u5BB9\uFF0CNarracut \u62D2\u7EDD\u5220\u9664\u3002");
+  }
+  await rmdir(projectDirectory);
+}
+async function createProjectVNext(inputPath, options = {}) {
+  const projectDirectory = resolve2(inputPath);
+  const projectName = basename(projectDirectory);
+  if (projectName === "" || projectName === "." || projectName === "..") {
+    throw new ProjectLifecycleError(
+      "PROJECT_CREATE_TARGET_INVALID",
+      projectDirectory,
+      "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
+    );
+  }
+  const temporaryDirectory = join2(dirname(projectDirectory), `.${projectName}.narracut-tmp`);
+  const createId = options.createId ?? randomUUID2;
+  const projectId = createId();
+  const revisionId = createId();
+  const operationToken = randomUUID2();
+  let temporaryIdentity = null;
+  let markerWritten = false;
+  let targetReservationIdentity = null;
+  try {
+    if (await pathExists(projectDirectory)) {
+      throw new ProjectLifecycleError(
+        "PROJECT_CREATE_TARGET_EXISTS",
+        projectDirectory,
+        `\u521B\u5EFA\u76EE\u6807\u5DF2\u5B58\u5728\uFF1A${projectDirectory}\u3002\u8BF7\u9009\u62E9\u5C1A\u4E0D\u5B58\u5728\u7684\u65B0\u8DEF\u5F84\u3002`
+      );
+    }
+    if (await pathExists(temporaryDirectory)) {
+      await removeConfirmedCreateResidue(
+        temporaryDirectory,
+        projectDirectory,
+        options.confirmTemporaryCleanup === true
+      );
+    }
+    await mkdir(temporaryDirectory);
+    temporaryIdentity = await captureDirectoryIdentity(temporaryDirectory);
+    await writeFile(join2(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
+      kind: "narracut-operation",
+      version: 1,
+      operation: "create",
+      targetDirectory: projectDirectory,
+      operationToken
+    }));
+    markerWritten = true;
+    await writeStarterProject(temporaryDirectory, projectId, revisionId);
+    await validateStarterProject(temporaryDirectory, projectId, revisionId);
+    if (process.platform !== "win32") {
+      try {
+        await mkdir(projectDirectory);
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+          throw new ProjectLifecycleError(
+            "PROJECT_CREATE_TARGET_EXISTS",
+            projectDirectory,
+            `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`,
+            { cause: error }
+          );
+        }
+        throw error;
+      }
+      targetReservationIdentity = await captureDirectoryIdentity(projectDirectory);
+    } else if (await pathExists(projectDirectory)) {
+      throw new ProjectLifecycleError(
+        "PROJECT_CREATE_TARGET_EXISTS",
+        projectDirectory,
+        `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`
+      );
+    }
+    await unlink(join2(temporaryDirectory, OPERATION_MARKER));
+    markerWritten = false;
+    if (targetReservationIdentity !== null) {
+      const currentReservation = await lstat2(projectDirectory);
+      if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir2(projectDirectory)).length !== 0) {
+        throw new ProjectLifecycleError(
+          "PROJECT_CREATE_TARGET_EXISTS",
+          projectDirectory,
+          `\u539F\u5B50\u53D1\u5E03\u65F6\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u8986\u76D6\u3002`
+        );
+      }
+    }
+    await rename(temporaryDirectory, projectDirectory);
+    temporaryIdentity = null;
+    targetReservationIdentity = null;
+    return { projectDirectory, projectId, revisionId };
+  } catch (cause) {
+    try {
+      if (targetReservationIdentity !== null) {
+        await cleanupTargetReservation(projectDirectory, targetReservationIdentity);
+      }
+      if (temporaryIdentity !== null) {
+        await cleanupOwnedTemporaryDirectory(
+          temporaryDirectory,
+          temporaryIdentity,
+          markerWritten,
+          projectDirectory,
+          operationToken
+        );
+      }
+    } catch (cleanupCause) {
+      throw new ProjectLifecycleError(
+        "PROJECT_CREATE_CLEANUP_FAILED",
+        temporaryDirectory,
+        `\u521B\u5EFA\u5931\u8D25\uFF0C\u4E14\u65E0\u6CD5\u8BC1\u660E\u4E34\u65F6\u4EA7\u7269\u4ECD\u5F52\u672C\u6B21\u64CD\u4F5C\u6240\u6709\uFF1B\u5DF2\u4FDD\u7559\u73B0\u573A\uFF1A${temporaryDirectory}\u3002`,
+        { cause: cleanupCause }
+      );
+    }
+    if (cause instanceof ProjectLifecycleError) throw cause;
+    throw new ProjectLifecycleError(
+      "PROJECT_CREATE_FAILED",
+      projectDirectory,
+      `\u65E0\u6CD5\u521B\u5EFA Project VNext\uFF1A${projectDirectory}\u3002`,
+      { cause }
+    );
+  }
+}
+async function readProcessIdentity(pid) {
+  if (process.platform !== "linux") return null;
+  try {
+    const statBytes = await readFile(`/proc/${pid}/stat`, "utf8");
+    const commandEnd = statBytes.lastIndexOf(")");
+    if (commandEnd < 0) return null;
+    return statBytes.slice(commandEnd + 2).trim().split(/\s+/u)[19] ?? null;
+  } catch {
+    return null;
+  }
+}
+async function leaseHolderIsAlive(marker) {
+  if (!Number.isSafeInteger(marker.pid) || marker.pid <= 0) return true;
+  try {
+    process.kill(marker.pid, 0);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
+    return true;
+  }
+  if (marker.processIdentity === null) return true;
+  const currentIdentity = await readProcessIdentity(marker.pid);
+  return currentIdentity === null || currentIdentity === marker.processIdentity;
+}
+function isLeaseMarker(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const marker = value;
+  return marker.kind === "narracut-project-lease" && marker.version === 1 && typeof marker.projectDirectory === "string" && typeof marker.projectId === "string" && typeof marker.pid === "number" && (marker.processIdentity === null || typeof marker.processIdentity === "string") && typeof marker.token === "string";
+}
+async function clearStaleLease(leasePath) {
+  let facts;
+  let marker;
+  try {
+    facts = await lstat2(leasePath);
+    if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 4096) return false;
+    marker = JSON.parse(await readFile(leasePath, "utf8"));
+  } catch {
+    return false;
+  }
+  if (!isLeaseMarker(marker) || await leaseHolderIsAlive(marker)) return false;
+  const currentFacts = await lstat2(leasePath);
+  if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino) return false;
+  await unlink(leasePath);
+  return true;
+}
+async function acquireProjectLease(inspection) {
+  const projectDirectory = inspection.projectDirectory;
+  const leasePath = join2(projectDirectory, ".narracut", "workspace.lease");
+  if (activeLeasePaths.has(leasePath)) {
+    throw new ProjectLifecycleError(
+      "PROJECT_IN_USE",
+      projectDirectory,
+      `\u9879\u76EE\u5DF2\u7531\u53E6\u4E00\u4E2A Narracut \u5DE5\u4F5C\u533A\u5360\u7528\uFF1A${projectDirectory}\u3002`
+    );
+  }
+  const marker = {
+    kind: "narracut-project-lease",
+    version: 1,
+    projectDirectory,
+    projectId: inspection.manifest.projectId,
+    pid: process.pid,
+    processIdentity: await readProcessIdentity(process.pid),
+    token: randomUUID2()
+  };
+  let handle;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      handle = await openFile(leasePath, "wx", 384);
+      break;
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+      if (attempt === 0 && await clearStaleLease(leasePath)) continue;
+      throw new ProjectLifecycleError(
+        "PROJECT_IN_USE",
+        projectDirectory,
+        `\u9879\u76EE\u5DF2\u7531\u53E6\u4E00\u4E2A Narracut \u5DE5\u4F5C\u533A\u5360\u7528\uFF1A${projectDirectory}\u3002`,
+        { cause: error }
+      );
+    }
+  }
+  if (handle === void 0) {
+    throw new ProjectLifecycleError(
+      "PROJECT_IN_USE",
+      projectDirectory,
+      `\u65E0\u6CD5\u53D6\u5F97\u9879\u76EE\u5199\u5165\u79DF\u7EA6\uFF1A${projectDirectory}\u3002`
+    );
+  }
+  try {
+    await handle.writeFile(JSON.stringify(marker));
+    await handle.sync();
+  } catch (cause) {
+    await handle.close();
+    await rm(leasePath, { force: true });
+    throw new ProjectLifecycleError(
+      "PROJECT_IN_USE",
+      projectDirectory,
+      `\u65E0\u6CD5\u5199\u5165\u9879\u76EE\u79DF\u7EA6\uFF1A${projectDirectory}\u3002`,
+      { cause }
+    );
+  }
+  await handle.close();
+  let leaseDirectoryHandle;
+  try {
+    leaseDirectoryHandle = await openFile(dirname(leasePath), "r");
+  } catch (cause) {
+    await rm(leasePath, { force: true });
+    throw new ProjectLifecycleError(
+      "PROJECT_IN_USE",
+      projectDirectory,
+      `\u65E0\u6CD5\u951A\u5B9A\u9879\u76EE\u79DF\u7EA6\u76EE\u5F55\uFF1A${projectDirectory}\u3002`,
+      { cause }
+    );
+  }
+  activeLeasePaths.add(leasePath);
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    activeLeasePaths.delete(leasePath);
+    const anchoredLeasePath = process.platform === "win32" ? leasePath : `/dev/fd/${leaseDirectoryHandle.fd}/workspace.lease`;
+    try {
+      const current = JSON.parse(await readFile(anchoredLeasePath, "utf8"));
+      if (current.token === marker.token) await unlink(anchoredLeasePath);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    } finally {
+      await leaseDirectoryHandle.close();
+    }
+  };
+}
+async function openProjectVNext(inputPath) {
+  const projectDirectory = await realpath2(resolve2(inputPath)).catch(() => resolve2(inputPath));
+  try {
+    const initialInspection = await inspectProjectVNext(projectDirectory);
+    await validateCurrentProjectState(initialInspection);
+    const release = await acquireProjectLease(initialInspection);
+    try {
+      const inspection = await inspectProjectVNext(projectDirectory);
+      await validateCurrentProjectState(inspection);
+      if (inspection.manifest.projectId !== initialInspection.manifest.projectId) {
+        throw new ProjectLifecycleError(
+          "PROJECT_IDENTITY_LOST",
+          projectDirectory,
+          `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
+        );
+      }
+      return { inspection, release };
+    } catch (error) {
+      await release();
+      throw error;
+    }
+  } catch (error) {
+    if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+      throw error;
+    }
+    throw new ProjectLifecycleError(
+      "PROJECT_OPEN_FAILED",
+      projectDirectory,
+      `\u65E0\u6CD5\u6253\u5F00 Project VNext\uFF1A${projectDirectory}\u3002`,
+      { cause: error }
+    );
+  }
+}
+
 // plugins/narracut/src/server.ts
 var SERVER_VERSION = "0.1.0";
 var MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -1649,7 +2297,7 @@ var tools = [
   {
     name: "health_check",
     title: "\u68C0\u67E5 Narracut \u8FDE\u63A5",
-    description: "\u786E\u8BA4 Narracut \u672C\u5730 MCP \u5DF2\u8FDE\u63A5\uFF0C\u5E76\u8FD4\u56DE\u5F53\u524D\u53EA\u8BFB\u80FD\u529B\u8FB9\u754C\u3002",
+    description: "\u786E\u8BA4 Narracut \u672C\u5730 MCP \u5DF2\u8FDE\u63A5\uFF0C\u5E76\u8FD4\u56DE\u542F\u52A8\u5668\u4E0E\u9879\u76EE\u5DE5\u4F5C\u53F0\u80FD\u529B\u8FB9\u754C\u3002",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     outputSchema: {
       type: "object",
@@ -1662,6 +2310,46 @@ var tools = [
       additionalProperties: false
     },
     annotations: readOnlyToolAnnotations
+  },
+  {
+    name: "show_launcher",
+    title: "\u6253\u5F00 Narracut \u9879\u76EE\u542F\u52A8\u5668",
+    description: "\u5728\u6CA1\u6709\u9879\u76EE\u53C2\u6570\u65F6\u6253\u5F00 Narracut \u542F\u52A8\u5668\uFF0C\u7528\u7CFB\u7EDF\u6587\u4EF6\u5939\u9009\u62E9\u7A97\u53E3\u521B\u5EFA\u6216\u6253\u5F00 Project VNext\u3002",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    outputSchema: { type: "object" },
+    annotations: readOnlyToolAnnotations,
+    _meta: { ui: { resourceUri: WORKBENCH_URI } }
+  },
+  {
+    name: "create_project",
+    title: "\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00 Narracut \u9879\u76EE",
+    description: "\u5728\u7528\u6237\u660E\u786E\u9009\u62E9\u7684\u4E0D\u5B58\u5728\u7EDD\u5BF9\u8DEF\u5F84\u540C\u7EA7\u751F\u6210 Project VNext\uFF0C\u5B8C\u6574\u6821\u9A8C\u540E\u539F\u5B50\u53D1\u5E03\u5E76\u53D6\u5F97\u5199\u5165\u79DF\u7EA6\u3002\u4E0D\u4F1A\u8054\u7F51\u3001\u5B89\u88C5\u4F9D\u8D56\u6216\u8986\u76D6\u5DF2\u6709\u76EE\u5F55\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        confirmTemporaryCleanup: { type: "boolean" }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { resourceUri: WORKBENCH_URI } }
+  },
+  {
+    name: "open_project",
+    title: "\u6253\u5F00 Narracut \u9879\u76EE",
+    description: "\u4E25\u683C\u6821\u9A8C\u7528\u6237\u660E\u786E\u9009\u62E9\u7684 Project VNext \u7EDD\u5BF9\u76EE\u5F55\u5E76\u53D6\u5F97\u72EC\u5360\u5199\u5165\u79DF\u7EA6\uFF1B\u4E0D\u4F1A\u521B\u5EFA\u3001\u8865\u5168\u3001\u8FC1\u79FB\u6216\u6539\u5199\u666E\u901A\u76EE\u5F55\u4E0E\u635F\u574F\u9879\u76EE\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory"],
+      properties: { projectDirectory: { type: "string", minLength: 1 } },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { resourceUri: WORKBENCH_URI } }
   },
   {
     name: "inspect_project",
@@ -1741,6 +2429,9 @@ var tools = [
 function connectedState() {
   return { status: "connected", readOnly: true };
 }
+function launcherConnectionState() {
+  return { status: "connected", readOnly: false };
+}
 function serializeInspection(inspection) {
   const assets = new Map(inspection.project.assets.map((asset) => [asset.id, asset]));
   return {
@@ -1748,7 +2439,7 @@ function serializeInspection(inspection) {
     connection: connectedState(),
     project: {
       directory: inspection.projectDirectory,
-      folderName: basename(inspection.projectDirectory),
+      folderName: basename2(inspection.projectDirectory),
       projectId: inspection.manifest.projectId,
       sceneCount: inspection.project.scenes.length,
       assetCount: inspection.project.assets.length
@@ -1788,10 +2479,10 @@ function diagnosticSummary(diagnostics) {
 }
 async function loadWorkbench() {
   const [html, paperTexture, filmTexture, displayFont] = await Promise.all([
-    readFile(WORKBENCH_PATH, "utf8"),
-    readFile(PAPER_TEXTURE_PATH),
-    readFile(FILM_TEXTURE_PATH),
-    readFile(DISPLAY_FONT_PATH)
+    readFile2(WORKBENCH_PATH, "utf8"),
+    readFile2(PAPER_TEXTURE_PATH),
+    readFile2(FILM_TEXTURE_PATH),
+    readFile2(DISPLAY_FONT_PATH)
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables);
@@ -1827,7 +2518,7 @@ async function inspectProject(argumentsValue) {
       structuredContent,
       content: [{
         type: "text",
-        text: `${basename(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
+        text: `${basename2(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
       }]
     };
   } catch (error) {
@@ -1837,7 +2528,7 @@ async function inspectProject(argumentsValue) {
         structuredContent: {
           status: "invalid",
           connection: connectedState(),
-          project: { directory: projectDirectory, folderName: basename(projectDirectory) },
+          project: { directory: projectDirectory, folderName: basename2(projectDirectory) },
           error: {
             code: error.code,
             path: error.path,
@@ -1864,7 +2555,43 @@ function hostValidationResult(hostValidation, text) {
     content: [{ type: "text", text }]
   };
 }
-async function callTool(params, hostValidation) {
+var ProjectWorkspaceSession = class {
+  #opened = null;
+  async open(projectDirectory) {
+    const next = await openProjectVNext(projectDirectory);
+    const previous = this.#opened;
+    try {
+      if (previous !== null) await previous.release();
+    } catch (error) {
+      await next.release();
+      throw error;
+    }
+    this.#opened = next;
+    return next.inspection;
+  }
+  async dispose() {
+    const opened = this.#opened;
+    this.#opened = null;
+    if (opened !== null) await opened.release();
+  }
+};
+function lifecycleFailure(error) {
+  return {
+    isError: true,
+    structuredContent: {
+      status: "invalid",
+      connection: launcherConnectionState(),
+      error: {
+        code: error.code,
+        path: error.path,
+        message: error.message,
+        ...error instanceof ProjectInspectionError ? { diagnostics: diagnosticSummary(error.diagnostics) } : {}
+      }
+    },
+    content: [{ type: "text", text: `Narracut \u9879\u76EE\u64CD\u4F5C\u5931\u8D25\uFF1A${error.message}` }]
+  };
+}
+async function callTool(params, hostValidation, workspace) {
   if (typeof params !== "object" || params === null || Array.isArray(params)) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
@@ -1872,8 +2599,74 @@ async function callTool(params, hostValidation) {
   if (name === "health_check") {
     return {
       structuredContent: { status: "connected", server: "narracut", readOnly: true },
-      content: [{ type: "text", text: "Narracut \u63D2\u4EF6\u5DF2\u8FDE\u63A5\uFF1B\u5F53\u524D\u53EA\u63D0\u4F9B\u53EA\u8BFB\u9879\u76EE\u68C0\u67E5\u3002" }]
+      content: [{ type: "text", text: "Narracut \u63D2\u4EF6\u5DF2\u8FDE\u63A5\uFF1B\u53EF\u539F\u5B50\u521B\u5EFA\u3001\u4E25\u683C\u6253\u5F00 Project VNext\uFF0C\u6253\u5F00\u540E\u7684\u9879\u76EE\u5DE5\u4F5C\u53F0\u4FDD\u6301\u53EA\u8BFB\u3002" }]
     };
+  }
+  if (name === "show_launcher") {
+    return {
+      structuredContent: { status: "launcher", connection: launcherConnectionState() },
+      content: [{ type: "text", text: "Narracut \u9879\u76EE\u542F\u52A8\u5668\u5DF2\u6253\u5F00\uFF1B\u8BF7\u9009\u62E9\u7236\u76EE\u5F55\u521B\u5EFA\u9879\u76EE\uFF0C\u6216\u9009\u62E9\u73B0\u6709 Project VNext \u6253\u5F00\u3002" }]
+    };
+  }
+  if (name === "create_project" || name === "open_project") {
+    const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
+    if (projectDirectory === null || !isAbsolute2(projectDirectory)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "invalid",
+          connection: launcherConnectionState(),
+          error: { code: "INVALID_TOOL_INPUT", message: "projectDirectory \u5FC5\u987B\u662F\u7EDD\u5BF9\u76EE\u5F55\u8DEF\u5F84\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u64CD\u4F5C\u9879\u76EE\uFF1AprojectDirectory \u5FC5\u987B\u662F\u7EDD\u5BF9\u76EE\u5F55\u8DEF\u5F84\u3002" }]
+      };
+    }
+    let createdProject = false;
+    try {
+      let operation;
+      if (name === "create_project") {
+        const confirmTemporaryCleanup = typeof argumentsValue === "object" && argumentsValue !== null && !Array.isArray(argumentsValue) && argumentsValue.confirmTemporaryCleanup === true;
+        await createProjectVNext(projectDirectory, { confirmTemporaryCleanup });
+        createdProject = true;
+        operation = "created";
+      } else {
+        operation = "opened";
+      }
+      const inspection = await workspace.open(projectDirectory);
+      return {
+        structuredContent: { ...serializeInspection(inspection), operation },
+        content: [{
+          type: "text",
+          text: operation === "created" ? `${basename2(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename2(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
+        }]
+      };
+    } catch (error) {
+      if (createdProject) {
+        const causeCode = error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError ? error.code : "PROJECT_OPEN_FAILED";
+        return {
+          isError: true,
+          structuredContent: {
+            status: "created-not-opened",
+            connection: launcherConnectionState(),
+            project: { directory: projectDirectory, folderName: basename2(projectDirectory) },
+            error: {
+              code: "PROJECT_CREATED_NOT_OPENED",
+              causeCode,
+              path: projectDirectory,
+              message: "\u9879\u76EE\u5DF2\u7ECF\u5B8C\u6574\u521B\u5EFA\uFF0C\u4F46\u6682\u65F6\u65E0\u6CD5\u53D6\u5F97\u5DE5\u4F5C\u533A\u79DF\u7EA6\u3002\u8BF7\u4F7F\u7528\u201C\u6253\u5F00\u9879\u76EE\u201D\u91CD\u8BD5\uFF1B\u4E0D\u8981\u518D\u6B21\u521B\u5EFA\u3002"
+            }
+          },
+          content: [{
+            type: "text",
+            text: `\u9879\u76EE\u5DF2\u7ECF\u521B\u5EFA\u5728 ${projectDirectory}\uFF0C\u4F46\u5C1A\u672A\u6253\u5F00\uFF08${causeCode}\uFF09\u3002`
+          }]
+        };
+      }
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        return lifecycleFailure(error);
+      }
+      throw error;
+    }
   }
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
@@ -1932,6 +2725,7 @@ function createNarracutRequestHandler(options = {}) {
   const hostValidation = new AgentHostValidationService(
     options.codexHost ?? new CodexAppServerHost()
   );
+  const workspace = new ProjectWorkspaceSession();
   const requestHandler = async (request) => {
     switch (request.method) {
       case "initialize": {
@@ -1939,7 +2733,7 @@ function createNarracutRequestHandler(options = {}) {
           protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: { tools: {}, resources: {} },
           serverInfo: { name: "narracut", version: SERVER_VERSION },
-          instructions: "\u53EA\u63A5\u89E6\u7528\u6237\u660E\u786E\u7ED9\u51FA\u7684 Project VNext \u76EE\u5F55\u3002\u9879\u76EE\u5185\u5BB9\u4FDD\u6301\u53EA\u8BFB\uFF1BAgent \u5DE5\u4F5C\u533A\u53EF\u8FD0\u884C\u56FA\u5B9A\u7684 Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\u3002"
+          instructions: "\u53EA\u63A5\u89E6\u7528\u6237\u901A\u8FC7\u7CFB\u7EDF\u6587\u4EF6\u5939\u9009\u62E9\u7A97\u53E3\u6216\u53C2\u6570\u660E\u786E\u7ED9\u51FA\u7684\u76EE\u5F55\u3002\u53EF\u4EE5\u5728\u4E0D\u5B58\u5728\u7684\u76EE\u6807\u539F\u5B50\u521B\u5EFA Project VNext\uFF0C\u6216\u4E25\u683C\u6253\u5F00\u6709\u6548\u9879\u76EE\uFF1B\u6253\u5F00\u540E\u7684\u9879\u76EE\u5DE5\u4F5C\u53F0\u4FDD\u6301\u53EA\u8BFB\uFF0CAgent \u5DE5\u4F5C\u533A\u53EF\u8FD0\u884C\u56FA\u5B9A\u7684 Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\u3002"
         };
       }
       case "ping":
@@ -1947,13 +2741,13 @@ function createNarracutRequestHandler(options = {}) {
       case "tools/list":
         return { tools };
       case "tools/call":
-        return callTool(request.params, hostValidation);
+        return callTool(request.params, hostValidation, workspace);
       case "resources/list":
         return {
           resources: [{
             uri: WORKBENCH_URI,
             name: "Narracut \u5DE5\u4F5C\u53F0",
-            description: "Project VNext \u53EA\u8BFB\u53CC\u5DE5\u4F5C\u533A\u5916\u58F3",
+            description: "Project VNext \u542F\u52A8\u5668\u4E0E\u53EA\u8BFB\u53CC\u5DE5\u4F5C\u533A\u5916\u58F3",
             mimeType: "text/html;profile=mcp-app"
           }]
         };
@@ -1979,7 +2773,10 @@ function createNarracutRequestHandler(options = {}) {
     }
   };
   return Object.assign(requestHandler, {
-    dispose: () => hostValidation.dispose()
+    dispose: async () => {
+      await workspace.dispose();
+      await hostValidation.dispose();
+    }
   });
 }
 var handleRequest = createNarracutRequestHandler();

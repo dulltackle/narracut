@@ -13,6 +13,12 @@ import {
   type ProjectInspectionDiagnostic,
   type ProjectVNextInspection,
 } from "../../../src/server/project-vnext-inspection";
+import {
+  createProjectVNext,
+  openProjectVNext,
+  ProjectLifecycleError,
+  type OpenedProjectVNext,
+} from "../../../src/server/project-lifecycle";
 
 const SERVER_VERSION = "0.1.0";
 const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -57,7 +63,7 @@ const tools = [
   {
     name: "health_check",
     title: "检查 Narracut 连接",
-    description: "确认 Narracut 本地 MCP 已连接，并返回当前只读能力边界。",
+    description: "确认 Narracut 本地 MCP 已连接，并返回启动器与项目工作台能力边界。",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     outputSchema: {
       type: "object",
@@ -70,6 +76,48 @@ const tools = [
       additionalProperties: false,
     },
     annotations: readOnlyToolAnnotations,
+  },
+  {
+    name: "show_launcher",
+    title: "打开 Narracut 项目启动器",
+    description: "在没有项目参数时打开 Narracut 启动器，用系统文件夹选择窗口创建或打开 Project VNext。",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    outputSchema: { type: "object" },
+    annotations: readOnlyToolAnnotations,
+    _meta: { ui: { resourceUri: WORKBENCH_URI } },
+  },
+  {
+    name: "create_project",
+    title: "原子创建并打开 Narracut 项目",
+    description:
+      "在用户明确选择的不存在绝对路径同级生成 Project VNext，完整校验后原子发布并取得写入租约。不会联网、安装依赖或覆盖已有目录。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        confirmTemporaryCleanup: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { resourceUri: WORKBENCH_URI } },
+  },
+  {
+    name: "open_project",
+    title: "打开 Narracut 项目",
+    description:
+      "严格校验用户明确选择的 Project VNext 绝对目录并取得独占写入租约；不会创建、补全、迁移或改写普通目录与损坏项目。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory"],
+      properties: { projectDirectory: { type: "string", minLength: 1 } },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { resourceUri: WORKBENCH_URI } },
   },
   {
     name: "inspect_project",
@@ -151,6 +199,10 @@ const tools = [
 
 function connectedState(): { status: "connected"; readOnly: true } {
   return { status: "connected", readOnly: true };
+}
+
+function launcherConnectionState(): { status: "connected"; readOnly: false } {
+  return { status: "connected", readOnly: false };
 }
 
 function serializeInspection(inspection: ProjectVNextInspection): Record<string, unknown> {
@@ -289,9 +341,52 @@ function hostValidationResult(hostValidation: Record<string, unknown>, text: str
   };
 }
 
+class ProjectWorkspaceSession {
+  #opened: OpenedProjectVNext | null = null;
+
+  async open(projectDirectory: string): Promise<ProjectVNextInspection> {
+    const next = await openProjectVNext(projectDirectory);
+    const previous = this.#opened;
+    try {
+      if (previous !== null) await previous.release();
+    } catch (error) {
+      await next.release();
+      throw error;
+    }
+    this.#opened = next;
+    return next.inspection;
+  }
+
+  async dispose(): Promise<void> {
+    const opened = this.#opened;
+    this.#opened = null;
+    if (opened !== null) await opened.release();
+  }
+}
+
+function lifecycleFailure(error: ProjectLifecycleError | ProjectInspectionError): ToolResult {
+  return {
+    isError: true,
+    structuredContent: {
+      status: "invalid",
+      connection: launcherConnectionState(),
+      error: {
+        code: error.code,
+        path: error.path,
+        message: error.message,
+        ...(error instanceof ProjectInspectionError
+          ? { diagnostics: diagnosticSummary(error.diagnostics) }
+          : {}),
+      },
+    },
+    content: [{ type: "text", text: `Narracut 项目操作失败：${error.message}` }],
+  };
+}
+
 async function callTool(
   params: unknown,
   hostValidation: AgentHostValidationService,
+  workspace: ProjectWorkspaceSession,
 ): Promise<ToolResult> {
   if (typeof params !== "object" || params === null || Array.isArray(params)) {
     throw new Error("tools/call 缺少参数。");
@@ -300,8 +395,81 @@ async function callTool(
   if (name === "health_check") {
     return {
       structuredContent: { status: "connected", server: "narracut", readOnly: true },
-      content: [{ type: "text", text: "Narracut 插件已连接；当前只提供只读项目检查。" }],
+      content: [{ type: "text", text: "Narracut 插件已连接；可原子创建、严格打开 Project VNext，打开后的项目工作台保持只读。" }],
     };
+  }
+  if (name === "show_launcher") {
+    return {
+      structuredContent: { status: "launcher", connection: launcherConnectionState() },
+      content: [{ type: "text", text: "Narracut 项目启动器已打开；请选择父目录创建项目，或选择现有 Project VNext 打开。" }],
+    };
+  }
+  if (name === "create_project" || name === "open_project") {
+    const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
+    if (projectDirectory === null || !isAbsolute(projectDirectory)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "invalid",
+          connection: launcherConnectionState(),
+          error: { code: "INVALID_TOOL_INPUT", message: "projectDirectory 必须是绝对目录路径。" },
+        },
+        content: [{ type: "text", text: "无法操作项目：projectDirectory 必须是绝对目录路径。" }],
+      };
+    }
+    let createdProject = false;
+    try {
+      let operation: "created" | "opened";
+      if (name === "create_project") {
+        const confirmTemporaryCleanup = typeof argumentsValue === "object" &&
+          argumentsValue !== null &&
+          !Array.isArray(argumentsValue) &&
+          (argumentsValue as { confirmTemporaryCleanup?: unknown }).confirmTemporaryCleanup === true;
+        await createProjectVNext(projectDirectory, { confirmTemporaryCleanup });
+        createdProject = true;
+        operation = "created";
+      } else {
+        operation = "opened";
+      }
+      const inspection = await workspace.open(projectDirectory);
+      return {
+        structuredContent: { ...serializeInspection(inspection), operation },
+        content: [{
+          type: "text",
+          text: operation === "created"
+            ? `${basename(inspection.projectDirectory)} 已原子创建并打开，共 0 个 Scene。`
+            : `${basename(inspection.projectDirectory)} 已严格校验并打开。`,
+        }],
+      };
+    } catch (error) {
+      if (createdProject) {
+        const causeCode = error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError
+          ? error.code
+          : "PROJECT_OPEN_FAILED";
+        return {
+          isError: true,
+          structuredContent: {
+            status: "created-not-opened",
+            connection: launcherConnectionState(),
+            project: { directory: projectDirectory, folderName: basename(projectDirectory) },
+            error: {
+              code: "PROJECT_CREATED_NOT_OPENED",
+              causeCode,
+              path: projectDirectory,
+              message: "项目已经完整创建，但暂时无法取得工作区租约。请使用“打开项目”重试；不要再次创建。",
+            },
+          },
+          content: [{
+            type: "text",
+            text: `项目已经创建在 ${projectDirectory}，但尚未打开（${causeCode}）。`,
+          }],
+        };
+      }
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        return lifecycleFailure(error);
+      }
+      throw error;
+    }
   }
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
@@ -377,6 +545,7 @@ export function createNarracutRequestHandler(
   const hostValidation = new AgentHostValidationService(
     options.codexHost ?? new CodexAppServerHost(),
   );
+  const workspace = new ProjectWorkspaceSession();
   const requestHandler = async (request: JsonRpcRequest): Promise<unknown> => {
     switch (request.method) {
     case "initialize": {
@@ -384,17 +553,17 @@ export function createNarracutRequestHandler(
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {}, resources: {} },
         serverInfo: { name: "narracut", version: SERVER_VERSION },
-        instructions: "只接触用户明确给出的 Project VNext 目录。项目内容保持只读；Agent 工作区可运行固定的 Codex 创作线程宿主验证。",
+        instructions: "只接触用户通过系统文件夹选择窗口或参数明确给出的目录。可以在不存在的目标原子创建 Project VNext，或严格打开有效项目；打开后的项目工作台保持只读，Agent 工作区可运行固定的 Codex 创作线程宿主验证。",
       };
     }
     case "ping": return {};
     case "tools/list": return { tools };
-    case "tools/call": return callTool(request.params, hostValidation);
+    case "tools/call": return callTool(request.params, hostValidation, workspace);
     case "resources/list": return {
       resources: [{
         uri: WORKBENCH_URI,
         name: "Narracut 工作台",
-        description: "Project VNext 只读双工作区外壳",
+        description: "Project VNext 启动器与只读双工作区外壳",
         mimeType: "text/html;profile=mcp-app",
       }],
     };
@@ -421,7 +590,10 @@ export function createNarracutRequestHandler(
     }
   };
   return Object.assign(requestHandler, {
-    dispose: () => hostValidation.dispose(),
+    dispose: async () => {
+      await workspace.dispose();
+      await hostValidation.dispose();
+    },
   });
 }
 

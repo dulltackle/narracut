@@ -105,6 +105,103 @@ test("初始加载态不会提前宣称连接正常", async ({ page }) => {
   await expect(page.getByLabel("正在连接 Narracut")).toBeVisible();
 });
 
+test("启动器通过系统文件夹选择完成原子创建并把焦点交给零 Scene 空状态", async ({ page }) => {
+  await loadWorkbench(page);
+  await page.exposeFunction("pickNarracutDirectory", async (purpose: string) => {
+    expect(purpose).toBe("create-parent");
+    return { path: "/work/projects" };
+  });
+  await page.exposeFunction("callNarracutTool", async (name: string, args: Record<string, unknown>) => {
+    expect(name).toBe("create_project");
+    expect(args).toEqual({
+      projectDirectory: "/work/projects/海边采访",
+      confirmTemporaryCleanup: false,
+    });
+    return { structuredContent: { ...validResult(0), operation: "created" } };
+  });
+  await page.evaluate(() => {
+    (window as unknown as { openai: unknown }).openai = {
+      selectDirectory: (options: { purpose: string }) =>
+        (window as unknown as { pickNarracutDirectory: (purpose: string) => unknown })
+          .pickNarracutDirectory(options.purpose),
+      callTool: (name: string, args: Record<string, unknown>) =>
+        (window as unknown as {
+          callNarracutTool: (name: string, args: Record<string, unknown>) => unknown;
+        }).callNarracutTool(name, args),
+    };
+  });
+  await sendResult(page, {
+    status: "launcher",
+    connection: { status: "connected", readOnly: false },
+  });
+
+  await expect(page.getByRole("heading", { name: "选择父目录" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "原子创建并打开" })).toBeDisabled();
+  await page.getByRole("button", { name: "选择父文件夹" }).click();
+  await page.getByRole("textbox", { name: "项目文件夹名" }).fill("海边采访");
+  await expect(page.getByText("/work/projects/海边采访", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("原子发布检查台").getByText(
+    "路径可用 · 目标文件夹必须不存在",
+    { exact: true },
+  )).toBeVisible();
+  await expect(page.getByText("零字节 video.md", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "原子创建并打开" }).click();
+
+  const emptyTitle = page.getByRole("heading", { name: "项目中还没有 Scene" });
+  await expect(emptyTitle).toBeVisible();
+  await expect(emptyTitle).toBeFocused();
+});
+
+test("启动器在窄面板纵向排列，并在宿主没有目录选择能力时明确失败", async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 860 });
+  await loadWorkbench(page);
+  await sendResult(page, {
+    status: "launcher",
+    connection: { status: "connected", readOnly: false },
+  });
+
+  await page.getByRole("button", { name: "选择父文件夹" }).click();
+  await expect(page.getByText("HOST_DIRECTORY_PICKER_UNAVAILABLE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "选择父文件夹" })).toBeFocused();
+  const positions = await page.locator(".launcher-main").evaluate((main) => {
+    const ticket = main.querySelector<HTMLElement>(".launch-ticket")!.getBoundingClientRect();
+    const bench = main.querySelector<HTMLElement>(".launch-side")!.getBoundingClientRect();
+    return { ticketBottom: ticket.bottom, benchTop: bench.top };
+  });
+  expect(positions.benchTop).toBeGreaterThanOrEqual(positions.ticketBottom - 1);
+  await expect(page.getByRole("button", { name: "从恢复快照创建" })).toBeDisabled();
+});
+
+test("启动器创建失败后保留输入并把焦点交还主操作", async ({ page }) => {
+  await loadWorkbench(page);
+  await page.evaluate(() => {
+    (window as unknown as { openai: unknown }).openai = {
+      selectDirectory: () => "/tmp/projects",
+      callTool: () => ({
+        isError: true,
+        structuredContent: {
+          status: "invalid",
+          error: {
+            code: "PROJECT_CREATE_TARGET_EXISTS",
+            path: "/tmp/projects/existing",
+            message: "创建目标已存在。",
+          },
+        },
+      }),
+    };
+  });
+  await sendResult(page, { status: "launcher", connection: { status: "connected" } });
+  await page.getByRole("button", { name: "选择父文件夹" }).click();
+  await page.getByRole("textbox", { name: "项目文件夹名" }).fill("existing");
+  const createButton = page.getByRole("button", { name: "原子创建并打开" });
+  await createButton.click();
+
+  await expect(page.getByText("PROJECT_CREATE_TARGET_EXISTS", { exact: true })).toBeVisible();
+  await expect(createButton).toBeFocused();
+  await page.getByRole("textbox", { name: "项目文件夹名" }).fill("bad\tname");
+  await expect(createButton).toBeDisabled();
+});
+
 test("有效项目首屏显示连接、身份、双工作区、Scene 与检查结果", async ({ page }) => {
   await loadWorkbench(page);
   await sendResult(page, validResult());
