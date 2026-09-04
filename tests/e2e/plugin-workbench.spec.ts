@@ -64,6 +64,7 @@ function validResult(sceneCount = 5) {
       videoBrief: { status: "valid", label: "video.md", bytes: 28 },
     },
     scenes,
+    assetStates: assets.map((asset) => ({ ...asset, status: "available" as const, size: 1024 })),
     warnings: [],
   };
 }
@@ -543,6 +544,354 @@ test("保存失败可显式重试，工作区切换保留编辑与历史；冲�
   const callsAfterConflict = calls;
   await page.waitForTimeout(700);
   expect(calls).toBe(callsAfterConflict);
+});
+
+test("从 Scene Asset 面板逐项导入并绑定，失败项不回滚且 Undo 只解除引用", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  const sceneId = initial.projectDsl.scenes[0]!.id;
+  const importedAsset = {
+    id: "20000000-0000-4000-8000-000000000071",
+    path: "assets/mountain.png",
+  };
+  const calls: Array<{ name: string; args: Record<string, any> }> = [];
+  await page.exposeFunction("pickNarracutFiles", () => [
+    { path: "/outside/mountain.png" },
+    { path: "/outside/folder" },
+  ]);
+  await page.exposeFunction("callNarracutAssetTool", (name: string, args: Record<string, any>) => {
+    calls.push({ name, args: structuredClone(args) });
+    if (name === "import_project_asset" && args.sourcePath.endsWith("mountain.png")) {
+      const projectDsl = {
+        assets: [importedAsset],
+        scenes: [{ ...initial.projectDsl.scenes[0], assetIds: [importedAsset.id] }],
+      };
+      return {
+        structuredContent: {
+          ...initial,
+          status: "asset-imported",
+          projectRevision: `sha256:${"7".repeat(64)}`,
+          projectDsl,
+          project: { ...initial.project, assetCount: 1 },
+          assetStates: [{ ...importedAsset, status: "available", size: 2048 }],
+          assetImport: {
+            status: "imported-and-bound",
+            code: "ASSET_IMPORTED_AND_BOUND",
+            message: "Asset 已导入并绑定到原目标 Scene。",
+            asset: importedAsset,
+          },
+        },
+      };
+    }
+    if (name === "import_project_asset") {
+      return {
+        structuredContent: {
+          status: "asset-import-result",
+          assetImport: {
+            status: "rejected",
+            code: "ASSET_SOURCE_NOT_FILE",
+            message: "导入源是目录；请选择一个或多个普通文件。",
+            asset: null,
+          },
+        },
+      };
+    }
+    if (name === "save_project_scenes") {
+      return {
+        structuredContent: {
+          ...initial,
+          status: "saved",
+          projectRevision: `sha256:${"8".repeat(64)}`,
+          projectDsl: args.project,
+          project: { ...initial.project, assetCount: 1 },
+          assetStates: [{ ...importedAsset, status: "available", size: 2048 }],
+        },
+      };
+    }
+    throw new Error(`意外工具：${name}`);
+  });
+  await page.evaluate(() => {
+    (window as unknown as { openai: unknown }).openai = {
+      selectFiles: () => (window as any).pickNarracutFiles(),
+      callTool: (name: string, args: Record<string, unknown>) =>
+        (window as any).callNarracutAssetTool(name, args),
+    };
+  });
+  await sendResult(page, initial);
+
+  await page.getByRole("button", { name: "第 01 个 Scene 的 Asset：未绑定 · 添加" }).click();
+  await expect(page.getByRole("heading", { name: "Scene 01 · Asset" })).toBeVisible();
+  await page.getByRole("button", { name: "导入并绑定" }).click();
+  await expect(page.getByText("mountain.png", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("已导入并绑定", { exact: true })).toBeVisible();
+  await expect(page.getByText("已拒绝", { exact: true })).toBeVisible();
+  expect(calls.filter((call) => call.name === "import_project_asset").map((call) => call.args)).toEqual([
+    expect.objectContaining({ sourcePath: "/outside/mountain.png", targetSceneId: sceneId }),
+    expect.objectContaining({ sourcePath: "/outside/folder", targetSceneId: sceneId }),
+  ]);
+  await expect(page.getByRole("button", { name: "第 01 个 Scene 的 Asset：mountain.png" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(() => calls.filter((call) => call.name === "save_project_scenes").at(-1)?.args.project)
+    .toMatchObject({ assets: [importedAsset], scenes: [{ assetIds: [] }] });
+  await expect(page.getByRole("button", { name: "第 01 个 Scene 的 Asset：未绑定 · 添加" })).toBeVisible();
+});
+
+test("Asset 导入前等待未保存 Scene，且导入期间锁住项目写操作", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  const sceneId = initial.projectDsl.scenes[0]!.id;
+  const importedAsset = {
+    id: "20000000-0000-4000-8000-000000000079",
+    path: "assets/waited.png",
+  };
+  let resolveSave!: () => void;
+  let resolveImport!: () => void;
+  const saveGate = new Promise<void>((resolve) => { resolveSave = resolve; });
+  const importGate = new Promise<void>((resolve) => { resolveImport = resolve; });
+  let pickerCalls = 0;
+  let savedProject: Record<string, any> | null = null;
+  const calls: Array<{ name: string; args: Record<string, any> }> = [];
+  await page.exposeFunction("pickNarracutPendingFile", () => {
+    pickerCalls += 1;
+    return [{ path: "/outside/waited.png" }];
+  });
+  await page.exposeFunction("callNarracutPendingImportTool", async (name: string, args: Record<string, any>) => {
+    calls.push({ name, args: structuredClone(args) });
+    if (name === "save_project_scenes") {
+      await saveGate;
+      savedProject = structuredClone(args.project);
+      return {
+        structuredContent: {
+          ...initial,
+          status: "saved",
+          projectRevision: `sha256:${"8".repeat(64)}`,
+          projectDsl: args.project,
+          scenes: [{
+            ...initial.scenes[0],
+            narration: args.project.scenes[0].narration.text,
+          }],
+        },
+      };
+    }
+    if (name === "import_project_asset") {
+      await importGate;
+      if (!savedProject) {
+        throw new Error("Asset 导入不应早于待保存的 Scene 写入");
+      }
+      const projectDsl = structuredClone(savedProject);
+      projectDsl.assets.push(importedAsset);
+      projectDsl.scenes[0].assetIds.push(importedAsset.id);
+      return {
+        structuredContent: {
+          ...initial,
+          status: "asset-imported",
+          projectRevision: `sha256:${"9".repeat(64)}`,
+          projectDsl,
+          project: { ...initial.project, assetCount: 1 },
+          assetStates: [{ ...importedAsset, status: "available", size: 1024 }],
+          assetImport: {
+            status: "imported-and-bound",
+            code: "ASSET_IMPORTED_AND_BOUND",
+            message: "Asset 已导入并绑定到原目标 Scene。",
+            asset: importedAsset,
+          },
+        },
+      };
+    }
+    throw new Error(`意外工具：${name}`);
+  });
+  await page.evaluate(() => {
+    (window as unknown as { openai: unknown }).openai = {
+      selectFiles: () => (window as any).pickNarracutPendingFile(),
+      callTool: (name: string, args: Record<string, unknown>) =>
+        (window as any).callNarracutPendingImportTool(name, args),
+    };
+  });
+  await sendResult(page, initial);
+
+  await page.getByRole("button", { name: "编辑 Narration" }).click();
+  await page.getByRole("textbox", { name: "Scene 01 Narration" }).fill("导入前必须保存的 Narration");
+  await page.getByRole("button", { name: /Scene 的 Asset/ }).click();
+  await expect.poll(() => calls.filter((call) => call.name === "save_project_scenes").length).toBe(1);
+  await page.getByRole("button", { name: "导入并绑定" }).click();
+  expect(pickerCalls).toBe(0);
+  await expect(page.getByRole("button", { name: "新增 Scene" })).toBeDisabled();
+
+  resolveSave();
+  await expect.poll(() => pickerCalls).toBe(1);
+  await expect.poll(() => calls.filter((call) => call.name === "import_project_asset").length).toBe(1);
+  await expect(page.getByRole("button", { name: "新增 Scene" })).toBeDisabled();
+  expect(calls.find((call) => call.name === "import_project_asset")?.args).toMatchObject({
+    baselineRevision: `sha256:${"8".repeat(64)}`,
+    targetSceneId: sceneId,
+  });
+
+  resolveImport();
+  await expect(page.getByText("已导入并绑定", { exact: true })).toBeVisible();
+  await expect(page.getByText("导入前必须保存的 Narration", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "新增 Scene" })).toBeEnabled();
+});
+
+test("Asset 面板可搜索添加已有登记、键盘排序、解除引用并只读预览", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  const assets = [
+    { id: "20000000-0000-4000-8000-000000000081", path: "assets/a.png" },
+    { id: "20000000-0000-4000-8000-000000000082", path: "assets/b.mp3" },
+    { id: "20000000-0000-4000-8000-000000000083", path: "assets/mountain.bin" },
+  ];
+  initial.projectDsl.assets = assets;
+  initial.projectDsl.scenes[0]!.assetIds = [assets[0]!.id, assets[1]!.id];
+  initial.project.assetCount = assets.length;
+  initial.assetStates = assets.map((asset) => ({ ...asset, status: "available", size: 512 }));
+  const saves: Array<Record<string, any>> = [];
+  await installAppToolBridge(page, (name, args) => {
+    if (name === "read_project_asset_preview") {
+      return {
+        structuredContent: {
+          assetPreview: {
+            status: "available",
+            id: assets[0]!.id,
+            path: assets[0]!.path,
+            filename: "a.png",
+            size: 9,
+            kind: "image",
+            mediaType: "image/png",
+            dataUrl: "data:image/png;base64,iVBORw0KGgoA",
+          },
+        },
+      };
+    }
+    expect(name).toBe("save_project_scenes");
+    saves.push(structuredClone(args));
+    return {
+      structuredContent: {
+        ...initial,
+        status: "saved",
+        projectRevision: `sha256:${String(saves.length + 2).repeat(64).slice(0, 64)}`,
+        projectDsl: args.project,
+      },
+    };
+  });
+  await sendResult(page, initial);
+
+  await page.getByRole("button", { name: /第 01 个 Scene 的 Asset：2 个 Asset · a\.png \+1/ }).click();
+  await page.getByRole("button", { name: "添加已有 Asset" }).click();
+  await page.getByRole("searchbox", { name: "搜索项目 Asset" }).fill("mountain");
+  await page.getByRole("button", { name: "添加 mountain.bin" }).click();
+  await expect.poll(() => saves.at(-1)?.project.scenes[0].assetIds).toEqual([
+    assets[0]!.id,
+    assets[1]!.id,
+    assets[2]!.id,
+  ]);
+
+  await page.getByRole("button", { name: "返回 Scene Asset" }).click();
+  await page.getByRole("button", { name: "将 mountain.bin 上移" }).click();
+  await expect.poll(() => saves.at(-1)?.project.scenes[0].assetIds).toEqual([
+    assets[0]!.id,
+    assets[2]!.id,
+    assets[1]!.id,
+  ]);
+  const previewButton = page.getByRole("button", { name: "预览 a.png" });
+  await previewButton.click();
+  await expect(page.getByRole("dialog", { name: "Asset 只读预览" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "a.png 只读预览" })).toHaveAttribute("src", /data:image\/png/);
+  const closePreview = page.getByRole("button", { name: "关闭预览" });
+  await expect(closePreview).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closePreview).toBeFocused();
+  await page.getByRole("button", { name: "关闭预览" }).click();
+  await expect(previewButton).toBeFocused();
+
+  await page.getByRole("button", { name: "解除 b.mp3 引用" }).click();
+  await expect.poll(() => saves.at(-1)?.project.scenes[0].assetIds).toEqual([
+    assets[0]!.id,
+    assets[2]!.id,
+  ]);
+});
+
+test("关闭加载中的 Asset 预览后忽略迟到响应", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  const asset = { id: "20000000-0000-4000-8000-000000000089", path: "assets/slow.png" };
+  initial.projectDsl.assets = [asset];
+  initial.projectDsl.scenes[0]!.assetIds = [asset.id];
+  initial.project.assetCount = 1;
+  initial.assetStates = [{ ...asset, status: "available", size: 9 }] as any;
+  let resolvePreview!: () => void;
+  const previewGate = new Promise<void>((resolve) => { resolvePreview = resolve; });
+  await page.exposeFunction("readSlowNarracutPreview", async () => {
+    await previewGate;
+    return {
+      structuredContent: {
+        assetPreview: {
+          status: "available",
+          ...asset,
+          filename: "slow.png",
+          size: 9,
+          kind: "image",
+          mediaType: "image/png",
+          dataUrl: "data:image/png;base64,iVBORw0KGgoA",
+        },
+      },
+    };
+  });
+  await page.evaluate(() => {
+    (window as unknown as { openai: unknown }).openai = {
+      callTool: () => (window as any).readSlowNarracutPreview(),
+    };
+  });
+  await sendResult(page, initial);
+
+  await page.getByRole("button", { name: /Scene 的 Asset/ }).click();
+  await page.getByRole("button", { name: "预览 slow.png" }).click();
+  await expect(page.getByRole("dialog", { name: "Asset 只读预览" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Asset 只读预览" })).toHaveCount(0);
+  resolvePreview();
+  await page.waitForTimeout(100);
+  await expect(page.getByRole("dialog", { name: "Asset 只读预览" })).toHaveCount(0);
+});
+
+test("Asset 容量、有界列表、文件不可用与悬空 ID 都有明确非纯颜色状态", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  const assets = Array.from({ length: 255 }, (_, index) => ({
+    id: `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    path: `assets/asset-${index + 1}.bin`,
+  }));
+  const danglingId = "20000000-0000-4000-8000-999999999999";
+  initial.projectDsl.assets = assets;
+  initial.projectDsl.scenes[0]!.assetIds = [...assets.map((asset) => asset.id), danglingId];
+  initial.project.assetCount = assets.length;
+  initial.assetStates = assets.map((asset, index) => index === 0
+    ? { ...asset, status: "unavailable" as const, reason: "文件缺失或已被移动。" }
+    : { ...asset, status: "available" as const, size: 10 }) as any;
+  await sendResult(page, initial);
+
+  await page.getByRole("button", { name: /第 01 个 Scene 的 Asset：256 个 Asset/ }).click();
+  await expect(page.getByText("当前 Scene 已达到 256 个 Asset 引用上限。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "导入并绑定" })).toBeDisabled();
+  await expect(page.getByText("文件不可用", { exact: true })).toBeVisible();
+  await expect(page.getByText("悬空 Asset ID", { exact: true })).toBeVisible();
+  await expect(page.getByText("未找到登记的 Asset", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /预览 asset-1\.bin/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "解除悬空 Asset ID 引用" })).toBeEnabled();
+
+  const full = validResult(1);
+  full.projectDsl.assets = Array.from({ length: 1000 }, (_, index) => ({
+    id: `20000000-0000-4000-8001-${String(index + 1).padStart(12, "0")}`,
+    path: `assets/library-${index + 1}.bin`,
+  }));
+  full.project.assetCount = 1000;
+  full.assetStates = full.projectDsl.assets.map((asset) => ({ ...asset, status: "available" as const, size: 10 }));
+  await sendResult(page, full);
+  await page.getByRole("button", { name: "管理项目 Asset" }).click();
+  await expect(page.getByRole("button", { name: "导入暂未绑定 Asset" })).toBeDisabled();
+  await expect(page.getByText("项目已达到 1,000 个 Asset 上限，不能继续导入。", { exact: true })).toBeVisible();
+  await expect(page.locator(".project-asset-list li")).toHaveCount(100);
+  await expect(page.getByText("仅显示前 100 项，请缩小搜索范围。", { exact: true })).toBeVisible();
 });
 
 test("Agent 工作区运行固定宿主验证并展示经过身份校验的有界结果", async ({ page }) => {

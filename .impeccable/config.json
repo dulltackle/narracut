@@ -21,6 +21,15 @@
         "value": "narracut display\"')",
         "createdAt": "2026-09-03T12:07:42.636Z",
         "reason": "测试断言验证 DESIGN.md 已声明的 Narracut Display 内嵌字体，并非新增字体"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "plugins/narracut/workbench.html"
+        ],
+        "createdAt": "2026-09-04T07:00:36.332Z",
+        "reason": "Agent: DESIGN.md 明确要求用蓝色三角形作为 Scene 选中位置标记；该声明绘制三角几何，不是卡片侧边条。"
       }
     ]
   }

@@ -33,7 +33,21 @@ export type ProjectVNextInspection = {
   projectRevision: string;
   videoBrief: string;
   renderPrograms: { directories: string[] };
+  assetStates: readonly AssetRuntimeState[];
   warnings: readonly ProjectInspectionDiagnostic[];
+};
+
+export type AssetRuntimeState = {
+  id: string;
+  path: string;
+  status: "available" | "unavailable";
+  size?: number;
+  reason?: string;
+};
+
+export type ProjectResourceValidation = {
+  assetStates: AssetRuntimeState[];
+  warnings: ProjectInspectionDiagnostic[];
 };
 
 export type ProjectInspectionErrorCode =
@@ -735,15 +749,58 @@ async function validateOrdinaryResource(
 export async function validateProjectVNextResources(
   projectDirectory: string,
   project: ProjectVNext,
-): Promise<void> {
+): Promise<ProjectResourceValidation> {
+  const assetStates: AssetRuntimeState[] = [];
   for (const asset of project.assets) {
+    const path = join(projectDirectory, asset.path);
     await validateOrdinaryResource(projectDirectory, asset.path, false);
+    let facts;
+    try {
+      facts = await lstat(path);
+    } catch (cause) {
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "unavailable",
+        reason: isFileSystemError(cause) && cause.code === "ENOENT"
+          ? "文件缺失或已被移动。"
+          : "文件无法读取；请检查权限或设备状态。",
+      });
+      continue;
+    }
+    try {
+      const handle = await open(path, "r");
+      await handle.close();
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "available",
+        size: facts.size,
+      });
+    } catch {
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "unavailable",
+        reason: "文件无法读取；请检查权限或设备状态。",
+      });
+    }
   }
   for (const scene of project.scenes) {
     if (scene.speech !== undefined) {
       await validateOrdinaryResource(projectDirectory, scene.speech.path, true);
     }
   }
+  return {
+    assetStates,
+    warnings: boundedDiagnostics(assetStates
+      .filter((asset) => asset.status === "unavailable")
+      .map((asset) => ({
+        code: "PROJECT_ASSET_UNAVAILABLE",
+        component: asset.path,
+        message: `${asset.path} 不可用：${asset.reason ?? "无法读取。"}`,
+      }))),
+  };
 }
 
 async function readStableDirectory(directory: string): Promise<Dirent[]> {
@@ -1068,7 +1125,10 @@ export async function inspectProjectVNext(inputPath: string): Promise<ProjectVNe
   if (projectValidation.project === undefined) {
     throw invalidContent(projectPath, projectValidation.diagnostics);
   }
-  await validateProjectVNextResources(projectDirectory, projectValidation.project);
+  const { assetStates, warnings } = await validateProjectVNextResources(
+    projectDirectory,
+    projectValidation.project,
+  );
   return {
     projectDirectory,
     manifest: manifest as ProjectManifestVNext,
@@ -1076,6 +1136,7 @@ export async function inspectProjectVNext(inputPath: string): Promise<ProjectVNe
     projectRevision: `sha256:${createHash("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
     renderPrograms: { directories: renderProgramDirectories },
-    warnings: [],
+    assetStates,
+    warnings,
   };
 }

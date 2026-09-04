@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -337,6 +337,178 @@ describe("Narracut Codex 插件", () => {
         { id: originalId, narration: { text: "改写后的 Narration" }, assetIds: [] },
         { id: nextId, narration: { text: "" }, assetIds: [] },
       ],
+    });
+    await pluginRequest.dispose();
+  });
+
+  it("通过 app 专用工具逐项导入 Asset，并返回可继续保存的完整项目状态", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-asset-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sourcePath = join(parentDirectory, "frame.png");
+    await createProjectVNext(projectDirectory);
+    await writeFile(sourcePath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [],
+      scenes: [{
+        id: "30000000-0000-4000-8000-000000000001",
+        narration: { text: "画面" },
+        assetIds: [],
+      }],
+    }));
+    const pluginRequest = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+    const listed = await pluginRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" }) as {
+      tools: Array<{ name: string; _meta?: unknown }>;
+    };
+    expect(listed.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "import_project_asset",
+        _meta: { ui: { visibility: ["app"] } },
+      }),
+    ]));
+    const opened = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "open_project", arguments: { projectDirectory } },
+    }) as { structuredContent: any };
+
+    const imported = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "import_project_asset",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          baselineRevision: opened.structuredContent.projectRevision,
+          sourcePath,
+          targetSceneId: "30000000-0000-4000-8000-000000000001",
+        },
+      },
+    }) as { structuredContent: any };
+
+    expect(imported.structuredContent).toMatchObject({
+      status: "asset-imported",
+      assetImport: {
+        status: "imported-and-bound",
+        code: "ASSET_IMPORTED_AND_BOUND",
+        asset: { path: "assets/frame.png" },
+      },
+      project: { assetCount: 1 },
+      projectDsl: {
+        assets: [{ id: expect.any(String), path: "assets/frame.png" }],
+        scenes: [{ assetIds: [expect.any(String)] }],
+      },
+    });
+    expect(await readFile(sourcePath)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    await pluginRequest.dispose();
+  });
+
+  it("只读预览按登记表区分已知格式、文件不可用与悬空 Asset ID", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-preview-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sourcePath = join(parentDirectory, "still.png");
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    await createProjectVNext(projectDirectory);
+    await writeFile(sourcePath, pngBytes);
+    const pluginRequest = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+    const opened = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "open_project", arguments: { projectDirectory } },
+    }) as { structuredContent: any };
+    const imported = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "import_project_asset",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          baselineRevision: opened.structuredContent.projectRevision,
+          sourcePath,
+        },
+      },
+    }) as { structuredContent: any };
+    const asset = imported.structuredContent.assetImport.asset;
+
+    const preview = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "read_project_asset_preview",
+        arguments: { projectDirectory, projectId: opened.structuredContent.project.projectId, assetId: asset.id },
+      },
+    }) as { structuredContent: any };
+    expect(preview.structuredContent.assetPreview).toMatchObject({
+      status: "available",
+      kind: "image",
+      mediaType: "image/png",
+      filename: "still.png",
+      path: "assets/still.png",
+      size: pngBytes.length,
+      dataUrl: `data:image/png;base64,${pngBytes.toString("base64")}`,
+    });
+
+    await unlink(join(projectDirectory, asset.path));
+    const unavailable = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        name: "read_project_asset_preview",
+        arguments: { projectDirectory, projectId: opened.structuredContent.project.projectId, assetId: asset.id },
+      },
+    }) as { structuredContent: any };
+    expect(unavailable.structuredContent.assetPreview).toMatchObject({
+      status: "unavailable",
+      id: asset.id,
+      path: asset.path,
+      reason: expect.any(String),
+    });
+
+    const dangling = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: {
+        name: "read_project_asset_preview",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          assetId: "20000000-0000-4000-8000-000000000099",
+        },
+      },
+    }) as { structuredContent: any };
+    expect(dangling.structuredContent.assetPreview).toEqual({
+      status: "dangling",
+      id: "20000000-0000-4000-8000-000000000099",
+      reason: "未找到登记的 Asset。",
+    });
+
+    const wrongIdentity = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 6,
+      method: "tools/call",
+      params: {
+        name: "read_project_asset_preview",
+        arguments: {
+          projectDirectory,
+          projectId: "10000000-0000-4000-8000-000000000099",
+          assetId: asset.id,
+        },
+      },
+    }) as { isError: boolean; structuredContent: any };
+    expect(wrongIdentity).toMatchObject({
+      isError: true,
+      structuredContent: {
+        status: "identity-lost",
+        error: { code: "PROJECT_IDENTITY_LOST" },
+      },
     });
     await pluginRequest.dispose();
   });

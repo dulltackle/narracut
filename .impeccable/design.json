@@ -136,6 +136,11 @@
         "name": "inspection-drawer",
         "value": "-18px 0 45px rgba(0,0,0,.48)",
         "purpose": "仅用于窄屏项目检查抽屉。"
+      },
+      {
+        "name": "asset-preview",
+        "value": "0 28px 80px rgba(0,0,0,.7)",
+        "purpose": "只用于独立 Asset 预览层，让媒体舞台与 Operate 工作台分离。"
       }
     ],
     "motion": [

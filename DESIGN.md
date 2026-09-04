@@ -1,6 +1,6 @@
 ---
 name: Narracut VNext Workbench
-description: 以暗房接触印样组织 Project VNext Scene 剪接、保存状态与只读 Codex 宿主验证的 Operate 工作台。
+description: 以暗房接触印样组织 Project VNext Scene 剪接、Asset 引用、只读预览与 Codex 宿主验证的 Operate 工作台。
 colors:
   darkroom: "#090d0e"
   shell: "#101516"
@@ -19,7 +19,54 @@ colors:
   proof-blue-deep: "#245da9"
   readonly-amber: "#d89a3d"
   connected-green: "#67c477"
+  focus-blue: "#9dbcf0"
+  high-contrast-white: "#ffffff"
+  asset-divider: "#343d3e"
+  preview-frame: "#485152"
+  preview-control-line: "#4a5556"
+  blue-control-hover: "#6f8db8"
+  preview-label: "#7f8a87"
+  asset-muted: "#8f9996"
+  preview-muted: "#909a97"
+  asset-path-muted: "#919b98"
+  asset-search-label: "#9aa4a1"
+  preview-copy: "#aab3b0"
+  import-ledger-copy: "#b7c0bd"
+  preview-code: "#c0c8c5"
+  preview-value: "#c8cecb"
+  asset-fact-value: "#c8cfcc"
+  asset-warning-copy: "#d0b07d"
+  asset-capacity-copy: "#d7b57f"
+  asset-control-copy: "#d7ddda"
+  asset-field-copy: "#e1e5e2"
+  project-asset-title: "#e2e6e3"
+  asset-title: "#e3e7e4"
+  preview-title: "#eef1ed"
+  asset-hover-tint: "rgba(78,136,223,.035)"
+  preview-scrim: "rgba(3,5,5,.9)"
 typography:
+  scale:
+    micro: "0.55rem"
+    machine-small: "0.58rem"
+    machine: "0.62rem"
+    metadata: "0.66rem"
+    fact: "0.68rem"
+    helper: "0.7rem"
+    action: "0.72rem"
+    compact: "0.79rem"
+    item: "0.84rem"
+    body: "1rem"
+    section: "1.08rem"
+    result-title: "1.1rem"
+    strong: "1.25rem"
+    mobile-title: "1.3rem"
+    panel-title: "1.35rem"
+    empty-title: "1.4rem"
+    state-title: "1.55rem"
+    brand: "1.65rem"
+    empty-title-max: "2.4rem"
+    agent-title-max: "2.75rem"
+    state-title-max: "2.8rem"
   display:
     fontFamily: '"Narracut Display", sans-serif'
     fontSize: "clamp(1.45rem, 2.1vw, 2rem)"
@@ -56,6 +103,7 @@ rounded:
   micro: "2px"
   control: "6px"
   field: "7px"
+  compact-panel: "8px"
   frame: "9px"
   circle: "50%"
 spacing:
@@ -159,12 +207,13 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的批注槽，始终禁用并说明完整创作指令将在后续功能中启用。
 
-当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑和保存状态明确哪些内容正在改变；Asset、Speech、Agent、Preview、Render Program 与 Composer 的不可写边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示候选 Render Program、预览、对话或日志历史。
+当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑、Asset 子视图和保存状态明确哪些内容正在改变。Asset 列继续只做摘要，导入、有序引用和只读预览在既有项目检查层与独立预览层中完成，不抢占接触表主面。Speech、Agent、Render Program 与 Composer 的不可写边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示候选 Render Program、对话或日志历史。
 
 **Key Characteristics:**
 
 - 黑色暗房外壳包围背光暖白接触表，主内容拥有最高亮度与面积。
 - Scene 是连续校片行；Narration 居主列，Asset 仅显示身份、路径或占位。
+- Asset 引用管理复用项目检查侧台；内容预览仅在独立只读层中出现，关闭后回到原操作位置。
 - 蓝色校片线同时配合三角指示与圈记边码表达选择，不只依赖颜色。
 - Agent 工作区是单任务验证台：桌面任务/结果双列，窄屏顺序叠放，不出现对话气泡。
 - 状态同时使用文字与形状：蓝色圆点表示运行，绿色圆点表示连接或成功，琥珀方形表示停止或不可用。
@@ -200,6 +249,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 - **选中纸白** (`paper-selected`): 被校片线框住的当前 Scene。
 - **纸面墨色** (`ink`): Narration、Scene 编号与纸面主要信息。
 - **暗房灰** (`muted`): 未激活标签、次级状态与低优先级元数据。
+- **Asset 信息阶** (`asset-*` / `preview-*`): Asset 面板与预览层的结构线、事实文字、路径和警告使用已提取的低彩度灰阶；这些色阶不进入接触表纸面主内容。
 
 ### Named Rules
 
@@ -240,7 +290,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 在 Agent 工作区，桌面主面以 `.82fr / 1.18fr` 并置“临时任务状态”与“验证结果”，底部操作栏固定承载开始验证、停止和继续。在 `900px` 以下，项目检查收窄到 `280px`，Scene/Speech 最右列隐藏，Agent 的任务与结果改为单列；在 `700px` 以下，Project ID 移到独立第二行，连接文字继续可见，项目检查改为从右侧打开的抽屉，Composer 仍固定在底部。移动端接触表保留 Scene、Narration 与 Asset 三列并允许横向内容自然裁切；Agent 舞台则由外层自然滚动，标题、任务状态、验证结果和操作按钮依次纵向排列。
 
-键盘焦点只表示下一次操作位置，不能自动改变所选 Scene。Scene 行通过显式激活改变选择；移动端抽屉按钮以 `aria-expanded` 表达状态，Composer 通过 `aria-describedby` 解释禁用原因。
+键盘焦点只表示下一次操作位置，不能自动改变所选 Scene。Scene 行通过显式激活改变选择；移动端抽屉按钮以 `aria-expanded` 表达状态，Composer 通过 `aria-describedby` 解释禁用原因。Asset 预览是 `aria-modal` 对话层，Tab 焦点不离开该层，Escape 和关闭按钮都停止媒体并把焦点还给原预览按钮。
 
 **The Identity Before Tools Rule.** 所有尺寸都保留文件夹、Project ID 与连接文字的稳定位置；不要为了节省空间把身份藏进菜单。
 
@@ -293,7 +343,15 @@ Scene 行是签名组件：大号 Scene 编号、独立拖拽手柄、校片边�
 
 ### Project Inspection
 
-检查栏是暗色窄侧台，以点、文字和状态词同时表达控制文件有效性。当前 Scene 显示 Narration 与 Scene ID、Asset 数量、Speech 状态；边界段落明确表格工作区独占 Scene/Narration 写入，Asset、Speech、Agent、Preview 与 Render Program 只读。窄屏时它成为可关闭抽屉，并保留最小 `44px` 关闭目标。
+检查栏是暗色窄侧台，以点、文字和状态词同时表达控制文件有效性。当前 Scene 显示 Narration 与 Scene ID、Asset 数量、Speech 状态；“管理项目 Asset”和 Scene Asset 单元格在同一侧台中进入子视图，不新增第三列。窄屏时它成为可关闭抽屉，并保留最小 `44px` 关闭目标。
+
+### Asset Reference Panel
+
+Scene Asset 面板以 Scene 编号、截断 ID、引用计数和“导入并绑定 / 添加已有 Asset”开始。引用列表按 Scene 顺序显示文件名、项目相对路径、可用状态、预览、上下移动、数字位置和解除引用。错误状态使用琶珀方形与文字，不仅依赖颜色。项目 Asset 视图以相对路径搜索，只显示有界的前 100 项并标记当前引用、已绑定和暂未绑定。
+
+### Asset Preview
+
+只读预览层以暗房黑遮罩和单一媒体舞台覆盖工作台；图像与视频使用 `contain` 而不裁切，音频/视频保持原生控件且默认暂停。文件名、项目路径和大小是稳定事实栏；未知格式、文件不可用与悬空 ID 分别用明确文字呈现。移动端尺寸近乎满屏，但仍保留明确关闭操作。
 
 ### Agent Host Validation
 
@@ -331,7 +389,7 @@ Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案
 ### Don't:
 
 - **Don't** 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。
-- **Don't** 让表格工作区以外的 Agent、Preview、Render Program、Composer 或桥接层获得 Scene 写入口；不要加入 Asset 编辑、TTS、Render、导入或 Legacy 项目入口。
+- **Don't** 让表格工作区以外的 Agent、Preview、Render Program、Composer 或桥接层获得 Scene 写入口；不要加入 Asset 删除/重命名/转码/裁切、TTS、Render 或 Legacy 项目入口。
 - **Don't** 用颜色作为选择、连接、有效或只读状态的唯一信号。
 - **Don't** 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene。
 - **Don't** 隐藏或启用 Composer；禁用原因必须同时可见且可被辅助技术读取。

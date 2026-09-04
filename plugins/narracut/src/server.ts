@@ -19,6 +19,7 @@ import {
   ProjectLifecycleError,
   type OpenedProjectVNext,
 } from "../../../src/server/project-lifecycle";
+import { readProjectAssetPreview } from "../../../src/server/project-asset-preview";
 
 const SERVER_VERSION = "0.1.0";
 const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -140,6 +141,44 @@ const tools = [
     },
     outputSchema: { type: "object" },
     annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } },
+  },
+  {
+    name: "import_project_asset",
+    title: "导入一个项目 Asset",
+    description: "仅供 Narracut 工作台 app 使用：逐字节复制一个系统文件选择器返回的普通文件，登记后可绑定原目标 Scene。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "baselineRevision", "sourcePath"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        baselineRevision: { type: "string", minLength: 1 },
+        sourcePath: { type: "string", minLength: 1 },
+        targetSceneId: { type: "string", minLength: 1 },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } },
+  },
+  {
+    name: "read_project_asset_preview",
+    title: "读取项目 Asset 预览",
+    description: "仅供 Narracut 工作台 app 使用：按登记 ID 只读检查 Asset，并为可安全内联的已知格式返回预览。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "assetId"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        assetId: { type: "string", minLength: 1 },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: readOnlyToolAnnotations,
     _meta: { ui: { visibility: ["app"] } },
   },
   {
@@ -268,6 +307,7 @@ function serializeInspection(
         : { status: "available", durationMs: scene.speech.durationMs },
     })),
     warnings: inspection.warnings,
+    assetStates: inspection.assetStates,
   };
 }
 
@@ -410,6 +450,54 @@ class ProjectWorkspaceSession {
     const saved = await opened.saveProject(input.project, input.baselineRevision);
     opened.inspection = saved.inspection;
     return saved.inspection;
+  }
+
+  async importAsset(input: {
+    projectDirectory: string;
+    projectId: string;
+    baselineRevision: string;
+    sourcePath: string;
+    targetSceneId?: string;
+  }): Promise<Awaited<ReturnType<OpenedProjectVNext["importAsset"]>>> {
+    const opened = this.#opened;
+    if (
+      opened === null ||
+      opened.inspection.projectDirectory !== input.projectDirectory ||
+      opened.inspection.manifest.projectId !== input.projectId
+    ) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        input.projectDirectory,
+        "当前工作台没有持有该项目的写入租约；Narracut 拒绝导入。",
+      );
+    }
+    const imported = await opened.importAsset({
+      sourcePath: input.sourcePath,
+      targetSceneId: input.targetSceneId,
+      baselineRevision: input.baselineRevision,
+    });
+    opened.inspection = imported.inspection;
+    return imported;
+  }
+
+  async readAssetPreview(input: {
+    projectDirectory: string;
+    projectId: string;
+    assetId: string;
+  }): Promise<Awaited<ReturnType<typeof readProjectAssetPreview>>> {
+    const opened = this.#opened;
+    if (
+      opened === null ||
+      opened.inspection.projectDirectory !== input.projectDirectory ||
+      opened.inspection.manifest.projectId !== input.projectId
+    ) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        input.projectDirectory,
+        "当前工作台未持有该项目身份；Narracut 拒绝读取预览。",
+      );
+    }
+    return readProjectAssetPreview(opened.inspection, input.assetId);
   }
 
   async dispose(): Promise<void> {
@@ -579,6 +667,118 @@ async function callTool(
             status,
             connection: connectedState(false),
           },
+        };
+      }
+      throw error;
+    }
+  }
+  if (name === "import_project_asset") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "asset-import-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "导入参数必须是对象。" },
+        },
+        content: [{ type: "text", text: "无法导入 Asset：导入参数无效。" }],
+      };
+    }
+    const input = argumentsValue as Record<string, unknown>;
+    if (
+      typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
+      typeof input.projectId !== "string" ||
+      typeof input.baselineRevision !== "string" ||
+      typeof input.sourcePath !== "string" || !isAbsolute(input.sourcePath) ||
+      (input.targetSceneId !== undefined && typeof input.targetSceneId !== "string")
+    ) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "asset-import-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "项目身份、基线或导入源无效。" },
+        },
+        content: [{ type: "text", text: "无法导入 Asset：项目身份、基线或导入源无效。" }],
+      };
+    }
+    try {
+      const imported = await workspace.importAsset({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        baselineRevision: input.baselineRevision,
+        sourcePath: input.sourcePath,
+        ...(typeof input.targetSceneId === "string" ? { targetSceneId: input.targetSceneId } : {}),
+      });
+      const { inspection, ...assetImport } = imported;
+      return {
+        structuredContent: {
+          ...serializeInspection(inspection, true),
+          status: imported.status.startsWith("imported-") ? "asset-imported" : "asset-import-result",
+          assetImport,
+        },
+        content: [{ type: "text", text: imported.message }],
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        const failure = lifecycleFailure(error);
+        return {
+          ...failure,
+          structuredContent: {
+            ...failure.structuredContent,
+            status: error instanceof ProjectLifecycleError && error.code === "PROJECT_SAVE_CONFLICT"
+              ? "save-conflict"
+              : error instanceof ProjectLifecycleError && error.code === "PROJECT_IDENTITY_LOST"
+                ? "identity-lost"
+                : "asset-import-failed",
+            connection: connectedState(false),
+          },
+        };
+      }
+      throw error;
+    }
+  }
+  if (name === "read_project_asset_preview") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: { assetPreview: { status: "dangling", id: "", reason: "预览参数无效。" } },
+        content: [{ type: "text", text: "无法读取 Asset 预览：参数无效。" }],
+      };
+    }
+    const input = argumentsValue as Record<string, unknown>;
+    if (
+      typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
+      typeof input.projectId !== "string" || typeof input.assetId !== "string"
+    ) {
+      return {
+        isError: true,
+        structuredContent: { assetPreview: { status: "dangling", id: "", reason: "项目身份或 Asset ID 无效。" } },
+        content: [{ type: "text", text: "无法读取 Asset 预览：项目身份或 Asset ID 无效。" }],
+      };
+    }
+    try {
+      const assetPreview = await workspace.readAssetPreview({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        assetId: input.assetId,
+      });
+      return {
+        structuredContent: { assetPreview },
+        content: [{
+          type: "text",
+          text: assetPreview.status === "available"
+            ? `${assetPreview.filename} 已完成只读检查。`
+            : assetPreview.reason,
+        }],
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError && error.code === "PROJECT_IDENTITY_LOST") {
+        return {
+          isError: true,
+          structuredContent: {
+            status: "identity-lost",
+            error: { code: error.code, path: error.path, message: error.message },
+          },
+          content: [{ type: "text", text: `无法读取 Asset 预览：${error.message}` }],
         };
       }
       throw error;

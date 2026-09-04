@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, readdir, rename, stat, symlink, writeFile } from "node:fs/promises";
+import { access, link, mkdir, mkdtemp, readFile, readdir, rename, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -152,6 +152,235 @@ describe("Project VNext 生命周期", () => {
     expect(await readFile(join(projectDirectory, "project.json"), "utf8")).toBe(
       `{"assets":[],"scenes":[{"id":"${secondSceneId}","narration":{"text":"第二幕"},"assetIds":[]},{"id":"${firstSceneId}","narration":{"text":"第一幕"},"assetIds":[]}]}`,
     );
+    await opened.release();
+  });
+
+  it("逐字节复制普通文件后只登记 ID 与唯一相对路径，并绑定原目标 Scene", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-asset-import-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sourcePath = join(parentDirectory, "camera-original.bin");
+    const sourceBytes = Buffer.from([0x00, 0xff, 0x31, 0x00, 0x7f]);
+    const sceneId = "30000000-0000-4000-8000-000000000001";
+    await createProjectVNext(projectDirectory);
+    await writeFile(sourcePath, sourceBytes);
+    const opened = await openProjectVNext(projectDirectory);
+    const sceneSaved = await opened.saveProject({
+      assets: [],
+      scenes: [{ id: sceneId, narration: { text: "镜头一" }, assetIds: [] }],
+    }, opened.inspection.projectRevision);
+
+    const imported = await opened.importAsset({
+      sourcePath,
+      targetSceneId: sceneId,
+      baselineRevision: sceneSaved.inspection.projectRevision,
+    });
+
+    expect(imported.status).toBe("imported-and-bound");
+    expect(imported.asset).toEqual({
+      id: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      path: "assets/camera-original.bin",
+    });
+    expect(await readFile(sourcePath)).toEqual(sourceBytes);
+    expect(await readFile(join(projectDirectory, imported.asset!.path))).toEqual(sourceBytes);
+    expect(imported.inspection.project).toEqual({
+      assets: [imported.asset],
+      scenes: [{ id: sceneId, narration: { text: "镜头一" }, assetIds: [imported.asset!.id] }],
+    });
+    expect(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")))
+      .toEqual(imported.inspection.project);
+    await opened.release();
+  });
+
+  it("导入逐项拒绝目录、符号链接与项目控制文件且不产生登记或半成品", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-asset-reject-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sourceDirectory = join(parentDirectory, "folder");
+    const sourceFile = join(parentDirectory, "outside.bin");
+    const sourceLink = join(parentDirectory, "outside-link.bin");
+    await createProjectVNext(projectDirectory);
+    await mkdir(sourceDirectory);
+    await writeFile(sourceFile, "outside");
+    await symlink(sourceFile, sourceLink);
+    const opened = await openProjectVNext(projectDirectory);
+    const controlHardlink = join(parentDirectory, "video-control-hardlink.md");
+    await link(join(projectDirectory, "video.md"), controlHardlink);
+
+    for (const [sourcePath, code] of [
+      [sourceDirectory, "ASSET_SOURCE_NOT_FILE"],
+      [sourceLink, "ASSET_SOURCE_SYMBOLIC_LINK"],
+      [join(projectDirectory, "project.json"), "ASSET_SOURCE_PROJECT_CONTROL_FILE"],
+      [controlHardlink, "ASSET_SOURCE_PROJECT_CONTROL_FILE"],
+    ] as const) {
+      const rejected = await opened.importAsset({
+        sourcePath,
+        baselineRevision: opened.inspection.projectRevision,
+      });
+      expect(rejected).toMatchObject({ status: "rejected", code, asset: null });
+    }
+    expect((await readdir(join(projectDirectory, "assets"))).filter((name) => !name.startsWith(".")))
+      .toEqual([]);
+    expect(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")))
+      .toEqual({ assets: [], scenes: [] });
+    await opened.release();
+  });
+
+  it("导入期间 assets 目录身份变化时停止写入且不触碰项目外目录", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-asset-directory-identity-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sourcePath = join(parentDirectory, "source.bin");
+    const externalDirectory = join(parentDirectory, "external-assets");
+    await createProjectVNext(projectDirectory);
+    await writeFile(sourcePath, "source");
+    await mkdir(externalDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+    const originalAssetsDirectory = join(projectDirectory, "assets-original");
+    await rename(join(projectDirectory, "assets"), originalAssetsDirectory);
+    await symlink(externalDirectory, join(projectDirectory, "assets"));
+
+    await expect(opened.importAsset({
+      sourcePath,
+      baselineRevision: opened.inspection.projectRevision,
+    })).rejects.toMatchObject({ code: "PROJECT_IDENTITY_LOST" });
+
+    expect(await readdir(externalDirectory)).toEqual([]);
+    expect(await readdir(originalAssetsDirectory)).toEqual([]);
+    expect(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")))
+      .toEqual({ assets: [], scenes: [] });
+    await opened.release();
+  });
+
+  it("同名导入生成唯一项目路径，目标消失或引用满额时只登记为暂未绑定", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-asset-unbound-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sourceDirectory = join(parentDirectory, "sources");
+    const firstSource = join(sourceDirectory, "first", "shot.bin");
+    const secondSource = join(sourceDirectory, "second", "shot.bin");
+    await createProjectVNext(projectDirectory);
+    await mkdir(join(sourceDirectory, "first"), { recursive: true });
+    await mkdir(join(sourceDirectory, "second"), { recursive: true });
+    await writeFile(firstSource, "first");
+    await writeFile(secondSource, "second");
+    const opened = await openProjectVNext(projectDirectory);
+
+    const first = await opened.importAsset({
+      sourcePath: firstSource,
+      targetSceneId: "30000000-0000-4000-8000-000000000099",
+      baselineRevision: opened.inspection.projectRevision,
+    });
+    const second = await opened.importAsset({
+      sourcePath: secondSource,
+      baselineRevision: first.inspection.projectRevision,
+    });
+
+    expect(first).toMatchObject({
+      status: "imported-unbound",
+      code: "ASSET_IMPORTED_UNBOUND",
+      asset: { path: "assets/shot.bin" },
+    });
+    expect(first.message).toContain("原目标 Scene 已不存在");
+    expect(second).toMatchObject({
+      status: "imported-unbound",
+      asset: { path: "assets/shot-2.bin" },
+    });
+    expect(await readFile(join(projectDirectory, "assets", "shot.bin"), "utf8")).toBe("first");
+    expect(await readFile(join(projectDirectory, "assets", "shot-2.bin"), "utf8")).toBe("second");
+    await opened.release();
+  });
+
+  it("为达到文件系统组件上限的同名文件预留唯一后缀空间", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-asset-long-name-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const filename = `${"a".repeat(251)}.bin`;
+    const firstDirectory = join(parentDirectory, "first");
+    const secondDirectory = join(parentDirectory, "second");
+    await createProjectVNext(projectDirectory);
+    await mkdir(firstDirectory);
+    await mkdir(secondDirectory);
+    await writeFile(join(firstDirectory, filename), "first");
+    await writeFile(join(secondDirectory, filename), "second");
+    const opened = await openProjectVNext(projectDirectory);
+
+    const first = await opened.importAsset({
+      sourcePath: join(firstDirectory, filename),
+      baselineRevision: opened.inspection.projectRevision,
+    });
+    const second = await opened.importAsset({
+      sourcePath: join(secondDirectory, filename),
+      baselineRevision: first.inspection.projectRevision,
+    });
+
+    expect(first.status).toBe("imported-unbound");
+    expect(second.status).toBe("imported-unbound");
+    expect(Buffer.byteLength(first.asset!.path.split("/").at(-1)!, "utf8")).toBeLessThanOrEqual(255);
+    expect(Buffer.byteLength(second.asset!.path.split("/").at(-1)!, "utf8")).toBeLessThanOrEqual(255);
+    expect(second.asset!.path).toMatch(/-2\.bin$/u);
+    expect(await readFile(join(projectDirectory, second.asset!.path), "utf8")).toBe("second");
+    await opened.release();
+  });
+
+  it("Scene Asset 引用可按现有保存语义添加、排序与解除，但登记表不能由客户端改写", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-asset-reference-save-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const sources = [join(parentDirectory, "a.bin"), join(parentDirectory, "b.bin")];
+    await writeFile(sources[0]!, "a");
+    await writeFile(sources[1]!, "b");
+    const opened = await openProjectVNext(projectDirectory);
+    const first = await opened.importAsset({ sourcePath: sources[0]!, baselineRevision: opened.inspection.projectRevision });
+    const second = await opened.importAsset({ sourcePath: sources[1]!, baselineRevision: first.inspection.projectRevision });
+    const sceneId = "30000000-0000-4000-8000-000000000001";
+
+    const bound = await opened.saveProject({
+      assets: second.inspection.project.assets,
+      scenes: [{
+        id: sceneId,
+        narration: { text: "排序" },
+        assetIds: [second.asset!.id, first.asset!.id],
+      }],
+    }, second.inspection.projectRevision);
+    expect(bound.inspection.project.scenes[0]?.assetIds).toEqual([second.asset!.id, first.asset!.id]);
+
+    const unlinked = await opened.saveProject({
+      assets: bound.inspection.project.assets,
+      scenes: [{ id: sceneId, narration: { text: "排序" }, assetIds: [first.asset!.id] }],
+    }, bound.inspection.projectRevision);
+    expect(unlinked.inspection.project.assets).toHaveLength(2);
+    expect(unlinked.inspection.project.scenes[0]?.assetIds).toEqual([first.asset!.id]);
+
+    await expect(opened.saveProject({
+      assets: [first.asset!],
+      scenes: unlinked.inspection.project.scenes,
+    }, unlinked.inspection.projectRevision)).rejects.toMatchObject({ code: "PROJECT_SAVE_FAILED" });
+    await opened.release();
+  });
+
+  it("项目达到 1,000 个 Asset 时原子拒绝继续导入", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-asset-capacity-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sourcePath = join(parentDirectory, "overflow.bin");
+    await createProjectVNext(projectDirectory);
+    await writeFile(sourcePath, "overflow");
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: Array.from({ length: 1000 }, (_, index) => ({
+        id: `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        path: `assets/missing-${index + 1}.bin`,
+      })),
+      scenes: [],
+    }));
+    const opened = await openProjectVNext(projectDirectory);
+
+    const rejected = await opened.importAsset({
+      sourcePath,
+      baselineRevision: opened.inspection.projectRevision,
+    });
+
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      code: "PROJECT_ASSET_LIMIT_REACHED",
+      asset: null,
+    });
+    expect((await readdir(join(projectDirectory, "assets"))).filter((name) => !name.startsWith(".")))
+      .toEqual([]);
     await opened.release();
   });
 

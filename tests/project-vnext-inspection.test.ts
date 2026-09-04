@@ -275,6 +275,56 @@ describe("Project VNext 只读检查", () => {
     });
   });
 
+  it("保留登记但文件缺失的 Asset，并以运行时状态区别于悬空引用", async () => {
+    const projectDirectory = await createProject();
+    const assetId = "20000000-0000-4000-8000-000000000001";
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [{ id: assetId, path: "assets/missing-camera.mov" }],
+      scenes: [{
+        id: "30000000-0000-4000-8000-000000000001",
+        narration: { text: "保留不可用引用" },
+        assetIds: [assetId],
+      }],
+    }));
+
+    const inspected = await inspectProjectVNext(projectDirectory);
+
+    expect(inspected.project.assets).toEqual([{ id: assetId, path: "assets/missing-camera.mov" }]);
+    expect(inspected.assetStates).toEqual([{
+      id: assetId,
+      path: "assets/missing-camera.mov",
+      status: "unavailable",
+      reason: "文件缺失或已被移动。",
+    }]);
+    expect(inspected.warnings).toEqual([expect.objectContaining({
+      code: "PROJECT_ASSET_UNAVAILABLE",
+      component: "assets/missing-camera.mov",
+    })]);
+  });
+
+  it("把大量 Asset 不可用警告截断在 100 条，但保留全部运行时状态", async () => {
+    const projectDirectory = await createProject();
+    const assets = Array.from({ length: 101 }, (_, index) => ({
+      id: `20000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      path: `assets/missing-${String(index).padStart(3, "0")}.bin`,
+    }));
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({ assets, scenes: [] }));
+
+    const inspected = await inspectProjectVNext(projectDirectory);
+
+    expect(inspected.assetStates).toHaveLength(101);
+    expect(inspected.warnings).toHaveLength(100);
+    expect(inspected.warnings[0]).toMatchObject({
+      code: "PROJECT_ASSET_UNAVAILABLE",
+      component: "assets/missing-000.bin",
+    });
+    expect(inspected.warnings[99]).toMatchObject({
+      code: "DIAGNOSTICS_TRUNCATED",
+      actual: 101,
+      limit: 100,
+    });
+  });
+
   it("不固化父存储布局地发现并验证 Render Program 内部树", async () => {
     const projectDirectory = await createProject();
     const programDirectory = join(projectDirectory, ".opaque-state", "revision-1", "render-program");
@@ -357,6 +407,25 @@ describe("Project VNext 只读检查", () => {
       code: "PROJECT_CONTENT_INVALID",
       path: linkedDirectory,
       diagnostics: [{ code: "PROJECT_RESOURCE_INVALID", component: "assets/external" }],
+    });
+  });
+
+  it("不把 Asset 路径中的悬空中间符号链接降级为普通文件不可用", async () => {
+    const projectDirectory = await createProject();
+    const linkedDirectory = join(projectDirectory, "assets", "missing-external");
+    await symlink(join(projectDirectory, "..", "does-not-exist"), linkedDirectory);
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [{
+        id: "20000000-0000-4000-8000-000000000001",
+        path: "assets/missing-external/file.bin",
+      }],
+      scenes: [],
+    }));
+
+    await expect(inspectProjectVNext(projectDirectory)).rejects.toMatchObject({
+      code: "PROJECT_CONTENT_INVALID",
+      path: linkedDirectory,
+      diagnostics: [{ code: "PROJECT_RESOURCE_INVALID", component: "assets/missing-external" }],
     });
   });
 

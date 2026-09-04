@@ -33,17 +33,18 @@ const scenes = Array.from({ length: 8 }, (_, offset) => {
     speech: index === 6 ? { status: "missing" } : { status: "available", durationMs: 1800 + index * 120 },
   };
 });
+const allAssets = scenes.flatMap((scene) => scene.assets);
 const workbenchResult = {
   status: "valid",
   connection: { status: "connected", readOnly: false },
   writable: true,
   projectRevision: `sha256:${"1".repeat(64)}`,
   projectDsl: {
-    assets: scenes.flatMap((scene) => scene.assets),
-    scenes: scenes.map((scene) => ({
+    assets: allAssets,
+    scenes: scenes.map((scene, index) => ({
       id: scene.id,
       narration: { text: scene.narration },
-      assetIds: scene.assets.map((asset) => asset.id),
+      assetIds: index === 0 ? allAssets.slice(0, 3).map((asset) => asset.id) : scene.assets.map((asset) => asset.id),
       ...(scene.speech.status === "available" ? {
         speech: {
           path: `speech/${scene.id}.mp3`,
@@ -67,6 +68,11 @@ const workbenchResult = {
     videoBrief: { status: "valid", label: "video.md", bytes: 486 },
   },
   scenes,
+  assetStates: allAssets.map((asset, index) => ({
+    ...asset,
+    status: index === 2 ? "unavailable" : "available",
+    ...(index === 2 ? { reason: "文件缺失或已被移动。" } : { size: 2_048_000 + index * 64_000 }),
+  })),
   warnings: [],
 };
 const launcherResult = {
@@ -74,6 +80,8 @@ const launcherResult = {
   connection: { status: "connected", readOnly: false },
 };
 const launcher = process.argv.includes("--launcher");
+const assetPanel = process.argv.includes("--asset-panel");
+const assetPreview = process.argv.includes("--asset-preview");
 const result = launcher ? launcherResult : workbenchResult;
 
 await mkdir(resolve(".impeccable/review"), { recursive: true });
@@ -89,9 +97,33 @@ const captures = launcher
       { name: "mobile", width: 430, height: 860 },
       { name: "mobile-menu", width: 430, height: 860, openSceneMenu: true },
     ];
+if (assetPanel) captures.splice(0, captures.length,
+  { name: "asset-panel-desktop", width: 1440, height: 900, openAssetPanel: true },
+  { name: "asset-panel-mobile", width: 430, height: 860, openAssetPanel: true },
+);
+if (assetPreview) captures.splice(0, captures.length,
+  { name: "asset-preview-desktop", width: 1440, height: 900, openAssetPanel: true, openAssetPreview: true },
+  { name: "asset-preview-mobile", width: 430, height: 860, openAssetPanel: true, openAssetPreview: true },
+);
 for (const capture of captures) {
   const page = await browser.newPage({ viewport: { width: capture.width, height: capture.height } });
   await page.setContent(html, { waitUntil: "domcontentloaded" });
+  if (capture.openAssetPreview) {
+    await page.evaluate(() => {
+      window.openai = {
+        callTool: (_name, args) => Promise.resolve({ structuredContent: { assetPreview: {
+          status: "available",
+          id: args.assetId,
+          path: "assets/scene-1.png",
+          filename: "scene-1.png",
+          size: 2048000,
+          kind: "image",
+          mediaType: "image/png",
+          dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        } } }),
+      };
+    });
+  }
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate((structuredContent) => window.postMessage({
     jsonrpc: "2.0",
@@ -100,6 +132,8 @@ for (const capture of captures) {
   }, "*"), result);
   await page.emulateMedia({ reducedMotion: "reduce" });
   if (capture.openSceneMenu) await page.locator(".scene-menu summary").click();
+  if (capture.openAssetPanel) await page.locator("[data-open-scene-assets]").first().click();
+  if (capture.openAssetPreview) await page.locator("[data-preview-asset]").first().click();
   await page.screenshot({
     path: resolve(`.impeccable/review/${capture.name}.png`),
     animations: "disabled",

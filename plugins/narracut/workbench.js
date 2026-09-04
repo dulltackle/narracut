@@ -8,6 +8,8 @@
   let pollTimer = null;
   let pollFailures = 0;
   let saveTimer = null;
+  let activeSavePromise = null;
+  let assetPreviewRequest = 0;
 
   const state = {
     result: null,
@@ -23,6 +25,12 @@
     selected: null,
     start: 0,
     inspectionOpen: false,
+    inspectorMode: "project",
+    assetSearch: "",
+    assetBusy: false,
+    assetImportResults: [],
+    assetPreview: null,
+    previewReturnAssetId: null,
     editing: null,
     editGroupOpen: false,
     expanded: null,
@@ -163,15 +171,123 @@
     return scene.assetIds.map((id) => ({ id, path: assets.get(id)?.path ?? null }));
   }
 
-  function inspector(result) {
+  function assetFilename(path) {
+    return path?.split("/").at(-1) ?? null;
+  }
+
+  function assetRuntime(assetId) {
+    return (state.result?.assetStates ?? []).find((item) => item.id === assetId) ?? null;
+  }
+
+  function assetSummary(scene) {
+    const assets = assetsFor(scene);
+    const abnormal = assets.some((asset) => asset.path === null || assetRuntime(asset.id)?.status === "unavailable");
+    let text;
+    if (assets.length === 0) text = "未绑定 · 添加";
+    else if (assets.length === 1) text = assetFilename(assets[0].path) ?? `悬空 ${assets[0].id.slice(0, 8)}`;
+    else text = `${assets.length} 个 Asset · ${assetFilename(assets[0].path) ?? assets[0].id.slice(0, 8)} +${assets.length - 1}`;
+    return { text, abnormal };
+  }
+
+  function importStatusLabel(status) {
+    return {
+      copying: "正在复制",
+      "imported-and-bound": "已导入并绑定",
+      "imported-unbound": "已导入但未绑定",
+      rejected: "已拒绝",
+      failed: "导入失败",
+    }[status] ?? status;
+  }
+
+  function projectInspector(result) {
     const scene = selectedScene();
     const writable = result.writable === true;
     return `<aside class="inspection" aria-label="项目检查" data-open="${state.inspectionOpen}">
       <button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button>
       <h2>项目检查</h2><div class="rule"></div><div class="checks">${checks(result)}</div>
       ${scene ? `<section class="selected"><div class="rule"></div><h3>Scene ${pad(currentScenes().indexOf(scene) + 1)}</h3><p class="selected-copy" data-testid="scene-narration-detail">${escapeHtml(scene.narration.text)}</p><dl class="facts"><div class="fact"><dt>Scene ID</dt><dd>${escapeHtml(scene.id)}</dd></div><div class="fact"><dt>Asset</dt><dd>${scene.assetIds.length}</dd></div><div class="fact"><dt>Speech</dt><dd>${scene.speech ? "已生成" : "缺失"}</dd></div></dl></section>` : ""}
-      <section class="readonly"><strong data-writable="${writable}">${writable ? "Scene 写入边界" : "只读"}</strong><p>${writable ? "只有表格工作区可以修改 Scene 与 Narration；Asset、Speech、Agent、Preview 和 Render Program 保持只读。" : "当前项目只提供检查。Scene、Narration、Asset 和 Speech 不会在这里被修改。"}</p></section>
+      ${writable ? `<button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}
+      <section class="readonly"><strong data-writable="${writable}">${writable ? "内容写入边界" : "只读"}</strong><p>${writable ? "表格工作区可以修改 Scene、Narration 与 Asset 引用；预览只检查 Asset 本体，不改变 Scene 或 Player。" : "当前项目只提供检查。Scene、Narration、Asset 和 Speech 不会在这里被修改。"}</p></section>
     </aside>`;
+  }
+
+  function assetItem(assetId, index, scene) {
+    const asset = state.project.assets.find((item) => item.id === assetId);
+    if (!asset) {
+      return `<li class="asset-item" data-status="dangling"><div class="asset-item-head"><span class="asset-warning" aria-hidden="true"></span><strong>悬空 Asset ID</strong></div><code>${escapeHtml(assetId)}</code><p>未找到登记的 Asset</p><div class="asset-controls"><button type="button" data-unlink-asset="${escapeHtml(assetId)}" aria-label="解除悬空 Asset ID 引用">解除引用</button></div></li>`;
+    }
+    const runtime = assetRuntime(asset.id);
+    const unavailable = runtime?.status === "unavailable";
+    const filename = assetFilename(asset.path);
+    return `<li class="asset-item" data-status="${unavailable ? "unavailable" : "available"}">
+      <div class="asset-item-head">${unavailable ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}<strong>${escapeHtml(filename)}</strong><span>${unavailable ? "文件不可用" : "可用"}</span></div>
+      <code>${escapeHtml(asset.path)}</code>${unavailable ? `<p>${escapeHtml(runtime.reason ?? "文件缺失或无法读取。")}</p>` : ""}
+      <div class="asset-controls">
+        <button type="button" data-preview-asset="${escapeHtml(asset.id)}" aria-label="预览 ${escapeHtml(filename)}" ${unavailable ? "disabled" : ""}>预览</button>
+        <button type="button" data-move-asset="${escapeHtml(asset.id)}" data-direction="up" aria-label="将 ${escapeHtml(filename)} 上移" ${state.assetBusy || index === 0 ? "disabled" : ""}>上移</button>
+        <button type="button" data-move-asset="${escapeHtml(asset.id)}" data-direction="down" aria-label="将 ${escapeHtml(filename)} 下移" ${state.assetBusy || index === scene.assetIds.length - 1 ? "disabled" : ""}>下移</button>
+        <label><span class="sr-only">将 ${escapeHtml(filename)} 移动到位置</span><input type="number" min="1" max="${scene.assetIds.length}" value="${index + 1}" data-asset-position="${escapeHtml(asset.id)}" aria-label="将 ${escapeHtml(filename)} 移动到位置" ${state.assetBusy ? "disabled" : ""}></label>
+        <button type="button" data-apply-asset-position="${escapeHtml(asset.id)}" ${state.assetBusy ? "disabled" : ""}>移动</button>
+        <button type="button" data-unlink-asset="${escapeHtml(asset.id)}" aria-label="解除 ${escapeHtml(filename)} 引用" ${state.assetBusy ? "disabled" : ""}>解除引用</button>
+      </div>
+    </li>`;
+  }
+
+  function assetImportLedger() {
+    if (state.assetImportResults.length === 0) return "";
+    return `<ol class="import-ledger" aria-label="Asset 导入结果">${state.assetImportResults.map((item) => `<li data-status="${escapeHtml(item.status)}"><span class="status-mark" data-status="${item.status === "copying" ? "running" : item.status.startsWith("imported-") ? "connected" : "unavailable"}" aria-hidden="true"></span><div><strong>${escapeHtml(item.name)}</strong><span>${importStatusLabel(item.status)}</span>${item.message ? `<small>${escapeHtml(item.message)}</small>` : ""}</div></li>`).join("")}</ol>`;
+  }
+
+  function sceneAssetInspector(result) {
+    const scene = selectedScene();
+    if (!scene) {
+      state.inspectorMode = "project";
+      return projectInspector(result);
+    }
+    const sceneIndex = currentScenes().indexOf(scene) + 1;
+    const atSceneLimit = scene.assetIds.length >= 256;
+    const atProjectLimit = state.project.assets.length >= 1000;
+    return `<aside class="inspection asset-inspection" aria-label="项目检查" data-open="${state.inspectionOpen}">
+      <button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button>
+      <button type="button" class="inspection-back" data-project-inspection>返回项目检查</button>
+      <h2>Scene ${pad(sceneIndex)} · Asset</h2><div class="rule"></div>
+      <dl class="asset-panel-facts"><div><dt>Scene ID</dt><dd>${escapeHtml(scene.id.slice(0, 8))}…</dd></div><div><dt>引用</dt><dd>${scene.assetIds.length} / 256</dd></div></dl>
+      <div class="asset-primary-actions"><button type="button" data-import-assets data-target-scene="${escapeHtml(scene.id)}" ${state.assetBusy || atProjectLimit || atSceneLimit || state.autosaveStopped ? "disabled" : ""}>${state.assetBusy ? "正在导入…" : "导入并绑定"}</button><button type="button" data-add-existing ${state.assetBusy || atSceneLimit || state.project.assets.length === 0 || state.autosaveStopped ? "disabled" : ""}>添加已有 Asset</button></div>
+      ${atProjectLimit ? '<p class="capacity-note">项目已达到 1,000 个 Asset 上限。</p>' : atSceneLimit ? '<p class="capacity-note">当前 Scene 已达到 256 个 Asset 引用上限。</p>' : ""}
+      ${assetImportLedger()}
+      ${scene.assetIds.length === 0 ? '<div class="asset-empty"><strong>尚未绑定 Asset</strong><p>导入新文件，或从项目登记表添加已有 Asset。</p></div>' : `<ol class="asset-list">${scene.assetIds.map((id, index) => assetItem(id, index, scene)).join("")}</ol>`}
+    </aside>`;
+  }
+
+  function assetPickerInspector(result, projectMode = false) {
+    const scene = selectedScene();
+    const referenced = new Set(scene?.assetIds ?? []);
+    const query = state.assetSearch.trim().toLocaleLowerCase();
+    const filtered = state.project.assets.filter((asset) => asset.path.toLocaleLowerCase().includes(query));
+    const visible = filtered.slice(0, 100);
+    return `<aside class="inspection asset-inspection" aria-label="项目检查" data-open="${state.inspectionOpen}">
+      <button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button>
+      <button type="button" class="inspection-back" ${projectMode ? "data-project-inspection" : "data-scene-assets"}>${projectMode ? "返回项目检查" : "返回 Scene Asset"}</button>
+      <h2>${projectMode ? "项目 Asset" : "添加已有 Asset"}</h2><div class="rule"></div>
+      ${projectMode ? `<button type="button" class="project-import" data-import-assets ${state.assetBusy || state.project.assets.length >= 1000 || state.autosaveStopped ? "disabled" : ""}>${state.assetBusy ? "正在导入…" : "导入暂未绑定 Asset"}</button>${state.project.assets.length >= 1000 ? '<p class="capacity-note">项目已达到 1,000 个 Asset 上限，不能继续导入。</p>' : ""}${assetImportLedger()}` : ""}
+      <label class="asset-search"><span>按项目相对路径搜索</span><input type="search" aria-label="搜索项目 Asset" value="${escapeHtml(state.assetSearch)}" placeholder="assets/…"></label>
+      ${state.project.assets.length === 0 ? '<div class="asset-empty"><strong>项目中还没有 Asset</strong><p>先从系统文件选择窗口导入普通文件。</p></div>' : `<ul class="project-asset-list">${visible.map((asset) => {
+        const runtime = assetRuntime(asset.id);
+        const unavailable = runtime?.status === "unavailable";
+        const inScene = referenced.has(asset.id);
+        const filename = assetFilename(asset.path);
+        const boundCount = currentScenes().filter((item) => item.assetIds.includes(asset.id)).length;
+        return `<li data-status="${unavailable ? "unavailable" : "available"}"><div><strong>${escapeHtml(filename)}</strong><code>${escapeHtml(asset.path)}</code><span>${unavailable ? "文件不可用" : projectMode ? boundCount === 0 ? "暂未绑定" : `${boundCount} 个 Scene 引用` : inScene ? "已引用" : "可添加"}</span></div><div>${!projectMode ? `<button type="button" data-add-asset="${escapeHtml(asset.id)}" aria-label="添加 ${escapeHtml(filename)}" ${state.assetBusy || inScene || unavailable || (scene?.assetIds.length ?? 0) >= 256 ? "disabled" : ""}>${inScene ? "已引用" : "添加"}</button>` : ""}<button type="button" data-preview-asset="${escapeHtml(asset.id)}" aria-label="预览 ${escapeHtml(filename)}" ${unavailable ? "disabled" : ""}>预览</button></div></li>`;
+      }).join("")}</ul>`}
+      ${filtered.length > visible.length ? `<p class="capacity-note">仅显示前 ${visible.length} 项，请缩小搜索范围。</p>` : ""}
+    </aside>`;
+  }
+
+  function inspector(result) {
+    if (state.inspectorMode === "scene-assets") return sceneAssetInspector(result);
+    if (state.inspectorMode === "asset-picker") return assetPickerInspector(result, false);
+    if (state.inspectorMode === "project-assets") return assetPickerInspector(result, true);
+    return projectInspector(result);
   }
 
   function saveLabel() {
@@ -188,7 +304,7 @@
   function actionButtons(inMenu = false) {
     const scene = selectedScene();
     const index = scene ? currentScenes().indexOf(scene) : -1;
-    const disabled = !scene || state.autosaveStopped;
+    const disabled = !scene || state.autosaveStopped || state.assetBusy;
     return `<button class="scene-action" type="button" data-copy ${disabled || currentScenes().length >= 1000 ? "disabled" : ""}>复制</button>
       <button class="scene-action" type="button" data-move-up ${disabled || index <= 0 ? "disabled" : ""}>上移</button>
       <button class="scene-action" type="button" data-move-down ${disabled || index >= currentScenes().length - 1 ? "disabled" : ""}>下移</button>
@@ -199,7 +315,7 @@
   }
 
   function toolbar() {
-    const stopped = state.autosaveStopped;
+    const stopped = state.autosaveStopped || state.assetBusy;
     return `<div class="scene-toolbar" aria-label="Scene 操作轨">
       <div class="toolbar-primary"><button class="scene-action" data-primary="true" type="button" data-add ${currentScenes().length >= 1000 || stopped ? "disabled" : ""}>新增 Scene</button></div>
       <div class="toolbar-actions">${actionButtons()}</div>
@@ -216,13 +332,13 @@
   function sceneRow(scene, index, editable = true) {
     const selected = scene.id === state.selected;
     const assets = assetsFor(scene);
-    const asset = assets[0];
+    const summary = assetSummary(scene);
     const editing = state.editing === scene.id;
     const speech = scene.speech;
     return `<div class="scene-row" role="group" draggable="false" data-scene-row data-scene-id="${escapeHtml(scene.id)}" data-selected="${selected}" aria-label="Scene ${pad(index + 1)} 行">
-      <span class="scene-no">${editable ? `<button class="drag-handle" type="button" draggable="true" aria-label="拖动第 ${index + 1} 行"><span aria-hidden="true"></span></button>` : ""}<button class="scene-select" type="button" aria-label="Scene ${pad(index + 1)}：${escapeHtml(scene.narration.text)}" aria-pressed="${selected}"><strong>${pad(index + 1)}</strong><small>${pad(index + 1)}A</small></button></span>
-      <span class="scene-copy">${editable && editing ? `<span class="narration-editor-wrap"><textarea class="narration-editor" aria-label="Scene ${pad(index + 1)} Narration" data-narration-editor>${escapeHtml(scene.narration.text)}</textarea><button class="expand-editor" type="button" data-expand>展开编辑</button></span><small class="narration-help">修改 Narration 会立即移除原 Speech</small>` : `<span class="narration-view">${escapeHtml(scene.narration.text || "空 Narration")}</span>${editable ? '<button class="edit-narration" type="button" data-edit-narration>编辑 Narration</button>' : ""}`}</span>
-      <span class="scene-assets"><span class="cell-label">Asset</span><span class="cell-value">${asset ? `${assets.length} Asset` : "无 Asset"}</span><span class="cell-detail">${escapeHtml(asset?.path ?? "未绑定文件")}</span></span>
+      <span class="scene-no">${editable ? `<button class="drag-handle" type="button" draggable="${!state.assetBusy}" aria-label="拖动第 ${index + 1} 行" ${state.assetBusy ? "disabled" : ""}><span aria-hidden="true"></span></button>` : ""}<button class="scene-select" type="button" aria-label="Scene ${pad(index + 1)}：${escapeHtml(scene.narration.text)}" aria-pressed="${selected}"><strong>${pad(index + 1)}</strong><small>${pad(index + 1)}A</small></button></span>
+      <span class="scene-copy">${editable && editing ? `<span class="narration-editor-wrap"><textarea class="narration-editor" aria-label="Scene ${pad(index + 1)} Narration" data-narration-editor ${state.assetBusy ? "disabled" : ""}>${escapeHtml(scene.narration.text)}</textarea><button class="expand-editor" type="button" data-expand ${state.assetBusy ? "disabled" : ""}>展开编辑</button></span><small class="narration-help">修改 Narration 会立即移除原 Speech</small>` : `<span class="narration-view">${escapeHtml(scene.narration.text || "空 Narration")}</span>${editable ? `<button class="edit-narration" type="button" data-edit-narration ${state.assetBusy ? "disabled" : ""}>编辑 Narration</button>` : ""}`}</span>
+      ${editable ? `<button class="scene-assets" type="button" data-open-scene-assets aria-label="第 ${pad(index + 1)} 个 Scene 的 Asset：${escapeHtml(summary.text)}"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "管理引用" : `${assets.length} / 256`}</span></button>` : `<span class="scene-assets"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "未绑定文件" : `${assets.length} / 256`}</span></span>`}
       <span class="scene-speech"><span class="cell-label">Speech</span><span class="cell-value ${speech ? "ready" : "missing"}">${speech ? "已生成" : "缺失"}</span><span class="cell-detail">${speech ? `${speech.durationMs} ms` : "Draft Duration"}</span></span>
     </div>`;
   }
@@ -250,7 +366,7 @@
     const scenes = currentScenes();
     const start = Math.max(0, Math.min(state.start, Math.max(0, scenes.length - WINDOW_SIZE)));
     const rows = scenes.slice(start, start + WINDOW_SIZE).map((scene, offset) => sceneRow(scene, start + offset)).join("");
-    const empty = `<div class="empty-edit"><div><h1 tabindex="-1" data-empty-title>项目中还没有 Scene</h1><p>从第一句 Narration 开始搭建脚本。Scene 会在合法校验后自动保存。</p><button class="scene-action" data-primary="true" type="button" data-add-first>新增第一个 Scene</button><div class="state-code">0 SCENES · PROJECT VNEXT</div></div></div>`;
+    const empty = `<div class="empty-edit"><div><h1 tabindex="-1" data-empty-title>项目中还没有 Scene</h1><p>从第一句 Narration 开始搭建脚本。Scene 会在合法校验后自动保存。</p><button class="scene-action" data-primary="true" type="button" data-add-first ${state.assetBusy ? "disabled" : ""}>新增第一个 Scene</button><div class="state-code">0 SCENES · PROJECT VNEXT</div></div></div>`;
     return `<main class="stage"><section class="contact-frame" data-editable="true" aria-label="Scene 可编辑接触印样">
       <div class="film-edge"><span>NCUT · ${escapeHtml(result.project.projectId.slice(0, 13))}</span><span>EDITING BENCH</span><span>${count(scenes.length)} SCENES</span></div>
       ${toolbar()}
@@ -299,8 +415,42 @@
     </section></main>`;
   }
 
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes)) return "大小未知";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+
+  function assetPreviewLayer() {
+    const preview = state.assetPreview;
+    if (!preview) return "";
+    let content;
+    if (preview.status === "loading") {
+      content = '<div class="preview-state"><div class="loading" aria-label="正在读取 Asset"><i></i><i></i><i></i></div><p>正在只读检查 Asset…</p></div>';
+    } else if (preview.status === "unavailable") {
+      content = `<div class="preview-state" data-status="unavailable"><span class="asset-warning" aria-hidden="true"></span><h2>文件不可用</h2><code>${escapeHtml(preview.id)}</code><code>${escapeHtml(preview.path)}</code><p>${escapeHtml(preview.reason)}</p></div>`;
+    } else if (preview.status === "dangling") {
+      content = `<div class="preview-state" data-status="dangling"><span class="asset-warning" aria-hidden="true"></span><h2>悬空 Asset ID</h2><code>${escapeHtml(preview.id)}</code><p>${escapeHtml(preview.reason)}</p></div>`;
+    } else if (preview.status === "identity-lost") {
+      content = `<div class="preview-state" data-status="identity-lost"><span class="asset-warning" aria-hidden="true"></span><h2>项目身份失效</h2><code>${escapeHtml(preview.id)}</code><p>${escapeHtml(preview.reason)}</p></div>`;
+    } else {
+      const media = preview.dataUrl && preview.kind === "image"
+        ? `<img src="${escapeHtml(preview.dataUrl)}" alt="${escapeHtml(preview.filename)} 只读预览">`
+        : preview.dataUrl && preview.kind === "video"
+          ? `<video src="${escapeHtml(preview.dataUrl)}" controls preload="metadata" aria-label="${escapeHtml(preview.filename)} 只读预览"></video>`
+          : preview.dataUrl && preview.kind === "audio"
+            ? `<audio src="${escapeHtml(preview.dataUrl)}" controls preload="metadata" aria-label="${escapeHtml(preview.filename)} 只读预览"></audio>`
+            : preview.dataUrl && preview.kind === "document"
+              ? `<iframe src="${escapeHtml(preview.dataUrl)}" title="${escapeHtml(preview.filename)} 只读预览"></iframe>`
+              : `<div class="preview-state"><h2>${escapeHtml(preview.filename)}</h2><p>${escapeHtml(preview.reason ?? "当前格式不支持内容预览。")}</p></div>`;
+      content = `<div class="preview-media">${media}</div><dl class="preview-facts"><div><dt>文件</dt><dd>${escapeHtml(preview.filename)}</dd></div><div><dt>项目路径</dt><dd>${escapeHtml(preview.path)}</dd></div><div><dt>大小</dt><dd>${formatBytes(preview.size)}</dd></div></dl>`;
+    }
+    return `<div class="asset-preview-layer" role="dialog" aria-modal="true" aria-label="Asset 只读预览"><section class="asset-preview-sheet"><header><div><strong>Asset 只读预览</strong><span>只检查文件本体，不改变 Scene 或 Player</span></div><button type="button" data-close-preview aria-label="关闭预览">关闭</button></header><div class="asset-preview-body">${content}</div></section></div>`;
+  }
+
   function valid(result) {
-    return `<div class="workspace">${state.workspace === "table" ? table(result) : agent(result)}${inspector(result)}</div>`;
+    return `<div class="workspace">${state.workspace === "table" ? table(result) : agent(result)}${inspector(result)}</div>${assetPreviewLayer()}`;
   }
 
   function invalid(result) {
@@ -458,8 +608,8 @@
     indicator.textContent = saveLabel();
     const undoButton = document.querySelector("[data-undo]");
     const redoButton = document.querySelector("[data-redo]");
-    if (undoButton) undoButton.disabled = state.undo.length === 0 || state.autosaveStopped;
-    if (redoButton) redoButton.disabled = state.redo.length === 0 || state.autosaveStopped;
+    if (undoButton) undoButton.disabled = state.undo.length === 0 || state.autosaveStopped || state.assetBusy;
+    if (redoButton) redoButton.disabled = state.redo.length === 0 || state.autosaveStopped || state.assetBusy;
   }
 
   function snapshot() {
@@ -488,22 +638,28 @@
     if (!state.autosaveStopped) saveTimer = setTimeout(saveProject, immediate ? 0 : 450);
   }
 
-  async function saveProject() {
+  function saveProject() {
     clearTimeout(saveTimer);
-    if (state.saveInFlight || state.autosaveStopped || !state.project || state.version === state.savedVersion) return;
-    const error = validateSaveIdentity() ?? validateProject(state.project) ?? await validateSpeechHashes(state.project);
-    if (error) {
-      state.saveStatus = "failed";
-      state.saveError = error;
-      render();
-      announce(`保存失败。${error}`);
-      return;
-    }
+    if (activeSavePromise) return activeSavePromise;
+    if (state.autosaveStopped || !state.project || state.version === state.savedVersion) return Promise.resolve();
+    activeSavePromise = performProjectSave();
+    return activeSavePromise;
+  }
+
+  async function performProjectSave() {
     const savingVersion = state.version;
     state.saveInFlight = true;
     state.saveStatus = "saving";
     updateSaveIndicator();
     try {
+      const validationError = validateSaveIdentity() ?? validateProject(state.project) ?? await validateSpeechHashes(state.project);
+      if (validationError) {
+        state.saveStatus = "failed";
+        state.saveError = validationError;
+        render();
+        announce(`保存失败。${validationError}`);
+        return;
+      }
       const response = await callHostTool("save_project_scenes", {
         projectDirectory: state.result.project.directory,
         projectId: state.result.project.projectId,
@@ -539,6 +695,7 @@
       announce(`保存失败。${state.saveError.message}`);
     } finally {
       state.saveInFlight = false;
+      activeSavePromise = null;
       if (!state.autosaveStopped && state.saveStatus === "dirty" && state.version > state.savedVersion) {
         clearTimeout(saveTimer);
         saveTimer = setTimeout(saveProject, 0);
@@ -567,7 +724,7 @@
   }
 
   function addScene() {
-    if (state.autosaveStopped || !state.project) return;
+    if (state.autosaveStopped || state.assetBusy || !state.project) return;
     const id = createUuid();
     const scenes = clone(currentScenes());
     const index = state.selected ? Math.max(0, scenes.findIndex((scene) => scene.id === state.selected) + 1) : scenes.length;
@@ -582,7 +739,7 @@
 
   function copyScene() {
     const source = selectedScene();
-    if (!source || state.autosaveStopped) return;
+    if (!source || state.autosaveStopped || state.assetBusy) return;
     const scenes = clone(currentScenes());
     const index = scenes.findIndex((scene) => scene.id === source.id);
     const copy = { id: createUuid(), narration: { text: source.narration.text }, assetIds: [...source.assetIds] };
@@ -592,7 +749,7 @@
 
   function deleteScene() {
     const source = selectedScene();
-    if (!source || state.autosaveStopped) return;
+    if (!source || state.autosaveStopped || state.assetBusy) return;
     const scenes = clone(currentScenes());
     const index = scenes.findIndex((scene) => scene.id === source.id);
     scenes.splice(index, 1);
@@ -609,7 +766,7 @@
     const scenes = clone(currentScenes());
     const from = scenes.findIndex((scene) => scene.id === source?.id);
     const to = Math.max(0, Math.min(scenes.length - 1, targetIndex));
-    if (from < 0 || from === to || state.autosaveStopped) return;
+    if (from < 0 || from === to || state.autosaveStopped || state.assetBusy) return;
     const [moved] = scenes.splice(from, 1);
     scenes.splice(to, 0, moved);
     commitProject({ ...clone(state.project), scenes }, `Scene 已从位置 ${from + 1} 移动到位置 ${to + 1}。`, { selected: moved.id, immediate: true });
@@ -618,7 +775,7 @@
 
   function undo() {
     const previous = state.undo.pop();
-    if (!previous || state.autosaveStopped) return;
+    if (!previous || state.autosaveStopped || state.assetBusy) return;
     pushHistory(state.redo, snapshot());
     state.project = previous.project;
     state.selected = previous.selected;
@@ -632,7 +789,7 @@
 
   function redo() {
     const next = state.redo.pop();
-    if (!next || state.autosaveStopped) return;
+    if (!next || state.autosaveStopped || state.assetBusy) return;
     pushHistory(state.undo, snapshot());
     state.project = next.project;
     state.selected = next.selected;
@@ -645,7 +802,7 @@
 
   function updateNarration(sceneId, value, source) {
     const index = currentScenes().findIndex((scene) => scene.id === sceneId);
-    if (index < 0 || state.autosaveStopped) return;
+    if (index < 0 || state.autosaveStopped || state.assetBusy) return;
     const previousValue = state.project.scenes[index].narration.text;
     if ([...value].length > 65_536 || new TextEncoder().encode(value).length > 256 * 1024) {
       source.value = previousValue;
@@ -662,6 +819,242 @@
     };
     delete state.project.scenes[index].speech;
     markDirty(false);
+  }
+
+  function rebaseHistoryAssets(assets) {
+    for (const stack of [state.undo, state.redo]) {
+      for (const entry of stack) {
+        entry.project.assets = clone(assets);
+        entry.bytes = new TextEncoder().encode(JSON.stringify(entry.project)).length;
+      }
+    }
+  }
+
+  function changeSceneAssets(sceneId, nextAssetIds, message) {
+    const project = clone(state.project);
+    const scene = project.scenes.find((item) => item.id === sceneId);
+    if (!scene || state.autosaveStopped || state.assetBusy) return false;
+    scene.assetIds = nextAssetIds;
+    return commitProject(project, message, { selected: sceneId, immediate: true });
+  }
+
+  function addExistingAsset(assetId) {
+    const scene = selectedScene();
+    if (!scene || scene.assetIds.includes(assetId) || scene.assetIds.length >= 256) return;
+    changeSceneAssets(scene.id, [...scene.assetIds, assetId], `已将 ${assetFilename(state.project.assets.find((asset) => asset.id === assetId)?.path) ?? "Asset"} 添加到 Scene。`);
+  }
+
+  function moveAssetReference(assetId, targetIndex) {
+    const scene = selectedScene();
+    if (!scene) return;
+    const from = scene.assetIds.indexOf(assetId);
+    const to = Math.max(0, Math.min(scene.assetIds.length - 1, targetIndex));
+    if (from < 0 || from === to) return;
+    const next = [...scene.assetIds];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    changeSceneAssets(scene.id, next, `Asset 已从位置 ${from + 1} 移动到位置 ${to + 1}。`);
+  }
+
+  function unlinkAssetReference(assetId) {
+    const scene = selectedScene();
+    if (!scene || !scene.assetIds.includes(assetId)) return;
+    changeSceneAssets(scene.id, scene.assetIds.filter((id) => id !== assetId), "已解除当前 Scene 的 Asset 引用；项目登记与文件保持不变。");
+  }
+
+  function selectedFilePaths(value) {
+    if (typeof value === "string") return [value];
+    if (Array.isArray(value)) return value.flatMap(selectedFilePaths);
+    if (value && typeof value === "object") {
+      for (const key of ["path", "filePath", "absolutePath"]) {
+        if (typeof value[key] === "string") return [value[key]];
+      }
+      for (const key of ["files", "paths", "items"]) {
+        if (Array.isArray(value[key])) return value[key].flatMap(selectedFilePaths);
+      }
+    }
+    return [];
+  }
+
+  async function chooseAssetFiles() {
+    const api = window.openai;
+    const picker = api?.selectFiles ?? api?.pickFiles ?? api?.requestFilePicker;
+    if (typeof picker !== "function") {
+      state.assetImportResults = [{ name: "系统文件选择器", status: "failed", message: "当前插件宿主没有提供系统文件选择能力。" }];
+      render();
+      announce("当前插件宿主没有提供系统文件选择能力；Narracut 不会退化为网页上传。");
+      return [];
+    }
+    try {
+      const selected = await picker.call(api, {
+        purpose: "import-assets",
+        title: "选择要复制进 Narracut 项目的文件",
+        multiple: true,
+        filesOnly: true,
+      });
+      return selectedFilePaths(selected);
+    } catch (error) {
+      state.assetImportResults = [{ name: "系统文件选择器", status: "failed", message: error?.message ?? "无法打开系统文件选择窗口。" }];
+      render();
+      announce("系统文件选择窗口无法打开，请重试。");
+      return [];
+    }
+  }
+
+  async function flushProjectBeforeAssetImport() {
+    clearTimeout(saveTimer);
+    state.editGroupOpen = false;
+    while (!state.autosaveStopped && state.version !== state.savedVersion) {
+      await saveProject();
+      if (["failed", "conflict", "identity"].includes(state.saveStatus)) return false;
+    }
+    return !state.autosaveStopped && state.version === state.savedVersion;
+  }
+
+  async function importAssets(targetSceneId) {
+    if (state.assetBusy || state.autosaveStopped || !state.project) return;
+    state.assetImportResults = [];
+    state.assetBusy = true;
+    render();
+    if (!await flushProjectBeforeAssetImport()) {
+      state.assetBusy = false;
+      state.assetImportResults = [{
+        name: "待保存的 Scene 修改",
+        status: "failed",
+        message: "请先解决保存失败、冲突或身份问题，再导入 Asset。",
+      }];
+      render();
+      announce("Asset 导入已取消：Scene 修改尚未安全保存。");
+      return;
+    }
+    const sourcePaths = await chooseAssetFiles();
+    if (sourcePaths.length === 0) {
+      state.assetBusy = false;
+      render();
+      requestAnimationFrame(() => document.querySelector("[data-import-assets]")?.focus());
+      return;
+    }
+    state.assetImportResults = sourcePaths.map((path) => ({ name: assetFilename(path) ?? path, path, status: "copying", message: "" }));
+    render();
+    for (let index = 0; index < sourcePaths.length; index += 1) {
+      const sourcePath = sourcePaths[index];
+      const beforeProject = clone(state.project);
+      try {
+        const response = await callHostTool("import_project_asset", {
+          projectDirectory: state.result.project.directory,
+          projectId: state.result.project.projectId,
+          baselineRevision: state.baselineRevision,
+          sourcePath,
+          ...(targetSceneId ? { targetSceneId } : {}),
+        });
+        const content = response?.structuredContent ?? response;
+        if (response?.isError || ["save-conflict", "identity-lost", "asset-import-failed"].includes(content?.status)) {
+          const failure = content?.error ?? { code: "ASSET_IMPORT_FAILED", message: "Asset 导入失败。" };
+          state.assetImportResults[index] = { ...state.assetImportResults[index], status: "failed", message: failure.message };
+          if (["save-conflict", "identity-lost"].includes(content?.status)) {
+            state.saveStatus = content.status === "save-conflict" ? "conflict" : "identity";
+            state.autosaveStopped = true;
+          }
+        } else {
+          const result = content.assetImport ?? { status: "failed", message: "Asset 导入没有返回结果。" };
+          state.assetImportResults[index] = { ...state.assetImportResults[index], status: result.status, message: result.message };
+          if (result.status.startsWith("imported-") && content.projectDsl) {
+            const nextProject = clone(content.projectDsl);
+            rebaseHistoryAssets(nextProject.assets);
+            if (result.status === "imported-and-bound" && targetSceneId) {
+              const undoProject = clone(nextProject);
+              const undoScene = undoProject.scenes.find((scene) => scene.id === targetSceneId);
+              const beforeScene = beforeProject.scenes.find((scene) => scene.id === targetSceneId);
+              if (undoScene && beforeScene) {
+                undoScene.assetIds = [...beforeScene.assetIds];
+                pushHistory(state.undo, {
+                  project: undoProject,
+                  selected: state.selected,
+                  bytes: new TextEncoder().encode(JSON.stringify(undoProject)).length,
+                });
+                state.redo = [];
+              }
+            }
+            state.project = nextProject;
+            state.baselineRevision = content.projectRevision ?? state.baselineRevision;
+            state.version += 1;
+            state.savedVersion = state.version;
+            state.saveStatus = "saved";
+            state.result = { ...state.result, ...content, status: "valid", projectDsl: nextProject };
+          }
+        }
+      } catch (error) {
+        state.assetImportResults[index] = { ...state.assetImportResults[index], status: "failed", message: error?.message ?? "宿主导入调用失败。" };
+      }
+      render();
+      announce(`${state.assetImportResults[index].name}：${importStatusLabel(state.assetImportResults[index].status)}。${state.assetImportResults[index].message}`);
+    }
+    state.assetBusy = false;
+    render();
+  }
+
+  async function openAssetPreview(assetId) {
+    const requestId = ++assetPreviewRequest;
+    const projectIdentity = `${state.result?.project?.directory}\u001f${state.result?.project?.projectId}`;
+    state.previewReturnAssetId = assetId;
+    state.assetPreview = { status: "loading", id: assetId };
+    render();
+    try {
+      const response = await callHostTool("read_project_asset_preview", {
+        projectDirectory: state.result.project.directory,
+        projectId: state.result.project.projectId,
+        assetId,
+      });
+      if (
+        requestId !== assetPreviewRequest || state.previewReturnAssetId !== assetId ||
+        projectIdentity !== `${state.result?.project?.directory}\u001f${state.result?.project?.projectId}`
+      ) return;
+      const content = response?.structuredContent ?? response;
+      state.assetPreview = response?.isError || content?.status === "identity-lost"
+        ? { status: "identity-lost", id: assetId, reason: content?.error?.message ?? "项目身份已失效。" }
+        : content?.assetPreview ?? {
+          status: "unavailable", id: assetId, path: "", reason: "预览没有返回可用结果。",
+        };
+    } catch (error) {
+      if (requestId !== assetPreviewRequest || state.previewReturnAssetId !== assetId) return;
+      const asset = state.project.assets.find((item) => item.id === assetId);
+      state.assetPreview = { status: "unavailable", id: assetId, path: asset?.path ?? "", reason: error?.message ?? "无法读取 Asset 预览。" };
+    }
+    render();
+    document.querySelector("[data-close-preview]")?.focus();
+  }
+
+  function closeAssetPreview() {
+    assetPreviewRequest += 1;
+    document.querySelectorAll(".asset-preview-layer audio,.asset-preview-layer video").forEach((media) => media.pause());
+    const assetId = state.previewReturnAssetId;
+    state.assetPreview = null;
+    state.previewReturnAssetId = null;
+    render();
+    requestAnimationFrame(() => document.querySelector(`[data-preview-asset="${CSS.escape(assetId ?? "")}"]`)?.focus());
+  }
+
+  function trapAssetPreviewFocus(event) {
+    if (event.key !== "Tab" || !state.assetPreview) return;
+    const layer = document.querySelector(".asset-preview-layer");
+    if (!layer) return;
+    const focusable = [...layer.querySelectorAll(
+      'button:not(:disabled),[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),video[controls],audio[controls],iframe,[tabindex]:not([tabindex="-1"])',
+    )];
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    const focusOutside = !layer.contains(document.activeElement);
+    if (event.shiftKey && (document.activeElement === first || focusOutside)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || focusOutside)) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   function bindSceneRows() {
@@ -682,6 +1075,13 @@
         state.editing = row.dataset.sceneId;
         state.editGroupOpen = false;
         state.focusTarget = "[data-narration-editor]";
+        render();
+      });
+      row.querySelector("[data-open-scene-assets]")?.addEventListener("click", () => {
+        state.selected = row.dataset.sceneId;
+        state.inspectorMode = "scene-assets";
+        state.inspectionOpen = true;
+        state.assetSearch = "";
         render();
       });
       const editor = row.querySelector("[data-narration-editor]");
@@ -766,6 +1166,48 @@
       document.querySelector(".inspection")?.setAttribute("data-open", "false");
       document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "false");
     });
+    document.querySelectorAll("[data-project-inspection]").forEach((button) => button.addEventListener("click", () => {
+      state.inspectorMode = "project";
+      state.assetSearch = "";
+      render();
+    }));
+    document.querySelector("[data-manage-project-assets]")?.addEventListener("click", () => {
+      state.inspectorMode = "project-assets";
+      state.assetSearch = "";
+      state.inspectionOpen = true;
+      render();
+    });
+    document.querySelector("[data-add-existing]")?.addEventListener("click", () => {
+      state.inspectorMode = "asset-picker";
+      state.assetSearch = "";
+      render();
+      document.querySelector("[aria-label='搜索项目 Asset']")?.focus();
+    });
+    document.querySelector("[data-scene-assets]")?.addEventListener("click", () => {
+      state.inspectorMode = "scene-assets";
+      state.assetSearch = "";
+      render();
+    });
+    document.querySelector("[aria-label='搜索项目 Asset']")?.addEventListener("input", (event) => {
+      state.assetSearch = event.currentTarget.value;
+      render();
+      const input = document.querySelector("[aria-label='搜索项目 Asset']");
+      input?.focus();
+      input?.setSelectionRange(state.assetSearch.length, state.assetSearch.length);
+    });
+    document.querySelectorAll("[data-import-assets]").forEach((button) => button.addEventListener("click", () => importAssets(button.dataset.targetScene)));
+    document.querySelectorAll("[data-add-asset]").forEach((button) => button.addEventListener("click", () => addExistingAsset(button.dataset.addAsset)));
+    document.querySelectorAll("[data-preview-asset]").forEach((button) => button.addEventListener("click", () => openAssetPreview(button.dataset.previewAsset)));
+    document.querySelectorAll("[data-move-asset]").forEach((button) => button.addEventListener("click", () => {
+      const scene = selectedScene();
+      const index = scene?.assetIds.indexOf(button.dataset.moveAsset) ?? -1;
+      moveAssetReference(button.dataset.moveAsset, index + (button.dataset.direction === "up" ? -1 : 1));
+    }));
+    document.querySelectorAll("[data-apply-asset-position]").forEach((button) => button.addEventListener("click", () => {
+      const input = document.querySelector(`[data-asset-position="${CSS.escape(button.dataset.applyAssetPosition)}"]`);
+      moveAssetReference(button.dataset.applyAssetPosition, Number(input?.value) - 1);
+    }));
+    document.querySelectorAll("[data-unlink-asset]").forEach((button) => button.addEventListener("click", () => unlinkAssetReference(button.dataset.unlinkAsset)));
   }
 
   function bind() {
@@ -784,6 +1226,14 @@
       document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "true");
     });
     document.querySelectorAll("[data-agent-action]").forEach((button) => button.addEventListener("click", () => runAgentAction(button.dataset.agentAction)));
+    document.querySelector("[data-close-preview]")?.addEventListener("click", closeAssetPreview);
+    document.onkeydown = (event) => {
+      trapAssetPreviewFocus(event);
+      if (event.key === "Escape" && state.assetPreview) {
+        event.preventDefault();
+        closeAssetPreview();
+      }
+    };
     bindInspector();
     if (state.workspace === "table" && state.result?.status === "valid" && state.result.writable) bindTable();
     if (state.result?.status === "valid" && !state.result.writable) {
@@ -973,10 +1423,17 @@
   }
 
   function accept(result, focusEmpty = false) {
+    assetPreviewRequest += 1;
     const previousProjectId = state.result?.project?.projectId;
     state.result = result;
     state.start = 0;
     state.inspectionOpen = false;
+    state.inspectorMode = "project";
+    state.assetSearch = "";
+    state.assetBusy = false;
+    state.assetImportResults = [];
+    state.assetPreview = null;
+    state.previewReturnAssetId = null;
     state.launcher.busy = false;
     state.launcher.stage = "ready";
     state.project = result?.status === "valid" ? clone(result.projectDsl ?? deriveReadonlyProject(result)) : null;

@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { constants as fsConstants, type Stats } from "node:fs";
 import {
+  access,
+  link,
   lstat,
   mkdir,
   open as openFile,
@@ -11,6 +14,7 @@ import {
   rm,
   unlink,
   writeFile,
+  type FileHandle,
 } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -643,6 +647,17 @@ export type OpenedProjectVNext = {
     project: unknown,
     baselineRevision: string,
   ) => Promise<{ inspection: ProjectVNextInspection }>;
+  importAsset: (input: {
+    sourcePath: string;
+    targetSceneId?: string;
+    baselineRevision: string;
+  }) => Promise<{
+    status: "imported-and-bound" | "imported-unbound" | "rejected" | "failed";
+    code: string;
+    message: string;
+    asset: { id: string; path: string } | null;
+    inspection: ProjectVNextInspection;
+  }>;
   release: () => Promise<void>;
 };
 
@@ -843,7 +858,7 @@ async function currentProjectRevision(projectFile: string, message: string): Pro
   }
 }
 
-function assertSceneOnlyMutation(current: ProjectVNext, next: ProjectVNext, projectPath: string): void {
+function assertWorkbenchMutation(current: ProjectVNext, next: ProjectVNext, projectPath: string): void {
   if (JSON.stringify(current.assets) !== JSON.stringify(next.assets)) {
     throw new ProjectLifecycleError(
       "PROJECT_SAVE_FAILED",
@@ -852,26 +867,17 @@ function assertSceneOnlyMutation(current: ProjectVNext, next: ProjectVNext, proj
     );
   }
   const currentScenes = new Map(current.scenes.map((scene) => [scene.id, scene]));
-  const existingAssetOrders = new Set(current.scenes.map((scene) => JSON.stringify(scene.assetIds)));
-  existingAssetOrders.add("[]");
   for (const scene of next.scenes) {
     const previous = currentScenes.get(scene.id);
     if (previous === undefined) {
-      if (scene.speech !== undefined || !existingAssetOrders.has(JSON.stringify(scene.assetIds))) {
+      if (scene.speech !== undefined) {
         throw new ProjectLifecycleError(
           "PROJECT_SAVE_FAILED",
           projectPath,
-          "新增或复制的 Scene 不能创建 Speech 或改写 Asset 引用；请从表格工作区重试。",
+          "新增或复制的 Scene 不能创建 Speech；请从表格工作区重试。",
         );
       }
       continue;
-    }
-    if (JSON.stringify(previous.assetIds) !== JSON.stringify(scene.assetIds)) {
-      throw new ProjectLifecycleError(
-        "PROJECT_SAVE_FAILED",
-        projectPath,
-        `Scene ${scene.id} 的 Asset 引用不属于本票可写范围。`,
-      );
     }
     if (scene.narration.text !== previous.narration.text && scene.speech !== undefined) {
       throw new ProjectLifecycleError(
@@ -890,6 +896,111 @@ function assertSceneOnlyMutation(current: ProjectVNext, next: ProjectVNext, proj
         `Scene ${scene.id} 的 Speech 不属于本票可写范围。`,
       );
     }
+  }
+}
+
+function assetSourceRejection(
+  inspection: ProjectVNextInspection,
+  code: string,
+  message: string,
+): Awaited<ReturnType<OpenedProjectVNext["importAsset"]>> {
+  return { status: "rejected", code, message, asset: null, inspection };
+}
+
+const MAX_ASSET_FILENAME_BYTES = 255;
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  let result = value;
+  while (Buffer.byteLength(result, "utf8") > maxBytes) result = [...result].slice(0, -1).join("");
+  return result;
+}
+
+function safeAssetFilename(sourcePath: string): string {
+  const original = basename(sourcePath).replace(/[\u0000-\u001f\u007f]/gu, "_");
+  const fallback = original === "" || original === "." || original === ".." ? "asset" : original;
+  if (Buffer.byteLength(fallback, "utf8") <= MAX_ASSET_FILENAME_BYTES) return fallback;
+  const extensionIndex = fallback.lastIndexOf(".");
+  const extension = extensionIndex > 0 && Buffer.byteLength(fallback.slice(extensionIndex), "utf8") <= 64
+    ? fallback.slice(extensionIndex)
+    : "";
+  const stem = truncateUtf8(
+    extension === "" ? fallback : fallback.slice(0, extensionIndex),
+    MAX_ASSET_FILENAME_BYTES - Buffer.byteLength(extension, "utf8"),
+  );
+  return `${stem || "asset"}${extension}`;
+}
+
+function suffixedAssetFilename(filename: string, suffix: number): string {
+  const extensionIndex = filename.lastIndexOf(".");
+  const stem = extensionIndex > 0 ? filename.slice(0, extensionIndex) : filename;
+  const extension = extensionIndex > 0 ? filename.slice(extensionIndex) : "";
+  const marker = suffix === 1 ? "" : `-${suffix}`;
+  const stemBudget = MAX_ASSET_FILENAME_BYTES -
+    Buffer.byteLength(marker, "utf8") - Buffer.byteLength(extension, "utf8");
+  return `${truncateUtf8(stem, Math.max(1, stemBudget)) || "asset"}${marker}${extension}`;
+}
+
+async function uniqueAssetPath(assetsDirectory: string, sourcePath: string): Promise<string> {
+  const filename = safeAssetFilename(sourcePath);
+  for (let suffix = 1; suffix <= 10_000; suffix += 1) {
+    const candidate = suffixedAssetFilename(filename, suffix);
+    const relativePath = `assets/${candidate}`;
+    try {
+      await access(join(assetsDirectory, candidate));
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return relativePath;
+      throw error;
+    }
+  }
+  return `assets/${randomUUID()}`;
+}
+
+async function isProjectControlFile(
+  projectDirectory: string,
+  sourcePath: string,
+  sourceFacts: Stats,
+): Promise<boolean> {
+  for (const name of ["narracut.json", "project.json", "video.md"]) {
+    const controlPath = join(projectDirectory, name);
+    if (resolve(sourcePath) === controlPath) return true;
+    const controlFacts = await lstat(controlPath);
+    if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
+  }
+  return false;
+}
+
+async function copyStableFile(
+  source: FileHandle,
+  opened: Stats,
+  temporaryPath: string,
+  assertDestinationCurrent: () => Promise<void>,
+): Promise<void> {
+  let destination = null;
+  try {
+    await assertDestinationCurrent();
+    destination = await openFile(temporaryPath, "wx", 0o600);
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let position = 0;
+    while (true) {
+      const { bytesRead } = await source.read(buffer, 0, buffer.length, position);
+      if (bytesRead === 0) break;
+      let written = 0;
+      while (written < bytesRead) {
+        const result = await destination.write(buffer, written, bytesRead - written, position + written);
+        written += result.bytesWritten;
+      }
+      position += bytesRead;
+    }
+    await destination.sync();
+    const after = await source.stat();
+    if (
+      after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size ||
+      after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || position !== opened.size
+    ) {
+      throw new Error("导入源在复制期间发生变化。");
+    }
+  } finally {
+    await destination?.close().catch(() => undefined);
   }
 }
 
@@ -933,6 +1044,7 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
     await validateCurrentProjectState(initialInspection);
     const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
     const lease = await acquireProjectLease(initialInspection);
+    let assetsDirectoryHandle: FileHandle | null = null;
     try {
       const inspection = await inspectProjectVNext(projectDirectory);
       await validateCurrentProjectState(inspection);
@@ -943,6 +1055,20 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
           `取得租约时项目身份发生变化：${projectDirectory}。`,
         );
       }
+      const assetsDirectory = join(projectDirectory, "assets");
+      const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
+      assetsDirectoryHandle = await openFile(assetsDirectory, "r");
+      const openedAssetsDirectory = await assetsDirectoryHandle.stat();
+      if (!openedAssetsDirectory.isDirectory() || !hasIdentity(openedAssetsDirectory, assetsDirectoryIdentity)) {
+        throw new ProjectLifecycleError(
+          "PROJECT_IDENTITY_LOST",
+          assetsDirectory,
+          "Asset 目录身份在打开期间发生变化；Narracut 已停止写入。",
+        );
+      }
+      const anchoredAssetsDirectory = process.platform === "win32"
+        ? assetsDirectory
+        : `/dev/fd/${assetsDirectoryHandle.fd}`;
       let currentInspection = inspection;
       let saveQueue = Promise.resolve();
       let closing = false;
@@ -986,6 +1112,27 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
           );
         }
       };
+      const assertAssetsDirectoryCurrent = async () => {
+        await assertWritable();
+        let facts;
+        try {
+          facts = await lstat(assetsDirectory);
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            assetsDirectory,
+            "Asset 目录已移动或不可用；Narracut 已停止导入。",
+            { cause },
+          );
+        }
+        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, assetsDirectoryIdentity)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            assetsDirectory,
+            "Asset 目录身份已变化；Narracut 已停止导入。",
+          );
+        }
+      };
       const saveProject: OpenedProjectVNext["saveProject"] = (project, baselineRevision) => {
         if (closing) {
           return Promise.reject(new ProjectLifecycleError(
@@ -1009,8 +1156,11 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
               );
             }
             const validated = validateProjectVNextForSave(project, projectFile);
-            assertSceneOnlyMutation(currentInspection.project, validated.project, projectFile);
-            await validateProjectVNextResources(projectDirectory, validated.project);
+            assertWorkbenchMutation(currentInspection.project, validated.project, projectFile);
+            const { assetStates, warnings } = await validateProjectVNextResources(
+              projectDirectory,
+              validated.project,
+            );
             const nextRevision = revisionOf(validated.bytes);
             if (nextRevision !== baselineRevision) {
               await replaceProjectFile(projectFile, validated.bytes, async () => {
@@ -1031,6 +1181,8 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
               ...currentInspection,
               project: validated.project,
               projectRevision: nextRevision,
+              assetStates,
+              warnings,
             };
             return { inspection: currentInspection };
           } catch (cause) {
@@ -1048,14 +1200,202 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
         saveQueue = operation.then(() => undefined, () => undefined);
         return operation;
       };
+      const importAsset: OpenedProjectVNext["importAsset"] = (input) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "项目工作区正在关闭；Narracut 已停止接收新的写入。",
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const projectFile = join(projectDirectory, "project.json");
+          const sourcePath = resolve(input.sourcePath);
+          await assertWritable();
+          if (await currentProjectRevision(
+            projectFile,
+            "无法确认 project.json 仍是当前磁盘基线；Narracut 已停止导入。",
+          ) !== input.baselineRevision) {
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_CONFLICT",
+              projectFile,
+              "project.json 已被外部修改；Narracut 已停止导入，不会覆盖磁盘内容。",
+            );
+          }
+          let pathFacts;
+          try {
+            pathFacts = await lstat(sourcePath);
+          } catch (cause) {
+            return {
+              status: "failed" as const,
+              code: "ASSET_SOURCE_UNAVAILABLE",
+              message: "无法读取导入源；请检查文件是否仍存在且可访问。",
+              asset: null,
+              inspection: currentInspection,
+            };
+          }
+          if (pathFacts.isSymbolicLink()) {
+            return assetSourceRejection(
+              currentInspection,
+              "ASSET_SOURCE_SYMBOLIC_LINK",
+              "导入源是符号链接；请选择链接指向的普通文件。",
+            );
+          }
+          if (!pathFacts.isFile()) {
+            return assetSourceRejection(
+              currentInspection,
+              "ASSET_SOURCE_NOT_FILE",
+              pathFacts.isDirectory()
+                ? "导入源是目录；请选择一个或多个普通文件。"
+                : "导入源不是普通文件；请选择可复制的普通文件。",
+            );
+          }
+          let source: FileHandle;
+          try {
+            source = await openFile(sourcePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+          } catch (cause) {
+            return {
+              status: "failed" as const,
+              code: "ASSET_SOURCE_UNAVAILABLE",
+              message: "无法安全打开导入源；请重新选择文件。",
+              asset: null,
+              inspection: currentInspection,
+            };
+          }
+          try {
+            const sourceFacts = await source.stat();
+            if (!sourceFacts.isFile() || !hasIdentity(sourceFacts, pathFacts)) {
+              return assetSourceRejection(
+                currentInspection,
+                "ASSET_SOURCE_CHANGED",
+                "导入源在打开时发生变化；请重新选择文件。",
+              );
+            }
+            if (await isProjectControlFile(projectDirectory, sourcePath, sourceFacts)) {
+              return assetSourceRejection(
+                currentInspection,
+                "ASSET_SOURCE_PROJECT_CONTROL_FILE",
+                "项目控制文件不能登记为 Asset。",
+              );
+            }
+            if (currentInspection.project.assets.length >= 1_000) {
+              return assetSourceRejection(
+                currentInspection,
+                "PROJECT_ASSET_LIMIT_REACHED",
+                "项目已达到 1,000 个 Asset 上限。",
+              );
+            }
+
+            await assertAssetsDirectoryCurrent();
+            const asset = {
+              id: randomUUID(),
+              path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath),
+            };
+            const temporaryPath = join(anchoredAssetsDirectory, `.import-${randomUUID()}.tmp`);
+            let finalPath = join(anchoredAssetsDirectory, basename(asset.path));
+            let published = false;
+            try {
+              await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
+              for (let attempt = 0; attempt < 10_000; attempt += 1) {
+                try {
+                  await assertAssetsDirectoryCurrent();
+                  await link(temporaryPath, finalPath);
+                  published = true;
+                  break;
+                } catch (cause) {
+                  if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
+                  asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
+                  finalPath = join(anchoredAssetsDirectory, basename(asset.path));
+                }
+              }
+              if (!published) throw new Error("无法为 Asset 分配唯一项目路径。");
+              await assertAssetsDirectoryCurrent();
+              await unlink(temporaryPath);
+
+              const project = structuredClone(currentInspection.project);
+              project.assets.push(asset);
+              const targetScene = input.targetSceneId === undefined
+                ? undefined
+                : project.scenes.find((scene) => scene.id === input.targetSceneId);
+              const bound = targetScene !== undefined && targetScene.assetIds.length < 256;
+              if (bound) targetScene.assetIds.push(asset.id);
+              const validated = validateProjectVNextForSave(project, projectFile);
+              const { assetStates, warnings } = await validateProjectVNextResources(
+                projectDirectory,
+                validated.project,
+              );
+              const nextRevision = revisionOf(validated.bytes);
+              await replaceProjectFile(projectFile, validated.bytes, async () => {
+                await assertAssetsDirectoryCurrent();
+                if (await currentProjectRevision(
+                  projectFile,
+                  "project.json 在提交前变得不可安全读取；Narracut 拒绝完成导入。",
+                ) !== input.baselineRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    projectFile,
+                    "project.json 在导入提交前发生外部变化；Narracut 拒绝覆盖。",
+                  );
+                }
+              });
+              currentInspection = {
+                ...currentInspection,
+                project: validated.project,
+                projectRevision: nextRevision,
+                assetStates,
+                warnings,
+              };
+              return {
+                status: bound ? "imported-and-bound" as const : "imported-unbound" as const,
+                code: bound ? "ASSET_IMPORTED_AND_BOUND" : "ASSET_IMPORTED_UNBOUND",
+                message: bound
+                  ? "Asset 已导入并绑定到原目标 Scene。"
+                  : targetScene === undefined && input.targetSceneId !== undefined
+                    ? "Asset 已导入；原目标 Scene 已不存在，因此保持暂未绑定。"
+                    : targetScene !== undefined
+                      ? "Asset 已导入；原目标 Scene 已达到 256 个引用上限，因此保持暂未绑定。"
+                      : "Asset 已导入并登记为暂未绑定。",
+                asset,
+                inspection: currentInspection,
+              };
+            } catch (cause) {
+              if (published) await unlink(finalPath).catch(() => undefined);
+              await unlink(temporaryPath).catch(() => undefined);
+              if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+              return {
+                status: "failed" as const,
+                code: "ASSET_IMPORT_FAILED",
+                message: cause instanceof Error ? cause.message : "无法复制并登记 Asset。",
+                asset: null,
+                inspection: currentInspection,
+              };
+            }
+          } finally {
+            await source.close().catch(() => undefined);
+          }
+        });
+        saveQueue = operation.then(() => undefined, () => undefined);
+        return operation;
+      };
       const release = async () => {
         closing = true;
-        releasePromise ??= saveQueue.then(() => lease.release());
+        releasePromise ??= saveQueue.then(async () => {
+          try {
+            await lease.release();
+          } finally {
+            await assetsDirectoryHandle?.close();
+            assetsDirectoryHandle = null;
+          }
+        });
         await releasePromise;
       };
-      return { inspection, saveProject, release };
+      return { inspection, saveProject, importAsset, release };
     } catch (error) {
-      await lease.release();
+      try {
+        await lease.release();
+      } finally {
+        await assetsDirectoryHandle?.close();
+      }
       throw error;
     }
   } catch (error) {

@@ -1,6 +1,6 @@
 // plugins/narracut/src/server.ts
 import { readFile as readFile2 } from "node:fs/promises";
-import { basename as basename2, isAbsolute as isAbsolute2 } from "node:path";
+import { basename as basename3, isAbsolute as isAbsolute2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -1371,14 +1371,53 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
   }
 }
 async function validateProjectVNextResources(projectDirectory, project) {
+  const assetStates = [];
   for (const asset of project.assets) {
+    const path = join(projectDirectory, asset.path);
     await validateOrdinaryResource(projectDirectory, asset.path, false);
+    let facts;
+    try {
+      facts = await lstat(path);
+    } catch (cause) {
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "unavailable",
+        reason: isFileSystemError(cause) && cause.code === "ENOENT" ? "\u6587\u4EF6\u7F3A\u5931\u6216\u5DF2\u88AB\u79FB\u52A8\u3002" : "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
+      });
+      continue;
+    }
+    try {
+      const handle = await open(path, "r");
+      await handle.close();
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "available",
+        size: facts.size
+      });
+    } catch {
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "unavailable",
+        reason: "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
+      });
+    }
   }
   for (const scene of project.scenes) {
     if (scene.speech !== void 0) {
       await validateOrdinaryResource(projectDirectory, scene.speech.path, true);
     }
   }
+  return {
+    assetStates,
+    warnings: boundedDiagnostics(assetStates.filter((asset) => asset.status === "unavailable").map((asset) => ({
+      code: "PROJECT_ASSET_UNAVAILABLE",
+      component: asset.path,
+      message: `${asset.path} \u4E0D\u53EF\u7528\uFF1A${asset.reason ?? "\u65E0\u6CD5\u8BFB\u53D6\u3002"}`
+    })))
+  };
 }
 async function readStableDirectory(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -1668,7 +1707,10 @@ async function inspectProjectVNext(inputPath) {
   if (projectValidation.project === void 0) {
     throw invalidContent(projectPath, projectValidation.diagnostics);
   }
-  await validateProjectVNextResources(projectDirectory, projectValidation.project);
+  const { assetStates, warnings } = await validateProjectVNextResources(
+    projectDirectory,
+    projectValidation.project
+  );
   return {
     projectDirectory,
     manifest,
@@ -1676,13 +1718,17 @@ async function inspectProjectVNext(inputPath) {
     projectRevision: `sha256:${createHash("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
     renderPrograms: { directories: renderProgramDirectories },
-    warnings: []
+    assetStates,
+    warnings
   };
 }
 
 // src/server/project-lifecycle.ts
 import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import {
+  access,
+  link,
   lstat as lstat2,
   mkdir,
   open as openFile,
@@ -2330,7 +2376,7 @@ async function currentProjectRevision(projectFile, message) {
     );
   }
 }
-function assertSceneOnlyMutation(current, next, projectPath) {
+function assertWorkbenchMutation(current, next, projectPath) {
   if (JSON.stringify(current.assets) !== JSON.stringify(next.assets)) {
     throw new ProjectLifecycleError(
       "PROJECT_SAVE_FAILED",
@@ -2339,26 +2385,17 @@ function assertSceneOnlyMutation(current, next, projectPath) {
     );
   }
   const currentScenes = new Map(current.scenes.map((scene) => [scene.id, scene]));
-  const existingAssetOrders = new Set(current.scenes.map((scene) => JSON.stringify(scene.assetIds)));
-  existingAssetOrders.add("[]");
   for (const scene of next.scenes) {
     const previous = currentScenes.get(scene.id);
     if (previous === void 0) {
-      if (scene.speech !== void 0 || !existingAssetOrders.has(JSON.stringify(scene.assetIds))) {
+      if (scene.speech !== void 0) {
         throw new ProjectLifecycleError(
           "PROJECT_SAVE_FAILED",
           projectPath,
-          "\u65B0\u589E\u6216\u590D\u5236\u7684 Scene \u4E0D\u80FD\u521B\u5EFA Speech \u6216\u6539\u5199 Asset \u5F15\u7528\uFF1B\u8BF7\u4ECE\u8868\u683C\u5DE5\u4F5C\u533A\u91CD\u8BD5\u3002"
+          "\u65B0\u589E\u6216\u590D\u5236\u7684 Scene \u4E0D\u80FD\u521B\u5EFA Speech\uFF1B\u8BF7\u4ECE\u8868\u683C\u5DE5\u4F5C\u533A\u91CD\u8BD5\u3002"
         );
       }
       continue;
-    }
-    if (JSON.stringify(previous.assetIds) !== JSON.stringify(scene.assetIds)) {
-      throw new ProjectLifecycleError(
-        "PROJECT_SAVE_FAILED",
-        projectPath,
-        `Scene ${scene.id} \u7684 Asset \u5F15\u7528\u4E0D\u5C5E\u4E8E\u672C\u7968\u53EF\u5199\u8303\u56F4\u3002`
-      );
     }
     if (scene.narration.text !== previous.narration.text && scene.speech !== void 0) {
       throw new ProjectLifecycleError(
@@ -2374,6 +2411,84 @@ function assertSceneOnlyMutation(current, next, projectPath) {
         `Scene ${scene.id} \u7684 Speech \u4E0D\u5C5E\u4E8E\u672C\u7968\u53EF\u5199\u8303\u56F4\u3002`
       );
     }
+  }
+}
+function assetSourceRejection(inspection, code, message) {
+  return { status: "rejected", code, message, asset: null, inspection };
+}
+var MAX_ASSET_FILENAME_BYTES = 255;
+function truncateUtf8(value, maxBytes) {
+  let result = value;
+  while (Buffer.byteLength(result, "utf8") > maxBytes) result = [...result].slice(0, -1).join("");
+  return result;
+}
+function safeAssetFilename(sourcePath) {
+  const original = basename(sourcePath).replace(/[\u0000-\u001f\u007f]/gu, "_");
+  const fallback = original === "" || original === "." || original === ".." ? "asset" : original;
+  if (Buffer.byteLength(fallback, "utf8") <= MAX_ASSET_FILENAME_BYTES) return fallback;
+  const extensionIndex = fallback.lastIndexOf(".");
+  const extension = extensionIndex > 0 && Buffer.byteLength(fallback.slice(extensionIndex), "utf8") <= 64 ? fallback.slice(extensionIndex) : "";
+  const stem = truncateUtf8(
+    extension === "" ? fallback : fallback.slice(0, extensionIndex),
+    MAX_ASSET_FILENAME_BYTES - Buffer.byteLength(extension, "utf8")
+  );
+  return `${stem || "asset"}${extension}`;
+}
+function suffixedAssetFilename(filename, suffix) {
+  const extensionIndex = filename.lastIndexOf(".");
+  const stem = extensionIndex > 0 ? filename.slice(0, extensionIndex) : filename;
+  const extension = extensionIndex > 0 ? filename.slice(extensionIndex) : "";
+  const marker = suffix === 1 ? "" : `-${suffix}`;
+  const stemBudget = MAX_ASSET_FILENAME_BYTES - Buffer.byteLength(marker, "utf8") - Buffer.byteLength(extension, "utf8");
+  return `${truncateUtf8(stem, Math.max(1, stemBudget)) || "asset"}${marker}${extension}`;
+}
+async function uniqueAssetPath(assetsDirectory, sourcePath) {
+  const filename = safeAssetFilename(sourcePath);
+  for (let suffix = 1; suffix <= 1e4; suffix += 1) {
+    const candidate = suffixedAssetFilename(filename, suffix);
+    const relativePath = `assets/${candidate}`;
+    try {
+      await access(join2(assetsDirectory, candidate));
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return relativePath;
+      throw error;
+    }
+  }
+  return `assets/${randomUUID2()}`;
+}
+async function isProjectControlFile(projectDirectory, sourcePath, sourceFacts) {
+  for (const name of ["narracut.json", "project.json", "video.md"]) {
+    const controlPath = join2(projectDirectory, name);
+    if (resolve2(sourcePath) === controlPath) return true;
+    const controlFacts = await lstat2(controlPath);
+    if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
+  }
+  return false;
+}
+async function copyStableFile(source, opened, temporaryPath, assertDestinationCurrent) {
+  let destination = null;
+  try {
+    await assertDestinationCurrent();
+    destination = await openFile(temporaryPath, "wx", 384);
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let position = 0;
+    while (true) {
+      const { bytesRead } = await source.read(buffer, 0, buffer.length, position);
+      if (bytesRead === 0) break;
+      let written = 0;
+      while (written < bytesRead) {
+        const result = await destination.write(buffer, written, bytesRead - written, position + written);
+        written += result.bytesWritten;
+      }
+      position += bytesRead;
+    }
+    await destination.sync();
+    const after = await source.stat();
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || position !== opened.size) {
+      throw new Error("\u5BFC\u5165\u6E90\u5728\u590D\u5236\u671F\u95F4\u53D1\u751F\u53D8\u5316\u3002");
+    }
+  } finally {
+    await destination?.close().catch(() => void 0);
   }
 }
 async function replaceProjectFile(projectFile, bytes, assertWritable) {
@@ -2410,6 +2525,7 @@ async function openProjectVNext(inputPath) {
     await validateCurrentProjectState(initialInspection);
     const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
     const lease = await acquireProjectLease(initialInspection);
+    let assetsDirectoryHandle = null;
     try {
       const inspection = await inspectProjectVNext(projectDirectory);
       await validateCurrentProjectState(inspection);
@@ -2420,6 +2536,18 @@ async function openProjectVNext(inputPath) {
           `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
         );
       }
+      const assetsDirectory = join2(projectDirectory, "assets");
+      const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
+      assetsDirectoryHandle = await openFile(assetsDirectory, "r");
+      const openedAssetsDirectory = await assetsDirectoryHandle.stat();
+      if (!openedAssetsDirectory.isDirectory() || !hasIdentity(openedAssetsDirectory, assetsDirectoryIdentity)) {
+        throw new ProjectLifecycleError(
+          "PROJECT_IDENTITY_LOST",
+          assetsDirectory,
+          "Asset \u76EE\u5F55\u8EAB\u4EFD\u5728\u6253\u5F00\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u3002"
+        );
+      }
+      const anchoredAssetsDirectory = process.platform === "win32" ? assetsDirectory : `/dev/fd/${assetsDirectoryHandle.fd}`;
       let currentInspection = inspection;
       let saveQueue = Promise.resolve();
       let closing = false;
@@ -2463,6 +2591,27 @@ async function openProjectVNext(inputPath) {
           );
         }
       };
+      const assertAssetsDirectoryCurrent = async () => {
+        await assertWritable();
+        let facts;
+        try {
+          facts = await lstat2(assetsDirectory);
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            assetsDirectory,
+            "Asset \u76EE\u5F55\u5DF2\u79FB\u52A8\u6216\u4E0D\u53EF\u7528\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\u3002",
+            { cause }
+          );
+        }
+        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, assetsDirectoryIdentity)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            assetsDirectory,
+            "Asset \u76EE\u5F55\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\u3002"
+          );
+        }
+      };
       const saveProject = (project, baselineRevision) => {
         if (closing) {
           return Promise.reject(new ProjectLifecycleError(
@@ -2486,8 +2635,11 @@ async function openProjectVNext(inputPath) {
               );
             }
             const validated = validateProjectVNextForSave(project, projectFile);
-            assertSceneOnlyMutation(currentInspection.project, validated.project, projectFile);
-            await validateProjectVNextResources(projectDirectory, validated.project);
+            assertWorkbenchMutation(currentInspection.project, validated.project, projectFile);
+            const { assetStates, warnings } = await validateProjectVNextResources(
+              projectDirectory,
+              validated.project
+            );
             const nextRevision = revisionOf(validated.bytes);
             if (nextRevision !== baselineRevision) {
               await replaceProjectFile(projectFile, validated.bytes, async () => {
@@ -2507,7 +2659,9 @@ async function openProjectVNext(inputPath) {
             currentInspection = {
               ...currentInspection,
               project: validated.project,
-              projectRevision: nextRevision
+              projectRevision: nextRevision,
+              assetStates,
+              warnings
             };
             return { inspection: currentInspection };
           } catch (cause) {
@@ -2525,14 +2679,190 @@ async function openProjectVNext(inputPath) {
         saveQueue = operation.then(() => void 0, () => void 0);
         return operation;
       };
+      const importAsset = (input) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536\u65B0\u7684\u5199\u5165\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const projectFile = join2(projectDirectory, "project.json");
+          const sourcePath = resolve2(input.sourcePath);
+          await assertWritable();
+          if (await currentProjectRevision(
+            projectFile,
+            "\u65E0\u6CD5\u786E\u8BA4 project.json \u4ECD\u662F\u5F53\u524D\u78C1\u76D8\u57FA\u7EBF\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\u3002"
+          ) !== input.baselineRevision) {
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_CONFLICT",
+              projectFile,
+              "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\uFF0C\u4E0D\u4F1A\u8986\u76D6\u78C1\u76D8\u5185\u5BB9\u3002"
+            );
+          }
+          let pathFacts;
+          try {
+            pathFacts = await lstat2(sourcePath);
+          } catch (cause) {
+            return {
+              status: "failed",
+              code: "ASSET_SOURCE_UNAVAILABLE",
+              message: "\u65E0\u6CD5\u8BFB\u53D6\u5BFC\u5165\u6E90\uFF1B\u8BF7\u68C0\u67E5\u6587\u4EF6\u662F\u5426\u4ECD\u5B58\u5728\u4E14\u53EF\u8BBF\u95EE\u3002",
+              asset: null,
+              inspection: currentInspection
+            };
+          }
+          if (pathFacts.isSymbolicLink()) {
+            return assetSourceRejection(
+              currentInspection,
+              "ASSET_SOURCE_SYMBOLIC_LINK",
+              "\u5BFC\u5165\u6E90\u662F\u7B26\u53F7\u94FE\u63A5\uFF1B\u8BF7\u9009\u62E9\u94FE\u63A5\u6307\u5411\u7684\u666E\u901A\u6587\u4EF6\u3002"
+            );
+          }
+          if (!pathFacts.isFile()) {
+            return assetSourceRejection(
+              currentInspection,
+              "ASSET_SOURCE_NOT_FILE",
+              pathFacts.isDirectory() ? "\u5BFC\u5165\u6E90\u662F\u76EE\u5F55\uFF1B\u8BF7\u9009\u62E9\u4E00\u4E2A\u6216\u591A\u4E2A\u666E\u901A\u6587\u4EF6\u3002" : "\u5BFC\u5165\u6E90\u4E0D\u662F\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u9009\u62E9\u53EF\u590D\u5236\u7684\u666E\u901A\u6587\u4EF6\u3002"
+            );
+          }
+          let source;
+          try {
+            source = await openFile(sourcePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+          } catch (cause) {
+            return {
+              status: "failed",
+              code: "ASSET_SOURCE_UNAVAILABLE",
+              message: "\u65E0\u6CD5\u5B89\u5168\u6253\u5F00\u5BFC\u5165\u6E90\uFF1B\u8BF7\u91CD\u65B0\u9009\u62E9\u6587\u4EF6\u3002",
+              asset: null,
+              inspection: currentInspection
+            };
+          }
+          try {
+            const sourceFacts = await source.stat();
+            if (!sourceFacts.isFile() || !hasIdentity(sourceFacts, pathFacts)) {
+              return assetSourceRejection(
+                currentInspection,
+                "ASSET_SOURCE_CHANGED",
+                "\u5BFC\u5165\u6E90\u5728\u6253\u5F00\u65F6\u53D1\u751F\u53D8\u5316\uFF1B\u8BF7\u91CD\u65B0\u9009\u62E9\u6587\u4EF6\u3002"
+              );
+            }
+            if (await isProjectControlFile(projectDirectory, sourcePath, sourceFacts)) {
+              return assetSourceRejection(
+                currentInspection,
+                "ASSET_SOURCE_PROJECT_CONTROL_FILE",
+                "\u9879\u76EE\u63A7\u5236\u6587\u4EF6\u4E0D\u80FD\u767B\u8BB0\u4E3A Asset\u3002"
+              );
+            }
+            if (currentInspection.project.assets.length >= 1e3) {
+              return assetSourceRejection(
+                currentInspection,
+                "PROJECT_ASSET_LIMIT_REACHED",
+                "\u9879\u76EE\u5DF2\u8FBE\u5230 1,000 \u4E2A Asset \u4E0A\u9650\u3002"
+              );
+            }
+            await assertAssetsDirectoryCurrent();
+            const asset = {
+              id: randomUUID2(),
+              path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath)
+            };
+            const temporaryPath = join2(anchoredAssetsDirectory, `.import-${randomUUID2()}.tmp`);
+            let finalPath = join2(anchoredAssetsDirectory, basename(asset.path));
+            let published = false;
+            try {
+              await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
+              for (let attempt = 0; attempt < 1e4; attempt += 1) {
+                try {
+                  await assertAssetsDirectoryCurrent();
+                  await link(temporaryPath, finalPath);
+                  published = true;
+                  break;
+                } catch (cause) {
+                  if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
+                  asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
+                  finalPath = join2(anchoredAssetsDirectory, basename(asset.path));
+                }
+              }
+              if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
+              await assertAssetsDirectoryCurrent();
+              await unlink(temporaryPath);
+              const project = structuredClone(currentInspection.project);
+              project.assets.push(asset);
+              const targetScene = input.targetSceneId === void 0 ? void 0 : project.scenes.find((scene) => scene.id === input.targetSceneId);
+              const bound = targetScene !== void 0 && targetScene.assetIds.length < 256;
+              if (bound) targetScene.assetIds.push(asset.id);
+              const validated = validateProjectVNextForSave(project, projectFile);
+              const { assetStates, warnings } = await validateProjectVNextResources(
+                projectDirectory,
+                validated.project
+              );
+              const nextRevision = revisionOf(validated.bytes);
+              await replaceProjectFile(projectFile, validated.bytes, async () => {
+                await assertAssetsDirectoryCurrent();
+                if (await currentProjectRevision(
+                  projectFile,
+                  "project.json \u5728\u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\uFF1BNarracut \u62D2\u7EDD\u5B8C\u6210\u5BFC\u5165\u3002"
+                ) !== input.baselineRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    projectFile,
+                    "project.json \u5728\u5BFC\u5165\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                  );
+                }
+              });
+              currentInspection = {
+                ...currentInspection,
+                project: validated.project,
+                projectRevision: nextRevision,
+                assetStates,
+                warnings
+              };
+              return {
+                status: bound ? "imported-and-bound" : "imported-unbound",
+                code: bound ? "ASSET_IMPORTED_AND_BOUND" : "ASSET_IMPORTED_UNBOUND",
+                message: bound ? "Asset \u5DF2\u5BFC\u5165\u5E76\u7ED1\u5B9A\u5230\u539F\u76EE\u6807 Scene\u3002" : targetScene === void 0 && input.targetSceneId !== void 0 ? "Asset \u5DF2\u5BFC\u5165\uFF1B\u539F\u76EE\u6807 Scene \u5DF2\u4E0D\u5B58\u5728\uFF0C\u56E0\u6B64\u4FDD\u6301\u6682\u672A\u7ED1\u5B9A\u3002" : targetScene !== void 0 ? "Asset \u5DF2\u5BFC\u5165\uFF1B\u539F\u76EE\u6807 Scene \u5DF2\u8FBE\u5230 256 \u4E2A\u5F15\u7528\u4E0A\u9650\uFF0C\u56E0\u6B64\u4FDD\u6301\u6682\u672A\u7ED1\u5B9A\u3002" : "Asset \u5DF2\u5BFC\u5165\u5E76\u767B\u8BB0\u4E3A\u6682\u672A\u7ED1\u5B9A\u3002",
+                asset,
+                inspection: currentInspection
+              };
+            } catch (cause) {
+              if (published) await unlink(finalPath).catch(() => void 0);
+              await unlink(temporaryPath).catch(() => void 0);
+              if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+              return {
+                status: "failed",
+                code: "ASSET_IMPORT_FAILED",
+                message: cause instanceof Error ? cause.message : "\u65E0\u6CD5\u590D\u5236\u5E76\u767B\u8BB0 Asset\u3002",
+                asset: null,
+                inspection: currentInspection
+              };
+            }
+          } finally {
+            await source.close().catch(() => void 0);
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
       const release = async () => {
         closing = true;
-        releasePromise ??= saveQueue.then(() => lease.release());
+        releasePromise ??= saveQueue.then(async () => {
+          try {
+            await lease.release();
+          } finally {
+            await assetsDirectoryHandle?.close();
+            assetsDirectoryHandle = null;
+          }
+        });
         await releasePromise;
       };
-      return { inspection, saveProject, release };
+      return { inspection, saveProject, importAsset, release };
     } catch (error) {
-      await lease.release();
+      try {
+        await lease.release();
+      } finally {
+        await assetsDirectoryHandle?.close();
+      }
       throw error;
     }
   } catch (error) {
@@ -2545,6 +2875,112 @@ async function openProjectVNext(inputPath) {
       `\u65E0\u6CD5\u6253\u5F00 Project VNext\uFF1A${projectDirectory}\u3002`,
       { cause: error }
     );
+  }
+}
+
+// src/server/project-asset-preview.ts
+import { constants as fsConstants2 } from "node:fs";
+import { lstat as lstat3, open as openFile2 } from "node:fs/promises";
+import { basename as basename2, join as join3 } from "node:path";
+var MAX_INLINE_PREVIEW_BYTES = 32 * 1024 * 1024;
+function startsWith(bytes, signature) {
+  return signature.every((byte, index) => bytes[index] === byte);
+}
+function ascii(bytes, start, end) {
+  return bytes.subarray(start, end).toString("ascii");
+}
+function detectPreview(bytes) {
+  if (startsWith(bytes, [137, 80, 78, 71, 13, 10, 26, 10])) {
+    return { kind: "image", mediaType: "image/png" };
+  }
+  if (startsWith(bytes, [255, 216, 255])) return { kind: "image", mediaType: "image/jpeg" };
+  if (ascii(bytes, 0, 6) === "GIF87a" || ascii(bytes, 0, 6) === "GIF89a") {
+    return { kind: "image", mediaType: "image/gif" };
+  }
+  if (ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP") {
+    return { kind: "image", mediaType: "image/webp" };
+  }
+  if (startsWith(bytes, [26, 69, 223, 163])) return { kind: "video", mediaType: "video/webm" };
+  if (ascii(bytes, 4, 8) === "ftyp") {
+    const brand = ascii(bytes, 8, 12);
+    return /^M4A/u.test(brand) ? { kind: "audio", mediaType: "audio/mp4" } : { kind: "video", mediaType: brand === "qt  " ? "video/quicktime" : "video/mp4" };
+  }
+  if (ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WAVE") {
+    return { kind: "audio", mediaType: "audio/wav" };
+  }
+  if (ascii(bytes, 0, 4) === "OggS") return { kind: "audio", mediaType: "audio/ogg" };
+  if (ascii(bytes, 0, 3) === "ID3" || bytes[0] === 255 && (bytes[1] ?? 0) >= 224) {
+    return { kind: "audio", mediaType: "audio/mpeg" };
+  }
+  if (ascii(bytes, 0, 5) === "%PDF-") return { kind: "document", mediaType: "application/pdf" };
+  return { kind: "unsupported" };
+}
+async function readProjectAssetPreview(inspection, assetId) {
+  const asset = inspection.project.assets.find((item) => item.id === assetId);
+  if (asset === void 0) {
+    return { status: "dangling", id: assetId, reason: "\u672A\u627E\u5230\u767B\u8BB0\u7684 Asset\u3002" };
+  }
+  const absolutePath = join3(inspection.projectDirectory, asset.path);
+  try {
+    const { assetStates: [runtime] } = await validateProjectVNextResources(
+      inspection.projectDirectory,
+      { assets: [asset], scenes: [] }
+    );
+    if (runtime?.status !== "available") {
+      return {
+        status: "unavailable",
+        id: asset.id,
+        path: asset.path,
+        reason: runtime?.reason ?? "Asset \u6587\u4EF6\u4E0D\u53EF\u7528\u3002"
+      };
+    }
+    const before = await lstat3(absolutePath);
+    const handle = await openFile2(absolutePath, fsConstants2.O_RDONLY | (fsConstants2.O_NOFOLLOW ?? 0));
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.nlink !== 1 || opened.dev !== before.dev || opened.ino !== before.ino) {
+        return { status: "unavailable", id: asset.id, path: asset.path, reason: "Asset \u6587\u4EF6\u8EAB\u4EFD\u5DF2\u53D8\u5316\u3002" };
+      }
+      const header = Buffer.alloc(Math.min(32, opened.size));
+      if (header.length > 0) await handle.read(header, 0, header.length, 0);
+      const detected = detectPreview(header);
+      const common = {
+        status: "available",
+        id: asset.id,
+        path: asset.path,
+        filename: basename2(asset.path),
+        size: opened.size,
+        ...detected
+      };
+      if (detected.kind === "unsupported") {
+        return { ...common, reason: "\u5F53\u524D\u683C\u5F0F\u4E0D\u652F\u6301\u5185\u5BB9\u9884\u89C8\u3002" };
+      }
+      if (opened.size > MAX_INLINE_PREVIEW_BYTES) {
+        return { ...common, reason: "\u5F53\u524D\u5BBF\u4E3B\u65E0\u6CD5\u5B89\u5168\u52A0\u8F7D\u6B64\u5185\u5BB9\u9884\u89C8\u3002" };
+      }
+      const bytes = Buffer.alloc(opened.size);
+      let position = 0;
+      while (position < bytes.length) {
+        const { bytesRead } = await handle.read(bytes, position, bytes.length - position, position);
+        if (bytesRead === 0) break;
+        position += bytesRead;
+      }
+      if (position !== opened.size) {
+        return { status: "unavailable", id: asset.id, path: asset.path, reason: "Asset \u5728\u8BFB\u53D6\u671F\u95F4\u53D1\u751F\u53D8\u5316\u3002" };
+      }
+      const after = await handle.stat();
+      if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) {
+        return { status: "unavailable", id: asset.id, path: asset.path, reason: "Asset \u5728\u8BFB\u53D6\u671F\u95F4\u53D1\u751F\u53D8\u5316\u3002" };
+      }
+      return {
+        ...common,
+        dataUrl: `data:${detected.mediaType};base64,${bytes.toString("base64")}`
+      };
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return { status: "unavailable", id: asset.id, path: asset.path, reason: "Asset \u6587\u4EF6\u7F3A\u5931\u3001\u65E0\u6CD5\u8BFB\u53D6\u6216\u8EAB\u4EFD\u65E0\u6548\u3002" };
   }
 }
 
@@ -2654,6 +3090,44 @@ var tools = [
     _meta: { ui: { visibility: ["app"] } }
   },
   {
+    name: "import_project_asset",
+    title: "\u5BFC\u5165\u4E00\u4E2A\u9879\u76EE Asset",
+    description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u9010\u5B57\u8282\u590D\u5236\u4E00\u4E2A\u7CFB\u7EDF\u6587\u4EF6\u9009\u62E9\u5668\u8FD4\u56DE\u7684\u666E\u901A\u6587\u4EF6\uFF0C\u767B\u8BB0\u540E\u53EF\u7ED1\u5B9A\u539F\u76EE\u6807 Scene\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "baselineRevision", "sourcePath"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        baselineRevision: { type: "string", minLength: 1 },
+        sourcePath: { type: "string", minLength: 1 },
+        targetSceneId: { type: "string", minLength: 1 }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
+    name: "read_project_asset_preview",
+    title: "\u8BFB\u53D6\u9879\u76EE Asset \u9884\u89C8",
+    description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u6309\u767B\u8BB0 ID \u53EA\u8BFB\u68C0\u67E5 Asset\uFF0C\u5E76\u4E3A\u53EF\u5B89\u5168\u5185\u8054\u7684\u5DF2\u77E5\u683C\u5F0F\u8FD4\u56DE\u9884\u89C8\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "assetId"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        assetId: { type: "string", minLength: 1 }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: readOnlyToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
     name: "inspect_project",
     title: "\u68C0\u67E5 Narracut \u9879\u76EE",
     description: "\u53EA\u8BFB\u68C0\u67E5\u7528\u6237\u660E\u786E\u7ED9\u51FA\u7684 Project VNext \u7EDD\u5BF9\u76EE\u5F55\uFF0C\u8FD4\u56DE\u9879\u76EE\u8EAB\u4EFD\u3001Scene \u4E0E\u56FA\u5B9A\u63A7\u5236\u6587\u4EF6\u72B6\u6001\uFF0C\u5E76\u6253\u5F00\u5DE5\u4F5C\u53F0\u3002\u4E0D\u4F1A\u6D4F\u89C8\u5176\u4ED6\u76EE\u5F55\u3001\u5199\u6587\u4EF6\u3001\u6267\u884C Shell \u6216\u8BBF\u95EE\u7F51\u7EDC\u3002",
@@ -2744,7 +3218,7 @@ function serializeInspection(inspection, writable = false) {
     projectDsl: inspection.project,
     project: {
       directory: inspection.projectDirectory,
-      folderName: basename2(inspection.projectDirectory),
+      folderName: basename3(inspection.projectDirectory),
       projectId: inspection.manifest.projectId,
       sceneCount: inspection.project.scenes.length,
       assetCount: inspection.project.assets.length
@@ -2768,7 +3242,8 @@ function serializeInspection(inspection, writable = false) {
       })),
       speech: scene.speech === void 0 ? { status: "missing" } : { status: "available", durationMs: scene.speech.durationMs }
     })),
-    warnings: inspection.warnings
+    warnings: inspection.warnings,
+    assetStates: inspection.assetStates
   };
 }
 function diagnosticSummary(diagnostics) {
@@ -2824,7 +3299,7 @@ async function inspectProject(argumentsValue) {
       structuredContent,
       content: [{
         type: "text",
-        text: `${basename2(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
+        text: `${basename3(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
       }]
     };
   } catch (error) {
@@ -2834,7 +3309,7 @@ async function inspectProject(argumentsValue) {
         structuredContent: {
           status: "invalid",
           connection: connectedState(),
-          project: { directory: projectDirectory, folderName: basename2(projectDirectory) },
+          project: { directory: projectDirectory, folderName: basename3(projectDirectory) },
           error: {
             code: error.code,
             path: error.path,
@@ -2887,6 +3362,34 @@ var ProjectWorkspaceSession = class {
     const saved = await opened.saveProject(input.project, input.baselineRevision);
     opened.inspection = saved.inspection;
     return saved.inspection;
+  }
+  async importAsset(input) {
+    const opened = this.#opened;
+    if (opened === null || opened.inspection.projectDirectory !== input.projectDirectory || opened.inspection.manifest.projectId !== input.projectId) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        input.projectDirectory,
+        "\u5F53\u524D\u5DE5\u4F5C\u53F0\u6CA1\u6709\u6301\u6709\u8BE5\u9879\u76EE\u7684\u5199\u5165\u79DF\u7EA6\uFF1BNarracut \u62D2\u7EDD\u5BFC\u5165\u3002"
+      );
+    }
+    const imported = await opened.importAsset({
+      sourcePath: input.sourcePath,
+      targetSceneId: input.targetSceneId,
+      baselineRevision: input.baselineRevision
+    });
+    opened.inspection = imported.inspection;
+    return imported;
+  }
+  async readAssetPreview(input) {
+    const opened = this.#opened;
+    if (opened === null || opened.inspection.projectDirectory !== input.projectDirectory || opened.inspection.manifest.projectId !== input.projectId) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        input.projectDirectory,
+        "\u5F53\u524D\u5DE5\u4F5C\u53F0\u672A\u6301\u6709\u8BE5\u9879\u76EE\u8EAB\u4EFD\uFF1BNarracut \u62D2\u7EDD\u8BFB\u53D6\u9884\u89C8\u3002"
+      );
+    }
+    return readProjectAssetPreview(opened.inspection, input.assetId);
   }
   async dispose() {
     const opened = this.#opened;
@@ -2956,7 +3459,7 @@ async function callTool(params, hostValidation, workspace) {
         structuredContent: { ...serializeInspection(inspection, true), operation },
         content: [{
           type: "text",
-          text: operation === "created" ? `${basename2(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename2(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
+          text: operation === "created" ? `${basename3(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename3(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
         }]
       };
     } catch (error) {
@@ -2967,7 +3470,7 @@ async function callTool(params, hostValidation, workspace) {
           structuredContent: {
             status: "created-not-opened",
             connection: launcherConnectionState(),
-            project: { directory: projectDirectory, folderName: basename2(projectDirectory) },
+            project: { directory: projectDirectory, folderName: basename3(projectDirectory) },
             error: {
               code: "PROJECT_CREATED_NOT_OPENED",
               causeCode,
@@ -3031,6 +3534,103 @@ async function callTool(params, hostValidation, workspace) {
             status,
             connection: connectedState(false)
           }
+        };
+      }
+      throw error;
+    }
+  }
+  if (name === "import_project_asset") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "asset-import-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "\u5BFC\u5165\u53C2\u6570\u5FC5\u987B\u662F\u5BF9\u8C61\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u5BFC\u5165 Asset\uFF1A\u5BFC\u5165\u53C2\u6570\u65E0\u6548\u3002" }]
+      };
+    }
+    const input = argumentsValue;
+    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute2(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "asset-import-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u57FA\u7EBF\u6216\u5BFC\u5165\u6E90\u65E0\u6548\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u5BFC\u5165 Asset\uFF1A\u9879\u76EE\u8EAB\u4EFD\u3001\u57FA\u7EBF\u6216\u5BFC\u5165\u6E90\u65E0\u6548\u3002" }]
+      };
+    }
+    try {
+      const imported = await workspace.importAsset({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        baselineRevision: input.baselineRevision,
+        sourcePath: input.sourcePath,
+        ...typeof input.targetSceneId === "string" ? { targetSceneId: input.targetSceneId } : {}
+      });
+      const { inspection, ...assetImport } = imported;
+      return {
+        structuredContent: {
+          ...serializeInspection(inspection, true),
+          status: imported.status.startsWith("imported-") ? "asset-imported" : "asset-import-result",
+          assetImport
+        },
+        content: [{ type: "text", text: imported.message }]
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        const failure = lifecycleFailure(error);
+        return {
+          ...failure,
+          structuredContent: {
+            ...failure.structuredContent,
+            status: error instanceof ProjectLifecycleError && error.code === "PROJECT_SAVE_CONFLICT" ? "save-conflict" : error instanceof ProjectLifecycleError && error.code === "PROJECT_IDENTITY_LOST" ? "identity-lost" : "asset-import-failed",
+            connection: connectedState(false)
+          }
+        };
+      }
+      throw error;
+    }
+  }
+  if (name === "read_project_asset_preview") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: { assetPreview: { status: "dangling", id: "", reason: "\u9884\u89C8\u53C2\u6570\u65E0\u6548\u3002" } },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u8BFB\u53D6 Asset \u9884\u89C8\uFF1A\u53C2\u6570\u65E0\u6548\u3002" }]
+      };
+    }
+    const input = argumentsValue;
+    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
+      return {
+        isError: true,
+        structuredContent: { assetPreview: { status: "dangling", id: "", reason: "\u9879\u76EE\u8EAB\u4EFD\u6216 Asset ID \u65E0\u6548\u3002" } },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u8BFB\u53D6 Asset \u9884\u89C8\uFF1A\u9879\u76EE\u8EAB\u4EFD\u6216 Asset ID \u65E0\u6548\u3002" }]
+      };
+    }
+    try {
+      const assetPreview = await workspace.readAssetPreview({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        assetId: input.assetId
+      });
+      return {
+        structuredContent: { assetPreview },
+        content: [{
+          type: "text",
+          text: assetPreview.status === "available" ? `${assetPreview.filename} \u5DF2\u5B8C\u6210\u53EA\u8BFB\u68C0\u67E5\u3002` : assetPreview.reason
+        }]
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError && error.code === "PROJECT_IDENTITY_LOST") {
+        return {
+          isError: true,
+          structuredContent: {
+            status: "identity-lost",
+            error: { code: error.code, path: error.path, message: error.message }
+          },
+          content: [{ type: "text", text: `\u65E0\u6CD5\u8BFB\u53D6 Asset \u9884\u89C8\uFF1A${error.message}` }]
         };
       }
       throw error;
