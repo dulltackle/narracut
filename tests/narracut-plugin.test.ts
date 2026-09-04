@@ -405,6 +405,251 @@ describe("Narracut Codex 插件", () => {
     await pluginRequest.dispose();
   });
 
+  it("通过 app 专用工具保存项目 TTS、生成 Speech，并派生逐 Scene 半开时间窗", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-speech-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const sceneId = "30000000-0000-4000-8000-000000000001";
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [],
+      scenes: [{ id: sceneId, narration: { text: "请确认器械托盘。" }, assetIds: [] }],
+    }));
+    const providerCalls: Array<{ authorization: string; body: any }> = [];
+    const pluginRequest = createNarracutRequestHandler({
+      codexHost: new PluginTestHost(),
+      ttsFetch: async (_input, init) => {
+        providerCalls.push({
+          authorization: new Headers(init?.headers).get("authorization") ?? "",
+          body: JSON.parse(String(init?.body)),
+        });
+        return new Response(JSON.stringify({
+          data: { audio: Buffer.from("generated mp3").toString("hex") },
+          extra_info: { audio_length: 1_001, audio_format: "mp3" },
+          base_resp: { status_code: 0, status_msg: "success" },
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      },
+      probeSpeechDurationMs: async () => 1_001,
+    });
+    const listed = await pluginRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" }) as {
+      tools: Array<{ name: string; _meta?: unknown }>;
+    };
+    expect(listed.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "save_project_tts_settings", _meta: { ui: { visibility: ["app"] } } }),
+      expect.objectContaining({ name: "start_scene_speech", _meta: { ui: { visibility: ["app"] } } }),
+      expect.objectContaining({ name: "get_scene_speech_job", _meta: { ui: { visibility: ["app"] } } }),
+      expect.objectContaining({ name: "cancel_scene_speech_job", _meta: { ui: { visibility: ["app"] } } }),
+    ]));
+    const opened = await pluginRequest({
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "open_project", arguments: { projectDirectory } },
+    }) as { structuredContent: any };
+    expect(opened.structuredContent).toMatchObject({
+      tts: { status: "unconfigured", credential: { status: "missing", storage: "session" } },
+      timeline: {
+        renderReady: false,
+        scenes: [{ sceneId, startFrame: 0, durationInFrames: 150, source: "draft" }],
+      },
+    });
+
+    const config = {
+      provider: "tokendance",
+      model: "minimax-speech-2.8-turbo",
+      voice: "Chinese (Mandarin)_News_Anchor",
+      speed: 1,
+      volume: 1,
+      pitch: 0,
+    };
+    const configured = await pluginRequest({
+      jsonrpc: "2.0", id: 3, method: "tools/call",
+      params: {
+        name: "save_project_tts_settings",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          baselineRevision: opened.structuredContent.projectRevision,
+          config,
+          credentialAction: "replace",
+          apiKey: "test-secret-key",
+          expectedAffectedSpeechCount: 0,
+        },
+      },
+    }) as { structuredContent: any };
+    expect(configured.structuredContent).toMatchObject({
+      status: "tts-saved",
+      affectedSpeechCount: 0,
+      tts: {
+        status: "configured",
+        config,
+        profileId: expect.stringMatching(/^sha256:/u),
+        credential: { status: "available", storage: "session", masked: "••••-key" },
+      },
+    });
+    expect(JSON.stringify(configured)).not.toContain("test-secret-key");
+    expect(await readFile(join(projectDirectory, "tts.json"), "utf8")).not.toContain("test-secret-key");
+
+    const started = await pluginRequest({
+      jsonrpc: "2.0", id: 4, method: "tools/call",
+      params: {
+        name: "start_scene_speech",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          sceneId,
+        },
+      },
+    }) as { structuredContent: any };
+    expect(started.structuredContent.speechJob).toMatchObject({
+      sceneId,
+      status: "queued",
+    });
+    const jobId = started.structuredContent.speechJob.id;
+    let terminal: any;
+    await expect.poll(async () => {
+      terminal = await pluginRequest({
+        jsonrpc: "2.0", id: 5, method: "tools/call",
+        params: { name: "get_scene_speech_job", arguments: { jobId } },
+      });
+      return terminal.structuredContent.speechJob.status;
+    }, { timeout: 5_000 }).toBe("succeeded");
+
+    expect(providerCalls).toEqual([expect.objectContaining({
+      authorization: "Bearer test-secret-key",
+      body: expect.objectContaining({
+        model: config.model,
+        text: "请确认器械托盘。",
+        voice_setting: {
+          voice_id: config.voice,
+          speed: config.speed,
+          vol: config.volume,
+          pitch: config.pitch,
+        },
+      }),
+    })]);
+    expect(terminal.structuredContent).toMatchObject({
+      projectDsl: {
+        scenes: [{ speech: {
+          path: `speech/${sceneId}.mp3`,
+          durationMs: 1_001,
+          sourceTextHash: expect.stringMatching(/^sha256:/u),
+          ttsProfileId: configured.structuredContent.tts.profileId,
+          audioContentHash: expect.stringMatching(/^sha256:/u),
+        } }],
+      },
+      timeline: {
+        durationInFrames: 31,
+        renderReady: true,
+        scenes: [{ sceneId, startFrame: 0, durationInFrames: 31, source: "speech" }],
+      },
+    });
+    expect(await readFile(join(projectDirectory, "speech", `${sceneId}.mp3`), "utf8"))
+      .toBe("generated mp3");
+
+    const confirmation = await pluginRequest({
+      jsonrpc: "2.0", id: 6, method: "tools/call",
+      params: {
+        name: "save_project_tts_settings",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          baselineRevision: terminal.structuredContent.projectRevision,
+          config: { ...config, speed: 1.2 },
+          credentialAction: "keep",
+          expectedAffectedSpeechCount: 0,
+        },
+      },
+    }) as { structuredContent: any };
+    expect(confirmation.structuredContent).toMatchObject({
+      status: "tts-confirmation-required",
+      affectedSpeechCount: 1,
+      error: { code: "TTS_CONFIRMATION_REQUIRED" },
+    });
+    expect(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")).scenes[0].speech)
+      .toBeDefined();
+
+    const changed = await pluginRequest({
+      jsonrpc: "2.0", id: 7, method: "tools/call",
+      params: {
+        name: "save_project_tts_settings",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          baselineRevision: terminal.structuredContent.projectRevision,
+          config: { ...config, speed: 1.2 },
+          credentialAction: "keep",
+          expectedAffectedSpeechCount: 1,
+        },
+      },
+    }) as { structuredContent: any };
+    expect(changed.structuredContent).toMatchObject({
+      status: "tts-saved",
+      affectedSpeechCount: 1,
+      projectDsl: { scenes: [expect.not.objectContaining({ speech: expect.anything() })] },
+      timeline: { renderReady: false, scenes: [{ source: "draft" }] },
+    });
+    await pluginRequest.dispose();
+  });
+
+  it("queued Speech 被取消后不会发出 TokenDance 请求", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-speech-cancel-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const sceneId = "30000000-0000-4000-8000-000000000001";
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [],
+      scenes: [{ id: sceneId, narration: { text: "不要发出请求" }, assetIds: [] }],
+    }));
+    let providerCalls = 0;
+    const pluginRequest = createNarracutRequestHandler({
+      codexHost: new PluginTestHost(),
+      ttsFetch: async () => {
+        providerCalls += 1;
+        return new Response("{}", { status: 500 });
+      },
+      probeSpeechDurationMs: async () => 1_000,
+    });
+    const opened = await pluginRequest({
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name: "open_project", arguments: { projectDirectory } },
+    }) as { structuredContent: any };
+    const configured = await pluginRequest({
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: {
+        name: "save_project_tts_settings",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          baselineRevision: opened.structuredContent.projectRevision,
+          config: {
+            provider: "tokendance",
+            model: "minimax-speech-2.8-turbo",
+            voice: "Chinese (Mandarin)_News_Anchor",
+            speed: 1,
+            volume: 1,
+            pitch: 0,
+          },
+          credentialAction: "replace",
+          apiKey: "cancel-key",
+          expectedAffectedSpeechCount: 0,
+        },
+      },
+    }) as { structuredContent: any };
+    const started = await pluginRequest({
+      jsonrpc: "2.0", id: 3, method: "tools/call",
+      params: {
+        name: "start_scene_speech",
+        arguments: { projectDirectory, projectId: opened.structuredContent.project.projectId, sceneId },
+      },
+    }) as { structuredContent: any };
+    await pluginRequest({
+      jsonrpc: "2.0", id: 4, method: "tools/call",
+      params: { name: "cancel_scene_speech_job", arguments: { jobId: started.structuredContent.speechJob.id } },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(configured.structuredContent.status).toBe("tts-saved");
+    expect(providerCalls).toBe(0);
+    await pluginRequest.dispose();
+  });
+
   it("只读预览按登记表区分已知格式、文件不可用与悬空 Asset ID", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-preview-"));
     const projectDirectory = join(parentDirectory, "project");

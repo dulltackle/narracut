@@ -364,6 +364,131 @@ test("窄面板把项目检查收进可操作抽屉，Composer 仍可见", async
   await expect(page.getByRole("textbox", { name: "Composer" })).toBeInViewport();
 });
 
+test("Scene Speech 单元格引导项目 TTS 配置、生成状态与半开时间窗", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  delete initial.projectDsl.scenes[0]!.speech;
+  initial.scenes[0]!.speech = { status: "missing" };
+  const config = {
+    provider: "tokendance",
+    model: "minimax-speech-2.8-turbo",
+    voice: "Chinese (Mandarin)_News_Anchor",
+    speed: 1,
+    volume: 1,
+    pitch: 0,
+  };
+  const capabilities = {
+    provider: "tokendance",
+    models: [{ value: config.model, label: "MiniMax Speech 2.8 Turbo" }],
+    voices: [{ value: config.voice, label: "普通话 · 新闻主播" }],
+    ranges: {
+      speed: { min: 0.5, max: 2, step: 0.1 },
+      volume: { min: 0.1, max: 10, step: 0.1 },
+      pitch: { min: -12, max: 12, step: 1 },
+    },
+    audio: { format: "mp3", sampleRate: 32000, bitrate: 128000, channels: 1 },
+  };
+  Object.assign(initial, {
+    tts: { status: "unconfigured", credential: { status: "missing", storage: "session" }, capabilities },
+    speechStates: [{ sceneId: initial.scenes[0]!.id, status: "missing", reason: "当前 Scene 缺少 Speech。" }],
+    timeline: {
+      durationInFrames: 150,
+      renderReady: false,
+      scenes: [{ sceneId: initial.scenes[0]!.id, startFrame: 0, durationInFrames: 150, source: "draft" }],
+    },
+  });
+  const calls: Array<{ name: string; args: Record<string, any> }> = [];
+  let reads = 0;
+  await installAppToolBridge(page, (name, args) => {
+    calls.push({ name, args: structuredClone(args) });
+    if (name === "save_project_tts_settings") {
+      return {
+        structuredContent: {
+          ...initial,
+          status: "tts-saved",
+          projectRevision: `sha256:${"2".repeat(64)}`,
+          affectedSpeechCount: 0,
+          tts: {
+            status: "configured",
+            config,
+            profileId: `sha256:${"a".repeat(64)}`,
+            credential: { status: "available", storage: "session", masked: "••••-key" },
+            capabilities,
+          },
+        },
+      };
+    }
+    if (name === "start_scene_speech") {
+      return { structuredContent: { speechJob: { id: "speech-job-1", sceneId: initial.scenes[0]!.id, status: "queued", stage: "排队" } } };
+    }
+    if (name === "get_scene_speech_job") {
+      reads += 1;
+      if (reads < 2) {
+        return { structuredContent: { speechJob: { id: "speech-job-1", sceneId: initial.scenes[0]!.id, status: "validating", stage: "正在校验" } } };
+      }
+      const projectDsl = structuredClone(initial.projectDsl);
+      projectDsl.scenes[0].speech = {
+        path: `speech/${initial.scenes[0]!.id}.mp3`,
+        durationMs: 1_001,
+        sourceTextHash: `sha256:${createHash("sha256").update(initial.scenes[0]!.narration).digest("hex")}`,
+        ttsProfileId: `sha256:${"a".repeat(64)}`,
+      };
+      return {
+        structuredContent: {
+          ...initial,
+          status: "speech-job",
+          projectRevision: `sha256:${"3".repeat(64)}`,
+          projectDsl,
+          speechJob: { id: "speech-job-1", sceneId: initial.scenes[0]!.id, status: "succeeded", stage: "生成完成", result: { durationMs: 1_001 } },
+          tts: {
+            status: "configured",
+            config,
+            profileId: `sha256:${"a".repeat(64)}`,
+            credential: { status: "available", storage: "session", masked: "••••-key" },
+            capabilities,
+          },
+          speechStates: [{ sceneId: initial.scenes[0]!.id, status: "available", durationMs: 1_001 }],
+          timeline: {
+            durationInFrames: 31,
+            renderReady: true,
+            scenes: [{ sceneId: initial.scenes[0]!.id, startFrame: 0, durationInFrames: 31, source: "speech" }],
+          },
+        },
+      };
+    }
+    throw new Error(`意外工具：${name}`);
+  });
+  await sendResult(page, initial);
+
+  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await expect(page.getByRole("heading", { name: "项目 TTS 配置" })).toBeVisible();
+  await expect(page.getByText("需要先保存 TTS 配置与 API Key", { exact: true })).toBeVisible();
+  await expect(page.getByText("MP3 · 32 kHz · 单声道", { exact: true })).toBeVisible();
+  await page.getByLabel("TokenDance API Key").fill("test-secret-key");
+  await page.getByRole("button", { name: "保存 TTS 配置" }).click();
+  await expect(page.getByText("API Key 已就绪 · ••••-key", { exact: true })).toBeVisible();
+  expect(calls.find((call) => call.name === "save_project_tts_settings")?.args).toMatchObject({
+    config,
+    credentialAction: "replace",
+    apiKey: "test-secret-key",
+    expectedAffectedSpeechCount: 0,
+  });
+
+  await page.getByRole("button", { name: "返回项目检查" }).click();
+  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await expect(page.getByText("正在校验", { exact: true })).toBeVisible();
+  await expect(page.getByText("1.001 秒", { exact: true })).toBeVisible();
+  await expect(page.getByText("帧 0–31（不含 31）", { exact: true })).toBeVisible();
+  await expect(page.getByText("可用于最终 Render", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重新生成 Speech" })).toBeFocused();
+
+  await page.setViewportSize({ width: 430, height: 860 });
+  await page.getByRole("button", { name: "关闭项目检查" }).click();
+  await expect(page.getByRole("button", { name: "重新生成 Speech" })).toBeVisible();
+  expect(await page.getByRole("button", { name: "重新生成 Speech" }).evaluate((element) => element.getBoundingClientRect().height))
+    .toBeGreaterThanOrEqual(44);
+});
+
 test("零 Scene 可新增并在 Narration 停顿后通过 app 专用工具自动保存", async ({ page }) => {
   await loadWorkbench(page);
   const initial = validResult(0);

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { access, link, mkdir, mkdtemp, readFile, readdir, rename, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,8 +7,133 @@ import { describe, expect, it } from "vitest";
 
 import { createProjectVNext, openProjectVNext } from "../src/server/project-lifecycle";
 import { inspectProjectVNext } from "../src/server/project-vnext-inspection";
+import { ttsProfileId, writeProjectTtsConfig, type ProjectTtsConfig } from "../src/server/project-speech-vnext";
+
+const ttsConfig: ProjectTtsConfig = {
+  provider: "tokendance",
+  model: "minimax-speech-2.8-turbo",
+  voice: "Chinese (Mandarin)_News_Anchor",
+  speed: 1,
+  volume: 1,
+  pitch: 0,
+};
 
 describe("Project VNext 生命周期", () => {
+  it("项目打开后 Speech 目录被替换时拒绝通过符号链接写到项目外", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-speech-anchor-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const outsideDirectory = join(parentDirectory, "outside");
+    await createProjectVNext(projectDirectory);
+    await mkdir(outsideDirectory);
+    const opened = await openProjectVNext(projectDirectory, { probeSpeechDurationMs: async () => 1_000 });
+    await rename(join(projectDirectory, "speech"), join(projectDirectory, "speech-original"));
+    await symlink(outsideDirectory, join(projectDirectory, "speech"), "dir");
+
+    await expect(opened.probeSpeechAudio({ jobId: "directory-swap", audio: Buffer.from("mp3") }))
+      .rejects.toMatchObject({ code: "PROJECT_IDENTITY_LOST" });
+    expect(await readdir(outsideDirectory)).toEqual([]);
+    await opened.release();
+  });
+
+  it("writing 阶段取消时回滚新音频且不写入 Speech 记录", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-speech-cancel-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sceneId = "30000000-0000-4000-8000-000000000001";
+    await createProjectVNext(projectDirectory);
+    await writeProjectTtsConfig(projectDirectory, ttsConfig);
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [],
+      scenes: [{ id: sceneId, narration: { text: "取消测试" }, assetIds: [] }],
+    }));
+    let cancelled = false;
+    const opened = await openProjectVNext(projectDirectory, {
+      probeSpeechDurationMs: async () => {
+        cancelled = true;
+        return 1_000;
+      },
+    });
+
+    await expect(opened.commitSpeech({
+      sceneId,
+      narrationText: "取消测试",
+      ttsProfileId: ttsProfileId(ttsConfig),
+      durationMs: 1_000,
+      audio: Buffer.from("new mp3"),
+      isCancelled: () => cancelled,
+    })).rejects.toMatchObject({ code: "PROJECT_SAVE_FAILED" });
+    expect(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")).scenes[0].speech)
+      .toBeUndefined();
+    await expect(access(join(projectDirectory, "speech", `${sceneId}.mp3`))).rejects.toMatchObject({ code: "ENOENT" });
+    await opened.release();
+  });
+
+  it("越过 Speech 提交点后忽略迟到取消并完成一致提交", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-speech-late-cancel-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sceneId = "30000000-0000-4000-8000-000000000001";
+    await createProjectVNext(projectDirectory);
+    await writeProjectTtsConfig(projectDirectory, ttsConfig);
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [],
+      scenes: [{ id: sceneId, narration: { text: "迟到取消" }, assetIds: [] }],
+    }));
+    let cancelled = false;
+    const opened = await openProjectVNext(projectDirectory, { probeSpeechDurationMs: async () => 1_000 });
+    const result = await opened.commitSpeech({
+      sceneId,
+      narrationText: "迟到取消",
+      ttsProfileId: ttsProfileId(ttsConfig),
+      durationMs: 1_000,
+      audio: Buffer.from("committed mp3"),
+      isCancelled: () => cancelled,
+      onCommitPoint: () => { cancelled = true; },
+    });
+
+    expect(result.status).toBe("applied");
+    expect(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")).scenes[0].speech)
+      .toMatchObject({ durationMs: 1_000, audioContentHash: expect.stringMatching(/^sha256:/u) });
+    expect(await readFile(join(projectDirectory, "speech", `${sceneId}.mp3`), "utf8")).toBe("committed mp3");
+    await opened.release();
+  });
+
+  it("TTS 配置提交失败时恢复已移除的 Speech 引用", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-tts-rollback-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const sceneId = "30000000-0000-4000-8000-000000000001";
+    const narration = "保留旧 Speech";
+    const audio = Buffer.from("old mp3");
+    await createProjectVNext(projectDirectory);
+    await writeProjectTtsConfig(projectDirectory, ttsConfig);
+    await writeFile(join(projectDirectory, "speech", `${sceneId}.mp3`), audio);
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [],
+      scenes: [{
+        id: sceneId,
+        narration: { text: narration },
+        assetIds: [],
+        speech: {
+          path: `speech/${sceneId}.mp3`,
+          durationMs: 1_000,
+          sourceTextHash: `sha256:${createHash("sha256").update(narration).digest("hex")}`,
+          ttsProfileId: ttsProfileId(ttsConfig),
+          audioContentHash: `sha256:${createHash("sha256").update(audio).digest("hex")}`,
+        },
+      }],
+    }));
+    const opened = await openProjectVNext(projectDirectory, { probeSpeechDurationMs: async () => 1_000 });
+    await rename(join(projectDirectory, "tts.json"), join(projectDirectory, "tts.previous.json"));
+    await mkdir(join(projectDirectory, "tts.json"));
+
+    await expect(opened.saveTtsSettings({
+      config: { ...ttsConfig, speed: 1.2 },
+      baselineRevision: opened.inspection.projectRevision,
+      expectedAffectedSpeechCount: 1,
+    })).rejects.toMatchObject({ code: "PROJECT_SAVE_FAILED" });
+    expect(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")).scenes[0].speech)
+      .toBeDefined();
+    await opened.release();
+  });
+
   it("在不存在的目标原子创建可严格检查的零 Scene 项目", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-create-"));
     const projectDirectory = join(parentDirectory, "海边采访");

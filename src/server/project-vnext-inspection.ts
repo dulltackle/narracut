@@ -4,6 +4,14 @@ import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { parseStrictJson, StrictJsonFailure, type StrictJsonLimits } from "./strict-json";
+import {
+  inspectProjectSpeech,
+  ProjectTtsConfigError,
+  readProjectTtsConfig,
+  type ProjectTtsState,
+  type SceneTimeWindow,
+  type SpeechRuntimeState,
+} from "./project-speech-vnext";
 
 export type ProjectManifestVNext = {
   kind: "narracut-project";
@@ -22,6 +30,7 @@ export type ProjectVNext = {
       durationMs: number;
       sourceTextHash: string;
       ttsProfileId: string;
+      audioContentHash?: string;
     };
   }>;
 };
@@ -34,6 +43,13 @@ export type ProjectVNextInspection = {
   videoBrief: string;
   renderPrograms: { directories: string[] };
   assetStates: readonly AssetRuntimeState[];
+  tts: ProjectTtsState;
+  speechStates: readonly SpeechRuntimeState[];
+  timeline: {
+    durationInFrames: number;
+    renderReady: boolean;
+    scenes: SceneTimeWindow[];
+  };
   warnings: readonly ProjectInspectionDiagnostic[];
 };
 
@@ -47,6 +63,12 @@ export type AssetRuntimeState = {
 
 export type ProjectResourceValidation = {
   assetStates: AssetRuntimeState[];
+  speechStates: SpeechRuntimeState[];
+  timeline: {
+    durationInFrames: number;
+    renderReady: boolean;
+    scenes: SceneTimeWindow[];
+  };
   warnings: ProjectInspectionDiagnostic[];
 };
 
@@ -428,7 +450,7 @@ function validateProjectDsl(value: unknown): {
       if (!isRecord(scene.speech)) {
         diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech`, "speech 缺省时必须省略字段，存在时必须是完整对象。"));
       } else {
-        unknownFields(scene.speech, ["path", "durationMs", "sourceTextHash", "ttsProfileId"], `${path}.speech`, diagnostics);
+        unknownFields(scene.speech, ["path", "durationMs", "sourceTextHash", "ttsProfileId", "audioContentHash"], `${path}.speech`, diagnostics);
         const expectedPath = typeof scene.id === "string" ? `speech/${scene.id}.mp3` : undefined;
         if (
           typeof scene.speech.path !== "string" ||
@@ -457,6 +479,12 @@ function validateProjectDsl(value: unknown): {
           typeof scene.speech.ttsProfileId !== "string"
         ) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.ttsProfileId`, "ttsProfileId 必须是不超过 256 个 Unicode 标量的字符串。"));
+        }
+        if (
+          "audioContentHash" in scene.speech &&
+          (typeof scene.speech.audioContentHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.audioContentHash))
+        ) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.audioContentHash`, "audioContentHash 必须是规范的 SHA-256 摘要。"));
         }
       }
     }
@@ -517,6 +545,7 @@ export function validateProjectVNextForSave(
               durationMs: scene.speech.durationMs,
               sourceTextHash: scene.speech.sourceTextHash,
               ttsProfileId: scene.speech.ttsProfileId,
+              ...(scene.speech.audioContentHash === undefined ? {} : { audioContentHash: scene.speech.audioContentHash }),
             },
           }),
     })),
@@ -749,6 +778,10 @@ async function validateOrdinaryResource(
 export async function validateProjectVNextResources(
   projectDirectory: string,
   project: ProjectVNext,
+  options: {
+    currentTtsProfileId?: string;
+    probeSpeechDurationMs?: (path: string) => Promise<number>;
+  } = {},
 ): Promise<ProjectResourceValidation> {
   const assetStates: AssetRuntimeState[] = [];
   for (const asset of project.assets) {
@@ -786,20 +819,42 @@ export async function validateProjectVNextResources(
       });
     }
   }
-  for (const scene of project.scenes) {
-    if (scene.speech !== undefined) {
-      await validateOrdinaryResource(projectDirectory, scene.speech.path, true);
-    }
-  }
+  const speech = await inspectProjectSpeech(
+    projectDirectory,
+    project.scenes,
+    options.currentTtsProfileId,
+    { probeDurationMs: options.probeSpeechDurationMs },
+  );
+  const speechWarnings: ProjectInspectionDiagnostic[] = speech.states
+    .filter((state) => state.status !== "available" && state.status !== "missing")
+    .map((state, index) => {
+      const sceneIndex = project.scenes.findIndex((scene) => scene.id === state.sceneId);
+      const code = {
+        available: "",
+        missing: "PROJECT_SPEECH_MISSING",
+        unavailable: "PROJECT_SPEECH_UNAVAILABLE",
+        "decode-failed": "PROJECT_SPEECH_DECODE_FAILED",
+        changed: "PROJECT_SPEECH_CHANGED",
+        "profile-mismatch": "PROJECT_SPEECH_PROFILE_MISMATCH",
+      }[state.status];
+      return {
+        code: code ?? "PROJECT_SPEECH_UNAVAILABLE",
+        component: state.path ?? `Scene ${sceneIndex + 1}`,
+        jsonPath: `$.scenes[${sceneIndex < 0 ? index : sceneIndex}].speech`,
+        message: state.reason ?? "Speech 当前不可用于正式 Render。",
+      };
+    });
   return {
     assetStates,
-    warnings: boundedDiagnostics(assetStates
+    speechStates: speech.states,
+    timeline: speech.timeline,
+    warnings: boundedDiagnostics([...assetStates
       .filter((asset) => asset.status === "unavailable")
       .map((asset) => ({
         code: "PROJECT_ASSET_UNAVAILABLE",
         component: asset.path,
         message: `${asset.path} 不可用：${asset.reason ?? "无法读取。"}`,
-      }))),
+      })), ...speechWarnings]),
   };
 }
 
@@ -968,7 +1023,10 @@ async function validateRenderProgramDirectory(
   }
 }
 
-export async function inspectProjectVNext(inputPath: string): Promise<ProjectVNextInspection> {
+export async function inspectProjectVNext(
+  inputPath: string,
+  options: { probeSpeechDurationMs?: (path: string) => Promise<number> } = {},
+): Promise<ProjectVNextInspection> {
   const projectDirectory = resolve(inputPath);
   try {
     await requireDirectory(projectDirectory);
@@ -1125,9 +1183,27 @@ export async function inspectProjectVNext(inputPath: string): Promise<ProjectVNe
   if (projectValidation.project === undefined) {
     throw invalidContent(projectPath, projectValidation.diagnostics);
   }
-  const { assetStates, warnings } = await validateProjectVNextResources(
+  let tts: ProjectTtsState;
+  try {
+    tts = await readProjectTtsConfig(projectDirectory);
+  } catch (cause) {
+    if (cause instanceof ProjectTtsConfigError) {
+      throw invalidControlFile(cause.path, {
+        code: cause.code,
+        component: "tts.json",
+        jsonPath: "$",
+        message: cause.message,
+      }, { cause });
+    }
+    throw cause;
+  }
+  const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
     projectDirectory,
     projectValidation.project,
+    {
+      ...(tts.status === "configured" ? { currentTtsProfileId: tts.profileId } : {}),
+      probeSpeechDurationMs: options.probeSpeechDurationMs,
+    },
   );
   return {
     projectDirectory,
@@ -1137,6 +1213,9 @@ export async function inspectProjectVNext(inputPath: string): Promise<ProjectVNe
     videoBrief: videoBytes,
     renderPrograms: { directories: renderProgramDirectories },
     assetStates,
+    tts,
+    speechStates,
+    timeline,
     warnings,
   };
 }

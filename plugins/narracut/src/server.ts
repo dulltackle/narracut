@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,9 +18,15 @@ import {
   createProjectVNext,
   openProjectVNext,
   ProjectLifecycleError,
+  ProjectTtsConfirmationError,
   type OpenedProjectVNext,
 } from "../../../src/server/project-lifecycle";
 import { readProjectAssetPreview } from "../../../src/server/project-asset-preview";
+import {
+  TTS_CAPABILITIES,
+  probeSpeechDurationMs,
+  type ProjectTtsConfig,
+} from "../../../src/server/project-speech-vnext";
 
 const SERVER_VERSION = "0.1.0";
 const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -62,6 +69,33 @@ const taskToolAnnotations = {
   destructiveHint: false,
   idempotentHint: false,
   openWorldHint: false,
+};
+
+type TtsCredentialState =
+  | { status: "missing"; storage: "session" }
+  | { status: "available"; storage: "session"; masked: string };
+
+type SpeechJob = {
+  id: string;
+  sceneId: string;
+  status: "queued" | "generating" | "validating" | "writing" | "succeeded" | "cancelled" | "failed" | "rejected";
+  stage: string;
+  createdAt: string;
+  updatedAt: string;
+  result?: { durationMs: number; message: string };
+  error?: { code: string; message: string; retryable: boolean };
+};
+
+type InternalSpeechJob = SpeechJob & {
+  projectId: string;
+  projectDirectory: string;
+  narrationText: string;
+  config: ProjectTtsConfig;
+  ttsProfileId: string;
+  credential: string;
+  controller?: AbortController;
+  inspection?: ProjectVNextInspection;
+  commitPointReached?: boolean;
 };
 
 const tools = [
@@ -182,6 +216,74 @@ const tools = [
     _meta: { ui: { visibility: ["app"] } },
   },
   {
+    name: "save_project_tts_settings",
+    title: "保存项目 TTS 配置",
+    description: "仅供 Narracut 工作台 app 使用：原子保存项目 TTS 配置，并在确认后移除不再匹配的 Speech 记录。API Key 只保留在宿主会话内。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "baselineRevision", "config", "credentialAction", "expectedAffectedSpeechCount"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        baselineRevision: { type: "string", minLength: 1 },
+        config: { type: "object" },
+        credentialAction: { type: "string", enum: ["keep", "replace", "clear"] },
+        apiKey: { type: "string", minLength: 1 },
+        expectedAffectedSpeechCount: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } },
+  },
+  {
+    name: "start_scene_speech",
+    title: "生成当前 Scene Speech",
+    description: "仅供 Narracut 工作台 app 使用：为当前 Narration 和项目 TTS 配置生成、校验并原子应用 Speech。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "sceneId"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        sceneId: { type: "string", minLength: 1 },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } },
+  },
+  {
+    name: "get_scene_speech_job",
+    title: "读取 Speech 生成状态",
+    description: "仅供 Narracut 工作台 app 使用：读取一次 Scene Speech 生成任务的有界状态。",
+    inputSchema: {
+      type: "object",
+      required: ["jobId"],
+      properties: { jobId: { type: "string", minLength: 1 } },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: readOnlyToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } },
+  },
+  {
+    name: "cancel_scene_speech_job",
+    title: "取消 Speech 生成",
+    description: "仅供 Narracut 工作台 app 使用：取消当前 Scene 的 Speech 生成，不改变既有 Speech。",
+    inputSchema: {
+      type: "object",
+      required: ["jobId"],
+      properties: { jobId: { type: "string", minLength: 1 } },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: { ...taskToolAnnotations, idempotentHint: true },
+    _meta: { ui: { visibility: ["app"] } },
+  },
+  {
     name: "inspect_project",
     title: "检查 Narracut 项目",
     description:
@@ -270,14 +372,24 @@ function launcherConnectionState(): { status: "connected"; readOnly: false } {
 function serializeInspection(
   inspection: ProjectVNextInspection,
   writable = false,
+  credential: TtsCredentialState = { status: "missing", storage: "session" },
 ): Record<string, unknown> {
   const assets = new Map(inspection.project.assets.map((asset) => [asset.id, asset]));
+  const speechStates = new Map(inspection.speechStates.map((state) => [state.sceneId, state]));
+  const timeWindows = new Map(inspection.timeline.scenes.map((time) => [time.sceneId, time]));
   return {
     status: "valid",
     connection: connectedState(!writable),
     writable,
     projectRevision: inspection.projectRevision,
     projectDsl: inspection.project,
+    tts: {
+      ...inspection.tts,
+      credential,
+      capabilities: TTS_CAPABILITIES,
+    },
+    speechStates: inspection.speechStates,
+    timeline: inspection.timeline,
     project: {
       directory: inspection.projectDirectory,
       folderName: basename(inspection.projectDirectory),
@@ -302,9 +414,8 @@ function serializeInspection(
         id: assetId,
         path: assets.get(assetId)?.path ?? null,
       })),
-      speech: scene.speech === undefined
-        ? { status: "missing" }
-        : { status: "available", durationMs: scene.speech.durationMs },
+      speech: speechStates.get(scene.id) ?? { status: "missing" },
+      time: timeWindows.get(scene.id),
     })),
     warnings: inspection.warnings,
     assetStates: inspection.assetStates,
@@ -413,11 +524,62 @@ function hostValidationResult(hostValidation: Record<string, unknown>, text: str
   };
 }
 
+class SpeechToolError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+    this.name = "SpeechToolError";
+  }
+}
+
+function publicSpeechJob(job: InternalSpeechJob): SpeechJob {
+  const {
+    projectId: _projectId,
+    projectDirectory: _projectDirectory,
+    narrationText: _narrationText,
+    config: _config,
+    ttsProfileId: _ttsProfileId,
+    credential: _credential,
+    controller: _controller,
+    inspection: _inspection,
+    commitPointReached: _commitPointReached,
+    ...value
+  } = job;
+  return structuredClone(value);
+}
+
+function credentialState(value: string | undefined): TtsCredentialState {
+  if (value === undefined) return { status: "missing", storage: "session" };
+  return { status: "available", storage: "session", masked: `••••${value.slice(-4)}` };
+}
+
 class ProjectWorkspaceSession {
   #opened: OpenedProjectVNext | null = null;
 
+  readonly #credentials = new Map<string, string>();
+  readonly #speechJobs = new Map<string, InternalSpeechJob>();
+  readonly #ttsFetch: typeof fetch;
+  readonly #probeSpeechDurationMs: (path: string) => Promise<number>;
+
+  constructor(options: {
+    ttsFetch?: typeof fetch;
+    probeSpeechDurationMs?: (path: string) => Promise<number>;
+  } = {}) {
+    this.#ttsFetch = options.ttsFetch ?? globalThis.fetch;
+    this.#probeSpeechDurationMs = options.probeSpeechDurationMs ?? probeSpeechDurationMs;
+  }
+
+  credential(projectId: string): TtsCredentialState {
+    return credentialState(this.#credentials.get(projectId));
+  }
+
+  serialize(inspection: ProjectVNextInspection, writable = true): Record<string, unknown> {
+    return serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId));
+  }
+
   async open(projectDirectory: string): Promise<ProjectVNextInspection> {
-    const next = await openProjectVNext(projectDirectory);
+    const next = await openProjectVNext(projectDirectory, {
+      probeSpeechDurationMs: this.#probeSpeechDurationMs,
+    });
     const previous = this.#opened;
     try {
       if (previous !== null) await previous.release();
@@ -500,7 +662,250 @@ class ProjectWorkspaceSession {
     return readProjectAssetPreview(opened.inspection, input.assetId);
   }
 
+  async saveTtsSettings(input: {
+    projectDirectory: string;
+    projectId: string;
+    baselineRevision: string;
+    config: ProjectTtsConfig;
+    credentialAction: "keep" | "replace" | "clear";
+    apiKey?: string;
+    expectedAffectedSpeechCount: number;
+  }): Promise<{ affectedSpeechCount: number; inspection: ProjectVNextInspection }> {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.credentialAction === "replace" && (input.apiKey === undefined || input.apiKey.trim() === "")) {
+      throw new SpeechToolError("TTS_CREDENTIAL_INVALID", "替换 API Key 时必须提供非空值。");
+    }
+    const saved = await opened.saveTtsSettings({
+      config: input.config,
+      baselineRevision: input.baselineRevision,
+      expectedAffectedSpeechCount: input.expectedAffectedSpeechCount,
+    });
+    if (input.credentialAction === "replace") this.#credentials.set(input.projectId, input.apiKey!);
+    if (input.credentialAction === "clear") this.#credentials.delete(input.projectId);
+    opened.inspection = saved.inspection;
+    for (const job of this.#speechJobs.values()) {
+      if (
+        job.projectId === input.projectId &&
+        !["succeeded", "cancelled", "failed", "rejected"].includes(job.status) &&
+        saved.inspection.tts.status === "configured" &&
+        job.ttsProfileId !== saved.inspection.tts.profileId
+      ) {
+        this.cancelSpeech(job.id, "TTS 配置已变化，旧配置生成任务已取消。");
+      }
+    }
+    return saved;
+  }
+
+  startSpeech(input: {
+    projectDirectory: string;
+    projectId: string;
+    sceneId: string;
+  }): SpeechJob {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    const tts = opened.inspection.tts;
+    if (tts.status !== "configured") {
+      throw new SpeechToolError("TTS_CONFIG_MISSING", "请先保存项目 TTS 配置。");
+    }
+    const key = this.#credentials.get(input.projectId);
+    if (key === undefined) {
+      throw new SpeechToolError("TTS_CREDENTIAL_MISSING", "请先录入 TokenDance API Key；凭据只保留在当前宿主会话。");
+    }
+    const scene = opened.inspection.project.scenes.find((candidate) => candidate.id === input.sceneId);
+    if (scene === undefined) throw new SpeechToolError("SPEECH_SCENE_MISSING", "目标 Scene 不存在。");
+    if (scene.narration.text.trim() === "") {
+      throw new SpeechToolError("SPEECH_NARRATION_EMPTY", "空 Narration 不能生成 Speech；请先补充内容。");
+    }
+    if ([...this.#speechJobs.values()].some((job) =>
+      job.projectId === input.projectId && job.sceneId === input.sceneId &&
+      !["succeeded", "cancelled", "failed", "rejected"].includes(job.status))) {
+      throw new SpeechToolError("SPEECH_JOB_ACTIVE", "当前 Scene 已有 Speech 正在生成。");
+    }
+    if (this.#speechJobs.size >= 128) {
+      const terminal = [...this.#speechJobs.values()]
+        .filter((job) => ["succeeded", "cancelled", "failed", "rejected"].includes(job.status))
+        .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+      for (const job of terminal.slice(0, Math.max(1, this.#speechJobs.size - 127))) {
+        this.#speechJobs.delete(job.id);
+      }
+    }
+    const now = new Date().toISOString();
+    const job: InternalSpeechJob = {
+      id: randomUUID(),
+      sceneId: scene.id,
+      status: "queued",
+      stage: "排队",
+      createdAt: now,
+      updatedAt: now,
+      projectId: input.projectId,
+      projectDirectory: input.projectDirectory,
+      narrationText: scene.narration.text,
+      config: structuredClone(tts.config),
+      ttsProfileId: tts.profileId,
+      credential: key,
+    };
+    this.#speechJobs.set(job.id, job);
+    setImmediate(() => void this.#processSpeech(job));
+    return publicSpeechJob(job);
+  }
+
+  getSpeech(jobId: string): { job: SpeechJob; inspection?: ProjectVNextInspection } {
+    const job = this.#speechJobs.get(jobId);
+    if (job === undefined) throw new SpeechToolError("SPEECH_JOB_NOT_FOUND", "Speech 任务不存在或已失效。");
+    const result = { job: publicSpeechJob(job), ...(job.inspection === undefined ? {} : { inspection: job.inspection }) };
+    return result;
+  }
+
+  cancelSpeech(jobId: string, message = "Speech 生成已取消；既有 Speech 保持不变。"): SpeechJob {
+    const job = this.#speechJobs.get(jobId);
+    if (job === undefined) throw new SpeechToolError("SPEECH_JOB_NOT_FOUND", "Speech 任务不存在或已失效。");
+    if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status) && !job.commitPointReached) {
+      job.status = "cancelled";
+      job.stage = "已取消";
+      job.updatedAt = new Date().toISOString();
+      job.error = { code: "SPEECH_CANCELLED", message, retryable: true };
+      job.controller?.abort();
+    }
+    return publicSpeechJob(job);
+  }
+
+  #requireOpened(projectDirectory: string, projectId: string): OpenedProjectVNext {
+    const opened = this.#opened;
+    if (
+      opened === null || opened.inspection.projectDirectory !== projectDirectory ||
+      opened.inspection.manifest.projectId !== projectId
+    ) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        projectDirectory,
+        "当前工作台未持有该项目身份；Narracut 拒绝操作 Speech。",
+      );
+    }
+    return opened;
+  }
+
+  #updateSpeech(job: InternalSpeechJob, status: SpeechJob["status"], stage: string): void {
+    if (job.status === "cancelled") return;
+    job.status = status;
+    job.stage = stage;
+    job.updatedAt = new Date().toISOString();
+  }
+
+  async #processSpeech(job: InternalSpeechJob): Promise<void> {
+    try {
+      if ((job as SpeechJob).status === "cancelled") return;
+      this.#updateSpeech(job, "generating", "正在生成");
+      const controller = new AbortController();
+      job.controller = controller;
+      const response = await this.#ttsFetch("https://tokendance.space/gateway/minimax/v1/t2a_v2", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${job.credential}`,
+          "content-type": "application/json",
+          "x-app-url": "app://narracut",
+        },
+        body: JSON.stringify({
+          model: job.config.model,
+          text: job.narrationText,
+          stream: false,
+          voice_setting: {
+            voice_id: job.config.voice,
+            speed: job.config.speed,
+            vol: job.config.volume,
+            pitch: job.config.pitch,
+          },
+          audio_setting: {
+            sample_rate: TTS_CAPABILITIES.audio.sampleRate,
+            bitrate: TTS_CAPABILITIES.audio.bitrate,
+            format: TTS_CAPABILITIES.audio.format,
+            channel: TTS_CAPABILITIES.audio.channels,
+          },
+        }),
+        signal: controller.signal,
+      });
+      if ((job as SpeechJob).status === "cancelled") return;
+      let payload: any;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new SpeechToolError("TTS_RESPONSE_INVALID", "Speech 提供方返回了无法识别的响应结构。");
+      }
+      if (!response.ok || (typeof payload?.base_resp?.status_code === "number" && payload.base_resp.status_code !== 0)) {
+        const code = response.status === 401 || response.status === 403
+          ? "TTS_AUTH_FAILED"
+          : response.status === 429 ? "TTS_RATE_LIMITED" : "TTS_PROVIDER_FAILED";
+        throw new SpeechToolError(code, code === "TTS_AUTH_FAILED"
+          ? "TokenDance 鉴权失败，请替换 API Key。"
+          : code === "TTS_RATE_LIMITED" ? "TokenDance 请求过多，请稍后重试。" : "Speech 提供方拒绝了本次请求。");
+      }
+      const audioHex = payload?.data?.audio;
+      const providerDurationMs = payload?.extra_info?.audio_length;
+      if (
+        typeof audioHex !== "string" || audioHex.length === 0 || audioHex.length % 2 !== 0 ||
+        !/^[0-9a-f]+$/iu.test(audioHex) || !Number.isSafeInteger(providerDurationMs) ||
+        providerDurationMs <= 0 || (payload?.extra_info?.audio_format !== undefined && payload.extra_info.audio_format !== "mp3")
+      ) {
+        throw new SpeechToolError("TTS_RESPONSE_INVALID", "Speech 提供方返回了不完整的 MP3 或时长信息。");
+      }
+      const audio = Buffer.from(audioHex, "hex");
+      this.#updateSpeech(job, "validating", "正在校验");
+      let durationMs: number;
+      try {
+        const opened = this.#requireOpened(job.projectDirectory, job.projectId);
+        durationMs = await opened.probeSpeechAudio({ jobId: job.id, audio });
+      } catch (cause) {
+        if (cause instanceof ProjectLifecycleError) throw cause;
+        throw new SpeechToolError("TTS_AUDIO_INVALID", "生成的 Speech 无法在本机解码为 MP3。");
+      }
+      if (Math.abs(durationMs - providerDurationMs) > 34) {
+        throw new SpeechToolError("TTS_DURATION_MISMATCH", "Speech 实际时长与提供方返回时长不一致。");
+      }
+      if (job.status === "cancelled") return;
+      this.#updateSpeech(job, "writing", "正在写入");
+      const opened = this.#requireOpened(job.projectDirectory, job.projectId);
+      const committed = await opened.commitSpeech({
+        sceneId: job.sceneId,
+        narrationText: job.narrationText,
+        ttsProfileId: job.ttsProfileId,
+        durationMs,
+        audio,
+        isCancelled: () => job.status === "cancelled",
+        onCommitPoint: () => { job.commitPointReached = true; },
+      });
+      opened.inspection = committed.inspection;
+      job.inspection = committed.inspection;
+      if (committed.status === "rejected") {
+        this.#updateSpeech(job, "rejected", "结果未应用");
+        job.error = { code: committed.code, message: committed.message, retryable: true };
+        return;
+      }
+      this.#updateSpeech(job, "succeeded", "生成完成");
+      job.result = { durationMs, message: committed.message };
+    } catch (cause) {
+      if (job.status === "cancelled" || (cause instanceof Error && cause.name === "AbortError")) return;
+      this.#updateSpeech(job, "failed", "生成失败");
+      const code = cause instanceof SpeechToolError || cause instanceof ProjectLifecycleError
+        ? cause.code : "SPEECH_GENERATION_FAILED";
+      job.error = {
+        code,
+        message: cause instanceof Error ? cause.message : "Speech 生成失败。",
+        retryable: !["TTS_AUTH_FAILED", "TTS_RESPONSE_INVALID", "TTS_AUDIO_INVALID"].includes(code),
+      };
+    } finally {
+      job.controller = undefined;
+      job.credential = "";
+      if (["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) {
+        const expiration = setTimeout(() => this.#speechJobs.delete(job.id), 5 * 60_000);
+        expiration.unref();
+      }
+    }
+  }
+
   async dispose(): Promise<void> {
+    for (const job of this.#speechJobs.values()) {
+      if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
+    }
+    this.#credentials.clear();
+    this.#speechJobs.clear();
     const opened = this.#opened;
     this.#opened = null;
     if (opened !== null) await opened.release();
@@ -576,7 +981,7 @@ async function callTool(
       }
       const inspection = await workspace.open(projectDirectory);
       return {
-        structuredContent: { ...serializeInspection(inspection, true), operation },
+        structuredContent: { ...workspace.serialize(inspection), operation },
         content: [{
           type: "text",
           text: operation === "created"
@@ -649,7 +1054,7 @@ async function callTool(
         project: input.project,
       });
       return {
-        structuredContent: { ...serializeInspection(inspection, true), status: "saved" },
+        structuredContent: { ...workspace.serialize(inspection), status: "saved" },
         content: [{ type: "text", text: `已原子保存 ${inspection.project.scenes.length} 个 Scene。` }],
       };
     } catch (error) {
@@ -711,7 +1116,7 @@ async function callTool(
       const { inspection, ...assetImport } = imported;
       return {
         structuredContent: {
-          ...serializeInspection(inspection, true),
+          ...workspace.serialize(inspection),
           status: imported.status.startsWith("imported-") ? "asset-imported" : "asset-import-result",
           assetImport,
         },
@@ -784,6 +1189,152 @@ async function callTool(
       throw error;
     }
   }
+  if (name === "save_project_tts_settings") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "TTS 保存参数必须是对象。" } },
+        content: [{ type: "text", text: "无法保存 TTS 配置：参数无效。" }],
+      };
+    }
+    const input = argumentsValue as Record<string, unknown>;
+    if (
+      typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
+      typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" ||
+      typeof input.config !== "object" || input.config === null ||
+      !["keep", "replace", "clear"].includes(String(input.credentialAction)) ||
+      !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 ||
+      (input.apiKey !== undefined && typeof input.apiKey !== "string")
+    ) {
+      return {
+        isError: true,
+        structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "项目身份、配置或凭据操作无效。" } },
+        content: [{ type: "text", text: "无法保存 TTS 配置：项目身份、配置或凭据操作无效。" }],
+      };
+    }
+    try {
+      const saved = await workspace.saveTtsSettings({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        baselineRevision: input.baselineRevision,
+        config: input.config as ProjectTtsConfig,
+        credentialAction: input.credentialAction as "keep" | "replace" | "clear",
+        expectedAffectedSpeechCount: input.expectedAffectedSpeechCount as number,
+        ...(typeof input.apiKey === "string" ? { apiKey: input.apiKey } : {}),
+      });
+      return {
+        structuredContent: {
+          ...workspace.serialize(saved.inspection),
+          status: "tts-saved",
+          affectedSpeechCount: saved.affectedSpeechCount,
+        },
+        content: [{ type: "text", text: saved.affectedSpeechCount > 0
+          ? `TTS 配置已保存，并移除 ${saved.affectedSpeechCount} 条不再匹配的 Speech 记录。`
+          : "TTS 配置已保存；现有 Speech 仍与配置匹配。" }],
+      };
+    } catch (error) {
+      if (error instanceof ProjectTtsConfirmationError) {
+        return {
+          isError: true,
+          structuredContent: {
+            status: "tts-confirmation-required",
+            affectedSpeechCount: error.affectedSpeechCount,
+            error: { code: error.code, message: error.message },
+          },
+          content: [{ type: "text", text: error.message }],
+        };
+      }
+      const code = error instanceof SpeechToolError
+        ? error.code
+        : error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError
+          ? error.code : "TTS_SAVE_FAILED";
+      return {
+        isError: true,
+        structuredContent: {
+          status: code === "PROJECT_SAVE_CONFLICT" ? "save-conflict" : code === "PROJECT_IDENTITY_LOST" ? "identity-lost" : "tts-save-failed",
+          error: { code, message: error instanceof Error ? error.message : "无法保存 TTS 配置。" },
+        },
+        content: [{ type: "text", text: `无法保存 TTS 配置：${error instanceof Error ? error.message : "未知错误"}` }],
+      };
+    }
+  }
+  if (name === "start_scene_speech") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "Speech 参数必须是对象。" } },
+        content: [{ type: "text", text: "无法开始 Speech 生成：参数无效。" }],
+      };
+    }
+    const input = argumentsValue as Record<string, unknown>;
+    if (
+      typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
+      typeof input.projectId !== "string" || typeof input.sceneId !== "string"
+    ) {
+      return {
+        isError: true,
+        structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "项目身份或 Scene ID 无效。" } },
+        content: [{ type: "text", text: "无法开始 Speech 生成：项目身份或 Scene ID 无效。" }],
+      };
+    }
+    try {
+      const speechJob = workspace.startSpeech({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        sceneId: input.sceneId,
+      });
+      return {
+        structuredContent: { status: "speech-started", speechJob },
+        content: [{ type: "text", text: "Speech 生成已排队。" }],
+      };
+    } catch (error) {
+      const code = error instanceof SpeechToolError
+        ? error.code
+        : error instanceof ProjectLifecycleError ? error.code : "SPEECH_START_FAILED";
+      return {
+        isError: true,
+        structuredContent: { status: "speech-start-failed", error: { code, message: error instanceof Error ? error.message : "无法开始 Speech 生成。" } },
+        content: [{ type: "text", text: `无法开始 Speech 生成：${error instanceof Error ? error.message : "未知错误"}` }],
+      };
+    }
+  }
+  if (name === "get_scene_speech_job" || name === "cancel_scene_speech_job") {
+    const jobId = stringArgument(argumentsValue, "jobId");
+    if (jobId === null) {
+      return {
+        isError: true,
+        structuredContent: { status: "speech-job-failed", error: { code: "INVALID_TOOL_INPUT", message: "jobId 不能为空。" } },
+        content: [{ type: "text", text: "无法读取 Speech 任务：jobId 不能为空。" }],
+      };
+    }
+    try {
+      if (name === "cancel_scene_speech_job") {
+        const speechJob = workspace.cancelSpeech(jobId);
+        const cancelled = speechJob.status === "cancelled";
+        return {
+          structuredContent: { status: cancelled ? "speech-cancelled" : "speech-commit-in-progress", speechJob },
+          content: [{ type: "text", text: cancelled
+            ? "Speech 生成已取消；既有 Speech 保持不变。"
+            : "Speech 已越过提交点，无法取消；Narracut 将完成当前原子提交。" }],
+        };
+      }
+      const current = workspace.getSpeech(jobId);
+      return {
+        structuredContent: {
+          status: "speech-job",
+          speechJob: current.job,
+          ...(current.inspection === undefined ? {} : workspace.serialize(current.inspection)),
+        },
+        content: [{ type: "text", text: `Speech 任务状态：${current.job.status}。` }],
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        structuredContent: { status: "speech-job-failed", error: { code: error instanceof SpeechToolError ? error.code : "SPEECH_JOB_FAILED", message: error instanceof Error ? error.message : "无法读取 Speech 任务。" } },
+        content: [{ type: "text", text: `无法读取 Speech 任务：${error instanceof Error ? error.message : "未知错误"}` }],
+      };
+    }
+  }
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
@@ -853,12 +1404,19 @@ export type NarracutRequestHandler = ((request: JsonRpcRequest) => Promise<unkno
 };
 
 export function createNarracutRequestHandler(
-  options: { codexHost?: CodexHostAdapter } = {},
+  options: {
+    codexHost?: CodexHostAdapter;
+    ttsFetch?: typeof fetch;
+    probeSpeechDurationMs?: (path: string) => Promise<number>;
+  } = {},
 ): NarracutRequestHandler {
   const hostValidation = new AgentHostValidationService(
     options.codexHost ?? new CodexAppServerHost(),
   );
-  const workspace = new ProjectWorkspaceSession();
+  const workspace = new ProjectWorkspaceSession({
+    ttsFetch: options.ttsFetch,
+    probeSpeechDurationMs: options.probeSpeechDurationMs,
+  });
   const requestHandler = async (request: JsonRpcRequest): Promise<unknown> => {
     switch (request.method) {
     case "initialize": {

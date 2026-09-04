@@ -131,7 +131,8 @@ Scene {
     path: ProjectRelativePath,
     durationMs: positive integer,
     sourceTextHash: "sha256:<lowercase hex>",
-    ttsProfileId: string
+    ttsProfileId: string,
+    audioContentHash?: "sha256:<lowercase hex>"
   }
 }
 ```
@@ -159,9 +160,9 @@ Asset 是 `assets/` 下已登记的任意格式普通文件。DSL 只保存稳�
 
 ### 4.3 Narration 与 Speech
 
-Narration 与 Speech 是表格工作区权威。Speech 是当前 Narration 与 TTS 配置的完整派生记录；文本或配置变化后，Scene 不再拥有匹配的 Speech，不持久化 Stale Speech 状态。
+Narration 与 Speech 是表格工作区权威。Speech 是当前 Narration、TTS 配置与已提交音频内容的完整派生记录；文本或配置变化后，Scene 不再拥有匹配的 Speech，不持久化 Stale Speech 状态。
 
-存在的 Speech 必须使用固定项目相对路径 `speech/<sceneId>.mp3`，并与该 Scene ID、Narration 原始 UTF-8 字节摘要和当前 TTS profile 匹配。
+存在的 Speech 必须使用固定项目相对路径 `speech/<sceneId>.mp3`，并与该 Scene ID、Narration 原始 UTF-8 字节摘要、当前 TTS profile 和音频内容 SHA-256 匹配。新生成记录必须写入 `audioContentHash`；缺少该字段的历史记录仅能按 Draft 使用，重新生成后升级。
 
 每个 Scene 的 `durationMs` 必须分别向上量化为整数帧，再按 Scene 顺序累计半开 Scene Time Window。不得先累计毫秒后统一取整，不得四舍五入，不得裁剪首尾近静音、增加 Padding 或手动覆盖 Duration。
 

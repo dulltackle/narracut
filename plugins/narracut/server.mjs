@@ -1,5 +1,6 @@
 // plugins/narracut/src/server.ts
-import { readFile as readFile2 } from "node:fs/promises";
+import { randomUUID as randomUUID4 } from "node:crypto";
+import { readFile as readFile3 } from "node:fs/promises";
 import { basename as basename3, isAbsolute as isAbsolute2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -567,9 +568,9 @@ var CodexAppServerHost = class {
 };
 
 // src/server/project-vnext-inspection.ts
-import { createHash } from "node:crypto";
-import { lstat, open, readdir, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { createHash as createHash2 } from "node:crypto";
+import { lstat as lstat2, open as open2, readdir, realpath } from "node:fs/promises";
+import { isAbsolute, join as join2, relative, resolve, sep } from "node:path";
 
 // src/server/strict-json.ts
 var StrictJsonFailure = class extends Error {
@@ -790,6 +791,317 @@ function parseStrictJson(input, limits) {
   return JSON.parse(input);
 }
 
+// src/server/project-speech-vnext.ts
+import { execFile } from "node:child_process";
+import { createHash, randomUUID as randomUUID2 } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { lstat, open, readFile, rename, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+var execFileAsync = promisify(execFile);
+var DRAFT_DURATION_MS = 5e3;
+var TTS_CAPABILITIES = {
+  provider: "tokendance",
+  models: [
+    { value: "minimax-speech-2.8-turbo", label: "MiniMax Speech 2.8 Turbo" }
+  ],
+  voices: [
+    { value: "Chinese (Mandarin)_News_Anchor", label: "\u666E\u901A\u8BDD \xB7 \u65B0\u95FB\u4E3B\u64AD" },
+    { value: "Chinese (Mandarin)_Reliable_Executive", label: "\u666E\u901A\u8BDD \xB7 \u6C89\u7A33\u4E3B\u7BA1" }
+  ],
+  ranges: {
+    speed: { min: 0.5, max: 2, step: 0.1 },
+    volume: { min: 0.1, max: 10, step: 0.1 },
+    pitch: { min: -12, max: 12, step: 1 }
+  },
+  audio: { format: "mp3", sampleRate: 32e3, bitrate: 128e3, channels: 1 }
+};
+var ProjectTtsConfigError = class extends Error {
+  constructor(message, path, options = {}) {
+    super(message, options);
+    this.path = path;
+    this.name = "ProjectTtsConfigError";
+  }
+  path;
+  code = "TTS_CONFIG_INVALID";
+};
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function inRange(value, range) {
+  return typeof value === "number" && Number.isFinite(value) && value >= range.min && value <= range.max;
+}
+function validateProjectTtsConfig(value) {
+  if (!isRecord(value)) throw new ProjectTtsConfigError("tts.json \u6839\u503C\u5FC5\u987B\u662F\u5BF9\u8C61\u3002", "tts.json");
+  const keys = Object.keys(value).sort();
+  const expected = ["model", "pitch", "provider", "speed", "voice", "volume"].sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    throw new ProjectTtsConfigError("tts.json \u53EA\u80FD\u5305\u542B provider\u3001model\u3001voice\u3001speed\u3001volume \u4E0E pitch\u3002", "tts.json");
+  }
+  if (value.provider !== TTS_CAPABILITIES.provider) {
+    throw new ProjectTtsConfigError("provider \u5FC5\u987B\u662F tokendance\u3002", "tts.json");
+  }
+  if (!TTS_CAPABILITIES.models.some((model) => model.value === value.model)) {
+    throw new ProjectTtsConfigError("model \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
+  }
+  if (!TTS_CAPABILITIES.voices.some((voice) => voice.value === value.voice)) {
+    throw new ProjectTtsConfigError("voice \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
+  }
+  if (!inRange(value.speed, TTS_CAPABILITIES.ranges.speed)) {
+    throw new ProjectTtsConfigError("speed \u5FC5\u987B\u5728 0.5\u20132.0 \u4E4B\u95F4\u3002", "tts.json");
+  }
+  if (!inRange(value.volume, TTS_CAPABILITIES.ranges.volume)) {
+    throw new ProjectTtsConfigError("volume \u5FC5\u987B\u5728 0.1\u201310.0 \u4E4B\u95F4\u3002", "tts.json");
+  }
+  if (!inRange(value.pitch, TTS_CAPABILITIES.ranges.pitch) || !Number.isInteger(value.pitch)) {
+    throw new ProjectTtsConfigError("pitch \u5FC5\u987B\u662F -12\u201312 \u4E4B\u95F4\u7684\u6574\u6570\u3002", "tts.json");
+  }
+  return value;
+}
+function ttsProfileId(config) {
+  const stable = JSON.stringify({
+    provider: config.provider,
+    model: config.model,
+    voice: config.voice,
+    speed: config.speed,
+    volume: config.volume,
+    pitch: config.pitch,
+    audio: TTS_CAPABILITIES.audio
+  });
+  return `sha256:${createHash("sha256").update(stable, "utf8").digest("hex")}`;
+}
+async function readProjectTtsConfig(projectDirectory) {
+  const path = join(projectDirectory, "tts.json");
+  let bytes;
+  try {
+    const facts = await lstat(path);
+    if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 16 * 1024) {
+      throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u5C0F\u4E8E 16 KiB \u7684\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002", path);
+    }
+    bytes = await readFile(path);
+  } catch (cause) {
+    if (cause instanceof ProjectTtsConfigError) throw cause;
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+      return { status: "unconfigured" };
+    }
+    throw new ProjectTtsConfigError("\u65E0\u6CD5\u5B89\u5168\u8BFB\u53D6 tts.json\u3002", path, { cause });
+  }
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (cause) {
+    throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u4E25\u683C UTF-8\u3002", path, { cause });
+  }
+  let parsed;
+  try {
+    parsed = parseStrictJson(text, {
+      maxDepth: 3,
+      maxArrayItems: 0,
+      maxObjectFields: 8,
+      maxNodes: 16,
+      maxStringScalars: 256,
+      maxStringBytes: 1024,
+      maxNumberBytes: 32,
+      forbidArrays: true
+    });
+  } catch (cause) {
+    throw new ProjectTtsConfigError("tts.json \u4E0D\u662F\u53D7\u652F\u6301\u7684\u4E25\u683C JSON\u3002", path, { cause });
+  }
+  const config = validateProjectTtsConfig(parsed);
+  return { status: "configured", config, profileId: ttsProfileId(config) };
+}
+async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
+  const config = validateProjectTtsConfig(input);
+  const path = join(projectDirectory, "tts.json");
+  const temporaryPath = join(projectDirectory, `.tts.json.${randomUUID2()}.tmp`);
+  let committed = false;
+  try {
+    const handle = await open(temporaryPath, "wx", 384);
+    try {
+      await handle.writeFile(Buffer.from(JSON.stringify(config), "utf8"));
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertWritable();
+    await rename(temporaryPath, path);
+    committed = true;
+    try {
+      const directory = await open(dirname(path), "r");
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    } catch {
+    }
+  } finally {
+    if (!committed) await rm(temporaryPath, { force: true }).catch(() => void 0);
+  }
+  return { status: "configured", config, profileId: ttsProfileId(config) };
+}
+function deriveSceneTimeWindows(scenes, fps) {
+  if (!Number.isFinite(fps) || fps <= 0) throw new Error("fps \u5FC5\u987B\u662F\u6B63\u6570\u3002");
+  let startFrame = 0;
+  let renderReady = scenes.length > 0;
+  const windows = scenes.map((scene) => {
+    const durationInFrames = Math.max(1, Math.ceil(scene.durationMs / 1e3 * fps));
+    const window = {
+      sceneId: scene.sceneId,
+      startFrame,
+      durationInFrames,
+      source: scene.source
+    };
+    startFrame += durationInFrames;
+    if (scene.source === "draft") renderReady = false;
+    return window;
+  });
+  return { durationInFrames: startFrame, renderReady, scenes: windows };
+}
+async function probeSpeechDurationMs(path) {
+  const { stdout } = await execFileAsync("ffprobe", [
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration:stream=codec_name",
+    "-of",
+    "json",
+    path
+  ], { encoding: "utf8", timeout: 3e4, maxBuffer: 256 * 1024 });
+  const payload = JSON.parse(stdout);
+  const duration = typeof payload.format?.duration === "string" ? Number(payload.format.duration) : Number.NaN;
+  if (!payload.streams?.some((stream) => stream.codec_name === "mp3") || !Number.isFinite(duration) || duration <= 0) {
+    throw new Error("Speech \u4E0D\u662F\u53EF\u89E3\u7801\u7684 MP3\u3002");
+  }
+  return Math.round(duration * 1e3);
+}
+async function speechContentHash(path) {
+  const handle = await open(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const hash = createHash("sha256");
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    let position = 0;
+    while (true) {
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
+      if (bytesRead === 0) break;
+      hash.update(chunk.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+    return `sha256:${hash.digest("hex")}`;
+  } finally {
+    await handle.close();
+  }
+}
+async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, options = {}) {
+  const probe = options.probeDurationMs ?? probeSpeechDurationMs;
+  const states = [];
+  const durations = [];
+  for (const scene of scenes) {
+    const speech = scene.speech;
+    if (speech === void 0) {
+      states.push({ sceneId: scene.id, status: "missing", reason: "\u5F53\u524D Scene \u7F3A\u5C11 Speech\u3002" });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    const currentSourceTextHash = `sha256:${createHash("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
+    if (speech.sourceTextHash !== currentSourceTextHash) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "changed",
+        reason: "Speech \u4E0E\u5F53\u524D Narration \u4E0D\u5339\u914D\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    if (currentProfileId === void 0 || speech.ttsProfileId !== currentProfileId) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "profile-mismatch",
+        reason: "Speech \u4E0E\u5F53\u524D TTS \u914D\u7F6E\u4E0D\u5339\u914D\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    const absolutePath = join(projectDirectory, speech.path);
+    let before;
+    try {
+      before = await lstat(absolutePath);
+      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) throw new Error("not ordinary");
+    } catch {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "unavailable",
+        reason: "Speech \u6587\u4EF6\u7F3A\u5931\u3001\u4E0D\u53EF\u8BFB\u6216\u4E0D\u662F\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    if (speech.audioContentHash === void 0) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "changed",
+        reason: "Speech \u7F3A\u5C11\u97F3\u9891\u5185\u5BB9\u6458\u8981\uFF0C\u65E0\u6CD5\u8BC1\u660E\u4ECD\u662F\u5DF2\u63D0\u4EA4\u7684\u97F3\u9891\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    let actualDurationMs;
+    let actualContentHash;
+    try {
+      [actualDurationMs, actualContentHash] = await Promise.all([
+        probe(absolutePath),
+        speechContentHash(absolutePath)
+      ]);
+    } catch {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "decode-failed",
+        reason: "Speech \u6587\u4EF6\u65E0\u6CD5\u89E3\u7801\u4E3A MP3\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    let after;
+    try {
+      after = await lstat(absolutePath);
+    } catch {
+      after = void 0;
+    }
+    const changedDuringProbe = after === void 0 || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs;
+    if (changedDuringProbe || actualDurationMs !== speech.durationMs || actualContentHash !== speech.audioContentHash) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "changed",
+        durationMs: actualDurationMs,
+        reason: changedDuringProbe ? "Speech \u6587\u4EF6\u5728\u68C0\u67E5\u671F\u95F4\u53D1\u751F\u539F\u4F4D\u53D8\u5316\u3002" : actualContentHash !== speech.audioContentHash ? "Speech \u97F3\u9891\u5185\u5BB9\u4E0E\u5DF2\u63D0\u4EA4\u6458\u8981\u4E0D\u4E00\u81F4\u3002" : `Speech \u5B9E\u9645\u65F6\u957F ${actualDurationMs} ms \u4E0E\u8BB0\u5F55\u7684 ${speech.durationMs} ms \u4E0D\u4E00\u81F4\u3002`
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    states.push({
+      sceneId: scene.id,
+      path: speech.path,
+      status: "available",
+      durationMs: actualDurationMs
+    });
+    durations.push({ sceneId: scene.id, durationMs: actualDurationMs, source: "speech" });
+  }
+  const timeline = deriveSceneTimeWindows(durations, options.fps ?? 30);
+  return {
+    states,
+    timeline: {
+      ...timeline,
+      renderReady: timeline.renderReady && scenes.every((scene) => scene.narration.text.trim() !== "")
+    }
+  };
+}
+
 // src/server/project-vnext-inspection.ts
 var ProjectInspectionError = class extends Error {
   constructor(code, path, message, diagnostics = [], options) {
@@ -861,7 +1173,7 @@ function validateProjectManifest(manifest) {
     `${right.jsonPath}${right.code}`
   ));
 }
-function isRecord(value) {
+function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function schemaDiagnostic(code, jsonPath, message) {
@@ -908,7 +1220,7 @@ function boundedDiagnostics(diagnostics) {
 }
 function validateProjectDsl(value) {
   const diagnostics = [];
-  if (!isRecord(value)) {
+  if (!isRecord2(value)) {
     return {
       diagnostics: [schemaDiagnostic(
         "PROJECT_DSL_SCHEMA_INVALID",
@@ -961,7 +1273,7 @@ function validateProjectDsl(value) {
   }
   for (let index = 0; index < assets.length; index += 1) {
     const asset = assets[index];
-    if (isRecord(asset) && typeof asset.path === "string") {
+    if (isRecord2(asset) && typeof asset.path === "string") {
       const bytes = Buffer.byteLength(asset.path, "utf8");
       const scalars = [...asset.path].length;
       if (bytes > 1024) {
@@ -990,7 +1302,7 @@ function validateProjectDsl(value) {
   }
   for (let index = 0; index < scenes.length; index += 1) {
     const scene = scenes[index];
-    if (!isRecord(scene)) continue;
+    if (!isRecord2(scene)) continue;
     if (Array.isArray(scene.assetIds) && scene.assetIds.length > 256) {
       return { diagnostics: [{
         code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
@@ -1002,7 +1314,7 @@ function validateProjectDsl(value) {
         limit: 256
       }] };
     }
-    if (isRecord(scene.speech)) {
+    if (isRecord2(scene.speech)) {
       if (typeof scene.speech.path === "string") {
         const bytes = Buffer.byteLength(scene.speech.path, "utf8");
         const scalars = [...scene.speech.path].length;
@@ -1038,7 +1350,7 @@ function validateProjectDsl(value) {
   const assetPaths = /* @__PURE__ */ new Set();
   assets.forEach((asset, index) => {
     const path = `$.assets[${index}]`;
-    if (!isRecord(asset)) {
+    if (!isRecord2(asset)) {
       diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Asset \u5BF9\u8C61\u3002`));
       return;
     }
@@ -1061,7 +1373,7 @@ function validateProjectDsl(value) {
   const sceneIds = /* @__PURE__ */ new Set();
   scenes.forEach((scene, index) => {
     const path = `$.scenes[${index}]`;
-    if (!isRecord(scene)) {
+    if (!isRecord2(scene)) {
       diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Scene \u5BF9\u8C61\u3002`));
       return;
     }
@@ -1073,7 +1385,7 @@ function validateProjectDsl(value) {
     } else {
       sceneIds.add(scene.id);
     }
-    if (!isRecord(scene.narration)) {
+    if (!isRecord2(scene.narration)) {
       diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.narration`, "narration \u5FC5\u987B\u662F\u53EA\u542B text \u7684\u5BF9\u8C61\u3002"));
     } else {
       unknownFields(scene.narration, ["text"], `${path}.narration`, diagnostics);
@@ -1100,10 +1412,10 @@ function validateProjectDsl(value) {
       });
     }
     if ("speech" in scene) {
-      if (!isRecord(scene.speech)) {
+      if (!isRecord2(scene.speech)) {
         diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech`, "speech \u7F3A\u7701\u65F6\u5FC5\u987B\u7701\u7565\u5B57\u6BB5\uFF0C\u5B58\u5728\u65F6\u5FC5\u987B\u662F\u5B8C\u6574\u5BF9\u8C61\u3002"));
       } else {
-        unknownFields(scene.speech, ["path", "durationMs", "sourceTextHash", "ttsProfileId"], `${path}.speech`, diagnostics);
+        unknownFields(scene.speech, ["path", "durationMs", "sourceTextHash", "ttsProfileId", "audioContentHash"], `${path}.speech`, diagnostics);
         const expectedPath = typeof scene.id === "string" ? `speech/${scene.id}.mp3` : void 0;
         if (typeof scene.speech.path !== "string" || !isCanonicalResourcePath(scene.speech.path, "speech") || scene.speech.path !== expectedPath) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_INVALID", `${path}.speech.path`, `Speech path \u5FC5\u987B\u7CBE\u786E\u4E3A ${expectedPath ?? "speech/<sceneId>.mp3"}\u3002`));
@@ -1111,13 +1423,16 @@ function validateProjectDsl(value) {
         if (!Number.isSafeInteger(scene.speech.durationMs) || scene.speech.durationMs <= 0) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.durationMs`, "durationMs \u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002"));
         }
-        const narrationText = isRecord(scene.narration) && typeof scene.narration.text === "string" ? scene.narration.text : void 0;
-        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash("sha256").update(narrationText, "utf8").digest("hex")}`;
+        const narrationText = isRecord2(scene.narration) && typeof scene.narration.text === "string" ? scene.narration.text : void 0;
+        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash2("sha256").update(narrationText, "utf8").digest("hex")}`;
         if (typeof scene.speech.sourceTextHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.sourceTextHash) || expectedHash !== void 0 && scene.speech.sourceTextHash !== expectedHash) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SPEECH_MISMATCH", `${path}.speech.sourceTextHash`, "sourceTextHash \u5FC5\u987B\u5339\u914D\u5F53\u524D Narration \u7684\u539F\u59CB UTF-8 \u5B57\u8282\u3002"));
         }
         if (typeof scene.speech.ttsProfileId !== "string") {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.ttsProfileId`, "ttsProfileId \u5FC5\u987B\u662F\u4E0D\u8D85\u8FC7 256 \u4E2A Unicode \u6807\u91CF\u7684\u5B57\u7B26\u4E32\u3002"));
+        }
+        if ("audioContentHash" in scene.speech && (typeof scene.speech.audioContentHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.audioContentHash))) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.audioContentHash`, "audioContentHash \u5FC5\u987B\u662F\u89C4\u8303\u7684 SHA-256 \u6458\u8981\u3002"));
         }
       }
     }
@@ -1171,7 +1486,8 @@ function validateProjectVNextForSave(value, projectPath = "project.json") {
           path: scene.speech.path,
           durationMs: scene.speech.durationMs,
           sourceTextHash: scene.speech.sourceTextHash,
-          ttsProfileId: scene.speech.ttsProfileId
+          ttsProfileId: scene.speech.ttsProfileId,
+          ...scene.speech.audioContentHash === void 0 ? {} : { audioContentHash: scene.speech.audioContentHash }
         }
       }
     }))
@@ -1232,7 +1548,7 @@ function parseControlJson(input, path, component, limits) {
   }
 }
 async function readBoundedControlFile(path, component, limit) {
-  const pathFacts = await lstat(path);
+  const pathFacts = await lstat2(path);
   if (!pathFacts.isFile() || pathFacts.isSymbolicLink() || pathFacts.nlink !== 1) {
     throw invalidControlFile(path, {
       code: "PROJECT_REQUIRED_CONTENT_INVALID",
@@ -1240,7 +1556,7 @@ async function readBoundedControlFile(path, component, limit) {
       message: `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
     });
   }
-  const handle = await open(path, "r");
+  const handle = await open2(path, "r");
   try {
     const facts = await handle.stat();
     if (!facts.isFile() || facts.dev !== pathFacts.dev || facts.ino !== pathFacts.ino) {
@@ -1284,14 +1600,14 @@ async function readBoundedControlFile(path, component, limit) {
 }
 async function readProjectVNextRevision(projectPath) {
   const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
-  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  return `sha256:${createHash2("sha256").update(bytes).digest("hex")}`;
 }
 async function requireDirectory(path) {
-  const facts = await lstat(path);
+  const facts = await lstat2(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
 }
 async function requireFile(path) {
-  const facts = await lstat(path);
+  const facts = await lstat2(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1) {
     throw new Error(`\u5FC5\u9700\u6587\u4EF6\u65E0\u6548\uFF1A${path}`);
   }
@@ -1314,10 +1630,10 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
   const directoryIdentities = [];
   for (let index = 0; index < parts.length; index += 1) {
     const component = parts.slice(0, index + 1).join("/");
-    const path = join(projectDirectory, component);
+    const path = join2(projectDirectory, component);
     let facts;
     try {
-      facts = await lstat(path);
+      facts = await lstat2(path);
     } catch (cause) {
       if (isFileSystemError(cause) && cause.code === "ENOENT" && !required) return;
       if (isFileSystemError(cause) && cause.code === "ENOENT") {
@@ -1348,8 +1664,8 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
       );
     }
   }
-  const resourcePath = join(projectDirectory, relativePath);
-  const allowedRoot = await realpath(join(projectDirectory, parts[0]));
+  const resourcePath = join2(projectDirectory, relativePath);
+  const allowedRoot = await realpath(join2(projectDirectory, parts[0]));
   const resolvedResource = await realpath(resourcePath);
   const relation = relative(allowedRoot, resolvedResource);
   if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
@@ -1360,7 +1676,7 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
     );
   }
   for (const identity of directoryIdentities) {
-    const current = await lstat(identity.path);
+    const current = await lstat2(identity.path);
     if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity.dev || current.ino !== identity.ino) {
       throw invalidResource(
         identity.path,
@@ -1370,14 +1686,14 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
     }
   }
 }
-async function validateProjectVNextResources(projectDirectory, project) {
+async function validateProjectVNextResources(projectDirectory, project, options = {}) {
   const assetStates = [];
   for (const asset of project.assets) {
-    const path = join(projectDirectory, asset.path);
+    const path = join2(projectDirectory, asset.path);
     await validateOrdinaryResource(projectDirectory, asset.path, false);
     let facts;
     try {
-      facts = await lstat(path);
+      facts = await lstat2(path);
     } catch (cause) {
       assetStates.push({
         id: asset.id,
@@ -1388,7 +1704,7 @@ async function validateProjectVNextResources(projectDirectory, project) {
       continue;
     }
     try {
-      const handle = await open(path, "r");
+      const handle = await open2(path, "r");
       await handle.close();
       assetStates.push({
         id: asset.id,
@@ -1405,18 +1721,38 @@ async function validateProjectVNextResources(projectDirectory, project) {
       });
     }
   }
-  for (const scene of project.scenes) {
-    if (scene.speech !== void 0) {
-      await validateOrdinaryResource(projectDirectory, scene.speech.path, true);
-    }
-  }
+  const speech = await inspectProjectSpeech(
+    projectDirectory,
+    project.scenes,
+    options.currentTtsProfileId,
+    { probeDurationMs: options.probeSpeechDurationMs }
+  );
+  const speechWarnings = speech.states.filter((state) => state.status !== "available" && state.status !== "missing").map((state, index) => {
+    const sceneIndex = project.scenes.findIndex((scene) => scene.id === state.sceneId);
+    const code = {
+      available: "",
+      missing: "PROJECT_SPEECH_MISSING",
+      unavailable: "PROJECT_SPEECH_UNAVAILABLE",
+      "decode-failed": "PROJECT_SPEECH_DECODE_FAILED",
+      changed: "PROJECT_SPEECH_CHANGED",
+      "profile-mismatch": "PROJECT_SPEECH_PROFILE_MISMATCH"
+    }[state.status];
+    return {
+      code: code ?? "PROJECT_SPEECH_UNAVAILABLE",
+      component: state.path ?? `Scene ${sceneIndex + 1}`,
+      jsonPath: `$.scenes[${sceneIndex < 0 ? index : sceneIndex}].speech`,
+      message: state.reason ?? "Speech \u5F53\u524D\u4E0D\u53EF\u7528\u4E8E\u6B63\u5F0F Render\u3002"
+    };
+  });
   return {
     assetStates,
-    warnings: boundedDiagnostics(assetStates.filter((asset) => asset.status === "unavailable").map((asset) => ({
+    speechStates: speech.states,
+    timeline: speech.timeline,
+    warnings: boundedDiagnostics([...assetStates.filter((asset) => asset.status === "unavailable").map((asset) => ({
       code: "PROJECT_ASSET_UNAVAILABLE",
       component: asset.path,
       message: `${asset.path} \u4E0D\u53EF\u7528\uFF1A${asset.reason ?? "\u65E0\u6CD5\u8BFB\u53D6\u3002"}`
-    })))
+    })), ...speechWarnings])
   };
 }
 async function readStableDirectory(directory) {
@@ -1463,8 +1799,8 @@ async function discoverRenderProgramDirectories(projectDirectory) {
     for (const entry of [...entries].reverse()) {
       if (directory === projectDirectory && excludedRoots.has(entry.name)) continue;
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
-      const path = join(directory, entry.name);
-      const facts = await lstat(path);
+      const path = join2(directory, entry.name);
+      const facts = await lstat2(path);
       if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
       const childDepth = depth + 1;
       if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
@@ -1500,10 +1836,10 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
     ["resources", "directory"]
   ];
   for (const [entry, kind] of requiredEntries) {
-    const path = join(programDirectory, ...entry.split("/"));
+    const path = join2(programDirectory, ...entry.split("/"));
     let facts;
     try {
-      facts = await lstat(path);
+      facts = await lstat2(path);
     } catch (cause) {
       if (isFileSystemError(cause) && cause.code === "ENOENT") {
         throw missingContent(path, relative(projectDirectory, path));
@@ -1534,12 +1870,12 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
       throw directoryTreeLimit(projectDirectory, directory, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
     }
     for (const entry of [...await readStableDirectory(directory)].reverse()) {
-      const path = join(directory, entry.name);
+      const path = join2(directory, entry.name);
       const component = relative(projectDirectory, path);
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
         throw invalidResource(path, component, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
       }
-      const facts = await lstat(path);
+      const facts = await lstat2(path);
       if (facts.isSymbolicLink()) {
         throw invalidResource(path, component, `${component} \u662F\u7B26\u53F7\u94FE\u63A5\uFF1BRender Program \u6811\u53EA\u5141\u8BB8\u666E\u901A\u6587\u4EF6\u548C\u76EE\u5F55\u3002`);
       }
@@ -1562,7 +1898,7 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
     );
   }
 }
-async function inspectProjectVNext(inputPath) {
+async function inspectProjectVNext(inputPath, options = {}) {
   const projectDirectory = resolve(inputPath);
   try {
     await requireDirectory(projectDirectory);
@@ -1575,7 +1911,7 @@ async function inspectProjectVNext(inputPath) {
       { cause }
     );
   }
-  const manifestPath = join(projectDirectory, "narracut.json");
+  const manifestPath = join2(projectDirectory, "narracut.json");
   let manifestBuffer;
   try {
     manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
@@ -1623,9 +1959,9 @@ async function inspectProjectVNext(inputPath) {
   const manifestDiagnostics = validateProjectManifest(manifest);
   if (manifestDiagnostics.length > 0) throw invalidContent(manifestPath, manifestDiagnostics);
   const requiredEntries = [
-    [join(projectDirectory, "assets"), "assets/", "directory"],
-    [join(projectDirectory, "speech"), "speech/", "directory"],
-    [join(projectDirectory, "renders"), "renders/", "directory"]
+    [join2(projectDirectory, "assets"), "assets/", "directory"],
+    [join2(projectDirectory, "speech"), "speech/", "directory"],
+    [join2(projectDirectory, "renders"), "renders/", "directory"]
   ];
   for (const [path, component, kind] of requiredEntries) {
     try {
@@ -1659,12 +1995,12 @@ async function inspectProjectVNext(inputPath) {
   try {
     [projectBuffer, videoBuffer] = await Promise.all([
       readBoundedControlFile(
-        join(projectDirectory, "project.json"),
+        join2(projectDirectory, "project.json"),
         "project.json",
         10 * 1024 * 1024
       ),
       readBoundedControlFile(
-        join(projectDirectory, "video.md"),
+        join2(projectDirectory, "video.md"),
         "video.md",
         2 * 1024 * 1024
       )
@@ -1686,17 +2022,17 @@ async function inspectProjectVNext(inputPath) {
   }
   const projectBytes = decodeUtf8(
     projectBuffer,
-    join(projectDirectory, "project.json"),
+    join2(projectDirectory, "project.json"),
     "project.json",
     false
   );
   const videoBytes = decodeUtf8(
     videoBuffer,
-    join(projectDirectory, "video.md"),
+    join2(projectDirectory, "video.md"),
     "video.md",
     true
   );
-  const projectPath = join(projectDirectory, "project.json");
+  const projectPath = join2(projectDirectory, "project.json");
   const parsedProject = parseControlJson(
     projectBytes,
     projectPath,
@@ -1707,41 +2043,62 @@ async function inspectProjectVNext(inputPath) {
   if (projectValidation.project === void 0) {
     throw invalidContent(projectPath, projectValidation.diagnostics);
   }
-  const { assetStates, warnings } = await validateProjectVNextResources(
+  let tts;
+  try {
+    tts = await readProjectTtsConfig(projectDirectory);
+  } catch (cause) {
+    if (cause instanceof ProjectTtsConfigError) {
+      throw invalidControlFile(cause.path, {
+        code: cause.code,
+        component: "tts.json",
+        jsonPath: "$",
+        message: cause.message
+      }, { cause });
+    }
+    throw cause;
+  }
+  const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
     projectDirectory,
-    projectValidation.project
+    projectValidation.project,
+    {
+      ...tts.status === "configured" ? { currentTtsProfileId: tts.profileId } : {},
+      probeSpeechDurationMs: options.probeSpeechDurationMs
+    }
   );
   return {
     projectDirectory,
     manifest,
     project: projectValidation.project,
-    projectRevision: `sha256:${createHash("sha256").update(projectBuffer).digest("hex")}`,
+    projectRevision: `sha256:${createHash2("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
     renderPrograms: { directories: renderProgramDirectories },
     assetStates,
+    tts,
+    speechStates,
+    timeline,
     warnings
   };
 }
 
 // src/server/project-lifecycle.ts
-import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
+import { createHash as createHash3, randomUUID as randomUUID3 } from "node:crypto";
+import { constants as fsConstants2 } from "node:fs";
 import {
   access,
   link,
-  lstat as lstat2,
+  lstat as lstat3,
   mkdir,
   open as openFile,
-  readFile,
+  readFile as readFile2,
   readdir as readdir2,
   realpath as realpath2,
-  rename,
+  rename as rename2,
   rmdir,
-  rm,
+  rm as rm2,
   unlink,
   writeFile
 } from "node:fs/promises";
-import { basename, dirname, join as join2, resolve as resolve2 } from "node:path";
+import { basename, dirname as dirname2, join as join3, resolve as resolve2 } from "node:path";
 var STARTER_REACT_VERSION = "19.2.8";
 var STARTER_REMOTION_VERSION = "4.0.512";
 var ProjectLifecycleError = class extends Error {
@@ -1754,6 +2111,15 @@ var ProjectLifecycleError = class extends Error {
   code;
   path;
 };
+var ProjectTtsConfirmationError = class extends Error {
+  constructor(affectedSpeechCount) {
+    super(`\u4FDD\u5B58\u5F53\u524D TTS \u914D\u7F6E\u4F1A\u79FB\u9664 ${affectedSpeechCount} \u6761\u4E0D\u5339\u914D\u7684 Speech \u8BB0\u5F55\uFF0C\u9700\u8981\u91CD\u65B0\u786E\u8BA4\u3002`);
+    this.affectedSpeechCount = affectedSpeechCount;
+    this.name = "ProjectTtsConfirmationError";
+  }
+  affectedSpeechCount;
+  code = "TTS_CONFIRMATION_REQUIRED";
+};
 var OPERATION_MARKER = ".narracut-operation.json";
 var activeLeasePaths = /* @__PURE__ */ new Set();
 function isCreateOperationMarker(value, projectDirectory, operationToken) {
@@ -1763,7 +2129,7 @@ function isCreateOperationMarker(value, projectDirectory, operationToken) {
 }
 async function pathExists(path) {
   try {
-    await lstat2(path);
+    await lstat3(path);
     return true;
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
@@ -1771,7 +2137,7 @@ async function pathExists(path) {
   }
 }
 async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory, confirmed) {
-  const facts = await lstat2(temporaryDirectory);
+  const facts = await lstat3(temporaryDirectory);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -1779,14 +2145,14 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u8DEF\u5F84\u4E0D\u662F\u53EF\u786E\u8BA4\u5F52\u5C5E\u7684\u666E\u901A\u76EE\u5F55\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  const markerPath = join2(temporaryDirectory, OPERATION_MARKER);
+  const markerPath = join3(temporaryDirectory, OPERATION_MARKER);
   let marker;
   try {
-    const markerFacts = await lstat2(markerPath);
+    const markerFacts = await lstat3(markerPath);
     if (!markerFacts.isFile() || markerFacts.isSymbolicLink() || markerFacts.nlink !== 1 || markerFacts.size > 4096) {
       throw new Error("invalid marker");
     }
-    marker = JSON.parse(await readFile(markerPath, "utf8"));
+    marker = JSON.parse(await readFile2(markerPath, "utf8"));
   } catch {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -1808,7 +2174,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u53D1\u73B0\u4E0E\u672C\u6B21\u76EE\u6807\u5339\u914D\u7684\u521B\u5EFA\u6B8B\u7559\uFF1A${temporaryDirectory}\u3002\u8BF7\u786E\u8BA4\u6E05\u7406\u540E\u4ECE\u5934\u91CD\u8BD5\u3002`
     );
   }
-  const currentFacts = await lstat2(temporaryDirectory);
+  const currentFacts = await lstat3(temporaryDirectory);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino || !currentFacts.isDirectory()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -1816,7 +2182,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u76EE\u5F55\u5728\u786E\u8BA4\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  await rm(temporaryDirectory, { recursive: true });
+  await rm2(temporaryDirectory, { recursive: true });
 }
 function starterLockfile() {
   return `lockfileVersion: '9.0'
@@ -1907,7 +2273,7 @@ function starterSource() {
   return 'import { AbsoluteFill } from "remotion";\n\ntype RenderProgramInputV1 = Readonly<{ apiVersion: 1 }>;\n\nexport function RenderProgram(input: RenderProgramInputV1) {\n  void input;\n  return <AbsoluteFill style={{ backgroundColor: "#090d0e" }} />;\n}\n';
 }
 async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join2(
+  const renderProgramDirectory = join3(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -1915,29 +2281,29 @@ async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
     "render-program"
   );
   await Promise.all([
-    mkdir(join2(temporaryDirectory, "assets"), { recursive: true }),
-    mkdir(join2(temporaryDirectory, "speech"), { recursive: true }),
-    mkdir(join2(temporaryDirectory, "renders"), { recursive: true }),
-    mkdir(join2(renderProgramDirectory, "src"), { recursive: true }),
-    mkdir(join2(renderProgramDirectory, "resources"), { recursive: true })
+    mkdir(join3(temporaryDirectory, "assets"), { recursive: true }),
+    mkdir(join3(temporaryDirectory, "speech"), { recursive: true }),
+    mkdir(join3(temporaryDirectory, "renders"), { recursive: true }),
+    mkdir(join3(renderProgramDirectory, "src"), { recursive: true }),
+    mkdir(join3(renderProgramDirectory, "resources"), { recursive: true })
   ]);
   await Promise.all([
-    writeFile(join2(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
-    writeFile(join2(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
-    writeFile(join2(temporaryDirectory, "video.md"), ""),
-    writeFile(join2(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
+    writeFile(join3(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
+    writeFile(join3(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
+    writeFile(join3(temporaryDirectory, "video.md"), ""),
+    writeFile(join3(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
     writeFile(
-      join2(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
+      join3(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
       starterRevision(revisionId)
     ),
-    writeFile(join2(renderProgramDirectory, "program.json"), starterProgramManifest()),
-    writeFile(join2(renderProgramDirectory, "package.json"), starterPackageManifest()),
-    writeFile(join2(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
-    writeFile(join2(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
+    writeFile(join3(renderProgramDirectory, "program.json"), starterProgramManifest()),
+    writeFile(join3(renderProgramDirectory, "package.json"), starterPackageManifest()),
+    writeFile(join3(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
+    writeFile(join3(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
   ]);
 }
 async function validateStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join2(
+  const renderProgramDirectory = join3(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -1957,15 +2323,15 @@ async function validateStarterProject(temporaryDirectory, projectId, revisionId)
     source
   ] = await Promise.all([
     inspectProjectVNext(temporaryDirectory),
-    readFile(join2(temporaryDirectory, "narracut.json"), "utf8"),
-    readFile(join2(temporaryDirectory, "project.json"), "utf8"),
-    readFile(join2(temporaryDirectory, "video.md"), "utf8"),
-    readFile(join2(temporaryDirectory, ".narracut", "current.json"), "utf8"),
-    readFile(join2(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
-    readFile(join2(renderProgramDirectory, "program.json"), "utf8"),
-    readFile(join2(renderProgramDirectory, "package.json"), "utf8"),
-    readFile(join2(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
-    readFile(join2(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
+    readFile2(join3(temporaryDirectory, "narracut.json"), "utf8"),
+    readFile2(join3(temporaryDirectory, "project.json"), "utf8"),
+    readFile2(join3(temporaryDirectory, "video.md"), "utf8"),
+    readFile2(join3(temporaryDirectory, ".narracut", "current.json"), "utf8"),
+    readFile2(join3(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
+    readFile2(join3(renderProgramDirectory, "program.json"), "utf8"),
+    readFile2(join3(renderProgramDirectory, "package.json"), "utf8"),
+    readFile2(join3(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
+    readFile2(join3(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
   ]);
   if (inspection.manifest.projectId !== projectId || inspection.project.assets.length !== 0 || inspection.project.scenes.length !== 0 || inspection.videoBrief !== "" || manifest !== starterManifest(projectId) || projectDsl !== '{"assets":[],"scenes":[]}' || videoBrief !== "" || current !== starterCurrent(revisionId) || revision !== starterRevision(revisionId) || programManifest !== starterProgramManifest() || packageManifest !== starterPackageManifest() || lockfile !== starterLockfile() || source !== starterSource()) {
     throw new Error("starter \u9879\u76EE\u590D\u6838\u7ED3\u679C\u4E0E\u521B\u5EFA\u8F93\u5165\u4E0D\u4E00\u81F4\u3002");
@@ -1985,15 +2351,15 @@ function isPlainRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 async function readRegularUtf8(path, maxBytes) {
-  const facts = await lstat2(path);
+  const facts = await lstat3(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > maxBytes) {
     throw new Error(`\u4E0D\u662F\u53D7\u652F\u6301\u7684\u666E\u901A\u6587\u4EF6\uFF1A${path}`);
   }
-  return readFile(path, "utf8");
+  return readFile2(path, "utf8");
 }
 async function validateCurrentProjectState(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const currentPath = join2(projectDirectory, ".narracut", "current.json");
+  const currentPath = join3(projectDirectory, ".narracut", "current.json");
   try {
     const current = parseStrictJson(
       await readRegularUtf8(currentPath, 4096),
@@ -2003,17 +2369,17 @@ async function validateCurrentProjectState(inspection) {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6307\u9488\u65E0\u6548\u3002");
     }
     const revisionId = current.revisionId;
-    const revisionDirectory = join2(projectDirectory, ".narracut", "revisions", revisionId);
-    const renderProgramDirectory = join2(revisionDirectory, "render-program");
+    const revisionDirectory = join3(projectDirectory, ".narracut", "revisions", revisionId);
+    const renderProgramDirectory = join3(revisionDirectory, "render-program");
     if (!inspection.renderPrograms.directories.includes(renderProgramDirectory)) {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6CA1\u6709\u53EF\u68C0\u67E5\u7684 Render Program\u3002");
     }
     const [revision, program, packageJson, lockfile, source] = await Promise.all([
-      readRegularUtf8(join2(revisionDirectory, "revision.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join2(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join2(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join2(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
-      readRegularUtf8(join2(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
+      readRegularUtf8(join3(revisionDirectory, "revision.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join3(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join3(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join3(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
+      readRegularUtf8(join3(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
     ]);
     if (!isPlainRecord(revision) || Object.keys(revision).some(
       (key) => !["revisionId", "previousRevisionId", "source", "summary"].includes(key)
@@ -2050,7 +2416,7 @@ async function validateCurrentProjectState(inspection) {
   }
 }
 async function captureDirectoryIdentity(path) {
-  const facts = await lstat2(path);
+  const facts = await lstat3(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new Error(`\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u76EE\u5F55\uFF1A${path}`);
   }
@@ -2062,7 +2428,7 @@ function hasIdentity(facts, identity) {
 async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity, markerWritten, projectDirectory, operationToken) {
   let facts;
   try {
-    facts = await lstat2(temporaryDirectory);
+    facts = await lstat3(temporaryDirectory);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
@@ -2072,19 +2438,19 @@ async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity, mark
   }
   if (markerWritten) {
     const marker = JSON.parse(await readRegularUtf8(
-      join2(temporaryDirectory, OPERATION_MARKER),
+      join3(temporaryDirectory, OPERATION_MARKER),
       4096
     ));
     if (!isCreateOperationMarker(marker, projectDirectory, operationToken)) {
       throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u5DF2\u53D8\u5316\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
     }
   }
-  await rm(temporaryDirectory, { recursive: true });
+  await rm2(temporaryDirectory, { recursive: true });
 }
 async function cleanupTargetReservation(projectDirectory, identity) {
   let facts;
   try {
-    facts = await lstat2(projectDirectory);
+    facts = await lstat3(projectDirectory);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
@@ -2107,11 +2473,11 @@ async function createProjectVNext(inputPath, options = {}) {
       "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
     );
   }
-  const temporaryDirectory = join2(dirname(projectDirectory), `.${projectName}.narracut-tmp`);
-  const createId = options.createId ?? randomUUID2;
+  const temporaryDirectory = join3(dirname2(projectDirectory), `.${projectName}.narracut-tmp`);
+  const createId = options.createId ?? randomUUID3;
   const projectId = createId();
   const revisionId = createId();
-  const operationToken = randomUUID2();
+  const operationToken = randomUUID3();
   let temporaryIdentity = null;
   let markerWritten = false;
   let targetReservationIdentity = null;
@@ -2132,7 +2498,7 @@ async function createProjectVNext(inputPath, options = {}) {
     }
     await mkdir(temporaryDirectory);
     temporaryIdentity = await captureDirectoryIdentity(temporaryDirectory);
-    await writeFile(join2(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
+    await writeFile(join3(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
       kind: "narracut-operation",
       version: 1,
       operation: "create",
@@ -2164,10 +2530,10 @@ async function createProjectVNext(inputPath, options = {}) {
         `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`
       );
     }
-    await unlink(join2(temporaryDirectory, OPERATION_MARKER));
+    await unlink(join3(temporaryDirectory, OPERATION_MARKER));
     markerWritten = false;
     if (targetReservationIdentity !== null) {
-      const currentReservation = await lstat2(projectDirectory);
+      const currentReservation = await lstat3(projectDirectory);
       if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir2(projectDirectory)).length !== 0) {
         throw new ProjectLifecycleError(
           "PROJECT_CREATE_TARGET_EXISTS",
@@ -2176,7 +2542,7 @@ async function createProjectVNext(inputPath, options = {}) {
         );
       }
     }
-    await rename(temporaryDirectory, projectDirectory);
+    await rename2(temporaryDirectory, projectDirectory);
     temporaryIdentity = null;
     targetReservationIdentity = null;
     return { projectDirectory, projectId, revisionId };
@@ -2214,7 +2580,7 @@ async function createProjectVNext(inputPath, options = {}) {
 async function readProcessIdentity(pid) {
   if (process.platform !== "linux") return null;
   try {
-    const statBytes = await readFile(`/proc/${pid}/stat`, "utf8");
+    const statBytes = await readFile2(`/proc/${pid}/stat`, "utf8");
     const commandEnd = statBytes.lastIndexOf(")");
     if (commandEnd < 0) return null;
     return statBytes.slice(commandEnd + 2).trim().split(/\s+/u)[19] ?? null;
@@ -2243,21 +2609,21 @@ async function clearStaleLease(leasePath) {
   let facts;
   let marker;
   try {
-    facts = await lstat2(leasePath);
+    facts = await lstat3(leasePath);
     if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 4096) return false;
-    marker = JSON.parse(await readFile(leasePath, "utf8"));
+    marker = JSON.parse(await readFile2(leasePath, "utf8"));
   } catch {
     return false;
   }
   if (!isLeaseMarker(marker) || await leaseHolderIsAlive(marker)) return false;
-  const currentFacts = await lstat2(leasePath);
+  const currentFacts = await lstat3(leasePath);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino) return false;
   await unlink(leasePath);
   return true;
 }
 async function acquireProjectLease(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const leasePath = join2(projectDirectory, ".narracut", "workspace.lease");
+  const leasePath = join3(projectDirectory, ".narracut", "workspace.lease");
   if (activeLeasePaths.has(leasePath)) {
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -2272,7 +2638,7 @@ async function acquireProjectLease(inspection) {
     projectId: inspection.manifest.projectId,
     pid: process.pid,
     processIdentity: await readProcessIdentity(process.pid),
-    token: randomUUID2()
+    token: randomUUID3()
   };
   let handle;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -2302,7 +2668,7 @@ async function acquireProjectLease(inspection) {
     await handle.sync();
   } catch (cause) {
     await handle.close();
-    await rm(leasePath, { force: true });
+    await rm2(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
       projectDirectory,
@@ -2313,9 +2679,9 @@ async function acquireProjectLease(inspection) {
   await handle.close();
   let leaseDirectoryHandle;
   try {
-    leaseDirectoryHandle = await openFile(dirname(leasePath), "r");
+    leaseDirectoryHandle = await openFile(dirname2(leasePath), "r");
   } catch (cause) {
-    await rm(leasePath, { force: true });
+    await rm2(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
       projectDirectory,
@@ -2334,7 +2700,7 @@ async function acquireProjectLease(inspection) {
       );
     }
     try {
-      const current = JSON.parse(await readFile(leasePath, "utf8"));
+      const current = JSON.parse(await readFile2(leasePath, "utf8"));
       if (current.token !== marker.token || current.projectId !== marker.projectId) throw new Error("\u79DF\u7EA6\u8EAB\u4EFD\u4E0D\u5339\u914D");
     } catch (cause) {
       throw new ProjectLifecycleError(
@@ -2351,7 +2717,7 @@ async function acquireProjectLease(inspection) {
     activeLeasePaths.delete(leasePath);
     const anchoredLeasePath = process.platform === "win32" ? leasePath : `/dev/fd/${leaseDirectoryHandle.fd}/workspace.lease`;
     try {
-      const current = JSON.parse(await readFile(anchoredLeasePath, "utf8"));
+      const current = JSON.parse(await readFile2(anchoredLeasePath, "utf8"));
       if (current.token === marker.token) await unlink(anchoredLeasePath);
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
@@ -2362,7 +2728,7 @@ async function acquireProjectLease(inspection) {
   return { assertCurrent, release };
 }
 function revisionOf(bytes) {
-  return `sha256:${createHash2("sha256").update(bytes).digest("hex")}`;
+  return `sha256:${createHash3("sha256").update(bytes).digest("hex")}`;
 }
 async function currentProjectRevision(projectFile, message) {
   try {
@@ -2448,19 +2814,19 @@ async function uniqueAssetPath(assetsDirectory, sourcePath) {
     const candidate = suffixedAssetFilename(filename, suffix);
     const relativePath = `assets/${candidate}`;
     try {
-      await access(join2(assetsDirectory, candidate));
+      await access(join3(assetsDirectory, candidate));
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return relativePath;
       throw error;
     }
   }
-  return `assets/${randomUUID2()}`;
+  return `assets/${randomUUID3()}`;
 }
 async function isProjectControlFile(projectDirectory, sourcePath, sourceFacts) {
   for (const name of ["narracut.json", "project.json", "video.md"]) {
-    const controlPath = join2(projectDirectory, name);
+    const controlPath = join3(projectDirectory, name);
     if (resolve2(sourcePath) === controlPath) return true;
-    const controlFacts = await lstat2(controlPath);
+    const controlFacts = await lstat3(controlPath);
     if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
   }
   return false;
@@ -2492,7 +2858,7 @@ async function copyStableFile(source, opened, temporaryPath, assertDestinationCu
   }
 }
 async function replaceProjectFile(projectFile, bytes, assertWritable) {
-  const temporaryFile = join2(dirname(projectFile), `.project.json.${randomUUID2()}.tmp`);
+  const temporaryFile = join3(dirname2(projectFile), `.project.json.${randomUUID3()}.tmp`);
   let committed = false;
   try {
     const handle = await openFile(temporaryFile, "wx", 384);
@@ -2503,10 +2869,10 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
       await handle.close();
     }
     await assertWritable();
-    await rename(temporaryFile, projectFile);
+    await rename2(temporaryFile, projectFile);
     committed = true;
     try {
-      const directory = await openFile(dirname(projectFile), "r");
+      const directory = await openFile(dirname2(projectFile), "r");
       try {
         await directory.sync();
       } finally {
@@ -2515,19 +2881,20 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
     } catch {
     }
   } finally {
-    if (!committed) await rm(temporaryFile, { force: true }).catch(() => void 0);
+    if (!committed) await rm2(temporaryFile, { force: true }).catch(() => void 0);
   }
 }
-async function openProjectVNext(inputPath) {
+async function openProjectVNext(inputPath, options = {}) {
   const projectDirectory = await realpath2(resolve2(inputPath)).catch(() => resolve2(inputPath));
   try {
-    const initialInspection = await inspectProjectVNext(projectDirectory);
+    const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
     const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
     const lease = await acquireProjectLease(initialInspection);
     let assetsDirectoryHandle = null;
+    let speechDirectoryHandle = null;
     try {
-      const inspection = await inspectProjectVNext(projectDirectory);
+      const inspection = await inspectProjectVNext(projectDirectory, options);
       await validateCurrentProjectState(inspection);
       if (inspection.manifest.projectId !== initialInspection.manifest.projectId) {
         throw new ProjectLifecycleError(
@@ -2536,7 +2903,7 @@ async function openProjectVNext(inputPath) {
           `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
         );
       }
-      const assetsDirectory = join2(projectDirectory, "assets");
+      const assetsDirectory = join3(projectDirectory, "assets");
       const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
       assetsDirectoryHandle = await openFile(assetsDirectory, "r");
       const openedAssetsDirectory = await assetsDirectoryHandle.stat();
@@ -2548,6 +2915,18 @@ async function openProjectVNext(inputPath) {
         );
       }
       const anchoredAssetsDirectory = process.platform === "win32" ? assetsDirectory : `/dev/fd/${assetsDirectoryHandle.fd}`;
+      const speechDirectory = join3(projectDirectory, "speech");
+      const speechDirectoryIdentity = await captureDirectoryIdentity(speechDirectory);
+      speechDirectoryHandle = await openFile(speechDirectory, "r");
+      const openedSpeechDirectory = await speechDirectoryHandle.stat();
+      if (!openedSpeechDirectory.isDirectory() || !hasIdentity(openedSpeechDirectory, speechDirectoryIdentity)) {
+        throw new ProjectLifecycleError(
+          "PROJECT_IDENTITY_LOST",
+          speechDirectory,
+          "Speech \u76EE\u5F55\u8EAB\u4EFD\u5728\u6253\u5F00\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u3002"
+        );
+      }
+      const anchoredSpeechDirectory = process.platform === "win32" ? speechDirectory : `/dev/fd/${speechDirectoryHandle.fd}`;
       let currentInspection = inspection;
       let saveQueue = Promise.resolve();
       let closing = false;
@@ -2556,7 +2935,7 @@ async function openProjectVNext(inputPath) {
         await lease.assertCurrent();
         let facts;
         try {
-          facts = await lstat2(projectDirectory);
+          facts = await lstat3(projectDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -2573,12 +2952,12 @@ async function openProjectVNext(inputPath) {
           );
         }
         try {
-          const manifestPath = join2(projectDirectory, "narracut.json");
-          const manifestFacts = await lstat2(manifestPath);
+          const manifestPath = join3(projectDirectory, "narracut.json");
+          const manifestFacts = await lstat3(manifestPath);
           if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
             throw new Error("\u9879\u76EE\u6E05\u5355\u6587\u4EF6\u8EAB\u4EFD\u65E0\u6548");
           }
-          const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+          const manifest = JSON.parse(await readFile2(manifestPath, "utf8"));
           if (manifest.projectId !== initialInspection.manifest.projectId) {
             throw new Error("\u9879\u76EE\u6E05\u5355\u4E2D\u7684 projectId \u5DF2\u53D8\u5316");
           }
@@ -2595,7 +2974,7 @@ async function openProjectVNext(inputPath) {
         await assertWritable();
         let facts;
         try {
-          facts = await lstat2(assetsDirectory);
+          facts = await lstat3(assetsDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -2612,6 +2991,27 @@ async function openProjectVNext(inputPath) {
           );
         }
       };
+      const assertSpeechDirectoryCurrent = async () => {
+        await assertWritable();
+        let facts;
+        try {
+          facts = await lstat3(speechDirectory);
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            speechDirectory,
+            "Speech \u76EE\u5F55\u5DF2\u79FB\u52A8\u6216\u4E0D\u53EF\u7528\uFF1BNarracut \u5DF2\u505C\u6B62\u751F\u6210\u3002",
+            { cause }
+          );
+        }
+        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, speechDirectoryIdentity)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            speechDirectory,
+            "Speech \u76EE\u5F55\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u751F\u6210\u3002"
+          );
+        }
+      };
       const saveProject = (project, baselineRevision) => {
         if (closing) {
           return Promise.reject(new ProjectLifecycleError(
@@ -2621,7 +3021,7 @@ async function openProjectVNext(inputPath) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join2(projectDirectory, "project.json");
+          const projectFile = join3(projectDirectory, "project.json");
           try {
             await assertWritable();
             if (await currentProjectRevision(
@@ -2636,9 +3036,13 @@ async function openProjectVNext(inputPath) {
             }
             const validated = validateProjectVNextForSave(project, projectFile);
             assertWorkbenchMutation(currentInspection.project, validated.project, projectFile);
-            const { assetStates, warnings } = await validateProjectVNextResources(
+            const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
               projectDirectory,
-              validated.project
+              validated.project,
+              {
+                ...currentInspection.tts.status === "configured" ? { currentTtsProfileId: currentInspection.tts.profileId } : {},
+                probeSpeechDurationMs: options.probeSpeechDurationMs
+              }
             );
             const nextRevision = revisionOf(validated.bytes);
             if (nextRevision !== baselineRevision) {
@@ -2661,6 +3065,8 @@ async function openProjectVNext(inputPath) {
               project: validated.project,
               projectRevision: nextRevision,
               assetStates,
+              speechStates,
+              timeline,
               warnings
             };
             return { inspection: currentInspection };
@@ -2688,7 +3094,7 @@ async function openProjectVNext(inputPath) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join2(projectDirectory, "project.json");
+          const projectFile = join3(projectDirectory, "project.json");
           const sourcePath = resolve2(input.sourcePath);
           await assertWritable();
           if (await currentProjectRevision(
@@ -2703,7 +3109,7 @@ async function openProjectVNext(inputPath) {
           }
           let pathFacts;
           try {
-            pathFacts = await lstat2(sourcePath);
+            pathFacts = await lstat3(sourcePath);
           } catch (cause) {
             return {
               status: "failed",
@@ -2729,7 +3135,7 @@ async function openProjectVNext(inputPath) {
           }
           let source;
           try {
-            source = await openFile(sourcePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+            source = await openFile(sourcePath, fsConstants2.O_RDONLY | (fsConstants2.O_NOFOLLOW ?? 0));
           } catch (cause) {
             return {
               status: "failed",
@@ -2764,11 +3170,11 @@ async function openProjectVNext(inputPath) {
             }
             await assertAssetsDirectoryCurrent();
             const asset = {
-              id: randomUUID2(),
+              id: randomUUID3(),
               path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath)
             };
-            const temporaryPath = join2(anchoredAssetsDirectory, `.import-${randomUUID2()}.tmp`);
-            let finalPath = join2(anchoredAssetsDirectory, basename(asset.path));
+            const temporaryPath = join3(anchoredAssetsDirectory, `.import-${randomUUID3()}.tmp`);
+            let finalPath = join3(anchoredAssetsDirectory, basename(asset.path));
             let published = false;
             try {
               await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
@@ -2781,7 +3187,7 @@ async function openProjectVNext(inputPath) {
                 } catch (cause) {
                   if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
                   asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
-                  finalPath = join2(anchoredAssetsDirectory, basename(asset.path));
+                  finalPath = join3(anchoredAssetsDirectory, basename(asset.path));
                 }
               }
               if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
@@ -2793,9 +3199,13 @@ async function openProjectVNext(inputPath) {
               const bound = targetScene !== void 0 && targetScene.assetIds.length < 256;
               if (bound) targetScene.assetIds.push(asset.id);
               const validated = validateProjectVNextForSave(project, projectFile);
-              const { assetStates, warnings } = await validateProjectVNextResources(
+              const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
                 projectDirectory,
-                validated.project
+                validated.project,
+                {
+                  ...currentInspection.tts.status === "configured" ? { currentTtsProfileId: currentInspection.tts.profileId } : {},
+                  probeSpeechDurationMs: options.probeSpeechDurationMs
+                }
               );
               const nextRevision = revisionOf(validated.bytes);
               await replaceProjectFile(projectFile, validated.bytes, async () => {
@@ -2816,6 +3226,8 @@ async function openProjectVNext(inputPath) {
                 project: validated.project,
                 projectRevision: nextRevision,
                 assetStates,
+                speechStates,
+                timeline,
                 warnings
               };
               return {
@@ -2844,6 +3256,320 @@ async function openProjectVNext(inputPath) {
         saveQueue = operation.then(() => void 0, () => void 0);
         return operation;
       };
+      const saveTtsSettings = (input) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536 TTS \u914D\u7F6E\u5199\u5165\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const projectFile = join3(projectDirectory, "project.json");
+          await assertWritable();
+          if (await currentProjectRevision(
+            projectFile,
+            "\u65E0\u6CD5\u786E\u8BA4 project.json \u4ECD\u662F\u5F53\u524D\u78C1\u76D8\u57FA\u7EBF\uFF1BNarracut \u5DF2\u505C\u6B62\u4FDD\u5B58 TTS \u914D\u7F6E\u3002"
+          ) !== input.baselineRevision) {
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_CONFLICT",
+              projectFile,
+              "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u4FDD\u5B58 TTS \u914D\u7F6E\u3002"
+            );
+          }
+          const config = validateProjectTtsConfig(input.config);
+          const nextProfileId = ttsProfileId(config);
+          const previousProjectBytes = await readFile2(projectFile);
+          if (revisionOf(previousProjectBytes) !== currentInspection.projectRevision) {
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_CONFLICT",
+              projectFile,
+              "project.json \u5728\u5EFA\u7ACB TTS \u914D\u7F6E\u56DE\u6EDA\u951A\u70B9\u65F6\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+            );
+          }
+          const project = structuredClone(currentInspection.project);
+          let affectedSpeechCount = 0;
+          for (const scene of project.scenes) {
+            if (scene.speech !== void 0 && scene.speech.ttsProfileId !== nextProfileId) {
+              affectedSpeechCount += 1;
+              delete scene.speech;
+            }
+          }
+          if (affectedSpeechCount !== input.expectedAffectedSpeechCount) {
+            throw new ProjectTtsConfirmationError(affectedSpeechCount);
+          }
+          const validated = validateProjectVNextForSave(project, projectFile);
+          const previousProjectRevision = currentInspection.projectRevision;
+          const nextRevision = revisionOf(validated.bytes);
+          const resourceValidation = await validateProjectVNextResources(
+            projectDirectory,
+            validated.project,
+            {
+              currentTtsProfileId: nextProfileId,
+              probeSpeechDurationMs: options.probeSpeechDurationMs
+            }
+          );
+          let projectWritten = false;
+          try {
+            if (nextRevision !== previousProjectRevision) {
+              await replaceProjectFile(projectFile, validated.bytes, async () => {
+                await assertWritable();
+                if (await currentProjectRevision(
+                  projectFile,
+                  "project.json \u5728 TTS \u914D\u7F6E\u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\u3002"
+                ) !== previousProjectRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    projectFile,
+                    "project.json \u5728 TTS \u914D\u7F6E\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                  );
+                }
+              });
+              projectWritten = true;
+            }
+            const tts = await writeProjectTtsConfig(projectDirectory, config, assertWritable);
+            currentInspection = {
+              ...currentInspection,
+              project: validated.project,
+              projectRevision: nextRevision,
+              tts,
+              ...resourceValidation
+            };
+            return { affectedSpeechCount, inspection: currentInspection };
+          } catch (cause) {
+            if (projectWritten) {
+              try {
+                await replaceProjectFile(projectFile, previousProjectBytes, async () => {
+                  await assertWritable();
+                  if (await currentProjectRevision(
+                    projectFile,
+                    "project.json \u5728 TTS \u914D\u7F6E\u56DE\u6EDA\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\u3002"
+                  ) !== nextRevision) {
+                    throw new ProjectLifecycleError(
+                      "PROJECT_SAVE_CONFLICT",
+                      projectFile,
+                      "TTS \u914D\u7F6E\u5931\u8D25\u540E project.json \u53C8\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u5E76\u4FDD\u7559\u73B0\u573A\u3002"
+                    );
+                  }
+                });
+              } catch (rollbackCause) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_SAVE_FAILED",
+                  projectFile,
+                  "TTS \u914D\u7F6E\u63D0\u4EA4\u5931\u8D25\uFF0C\u4E14 Scene \u5F15\u7528\u56DE\u6EDA\u5931\u8D25\uFF1B\u9879\u76EE\u4FDD\u6301\u65E0\u9648\u65E7 Speech \u7684\u5B89\u5168\u72B6\u6001\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u68C0\u67E5\u3002",
+                  { cause: rollbackCause }
+                );
+              }
+            }
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              join3(projectDirectory, "tts.json"),
+              "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1BNarracut \u5DF2\u4FDD\u7559\u539F\u914D\u7F6E\u4E0E Scene \u5185\u5BB9\u3002",
+              { cause }
+            );
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      const probeSpeechAudio = async (input) => {
+        await assertSpeechDirectoryCurrent();
+        const probeFile = join3(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
+        const decoderPath = process.platform === "linux" ? join3(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join3(speechDirectory, `.probe-${input.jobId}.mp3`);
+        let created = false;
+        try {
+          const handle = await openFile(probeFile, "wx", 384);
+          created = true;
+          try {
+            await handle.writeFile(input.audio);
+            await handle.sync();
+          } finally {
+            await handle.close();
+          }
+          await assertSpeechDirectoryCurrent();
+          const durationMs = await (options.probeSpeechDurationMs ?? probeSpeechDurationMs)(decoderPath);
+          if (!Number.isSafeInteger(durationMs) || durationMs <= 0) {
+            throw new Error("Speech \u5B9E\u9645\u65F6\u957F\u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002");
+          }
+          await assertSpeechDirectoryCurrent();
+          return durationMs;
+        } finally {
+          if (created) await rm2(probeFile, { force: true }).catch(() => void 0);
+        }
+      };
+      const commitSpeech = (input) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536 Speech \u7ED3\u679C\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          await assertWritable();
+          const tts = await readProjectTtsConfig(projectDirectory);
+          if (tts.status !== "configured" || tts.profileId !== input.ttsProfileId) {
+            return {
+              status: "rejected",
+              code: "SPEECH_RESULT_CONFIG_CHANGED",
+              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1ATTS \u914D\u7F6E\u5DF2\u7ECF\u53D8\u5316\u3002",
+              inspection: currentInspection
+            };
+          }
+          const scene = currentInspection.project.scenes.find((candidate) => candidate.id === input.sceneId);
+          if (scene === void 0) {
+            return {
+              status: "rejected",
+              code: "SPEECH_RESULT_SCENE_DELETED",
+              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1A\u76EE\u6807 Scene \u5DF2\u5220\u9664\u3002",
+              inspection: currentInspection
+            };
+          }
+          if (scene.narration.text !== input.narrationText) {
+            return {
+              status: "rejected",
+              code: "SPEECH_RESULT_NARRATION_CHANGED",
+              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1ANarration \u5DF2\u7ECF\u53D8\u5316\u3002",
+              inspection: currentInspection
+            };
+          }
+          if (input.isCancelled?.()) {
+            return {
+              status: "rejected",
+              code: "SPEECH_RESULT_CANCELLED",
+              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1ASpeech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002",
+              inspection: currentInspection
+            };
+          }
+          const finalFile = join3(anchoredSpeechDirectory, `${scene.id}.mp3`);
+          const temporaryFile = join3(anchoredSpeechDirectory, `.speech-${randomUUID3()}.tmp`);
+          const backupFile = join3(anchoredSpeechDirectory, `.speech-${randomUUID3()}.previous`);
+          let previousFile = false;
+          let published = false;
+          try {
+            const handle = await openFile(temporaryFile, "wx", 384);
+            try {
+              await handle.writeFile(input.audio);
+              await handle.sync();
+            } finally {
+              await handle.close();
+            }
+            try {
+              const finalFacts = await lstat3(finalFile);
+              if (!finalFacts.isFile() || finalFacts.isSymbolicLink()) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_IDENTITY_LOST",
+                  finalFile,
+                  "\u65E2\u6709 Speech \u4E0D\u518D\u662F\u666E\u901A\u6587\u4EF6\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                );
+              }
+              await link(finalFile, backupFile);
+              const backupFacts = await lstat3(backupFile);
+              if (!backupFacts.isFile() || backupFacts.isSymbolicLink() || !hasIdentity(backupFacts, finalFacts)) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_IDENTITY_LOST",
+                  backupFile,
+                  "\u65E2\u6709 Speech \u5728\u5EFA\u7ACB\u56DE\u6EDA\u951A\u70B9\u65F6\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                );
+              }
+              previousFile = true;
+            } catch (cause) {
+              if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) throw cause;
+            }
+            await assertSpeechDirectoryCurrent();
+            if (input.isCancelled?.()) throw new Error("Speech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002");
+            await rename2(temporaryFile, finalFile);
+            published = true;
+            const project = structuredClone(currentInspection.project);
+            const target = project.scenes.find((candidate) => candidate.id === scene.id);
+            target.speech = {
+              path: `speech/${scene.id}.mp3`,
+              durationMs: input.durationMs,
+              sourceTextHash: `sha256:${createHash3("sha256").update(input.narrationText, "utf8").digest("hex")}`,
+              ttsProfileId: input.ttsProfileId,
+              audioContentHash: `sha256:${createHash3("sha256").update(input.audio).digest("hex")}`
+            };
+            const projectFile = join3(projectDirectory, "project.json");
+            const baselineRevision = currentInspection.projectRevision;
+            const validated = validateProjectVNextForSave(project, projectFile);
+            const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
+              projectDirectory,
+              validated.project,
+              {
+                currentTtsProfileId: tts.profileId,
+                probeSpeechDurationMs: options.probeSpeechDurationMs
+              }
+            );
+            if (speechStates.find((state) => state.sceneId === scene.id)?.status !== "available") {
+              throw new Error("\u53D1\u5E03\u540E\u7684 Speech \u672A\u901A\u8FC7\u53EF\u89E3\u7801\u6027\u4E0E\u65F6\u957F\u590D\u6838\u3002");
+            }
+            if (input.isCancelled?.()) throw new Error("Speech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002");
+            input.onCommitPoint?.();
+            await replaceProjectFile(projectFile, validated.bytes, async () => {
+              await assertSpeechDirectoryCurrent();
+              if (await currentProjectRevision(
+                projectFile,
+                "project.json \u5728 Speech \u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\u3002"
+              ) !== baselineRevision) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_SAVE_CONFLICT",
+                  projectFile,
+                  "project.json \u5728 Speech \u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                );
+              }
+            });
+            currentInspection = {
+              ...currentInspection,
+              project: validated.project,
+              projectRevision: revisionOf(validated.bytes),
+              tts,
+              assetStates,
+              speechStates,
+              timeline,
+              warnings
+            };
+            await rm2(backupFile, { force: true }).catch(() => void 0);
+            return {
+              status: "applied",
+              code: "SPEECH_APPLIED",
+              message: "Speech \u5DF2\u6821\u9A8C\u5E76\u539F\u5B50\u5E94\u7528\u5230\u5F53\u524D Scene\u3002",
+              inspection: currentInspection
+            };
+          } catch (cause) {
+            let rollbackFailure;
+            if (published) {
+              try {
+                if (previousFile) {
+                  if (process.platform === "win32") await rm2(finalFile, { force: true });
+                  await rename2(backupFile, finalFile);
+                } else await rm2(finalFile, { force: true });
+              } catch (rollbackCause) {
+                rollbackFailure = rollbackCause;
+              }
+            }
+            await rm2(temporaryFile, { force: true }).catch(() => void 0);
+            if (rollbackFailure === void 0) await rm2(backupFile, { force: true }).catch(() => void 0);
+            if (rollbackFailure !== void 0) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_FAILED",
+                backupFile,
+                `Speech \u56DE\u6EDA\u5931\u8D25\uFF1B\u65E7\u97F3\u9891\u5907\u4EFD\u5DF2\u4FDD\u7559\u5728 ${backupFile}\uFF0CNarracut \u4E0D\u4F1A\u58F0\u79F0\u65E7 Speech \u672A\u53D8\u3002`,
+                { cause: rollbackFailure }
+              );
+            }
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              finalFile,
+              "\u65E0\u6CD5\u539F\u5B50\u5E94\u7528 Speech\uFF1B\u65E7 Speech \u4E0E Scene \u5185\u5BB9\u4FDD\u6301\u4E0D\u53D8\u3002",
+              { cause }
+            );
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
       const release = async () => {
         closing = true;
         releasePromise ??= saveQueue.then(async () => {
@@ -2852,16 +3578,19 @@ async function openProjectVNext(inputPath) {
           } finally {
             await assetsDirectoryHandle?.close();
             assetsDirectoryHandle = null;
+            await speechDirectoryHandle?.close();
+            speechDirectoryHandle = null;
           }
         });
         await releasePromise;
       };
-      return { inspection, saveProject, importAsset, release };
+      return { inspection, saveProject, importAsset, saveTtsSettings, probeSpeechAudio, commitSpeech, release };
     } catch (error) {
       try {
         await lease.release();
       } finally {
         await assetsDirectoryHandle?.close();
+        await speechDirectoryHandle?.close();
       }
       throw error;
     }
@@ -2879,9 +3608,9 @@ async function openProjectVNext(inputPath) {
 }
 
 // src/server/project-asset-preview.ts
-import { constants as fsConstants2 } from "node:fs";
-import { lstat as lstat3, open as openFile2 } from "node:fs/promises";
-import { basename as basename2, join as join3 } from "node:path";
+import { constants as fsConstants3 } from "node:fs";
+import { lstat as lstat4, open as openFile2 } from "node:fs/promises";
+import { basename as basename2, join as join4 } from "node:path";
 var MAX_INLINE_PREVIEW_BYTES = 32 * 1024 * 1024;
 function startsWith(bytes, signature) {
   return signature.every((byte, index) => bytes[index] === byte);
@@ -2920,7 +3649,7 @@ async function readProjectAssetPreview(inspection, assetId) {
   if (asset === void 0) {
     return { status: "dangling", id: assetId, reason: "\u672A\u627E\u5230\u767B\u8BB0\u7684 Asset\u3002" };
   }
-  const absolutePath = join3(inspection.projectDirectory, asset.path);
+  const absolutePath = join4(inspection.projectDirectory, asset.path);
   try {
     const { assetStates: [runtime] } = await validateProjectVNextResources(
       inspection.projectDirectory,
@@ -2934,8 +3663,8 @@ async function readProjectAssetPreview(inspection, assetId) {
         reason: runtime?.reason ?? "Asset \u6587\u4EF6\u4E0D\u53EF\u7528\u3002"
       };
     }
-    const before = await lstat3(absolutePath);
-    const handle = await openFile2(absolutePath, fsConstants2.O_RDONLY | (fsConstants2.O_NOFOLLOW ?? 0));
+    const before = await lstat4(absolutePath);
+    const handle = await openFile2(absolutePath, fsConstants3.O_RDONLY | (fsConstants3.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
       if (!opened.isFile() || opened.nlink !== 1 || opened.dev !== before.dev || opened.ino !== before.ino) {
@@ -3128,6 +3857,74 @@ var tools = [
     _meta: { ui: { visibility: ["app"] } }
   },
   {
+    name: "save_project_tts_settings",
+    title: "\u4FDD\u5B58\u9879\u76EE TTS \u914D\u7F6E",
+    description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u539F\u5B50\u4FDD\u5B58\u9879\u76EE TTS \u914D\u7F6E\uFF0C\u5E76\u5728\u786E\u8BA4\u540E\u79FB\u9664\u4E0D\u518D\u5339\u914D\u7684 Speech \u8BB0\u5F55\u3002API Key \u53EA\u4FDD\u7559\u5728\u5BBF\u4E3B\u4F1A\u8BDD\u5185\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "baselineRevision", "config", "credentialAction", "expectedAffectedSpeechCount"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        baselineRevision: { type: "string", minLength: 1 },
+        config: { type: "object" },
+        credentialAction: { type: "string", enum: ["keep", "replace", "clear"] },
+        apiKey: { type: "string", minLength: 1 },
+        expectedAffectedSpeechCount: { type: "integer", minimum: 0 }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
+    name: "start_scene_speech",
+    title: "\u751F\u6210\u5F53\u524D Scene Speech",
+    description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u4E3A\u5F53\u524D Narration \u548C\u9879\u76EE TTS \u914D\u7F6E\u751F\u6210\u3001\u6821\u9A8C\u5E76\u539F\u5B50\u5E94\u7528 Speech\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "sceneId"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        sceneId: { type: "string", minLength: 1 }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
+    name: "get_scene_speech_job",
+    title: "\u8BFB\u53D6 Speech \u751F\u6210\u72B6\u6001",
+    description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u8BFB\u53D6\u4E00\u6B21 Scene Speech \u751F\u6210\u4EFB\u52A1\u7684\u6709\u754C\u72B6\u6001\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["jobId"],
+      properties: { jobId: { type: "string", minLength: 1 } },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: readOnlyToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
+    name: "cancel_scene_speech_job",
+    title: "\u53D6\u6D88 Speech \u751F\u6210",
+    description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u53D6\u6D88\u5F53\u524D Scene \u7684 Speech \u751F\u6210\uFF0C\u4E0D\u6539\u53D8\u65E2\u6709 Speech\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["jobId"],
+      properties: { jobId: { type: "string", minLength: 1 } },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: { ...taskToolAnnotations, idempotentHint: true },
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
     name: "inspect_project",
     title: "\u68C0\u67E5 Narracut \u9879\u76EE",
     description: "\u53EA\u8BFB\u68C0\u67E5\u7528\u6237\u660E\u786E\u7ED9\u51FA\u7684 Project VNext \u7EDD\u5BF9\u76EE\u5F55\uFF0C\u8FD4\u56DE\u9879\u76EE\u8EAB\u4EFD\u3001Scene \u4E0E\u56FA\u5B9A\u63A7\u5236\u6587\u4EF6\u72B6\u6001\uFF0C\u5E76\u6253\u5F00\u5DE5\u4F5C\u53F0\u3002\u4E0D\u4F1A\u6D4F\u89C8\u5176\u4ED6\u76EE\u5F55\u3001\u5199\u6587\u4EF6\u3001\u6267\u884C Shell \u6216\u8BBF\u95EE\u7F51\u7EDC\u3002",
@@ -3208,14 +4005,23 @@ function connectedState(readOnly = true) {
 function launcherConnectionState() {
   return { status: "connected", readOnly: false };
 }
-function serializeInspection(inspection, writable = false) {
+function serializeInspection(inspection, writable = false, credential = { status: "missing", storage: "session" }) {
   const assets = new Map(inspection.project.assets.map((asset) => [asset.id, asset]));
+  const speechStates = new Map(inspection.speechStates.map((state) => [state.sceneId, state]));
+  const timeWindows = new Map(inspection.timeline.scenes.map((time) => [time.sceneId, time]));
   return {
     status: "valid",
     connection: connectedState(!writable),
     writable,
     projectRevision: inspection.projectRevision,
     projectDsl: inspection.project,
+    tts: {
+      ...inspection.tts,
+      credential,
+      capabilities: TTS_CAPABILITIES
+    },
+    speechStates: inspection.speechStates,
+    timeline: inspection.timeline,
     project: {
       directory: inspection.projectDirectory,
       folderName: basename3(inspection.projectDirectory),
@@ -3240,7 +4046,8 @@ function serializeInspection(inspection, writable = false) {
         id: assetId,
         path: assets.get(assetId)?.path ?? null
       })),
-      speech: scene.speech === void 0 ? { status: "missing" } : { status: "available", durationMs: scene.speech.durationMs }
+      speech: speechStates.get(scene.id) ?? { status: "missing" },
+      time: timeWindows.get(scene.id)
     })),
     warnings: inspection.warnings,
     assetStates: inspection.assetStates
@@ -3259,11 +4066,11 @@ function diagnosticSummary(diagnostics) {
 }
 async function loadWorkbench() {
   const [html, script, paperTexture, filmTexture, displayFont] = await Promise.all([
-    readFile2(WORKBENCH_PATH, "utf8"),
-    readFile2(WORKBENCH_SCRIPT_PATH, "utf8"),
-    readFile2(PAPER_TEXTURE_PATH),
-    readFile2(FILM_TEXTURE_PATH),
-    readFile2(DISPLAY_FONT_PATH)
+    readFile3(WORKBENCH_PATH, "utf8"),
+    readFile3(WORKBENCH_SCRIPT_PATH, "utf8"),
+    readFile3(PAPER_TEXTURE_PATH),
+    readFile3(FILM_TEXTURE_PATH),
+    readFile3(DISPLAY_FONT_PATH)
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", script);
@@ -3336,10 +4143,53 @@ function hostValidationResult(hostValidation, text) {
     content: [{ type: "text", text }]
   };
 }
+var SpeechToolError = class extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+    this.name = "SpeechToolError";
+  }
+  code;
+};
+function publicSpeechJob(job) {
+  const {
+    projectId: _projectId,
+    projectDirectory: _projectDirectory,
+    narrationText: _narrationText,
+    config: _config,
+    ttsProfileId: _ttsProfileId,
+    credential: _credential,
+    controller: _controller,
+    inspection: _inspection,
+    commitPointReached: _commitPointReached,
+    ...value
+  } = job;
+  return structuredClone(value);
+}
+function credentialState(value) {
+  if (value === void 0) return { status: "missing", storage: "session" };
+  return { status: "available", storage: "session", masked: `\u2022\u2022\u2022\u2022${value.slice(-4)}` };
+}
 var ProjectWorkspaceSession = class {
   #opened = null;
+  #credentials = /* @__PURE__ */ new Map();
+  #speechJobs = /* @__PURE__ */ new Map();
+  #ttsFetch;
+  #probeSpeechDurationMs;
+  constructor(options = {}) {
+    this.#ttsFetch = options.ttsFetch ?? globalThis.fetch;
+    this.#probeSpeechDurationMs = options.probeSpeechDurationMs ?? probeSpeechDurationMs;
+  }
+  credential(projectId) {
+    return credentialState(this.#credentials.get(projectId));
+  }
+  serialize(inspection, writable = true) {
+    return serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId));
+  }
   async open(projectDirectory) {
-    const next = await openProjectVNext(projectDirectory);
+    const next = await openProjectVNext(projectDirectory, {
+      probeSpeechDurationMs: this.#probeSpeechDurationMs
+    });
     const previous = this.#opened;
     try {
       if (previous !== null) await previous.release();
@@ -3391,7 +4241,212 @@ var ProjectWorkspaceSession = class {
     }
     return readProjectAssetPreview(opened.inspection, input.assetId);
   }
+  async saveTtsSettings(input) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.credentialAction === "replace" && (input.apiKey === void 0 || input.apiKey.trim() === "")) {
+      throw new SpeechToolError("TTS_CREDENTIAL_INVALID", "\u66FF\u6362 API Key \u65F6\u5FC5\u987B\u63D0\u4F9B\u975E\u7A7A\u503C\u3002");
+    }
+    const saved = await opened.saveTtsSettings({
+      config: input.config,
+      baselineRevision: input.baselineRevision,
+      expectedAffectedSpeechCount: input.expectedAffectedSpeechCount
+    });
+    if (input.credentialAction === "replace") this.#credentials.set(input.projectId, input.apiKey);
+    if (input.credentialAction === "clear") this.#credentials.delete(input.projectId);
+    opened.inspection = saved.inspection;
+    for (const job of this.#speechJobs.values()) {
+      if (job.projectId === input.projectId && !["succeeded", "cancelled", "failed", "rejected"].includes(job.status) && saved.inspection.tts.status === "configured" && job.ttsProfileId !== saved.inspection.tts.profileId) {
+        this.cancelSpeech(job.id, "TTS \u914D\u7F6E\u5DF2\u53D8\u5316\uFF0C\u65E7\u914D\u7F6E\u751F\u6210\u4EFB\u52A1\u5DF2\u53D6\u6D88\u3002");
+      }
+    }
+    return saved;
+  }
+  startSpeech(input) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    const tts = opened.inspection.tts;
+    if (tts.status !== "configured") {
+      throw new SpeechToolError("TTS_CONFIG_MISSING", "\u8BF7\u5148\u4FDD\u5B58\u9879\u76EE TTS \u914D\u7F6E\u3002");
+    }
+    const key = this.#credentials.get(input.projectId);
+    if (key === void 0) {
+      throw new SpeechToolError("TTS_CREDENTIAL_MISSING", "\u8BF7\u5148\u5F55\u5165 TokenDance API Key\uFF1B\u51ED\u636E\u53EA\u4FDD\u7559\u5728\u5F53\u524D\u5BBF\u4E3B\u4F1A\u8BDD\u3002");
+    }
+    const scene = opened.inspection.project.scenes.find((candidate) => candidate.id === input.sceneId);
+    if (scene === void 0) throw new SpeechToolError("SPEECH_SCENE_MISSING", "\u76EE\u6807 Scene \u4E0D\u5B58\u5728\u3002");
+    if (scene.narration.text.trim() === "") {
+      throw new SpeechToolError("SPEECH_NARRATION_EMPTY", "\u7A7A Narration \u4E0D\u80FD\u751F\u6210 Speech\uFF1B\u8BF7\u5148\u8865\u5145\u5185\u5BB9\u3002");
+    }
+    if ([...this.#speechJobs.values()].some((job2) => job2.projectId === input.projectId && job2.sceneId === input.sceneId && !["succeeded", "cancelled", "failed", "rejected"].includes(job2.status))) {
+      throw new SpeechToolError("SPEECH_JOB_ACTIVE", "\u5F53\u524D Scene \u5DF2\u6709 Speech \u6B63\u5728\u751F\u6210\u3002");
+    }
+    if (this.#speechJobs.size >= 128) {
+      const terminal = [...this.#speechJobs.values()].filter((job2) => ["succeeded", "cancelled", "failed", "rejected"].includes(job2.status)).sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+      for (const job2 of terminal.slice(0, Math.max(1, this.#speechJobs.size - 127))) {
+        this.#speechJobs.delete(job2.id);
+      }
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const job = {
+      id: randomUUID4(),
+      sceneId: scene.id,
+      status: "queued",
+      stage: "\u6392\u961F",
+      createdAt: now,
+      updatedAt: now,
+      projectId: input.projectId,
+      projectDirectory: input.projectDirectory,
+      narrationText: scene.narration.text,
+      config: structuredClone(tts.config),
+      ttsProfileId: tts.profileId,
+      credential: key
+    };
+    this.#speechJobs.set(job.id, job);
+    setImmediate(() => void this.#processSpeech(job));
+    return publicSpeechJob(job);
+  }
+  getSpeech(jobId) {
+    const job = this.#speechJobs.get(jobId);
+    if (job === void 0) throw new SpeechToolError("SPEECH_JOB_NOT_FOUND", "Speech \u4EFB\u52A1\u4E0D\u5B58\u5728\u6216\u5DF2\u5931\u6548\u3002");
+    const result = { job: publicSpeechJob(job), ...job.inspection === void 0 ? {} : { inspection: job.inspection } };
+    return result;
+  }
+  cancelSpeech(jobId, message = "Speech \u751F\u6210\u5DF2\u53D6\u6D88\uFF1B\u65E2\u6709 Speech \u4FDD\u6301\u4E0D\u53D8\u3002") {
+    const job = this.#speechJobs.get(jobId);
+    if (job === void 0) throw new SpeechToolError("SPEECH_JOB_NOT_FOUND", "Speech \u4EFB\u52A1\u4E0D\u5B58\u5728\u6216\u5DF2\u5931\u6548\u3002");
+    if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status) && !job.commitPointReached) {
+      job.status = "cancelled";
+      job.stage = "\u5DF2\u53D6\u6D88";
+      job.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+      job.error = { code: "SPEECH_CANCELLED", message, retryable: true };
+      job.controller?.abort();
+    }
+    return publicSpeechJob(job);
+  }
+  #requireOpened(projectDirectory, projectId) {
+    const opened = this.#opened;
+    if (opened === null || opened.inspection.projectDirectory !== projectDirectory || opened.inspection.manifest.projectId !== projectId) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        projectDirectory,
+        "\u5F53\u524D\u5DE5\u4F5C\u53F0\u672A\u6301\u6709\u8BE5\u9879\u76EE\u8EAB\u4EFD\uFF1BNarracut \u62D2\u7EDD\u64CD\u4F5C Speech\u3002"
+      );
+    }
+    return opened;
+  }
+  #updateSpeech(job, status, stage) {
+    if (job.status === "cancelled") return;
+    job.status = status;
+    job.stage = stage;
+    job.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  }
+  async #processSpeech(job) {
+    try {
+      if (job.status === "cancelled") return;
+      this.#updateSpeech(job, "generating", "\u6B63\u5728\u751F\u6210");
+      const controller = new AbortController();
+      job.controller = controller;
+      const response = await this.#ttsFetch("https://tokendance.space/gateway/minimax/v1/t2a_v2", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${job.credential}`,
+          "content-type": "application/json",
+          "x-app-url": "app://narracut"
+        },
+        body: JSON.stringify({
+          model: job.config.model,
+          text: job.narrationText,
+          stream: false,
+          voice_setting: {
+            voice_id: job.config.voice,
+            speed: job.config.speed,
+            vol: job.config.volume,
+            pitch: job.config.pitch
+          },
+          audio_setting: {
+            sample_rate: TTS_CAPABILITIES.audio.sampleRate,
+            bitrate: TTS_CAPABILITIES.audio.bitrate,
+            format: TTS_CAPABILITIES.audio.format,
+            channel: TTS_CAPABILITIES.audio.channels
+          }
+        }),
+        signal: controller.signal
+      });
+      if (job.status === "cancelled") return;
+      let payload;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new SpeechToolError("TTS_RESPONSE_INVALID", "Speech \u63D0\u4F9B\u65B9\u8FD4\u56DE\u4E86\u65E0\u6CD5\u8BC6\u522B\u7684\u54CD\u5E94\u7ED3\u6784\u3002");
+      }
+      if (!response.ok || typeof payload?.base_resp?.status_code === "number" && payload.base_resp.status_code !== 0) {
+        const code = response.status === 401 || response.status === 403 ? "TTS_AUTH_FAILED" : response.status === 429 ? "TTS_RATE_LIMITED" : "TTS_PROVIDER_FAILED";
+        throw new SpeechToolError(code, code === "TTS_AUTH_FAILED" ? "TokenDance \u9274\u6743\u5931\u8D25\uFF0C\u8BF7\u66FF\u6362 API Key\u3002" : code === "TTS_RATE_LIMITED" ? "TokenDance \u8BF7\u6C42\u8FC7\u591A\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : "Speech \u63D0\u4F9B\u65B9\u62D2\u7EDD\u4E86\u672C\u6B21\u8BF7\u6C42\u3002");
+      }
+      const audioHex = payload?.data?.audio;
+      const providerDurationMs = payload?.extra_info?.audio_length;
+      if (typeof audioHex !== "string" || audioHex.length === 0 || audioHex.length % 2 !== 0 || !/^[0-9a-f]+$/iu.test(audioHex) || !Number.isSafeInteger(providerDurationMs) || providerDurationMs <= 0 || payload?.extra_info?.audio_format !== void 0 && payload.extra_info.audio_format !== "mp3") {
+        throw new SpeechToolError("TTS_RESPONSE_INVALID", "Speech \u63D0\u4F9B\u65B9\u8FD4\u56DE\u4E86\u4E0D\u5B8C\u6574\u7684 MP3 \u6216\u65F6\u957F\u4FE1\u606F\u3002");
+      }
+      const audio = Buffer.from(audioHex, "hex");
+      this.#updateSpeech(job, "validating", "\u6B63\u5728\u6821\u9A8C");
+      let durationMs;
+      try {
+        const opened2 = this.#requireOpened(job.projectDirectory, job.projectId);
+        durationMs = await opened2.probeSpeechAudio({ jobId: job.id, audio });
+      } catch (cause) {
+        if (cause instanceof ProjectLifecycleError) throw cause;
+        throw new SpeechToolError("TTS_AUDIO_INVALID", "\u751F\u6210\u7684 Speech \u65E0\u6CD5\u5728\u672C\u673A\u89E3\u7801\u4E3A MP3\u3002");
+      }
+      if (Math.abs(durationMs - providerDurationMs) > 34) {
+        throw new SpeechToolError("TTS_DURATION_MISMATCH", "Speech \u5B9E\u9645\u65F6\u957F\u4E0E\u63D0\u4F9B\u65B9\u8FD4\u56DE\u65F6\u957F\u4E0D\u4E00\u81F4\u3002");
+      }
+      if (job.status === "cancelled") return;
+      this.#updateSpeech(job, "writing", "\u6B63\u5728\u5199\u5165");
+      const opened = this.#requireOpened(job.projectDirectory, job.projectId);
+      const committed = await opened.commitSpeech({
+        sceneId: job.sceneId,
+        narrationText: job.narrationText,
+        ttsProfileId: job.ttsProfileId,
+        durationMs,
+        audio,
+        isCancelled: () => job.status === "cancelled",
+        onCommitPoint: () => {
+          job.commitPointReached = true;
+        }
+      });
+      opened.inspection = committed.inspection;
+      job.inspection = committed.inspection;
+      if (committed.status === "rejected") {
+        this.#updateSpeech(job, "rejected", "\u7ED3\u679C\u672A\u5E94\u7528");
+        job.error = { code: committed.code, message: committed.message, retryable: true };
+        return;
+      }
+      this.#updateSpeech(job, "succeeded", "\u751F\u6210\u5B8C\u6210");
+      job.result = { durationMs, message: committed.message };
+    } catch (cause) {
+      if (job.status === "cancelled" || cause instanceof Error && cause.name === "AbortError") return;
+      this.#updateSpeech(job, "failed", "\u751F\u6210\u5931\u8D25");
+      const code = cause instanceof SpeechToolError || cause instanceof ProjectLifecycleError ? cause.code : "SPEECH_GENERATION_FAILED";
+      job.error = {
+        code,
+        message: cause instanceof Error ? cause.message : "Speech \u751F\u6210\u5931\u8D25\u3002",
+        retryable: !["TTS_AUTH_FAILED", "TTS_RESPONSE_INVALID", "TTS_AUDIO_INVALID"].includes(code)
+      };
+    } finally {
+      job.controller = void 0;
+      job.credential = "";
+      if (["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) {
+        const expiration = setTimeout(() => this.#speechJobs.delete(job.id), 5 * 6e4);
+        expiration.unref();
+      }
+    }
+  }
   async dispose() {
+    for (const job of this.#speechJobs.values()) {
+      if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
+    }
+    this.#credentials.clear();
+    this.#speechJobs.clear();
     const opened = this.#opened;
     this.#opened = null;
     if (opened !== null) await opened.release();
@@ -3456,7 +4511,7 @@ async function callTool(params, hostValidation, workspace) {
       }
       const inspection = await workspace.open(projectDirectory);
       return {
-        structuredContent: { ...serializeInspection(inspection, true), operation },
+        structuredContent: { ...workspace.serialize(inspection), operation },
         content: [{
           type: "text",
           text: operation === "created" ? `${basename3(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename3(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
@@ -3520,7 +4575,7 @@ async function callTool(params, hostValidation, workspace) {
         project: input.project
       });
       return {
-        structuredContent: { ...serializeInspection(inspection, true), status: "saved" },
+        structuredContent: { ...workspace.serialize(inspection), status: "saved" },
         content: [{ type: "text", text: `\u5DF2\u539F\u5B50\u4FDD\u5B58 ${inspection.project.scenes.length} \u4E2A Scene\u3002` }]
       };
     } catch (error) {
@@ -3572,7 +4627,7 @@ async function callTool(params, hostValidation, workspace) {
       const { inspection, ...assetImport } = imported;
       return {
         structuredContent: {
-          ...serializeInspection(inspection, true),
+          ...workspace.serialize(inspection),
           status: imported.status.startsWith("imported-") ? "asset-imported" : "asset-import-result",
           assetImport
         },
@@ -3636,6 +4691,133 @@ async function callTool(params, hostValidation, workspace) {
       throw error;
     }
   }
+  if (name === "save_project_tts_settings") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "TTS \u4FDD\u5B58\u53C2\u6570\u5FC5\u987B\u662F\u5BF9\u8C61\u3002" } },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1A\u53C2\u6570\u65E0\u6548\u3002" }]
+      };
+    }
+    const input = argumentsValue;
+    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
+      return {
+        isError: true,
+        structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u914D\u7F6E\u6216\u51ED\u636E\u64CD\u4F5C\u65E0\u6548\u3002" } },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1A\u9879\u76EE\u8EAB\u4EFD\u3001\u914D\u7F6E\u6216\u51ED\u636E\u64CD\u4F5C\u65E0\u6548\u3002" }]
+      };
+    }
+    try {
+      const saved = await workspace.saveTtsSettings({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        baselineRevision: input.baselineRevision,
+        config: input.config,
+        credentialAction: input.credentialAction,
+        expectedAffectedSpeechCount: input.expectedAffectedSpeechCount,
+        ...typeof input.apiKey === "string" ? { apiKey: input.apiKey } : {}
+      });
+      return {
+        structuredContent: {
+          ...workspace.serialize(saved.inspection),
+          status: "tts-saved",
+          affectedSpeechCount: saved.affectedSpeechCount
+        },
+        content: [{ type: "text", text: saved.affectedSpeechCount > 0 ? `TTS \u914D\u7F6E\u5DF2\u4FDD\u5B58\uFF0C\u5E76\u79FB\u9664 ${saved.affectedSpeechCount} \u6761\u4E0D\u518D\u5339\u914D\u7684 Speech \u8BB0\u5F55\u3002` : "TTS \u914D\u7F6E\u5DF2\u4FDD\u5B58\uFF1B\u73B0\u6709 Speech \u4ECD\u4E0E\u914D\u7F6E\u5339\u914D\u3002" }]
+      };
+    } catch (error) {
+      if (error instanceof ProjectTtsConfirmationError) {
+        return {
+          isError: true,
+          structuredContent: {
+            status: "tts-confirmation-required",
+            affectedSpeechCount: error.affectedSpeechCount,
+            error: { code: error.code, message: error.message }
+          },
+          content: [{ type: "text", text: error.message }]
+        };
+      }
+      const code = error instanceof SpeechToolError ? error.code : error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError ? error.code : "TTS_SAVE_FAILED";
+      return {
+        isError: true,
+        structuredContent: {
+          status: code === "PROJECT_SAVE_CONFLICT" ? "save-conflict" : code === "PROJECT_IDENTITY_LOST" ? "identity-lost" : "tts-save-failed",
+          error: { code, message: error instanceof Error ? error.message : "\u65E0\u6CD5\u4FDD\u5B58 TTS \u914D\u7F6E\u3002" }
+        },
+        content: [{ type: "text", text: `\u65E0\u6CD5\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1A${error instanceof Error ? error.message : "\u672A\u77E5\u9519\u8BEF"}` }]
+      };
+    }
+  }
+  if (name === "start_scene_speech") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "Speech \u53C2\u6570\u5FC5\u987B\u662F\u5BF9\u8C61\u3002" } },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u5F00\u59CB Speech \u751F\u6210\uFF1A\u53C2\u6570\u65E0\u6548\u3002" }]
+      };
+    }
+    const input = argumentsValue;
+    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
+      return {
+        isError: true,
+        structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u6216 Scene ID \u65E0\u6548\u3002" } },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u5F00\u59CB Speech \u751F\u6210\uFF1A\u9879\u76EE\u8EAB\u4EFD\u6216 Scene ID \u65E0\u6548\u3002" }]
+      };
+    }
+    try {
+      const speechJob = workspace.startSpeech({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        sceneId: input.sceneId
+      });
+      return {
+        structuredContent: { status: "speech-started", speechJob },
+        content: [{ type: "text", text: "Speech \u751F\u6210\u5DF2\u6392\u961F\u3002" }]
+      };
+    } catch (error) {
+      const code = error instanceof SpeechToolError ? error.code : error instanceof ProjectLifecycleError ? error.code : "SPEECH_START_FAILED";
+      return {
+        isError: true,
+        structuredContent: { status: "speech-start-failed", error: { code, message: error instanceof Error ? error.message : "\u65E0\u6CD5\u5F00\u59CB Speech \u751F\u6210\u3002" } },
+        content: [{ type: "text", text: `\u65E0\u6CD5\u5F00\u59CB Speech \u751F\u6210\uFF1A${error instanceof Error ? error.message : "\u672A\u77E5\u9519\u8BEF"}` }]
+      };
+    }
+  }
+  if (name === "get_scene_speech_job" || name === "cancel_scene_speech_job") {
+    const jobId = stringArgument(argumentsValue, "jobId");
+    if (jobId === null) {
+      return {
+        isError: true,
+        structuredContent: { status: "speech-job-failed", error: { code: "INVALID_TOOL_INPUT", message: "jobId \u4E0D\u80FD\u4E3A\u7A7A\u3002" } },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u8BFB\u53D6 Speech \u4EFB\u52A1\uFF1AjobId \u4E0D\u80FD\u4E3A\u7A7A\u3002" }]
+      };
+    }
+    try {
+      if (name === "cancel_scene_speech_job") {
+        const speechJob = workspace.cancelSpeech(jobId);
+        const cancelled = speechJob.status === "cancelled";
+        return {
+          structuredContent: { status: cancelled ? "speech-cancelled" : "speech-commit-in-progress", speechJob },
+          content: [{ type: "text", text: cancelled ? "Speech \u751F\u6210\u5DF2\u53D6\u6D88\uFF1B\u65E2\u6709 Speech \u4FDD\u6301\u4E0D\u53D8\u3002" : "Speech \u5DF2\u8D8A\u8FC7\u63D0\u4EA4\u70B9\uFF0C\u65E0\u6CD5\u53D6\u6D88\uFF1BNarracut \u5C06\u5B8C\u6210\u5F53\u524D\u539F\u5B50\u63D0\u4EA4\u3002" }]
+        };
+      }
+      const current = workspace.getSpeech(jobId);
+      return {
+        structuredContent: {
+          status: "speech-job",
+          speechJob: current.job,
+          ...current.inspection === void 0 ? {} : workspace.serialize(current.inspection)
+        },
+        content: [{ type: "text", text: `Speech \u4EFB\u52A1\u72B6\u6001\uFF1A${current.job.status}\u3002` }]
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        structuredContent: { status: "speech-job-failed", error: { code: error instanceof SpeechToolError ? error.code : "SPEECH_JOB_FAILED", message: error instanceof Error ? error.message : "\u65E0\u6CD5\u8BFB\u53D6 Speech \u4EFB\u52A1\u3002" } },
+        content: [{ type: "text", text: `\u65E0\u6CD5\u8BFB\u53D6 Speech \u4EFB\u52A1\uFF1A${error instanceof Error ? error.message : "\u672A\u77E5\u9519\u8BEF"}` }]
+      };
+    }
+  }
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
@@ -3693,7 +4875,10 @@ function createNarracutRequestHandler(options = {}) {
   const hostValidation = new AgentHostValidationService(
     options.codexHost ?? new CodexAppServerHost()
   );
-  const workspace = new ProjectWorkspaceSession();
+  const workspace = new ProjectWorkspaceSession({
+    ttsFetch: options.ttsFetch,
+    probeSpeechDurationMs: options.probeSpeechDurationMs
+  });
   const requestHandler = async (request) => {
     switch (request.method) {
       case "initialize": {

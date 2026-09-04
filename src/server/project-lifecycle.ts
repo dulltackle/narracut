@@ -28,6 +28,14 @@ import {
   type ProjectVNextInspection,
 } from "./project-vnext-inspection";
 import { parseStrictJson } from "./strict-json";
+import {
+  readProjectTtsConfig,
+  probeSpeechDurationMs,
+  ttsProfileId,
+  validateProjectTtsConfig,
+  writeProjectTtsConfig,
+  type ProjectTtsConfig,
+} from "./project-speech-vnext";
 
 const STARTER_REACT_VERSION = "19.2.8";
 const STARTER_REMOTION_VERSION = "4.0.512";
@@ -55,6 +63,15 @@ export class ProjectLifecycleError extends Error {
   ) {
     super(message, options);
     this.name = "ProjectLifecycleError";
+  }
+}
+
+export class ProjectTtsConfirmationError extends Error {
+  readonly code = "TTS_CONFIRMATION_REQUIRED";
+
+  constructor(readonly affectedSpeechCount: number) {
+    super(`保存当前 TTS 配置会移除 ${affectedSpeechCount} 条不匹配的 Speech 记录，需要重新确认。`);
+    this.name = "ProjectTtsConfirmationError";
   }
 }
 
@@ -658,6 +675,29 @@ export type OpenedProjectVNext = {
     asset: { id: string; path: string } | null;
     inspection: ProjectVNextInspection;
   }>;
+  saveTtsSettings: (input: {
+    config: ProjectTtsConfig;
+    baselineRevision: string;
+    expectedAffectedSpeechCount: number;
+  }) => Promise<{
+    affectedSpeechCount: number;
+    inspection: ProjectVNextInspection;
+  }>;
+  probeSpeechAudio: (input: { jobId: string; audio: Buffer }) => Promise<number>;
+  commitSpeech: (input: {
+    sceneId: string;
+    narrationText: string;
+    ttsProfileId: string;
+    durationMs: number;
+    audio: Buffer;
+    isCancelled?: () => boolean;
+    onCommitPoint?: () => void;
+  }) => Promise<{
+    status: "applied" | "rejected";
+    code: string;
+    message: string;
+    inspection: ProjectVNextInspection;
+  }>;
   release: () => Promise<void>;
 };
 
@@ -1037,16 +1077,20 @@ async function replaceProjectFile(
   }
 }
 
-export async function openProjectVNext(inputPath: string): Promise<OpenedProjectVNext> {
+export async function openProjectVNext(
+  inputPath: string,
+  options: { probeSpeechDurationMs?: (path: string) => Promise<number> } = {},
+): Promise<OpenedProjectVNext> {
   const projectDirectory = await realpath(resolve(inputPath)).catch(() => resolve(inputPath));
   try {
-    const initialInspection = await inspectProjectVNext(projectDirectory);
+    const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
     const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
     const lease = await acquireProjectLease(initialInspection);
     let assetsDirectoryHandle: FileHandle | null = null;
+    let speechDirectoryHandle: FileHandle | null = null;
     try {
-      const inspection = await inspectProjectVNext(projectDirectory);
+      const inspection = await inspectProjectVNext(projectDirectory, options);
       await validateCurrentProjectState(inspection);
       if (inspection.manifest.projectId !== initialInspection.manifest.projectId) {
         throw new ProjectLifecycleError(
@@ -1069,6 +1113,20 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
       const anchoredAssetsDirectory = process.platform === "win32"
         ? assetsDirectory
         : `/dev/fd/${assetsDirectoryHandle.fd}`;
+      const speechDirectory = join(projectDirectory, "speech");
+      const speechDirectoryIdentity = await captureDirectoryIdentity(speechDirectory);
+      speechDirectoryHandle = await openFile(speechDirectory, "r");
+      const openedSpeechDirectory = await speechDirectoryHandle.stat();
+      if (!openedSpeechDirectory.isDirectory() || !hasIdentity(openedSpeechDirectory, speechDirectoryIdentity)) {
+        throw new ProjectLifecycleError(
+          "PROJECT_IDENTITY_LOST",
+          speechDirectory,
+          "Speech 目录身份在打开期间发生变化；Narracut 已停止写入。",
+        );
+      }
+      const anchoredSpeechDirectory = process.platform === "win32"
+        ? speechDirectory
+        : `/dev/fd/${speechDirectoryHandle.fd}`;
       let currentInspection = inspection;
       let saveQueue = Promise.resolve();
       let closing = false;
@@ -1133,6 +1191,27 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
           );
         }
       };
+      const assertSpeechDirectoryCurrent = async () => {
+        await assertWritable();
+        let facts;
+        try {
+          facts = await lstat(speechDirectory);
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            speechDirectory,
+            "Speech 目录已移动或不可用；Narracut 已停止生成。",
+            { cause },
+          );
+        }
+        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, speechDirectoryIdentity)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            speechDirectory,
+            "Speech 目录身份已变化；Narracut 已停止生成。",
+          );
+        }
+      };
       const saveProject: OpenedProjectVNext["saveProject"] = (project, baselineRevision) => {
         if (closing) {
           return Promise.reject(new ProjectLifecycleError(
@@ -1157,9 +1236,15 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
             }
             const validated = validateProjectVNextForSave(project, projectFile);
             assertWorkbenchMutation(currentInspection.project, validated.project, projectFile);
-            const { assetStates, warnings } = await validateProjectVNextResources(
+            const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
               projectDirectory,
               validated.project,
+              {
+                ...(currentInspection.tts.status === "configured"
+                  ? { currentTtsProfileId: currentInspection.tts.profileId }
+                  : {}),
+                probeSpeechDurationMs: options.probeSpeechDurationMs,
+              },
             );
             const nextRevision = revisionOf(validated.bytes);
             if (nextRevision !== baselineRevision) {
@@ -1182,6 +1267,8 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
               project: validated.project,
               projectRevision: nextRevision,
               assetStates,
+              speechStates,
+              timeline,
               warnings,
             };
             return { inspection: currentInspection };
@@ -1320,9 +1407,15 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
               const bound = targetScene !== undefined && targetScene.assetIds.length < 256;
               if (bound) targetScene.assetIds.push(asset.id);
               const validated = validateProjectVNextForSave(project, projectFile);
-              const { assetStates, warnings } = await validateProjectVNextResources(
+              const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
                 projectDirectory,
                 validated.project,
+                {
+                  ...(currentInspection.tts.status === "configured"
+                    ? { currentTtsProfileId: currentInspection.tts.profileId }
+                    : {}),
+                  probeSpeechDurationMs: options.probeSpeechDurationMs,
+                },
               );
               const nextRevision = revisionOf(validated.bytes);
               await replaceProjectFile(projectFile, validated.bytes, async () => {
@@ -1343,6 +1436,8 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
                 project: validated.project,
                 projectRevision: nextRevision,
                 assetStates,
+                speechStates,
+                timeline,
                 warnings,
               };
               return {
@@ -1377,6 +1472,325 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
         saveQueue = operation.then(() => undefined, () => undefined);
         return operation;
       };
+      const saveTtsSettings: OpenedProjectVNext["saveTtsSettings"] = (input) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "项目工作区正在关闭；Narracut 已停止接收 TTS 配置写入。",
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const projectFile = join(projectDirectory, "project.json");
+          await assertWritable();
+          if (await currentProjectRevision(
+            projectFile,
+            "无法确认 project.json 仍是当前磁盘基线；Narracut 已停止保存 TTS 配置。",
+          ) !== input.baselineRevision) {
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_CONFLICT",
+              projectFile,
+              "project.json 已被外部修改；Narracut 已停止保存 TTS 配置。",
+            );
+          }
+          const config = validateProjectTtsConfig(input.config);
+          const nextProfileId = ttsProfileId(config);
+          const previousProjectBytes = await readFile(projectFile);
+          if (revisionOf(previousProjectBytes) !== currentInspection.projectRevision) {
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_CONFLICT",
+              projectFile,
+              "project.json 在建立 TTS 配置回滚锚点时发生变化；Narracut 拒绝覆盖。",
+            );
+          }
+          const project = structuredClone(currentInspection.project);
+          let affectedSpeechCount = 0;
+          for (const scene of project.scenes) {
+            if (scene.speech !== undefined && scene.speech.ttsProfileId !== nextProfileId) {
+              affectedSpeechCount += 1;
+              delete scene.speech;
+            }
+          }
+          if (affectedSpeechCount !== input.expectedAffectedSpeechCount) {
+            throw new ProjectTtsConfirmationError(affectedSpeechCount);
+          }
+          const validated = validateProjectVNextForSave(project, projectFile);
+          const previousProjectRevision = currentInspection.projectRevision;
+          const nextRevision = revisionOf(validated.bytes);
+          const resourceValidation = await validateProjectVNextResources(
+            projectDirectory,
+            validated.project,
+            {
+              currentTtsProfileId: nextProfileId,
+              probeSpeechDurationMs: options.probeSpeechDurationMs,
+            },
+          );
+          let projectWritten = false;
+          try {
+            if (nextRevision !== previousProjectRevision) {
+              await replaceProjectFile(projectFile, validated.bytes, async () => {
+                await assertWritable();
+                if (await currentProjectRevision(
+                  projectFile,
+                  "project.json 在 TTS 配置提交前变得不可安全读取。",
+                ) !== previousProjectRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    projectFile,
+                    "project.json 在 TTS 配置提交前发生外部变化；Narracut 拒绝覆盖。",
+                  );
+                }
+              });
+              projectWritten = true;
+            }
+            // 先移除不匹配的 Speech 引用，再提交新配置。即使进程在两次 rename 之间退出，
+            // 项目也只会暂时保留旧配置与 Draft 状态，不会把旧 Speech 误认作新配置产物。
+            const tts = await writeProjectTtsConfig(projectDirectory, config, assertWritable);
+            currentInspection = {
+              ...currentInspection,
+              project: validated.project,
+              projectRevision: nextRevision,
+              tts,
+              ...resourceValidation,
+            };
+            return { affectedSpeechCount, inspection: currentInspection };
+          } catch (cause) {
+            if (projectWritten) {
+              try {
+                await replaceProjectFile(projectFile, previousProjectBytes, async () => {
+                  await assertWritable();
+                  if (await currentProjectRevision(
+                    projectFile,
+                    "project.json 在 TTS 配置回滚前变得不可安全读取。",
+                  ) !== nextRevision) {
+                    throw new ProjectLifecycleError(
+                      "PROJECT_SAVE_CONFLICT",
+                      projectFile,
+                      "TTS 配置失败后 project.json 又发生变化；Narracut 拒绝覆盖并保留现场。",
+                    );
+                  }
+                });
+              } catch (rollbackCause) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_SAVE_FAILED",
+                  projectFile,
+                  "TTS 配置提交失败，且 Scene 引用回滚失败；项目保持无陈旧 Speech 的安全状态，请重新打开检查。",
+                  { cause: rollbackCause },
+                );
+              }
+            }
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              join(projectDirectory, "tts.json"),
+              "无法原子保存 TTS 配置；Narracut 已保留原配置与 Scene 内容。",
+              { cause },
+            );
+          }
+        });
+        saveQueue = operation.then(() => undefined, () => undefined);
+        return operation;
+      };
+      const probeSpeechAudio: OpenedProjectVNext["probeSpeechAudio"] = async (input) => {
+        await assertSpeechDirectoryCurrent();
+        const probeFile = join(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
+        const decoderPath = process.platform === "linux"
+          ? join(`/proc/${process.pid}/fd/${speechDirectoryHandle!.fd}`, `.probe-${input.jobId}.mp3`)
+          : join(speechDirectory, `.probe-${input.jobId}.mp3`);
+        let created = false;
+        try {
+          const handle = await openFile(probeFile, "wx", 0o600);
+          created = true;
+          try {
+            await handle.writeFile(input.audio);
+            await handle.sync();
+          } finally {
+            await handle.close();
+          }
+          await assertSpeechDirectoryCurrent();
+          const durationMs = await (options.probeSpeechDurationMs ?? probeSpeechDurationMs)(decoderPath);
+          if (!Number.isSafeInteger(durationMs) || durationMs <= 0) {
+            throw new Error("Speech 实际时长必须是正安全整数。");
+          }
+          await assertSpeechDirectoryCurrent();
+          return durationMs;
+        } finally {
+          if (created) await rm(probeFile, { force: true }).catch(() => undefined);
+        }
+      };
+      const commitSpeech: OpenedProjectVNext["commitSpeech"] = (input) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "项目工作区正在关闭；Narracut 已停止接收 Speech 结果。",
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          await assertWritable();
+          const tts = await readProjectTtsConfig(projectDirectory);
+          if (tts.status !== "configured" || tts.profileId !== input.ttsProfileId) {
+            return {
+              status: "rejected" as const,
+              code: "SPEECH_RESULT_CONFIG_CHANGED",
+              message: "结果未应用：TTS 配置已经变化。",
+              inspection: currentInspection,
+            };
+          }
+          const scene = currentInspection.project.scenes.find((candidate) => candidate.id === input.sceneId);
+          if (scene === undefined) {
+            return {
+              status: "rejected" as const,
+              code: "SPEECH_RESULT_SCENE_DELETED",
+              message: "结果未应用：目标 Scene 已删除。",
+              inspection: currentInspection,
+            };
+          }
+          if (scene.narration.text !== input.narrationText) {
+            return {
+              status: "rejected" as const,
+              code: "SPEECH_RESULT_NARRATION_CHANGED",
+              message: "结果未应用：Narration 已经变化。",
+              inspection: currentInspection,
+            };
+          }
+          if (input.isCancelled?.()) {
+            return {
+              status: "rejected" as const,
+              code: "SPEECH_RESULT_CANCELLED",
+              message: "结果未应用：Speech 生成已经取消。",
+              inspection: currentInspection,
+            };
+          }
+          const finalFile = join(anchoredSpeechDirectory, `${scene.id}.mp3`);
+          const temporaryFile = join(anchoredSpeechDirectory, `.speech-${randomUUID()}.tmp`);
+          const backupFile = join(anchoredSpeechDirectory, `.speech-${randomUUID()}.previous`);
+          let previousFile = false;
+          let published = false;
+          try {
+            const handle = await openFile(temporaryFile, "wx", 0o600);
+            try {
+              await handle.writeFile(input.audio);
+              await handle.sync();
+            } finally {
+              await handle.close();
+            }
+            try {
+              const finalFacts = await lstat(finalFile);
+              if (!finalFacts.isFile() || finalFacts.isSymbolicLink()) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_IDENTITY_LOST",
+                  finalFile,
+                  "既有 Speech 不再是普通文件；Narracut 拒绝覆盖。",
+                );
+              }
+              await link(finalFile, backupFile);
+              const backupFacts = await lstat(backupFile);
+              if (!backupFacts.isFile() || backupFacts.isSymbolicLink() || !hasIdentity(backupFacts, finalFacts)) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_IDENTITY_LOST",
+                  backupFile,
+                  "既有 Speech 在建立回滚锚点时发生变化；Narracut 拒绝覆盖。",
+                );
+              }
+              previousFile = true;
+            } catch (cause) {
+              if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) throw cause;
+            }
+            await assertSpeechDirectoryCurrent();
+            if (input.isCancelled?.()) throw new Error("Speech 生成已经取消。");
+            await rename(temporaryFile, finalFile);
+            published = true;
+            const project = structuredClone(currentInspection.project);
+            const target = project.scenes.find((candidate) => candidate.id === scene.id)!;
+            target.speech = {
+              path: `speech/${scene.id}.mp3`,
+              durationMs: input.durationMs,
+              sourceTextHash: `sha256:${createHash("sha256").update(input.narrationText, "utf8").digest("hex")}`,
+              ttsProfileId: input.ttsProfileId,
+              audioContentHash: `sha256:${createHash("sha256").update(input.audio).digest("hex")}`,
+            };
+            const projectFile = join(projectDirectory, "project.json");
+            const baselineRevision = currentInspection.projectRevision;
+            const validated = validateProjectVNextForSave(project, projectFile);
+            const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
+              projectDirectory,
+              validated.project,
+              {
+                currentTtsProfileId: tts.profileId,
+                probeSpeechDurationMs: options.probeSpeechDurationMs,
+              },
+            );
+            if (speechStates.find((state) => state.sceneId === scene.id)?.status !== "available") {
+              throw new Error("发布后的 Speech 未通过可解码性与时长复核。");
+            }
+            if (input.isCancelled?.()) throw new Error("Speech 生成已经取消。");
+            input.onCommitPoint?.();
+            await replaceProjectFile(projectFile, validated.bytes, async () => {
+              await assertSpeechDirectoryCurrent();
+              if (await currentProjectRevision(
+                projectFile,
+                "project.json 在 Speech 提交前变得不可安全读取。",
+              ) !== baselineRevision) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_SAVE_CONFLICT",
+                  projectFile,
+                  "project.json 在 Speech 提交前发生外部变化；Narracut 拒绝覆盖。",
+                );
+              }
+            });
+            currentInspection = {
+              ...currentInspection,
+              project: validated.project,
+              projectRevision: revisionOf(validated.bytes),
+              tts,
+              assetStates,
+              speechStates,
+              timeline,
+              warnings,
+            };
+            await rm(backupFile, { force: true }).catch(() => undefined);
+            return {
+              status: "applied" as const,
+              code: "SPEECH_APPLIED",
+              message: "Speech 已校验并原子应用到当前 Scene。",
+              inspection: currentInspection,
+            };
+          } catch (cause) {
+            let rollbackFailure: unknown;
+            if (published) {
+              try {
+                if (previousFile) {
+                  if (process.platform === "win32") await rm(finalFile, { force: true });
+                  await rename(backupFile, finalFile);
+                }
+                else await rm(finalFile, { force: true });
+              } catch (rollbackCause) {
+                rollbackFailure = rollbackCause;
+              }
+            }
+            await rm(temporaryFile, { force: true }).catch(() => undefined);
+            if (rollbackFailure === undefined) await rm(backupFile, { force: true }).catch(() => undefined);
+            if (rollbackFailure !== undefined) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_FAILED",
+                backupFile,
+                `Speech 回滚失败；旧音频备份已保留在 ${backupFile}，Narracut 不会声称旧 Speech 未变。`,
+                { cause: rollbackFailure },
+              );
+            }
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              finalFile,
+              "无法原子应用 Speech；旧 Speech 与 Scene 内容保持不变。",
+              { cause },
+            );
+          }
+        });
+        saveQueue = operation.then(() => undefined, () => undefined);
+        return operation;
+      };
       const release = async () => {
         closing = true;
         releasePromise ??= saveQueue.then(async () => {
@@ -1385,16 +1799,19 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
           } finally {
             await assetsDirectoryHandle?.close();
             assetsDirectoryHandle = null;
+            await speechDirectoryHandle?.close();
+            speechDirectoryHandle = null;
           }
         });
         await releasePromise;
       };
-      return { inspection, saveProject, importAsset, release };
+      return { inspection, saveProject, importAsset, saveTtsSettings, probeSpeechAudio, commitSpeech, release };
     } catch (error) {
       try {
         await lease.release();
       } finally {
         await assetsDirectoryHandle?.close();
+        await speechDirectoryHandle?.close();
       }
       throw error;
     }

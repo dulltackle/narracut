@@ -191,7 +191,7 @@ _Avoid_: Scene 预览、成片预览
 用户声明某个导入源成功生成 Asset 后应绑定到哪个 Scene 的意图。Job 成功前它不是 Asset 绑定；只有 Asset 实际产生后，匹配提案才可能兑现为 Scene 对 Asset 的引用。
 
 **Speech**：
-一个 Scene 的当前 Narration 文本经 TTS 生成、且仍与当前文本和合成配置匹配的音频文件，存放在项目文件夹内，是 Duration 的直接来源。Scene 为它保存项目相对 `path`、`durationMs`、`sourceTextHash` 与 `ttsProfileId`；Narration 或合成配置变化后，该 Scene 不再拥有 Speech，不保留 Stale Speech 状态。
+一个 Scene 的当前 Narration 文本经 TTS 生成、且仍与当前文本、合成配置和已提交音频内容匹配的音频文件，存放在项目文件夹内，是 Duration 的直接来源。Scene 为它保存项目相对 `path`、`durationMs`、`sourceTextHash`、`ttsProfileId` 与新生成记录必备的 `audioContentHash`；缺少音频摘要的历史记录按 Draft 处理，直到重新生成。Narration 或合成配置变化后，该 Scene 不再拥有 Speech，不保留 Stale Speech 状态；音频被原位替换时只把该 Scene 标为不可用于最终 Render，不改变 Scene 身份、Narration 或 Asset 引用。
 _Avoid_: 语音、配音文件、音频
 
 ### 视觉
