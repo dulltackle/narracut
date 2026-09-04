@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   lstat,
   mkdir,
@@ -17,6 +17,10 @@ import { basename, dirname, join, resolve } from "node:path";
 import {
   inspectProjectVNext,
   ProjectInspectionError,
+  readProjectVNextRevision,
+  validateProjectVNextForSave,
+  validateProjectVNextResources,
+  type ProjectVNext,
   type ProjectVNextInspection,
 } from "./project-vnext-inspection";
 import { parseStrictJson } from "./strict-json";
@@ -33,6 +37,8 @@ export type ProjectLifecycleErrorCode =
   | "PROJECT_CREATE_CLEANUP_FAILED"
   | "PROJECT_IN_USE"
   | "PROJECT_IDENTITY_LOST"
+  | "PROJECT_SAVE_CONFLICT"
+  | "PROJECT_SAVE_FAILED"
   | "PROJECT_CURRENT_INVALID"
   | "PROJECT_OPEN_FAILED";
 
@@ -633,6 +639,10 @@ export async function createProjectVNext(
 
 export type OpenedProjectVNext = {
   inspection: ProjectVNextInspection;
+  saveProject: (
+    project: unknown,
+    baselineRevision: string,
+  ) => Promise<{ inspection: ProjectVNextInspection }>;
   release: () => Promise<void>;
 };
 
@@ -700,9 +710,14 @@ async function clearStaleLease(leasePath: string): Promise<boolean> {
   return true;
 }
 
+type ProjectLease = {
+  assertCurrent: () => Promise<void>;
+  release: () => Promise<void>;
+};
+
 async function acquireProjectLease(
   inspection: ProjectVNextInspection,
-): Promise<() => Promise<void>> {
+): Promise<ProjectLease> {
   const projectDirectory = inspection.projectDirectory;
   const leasePath = join(projectDirectory, ".narracut", "workspace.lease");
   if (activeLeasePaths.has(leasePath)) {
@@ -772,7 +787,27 @@ async function acquireProjectLease(
   }
   activeLeasePaths.add(leasePath);
   let released = false;
-  return async () => {
+  const assertCurrent = async () => {
+    if (released) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        projectDirectory,
+        "项目工作区租约已经释放；Narracut 已停止写入。",
+      );
+    }
+    try {
+      const current = JSON.parse(await readFile(leasePath, "utf8")) as Partial<LeaseMarker>;
+      if (current.token !== marker.token || current.projectId !== marker.projectId) throw new Error("租约身份不匹配");
+    } catch (cause) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        projectDirectory,
+        "项目写入租约已经失效；Narracut 已停止写入并保留内存修改。",
+        { cause },
+      );
+    }
+  };
+  const release = async () => {
     if (released) return;
     released = true;
     activeLeasePaths.delete(leasePath);
@@ -788,6 +823,107 @@ async function acquireProjectLease(
       await leaseDirectoryHandle.close();
     }
   };
+  return { assertCurrent, release };
+}
+
+function revisionOf(bytes: Buffer): string {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+async function currentProjectRevision(projectFile: string, message: string): Promise<string> {
+  try {
+    return await readProjectVNextRevision(projectFile);
+  } catch (cause) {
+    throw new ProjectLifecycleError(
+      "PROJECT_SAVE_CONFLICT",
+      projectFile,
+      message,
+      { cause },
+    );
+  }
+}
+
+function assertSceneOnlyMutation(current: ProjectVNext, next: ProjectVNext, projectPath: string): void {
+  if (JSON.stringify(current.assets) !== JSON.stringify(next.assets)) {
+    throw new ProjectLifecycleError(
+      "PROJECT_SAVE_FAILED",
+      projectPath,
+      "本次保存只能修改 Scene；Asset 登记表必须保持不变。",
+    );
+  }
+  const currentScenes = new Map(current.scenes.map((scene) => [scene.id, scene]));
+  const existingAssetOrders = new Set(current.scenes.map((scene) => JSON.stringify(scene.assetIds)));
+  existingAssetOrders.add("[]");
+  for (const scene of next.scenes) {
+    const previous = currentScenes.get(scene.id);
+    if (previous === undefined) {
+      if (scene.speech !== undefined || !existingAssetOrders.has(JSON.stringify(scene.assetIds))) {
+        throw new ProjectLifecycleError(
+          "PROJECT_SAVE_FAILED",
+          projectPath,
+          "新增或复制的 Scene 不能创建 Speech 或改写 Asset 引用；请从表格工作区重试。",
+        );
+      }
+      continue;
+    }
+    if (JSON.stringify(previous.assetIds) !== JSON.stringify(scene.assetIds)) {
+      throw new ProjectLifecycleError(
+        "PROJECT_SAVE_FAILED",
+        projectPath,
+        `Scene ${scene.id} 的 Asset 引用不属于本票可写范围。`,
+      );
+    }
+    if (scene.narration.text !== previous.narration.text && scene.speech !== undefined) {
+      throw new ProjectLifecycleError(
+        "PROJECT_SAVE_FAILED",
+        projectPath,
+        `Scene ${scene.id} 修改 Narration 后必须移除失效 Speech。`,
+      );
+    }
+    if (
+      scene.speech !== undefined &&
+      JSON.stringify(scene.speech) !== JSON.stringify(previous.speech)
+    ) {
+      throw new ProjectLifecycleError(
+        "PROJECT_SAVE_FAILED",
+        projectPath,
+        `Scene ${scene.id} 的 Speech 不属于本票可写范围。`,
+      );
+    }
+  }
+}
+
+async function replaceProjectFile(
+  projectFile: string,
+  bytes: Buffer,
+  assertWritable: () => Promise<void>,
+): Promise<void> {
+  const temporaryFile = join(dirname(projectFile), `.project.json.${randomUUID()}.tmp`);
+  let committed = false;
+  try {
+    const handle = await openFile(temporaryFile, "wx", 0o600);
+    try {
+      await handle.writeFile(bytes);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertWritable();
+    await rename(temporaryFile, projectFile);
+    committed = true;
+    try {
+      const directory = await openFile(dirname(projectFile), "r");
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    } catch {
+      // rename 是提交点；提交后的目录同步/清理失败不得回报为保存失败。
+    }
+  } finally {
+    if (!committed) await rm(temporaryFile, { force: true }).catch(() => undefined);
+  }
 }
 
 export async function openProjectVNext(inputPath: string): Promise<OpenedProjectVNext> {
@@ -795,7 +931,8 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
   try {
     const initialInspection = await inspectProjectVNext(projectDirectory);
     await validateCurrentProjectState(initialInspection);
-    const release = await acquireProjectLease(initialInspection);
+    const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
+    const lease = await acquireProjectLease(initialInspection);
     try {
       const inspection = await inspectProjectVNext(projectDirectory);
       await validateCurrentProjectState(inspection);
@@ -806,9 +943,119 @@ export async function openProjectVNext(inputPath: string): Promise<OpenedProject
           `取得租约时项目身份发生变化：${projectDirectory}。`,
         );
       }
-      return { inspection, release };
+      let currentInspection = inspection;
+      let saveQueue = Promise.resolve();
+      let closing = false;
+      let releasePromise: Promise<void> | null = null;
+      const assertWritable = async () => {
+        await lease.assertCurrent();
+        let facts;
+        try {
+          facts = await lstat(projectDirectory);
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "项目目录已经移动或不可用；Narracut 已停止写入并保留内存修改。",
+            { cause },
+          );
+        }
+        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, directoryIdentity)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "项目目录身份已经变化；Narracut 已停止写入并保留内存修改。",
+          );
+        }
+        try {
+          const manifestPath = join(projectDirectory, "narracut.json");
+          const manifestFacts = await lstat(manifestPath);
+          if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
+            throw new Error("项目清单文件身份无效");
+          }
+          const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { projectId?: unknown };
+          if (manifest.projectId !== initialInspection.manifest.projectId) {
+            throw new Error("项目清单中的 projectId 已变化");
+          }
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "项目清单身份已经变化；Narracut 已停止写入并保留内存修改。",
+            { cause },
+          );
+        }
+      };
+      const saveProject: OpenedProjectVNext["saveProject"] = (project, baselineRevision) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "项目工作区正在关闭；Narracut 已停止接收新的写入。",
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const projectFile = join(projectDirectory, "project.json");
+          try {
+            await assertWritable();
+            if (await currentProjectRevision(
+              projectFile,
+              "无法确认 project.json 仍是当前磁盘基线；Narracut 已停止自动保存。",
+            ) !== baselineRevision) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_CONFLICT",
+                projectFile,
+                "project.json 已被外部修改；Narracut 已停止自动保存，不会覆盖磁盘内容。",
+              );
+            }
+            const validated = validateProjectVNextForSave(project, projectFile);
+            assertSceneOnlyMutation(currentInspection.project, validated.project, projectFile);
+            await validateProjectVNextResources(projectDirectory, validated.project);
+            const nextRevision = revisionOf(validated.bytes);
+            if (nextRevision !== baselineRevision) {
+              await replaceProjectFile(projectFile, validated.bytes, async () => {
+                await assertWritable();
+                if (await currentProjectRevision(
+                  projectFile,
+                  "project.json 在提交前变得不可安全读取；Narracut 拒绝覆盖。",
+                ) !== baselineRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    projectFile,
+                    "project.json 在提交前发生外部变化；Narracut 拒绝覆盖。",
+                  );
+                }
+              });
+            }
+            currentInspection = {
+              ...currentInspection,
+              project: validated.project,
+              projectRevision: nextRevision,
+            };
+            return { inspection: currentInspection };
+          } catch (cause) {
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) {
+              throw cause;
+            }
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              projectFile,
+              "无法原子保存 project.json；Narracut 已保留内存修改。",
+              { cause },
+            );
+          }
+        });
+        saveQueue = operation.then(() => undefined, () => undefined);
+        return operation;
+      };
+      const release = async () => {
+        closing = true;
+        releasePromise ??= saveQueue.then(() => lease.release());
+        await releasePromise;
+      };
+      return { inspection, saveProject, release };
     } catch (error) {
-      await release();
+      await lease.release();
       throw error;
     }
   } catch (error) {

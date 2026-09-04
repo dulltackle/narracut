@@ -1,4 +1,5 @@
 import { chromium } from "@playwright/test";
+import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -25,13 +26,34 @@ const scenes = Array.from({ length: 8 }, (_, offset) => {
       "没有多余装饰，只留下清楚、可靠的使用体验。",
       "这就是我们想交付的产品，也是一份长期承诺。",
     ][offset],
-    assets: index % 3 === 0 ? [] : [{ id: `asset-${index}`, path: `assets/scene-${index}.png` }],
+    assets: index % 3 === 0 ? [] : [{
+      id: `20000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      path: `assets/scene-${index}.png`,
+    }],
     speech: index === 6 ? { status: "missing" } : { status: "available", durationMs: 1800 + index * 120 },
   };
 });
 const workbenchResult = {
   status: "valid",
-  connection: { status: "connected", readOnly: true },
+  connection: { status: "connected", readOnly: false },
+  writable: true,
+  projectRevision: `sha256:${"1".repeat(64)}`,
+  projectDsl: {
+    assets: scenes.flatMap((scene) => scene.assets),
+    scenes: scenes.map((scene) => ({
+      id: scene.id,
+      narration: { text: scene.narration },
+      assetIds: scene.assets.map((asset) => asset.id),
+      ...(scene.speech.status === "available" ? {
+        speech: {
+          path: `speech/${scene.id}.mp3`,
+          durationMs: scene.speech.durationMs,
+          sourceTextHash: `sha256:${createHash("sha256").update(scene.narration, "utf8").digest("hex")}`,
+          ttsProfileId: "narracut/default",
+        },
+      } : {}),
+    })),
+  },
   project: {
     directory: "/work/projects/product-demo",
     folderName: "product-demo",
@@ -65,6 +87,7 @@ const captures = launcher
       { name: "hero-repro", width: 1586, height: 992 },
       { name: "desktop", width: 1440, height: 900 },
       { name: "mobile", width: 430, height: 860 },
+      { name: "mobile-menu", width: 430, height: 860, openSceneMenu: true },
     ];
 for (const capture of captures) {
   const page = await browser.newPage({ viewport: { width: capture.width, height: capture.height } });
@@ -76,6 +99,7 @@ for (const capture of captures) {
     params: { structuredContent },
   }, "*"), result);
   await page.emulateMedia({ reducedMotion: "reduce" });
+  if (capture.openSceneMenu) await page.locator(".scene-menu summary").click();
   await page.screenshot({
     path: resolve(`.impeccable/review/${capture.name}.png`),
     animations: "disabled",

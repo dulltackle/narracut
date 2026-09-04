@@ -1127,6 +1127,57 @@ function validateProjectDsl(value) {
     diagnostics: boundedDiagnostics(diagnostics)
   };
 }
+function validateProjectVNextForSave(value, projectPath = "project.json") {
+  let inputBytes;
+  try {
+    inputBytes = Buffer.from(JSON.stringify(value), "utf8");
+  } catch (cause) {
+    throw invalidControlFile(projectPath, {
+      code: "PROJECT_DSL_SCHEMA_INVALID",
+      component: "project.json",
+      jsonPath: "$",
+      message: "Project DSL \u5FC5\u987B\u662F\u53EF\u5E8F\u5217\u5316\u7684 JSON \u5BF9\u8C61\u3002"
+    }, { cause });
+  }
+  if (inputBytes.length > 10 * 1024 * 1024) {
+    throw invalidControlFile(projectPath, {
+      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+      component: "project.json",
+      message: `project.json \u4E3A ${inputBytes.length} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${10 * 1024 * 1024}\uFF1B\u8BF7\u7F29\u51CF\u5185\u5BB9\u540E\u91CD\u8BD5\u3002`,
+      metric: "bytes",
+      actual: inputBytes.length,
+      limit: 10 * 1024 * 1024
+    });
+  }
+  const parsed = parseControlJson(
+    inputBytes.toString("utf8"),
+    projectPath,
+    "project.json",
+    PROJECT_JSON_LIMITS
+  );
+  const validation = validateProjectDsl(parsed);
+  if (validation.project === void 0) {
+    throw invalidContent(projectPath, validation.diagnostics);
+  }
+  const project = validation.project;
+  const bytes = Buffer.from(JSON.stringify({
+    assets: project.assets.map((asset) => ({ id: asset.id, path: asset.path })),
+    scenes: project.scenes.map((scene) => ({
+      id: scene.id,
+      narration: { text: scene.narration.text },
+      assetIds: [...scene.assetIds],
+      ...scene.speech === void 0 ? {} : {
+        speech: {
+          path: scene.speech.path,
+          durationMs: scene.speech.durationMs,
+          sourceTextHash: scene.speech.sourceTextHash,
+          ttsProfileId: scene.speech.ttsProfileId
+        }
+      }
+    }))
+  }), "utf8");
+  return { project, bytes };
+}
 function decodeUtf8(bytes, path, component, allowBom) {
   if (!allowBom && bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) {
     throw invalidControlFile(path, {
@@ -1231,6 +1282,10 @@ async function readBoundedControlFile(path, component, limit) {
     await handle.close();
   }
 }
+async function readProjectVNextRevision(projectPath) {
+  const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
 async function requireDirectory(path) {
   const facts = await lstat(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
@@ -1312,6 +1367,16 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
         relative(projectDirectory, identity.path),
         `${relative(projectDirectory, identity.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
       );
+    }
+  }
+}
+async function validateProjectVNextResources(projectDirectory, project) {
+  for (const asset of project.assets) {
+    await validateOrdinaryResource(projectDirectory, asset.path, false);
+  }
+  for (const scene of project.scenes) {
+    if (scene.speech !== void 0) {
+      await validateOrdinaryResource(projectDirectory, scene.speech.path, true);
     }
   }
 }
@@ -1603,18 +1668,12 @@ async function inspectProjectVNext(inputPath) {
   if (projectValidation.project === void 0) {
     throw invalidContent(projectPath, projectValidation.diagnostics);
   }
-  for (const asset of projectValidation.project.assets) {
-    await validateOrdinaryResource(projectDirectory, asset.path, false);
-  }
-  for (const scene of projectValidation.project.scenes) {
-    if (scene.speech !== void 0) {
-      await validateOrdinaryResource(projectDirectory, scene.speech.path, true);
-    }
-  }
+  await validateProjectVNextResources(projectDirectory, projectValidation.project);
   return {
     projectDirectory,
     manifest,
     project: projectValidation.project,
+    projectRevision: `sha256:${createHash("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
     renderPrograms: { directories: renderProgramDirectories },
     warnings: []
@@ -1622,7 +1681,7 @@ async function inspectProjectVNext(inputPath) {
 }
 
 // src/server/project-lifecycle.ts
-import { randomUUID as randomUUID2 } from "node:crypto";
+import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
 import {
   lstat as lstat2,
   mkdir,
@@ -2220,7 +2279,27 @@ async function acquireProjectLease(inspection) {
   }
   activeLeasePaths.add(leasePath);
   let released = false;
-  return async () => {
+  const assertCurrent = async () => {
+    if (released) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        projectDirectory,
+        "\u9879\u76EE\u5DE5\u4F5C\u533A\u79DF\u7EA6\u5DF2\u7ECF\u91CA\u653E\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u3002"
+      );
+    }
+    try {
+      const current = JSON.parse(await readFile(leasePath, "utf8"));
+      if (current.token !== marker.token || current.projectId !== marker.projectId) throw new Error("\u79DF\u7EA6\u8EAB\u4EFD\u4E0D\u5339\u914D");
+    } catch (cause) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        projectDirectory,
+        "\u9879\u76EE\u5199\u5165\u79DF\u7EA6\u5DF2\u7ECF\u5931\u6548\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+        { cause }
+      );
+    }
+  };
+  const release = async () => {
     if (released) return;
     released = true;
     activeLeasePaths.delete(leasePath);
@@ -2234,13 +2313,103 @@ async function acquireProjectLease(inspection) {
       await leaseDirectoryHandle.close();
     }
   };
+  return { assertCurrent, release };
+}
+function revisionOf(bytes) {
+  return `sha256:${createHash2("sha256").update(bytes).digest("hex")}`;
+}
+async function currentProjectRevision(projectFile, message) {
+  try {
+    return await readProjectVNextRevision(projectFile);
+  } catch (cause) {
+    throw new ProjectLifecycleError(
+      "PROJECT_SAVE_CONFLICT",
+      projectFile,
+      message,
+      { cause }
+    );
+  }
+}
+function assertSceneOnlyMutation(current, next, projectPath) {
+  if (JSON.stringify(current.assets) !== JSON.stringify(next.assets)) {
+    throw new ProjectLifecycleError(
+      "PROJECT_SAVE_FAILED",
+      projectPath,
+      "\u672C\u6B21\u4FDD\u5B58\u53EA\u80FD\u4FEE\u6539 Scene\uFF1BAsset \u767B\u8BB0\u8868\u5FC5\u987B\u4FDD\u6301\u4E0D\u53D8\u3002"
+    );
+  }
+  const currentScenes = new Map(current.scenes.map((scene) => [scene.id, scene]));
+  const existingAssetOrders = new Set(current.scenes.map((scene) => JSON.stringify(scene.assetIds)));
+  existingAssetOrders.add("[]");
+  for (const scene of next.scenes) {
+    const previous = currentScenes.get(scene.id);
+    if (previous === void 0) {
+      if (scene.speech !== void 0 || !existingAssetOrders.has(JSON.stringify(scene.assetIds))) {
+        throw new ProjectLifecycleError(
+          "PROJECT_SAVE_FAILED",
+          projectPath,
+          "\u65B0\u589E\u6216\u590D\u5236\u7684 Scene \u4E0D\u80FD\u521B\u5EFA Speech \u6216\u6539\u5199 Asset \u5F15\u7528\uFF1B\u8BF7\u4ECE\u8868\u683C\u5DE5\u4F5C\u533A\u91CD\u8BD5\u3002"
+        );
+      }
+      continue;
+    }
+    if (JSON.stringify(previous.assetIds) !== JSON.stringify(scene.assetIds)) {
+      throw new ProjectLifecycleError(
+        "PROJECT_SAVE_FAILED",
+        projectPath,
+        `Scene ${scene.id} \u7684 Asset \u5F15\u7528\u4E0D\u5C5E\u4E8E\u672C\u7968\u53EF\u5199\u8303\u56F4\u3002`
+      );
+    }
+    if (scene.narration.text !== previous.narration.text && scene.speech !== void 0) {
+      throw new ProjectLifecycleError(
+        "PROJECT_SAVE_FAILED",
+        projectPath,
+        `Scene ${scene.id} \u4FEE\u6539 Narration \u540E\u5FC5\u987B\u79FB\u9664\u5931\u6548 Speech\u3002`
+      );
+    }
+    if (scene.speech !== void 0 && JSON.stringify(scene.speech) !== JSON.stringify(previous.speech)) {
+      throw new ProjectLifecycleError(
+        "PROJECT_SAVE_FAILED",
+        projectPath,
+        `Scene ${scene.id} \u7684 Speech \u4E0D\u5C5E\u4E8E\u672C\u7968\u53EF\u5199\u8303\u56F4\u3002`
+      );
+    }
+  }
+}
+async function replaceProjectFile(projectFile, bytes, assertWritable) {
+  const temporaryFile = join2(dirname(projectFile), `.project.json.${randomUUID2()}.tmp`);
+  let committed = false;
+  try {
+    const handle = await openFile(temporaryFile, "wx", 384);
+    try {
+      await handle.writeFile(bytes);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertWritable();
+    await rename(temporaryFile, projectFile);
+    committed = true;
+    try {
+      const directory = await openFile(dirname(projectFile), "r");
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    } catch {
+    }
+  } finally {
+    if (!committed) await rm(temporaryFile, { force: true }).catch(() => void 0);
+  }
 }
 async function openProjectVNext(inputPath) {
   const projectDirectory = await realpath2(resolve2(inputPath)).catch(() => resolve2(inputPath));
   try {
     const initialInspection = await inspectProjectVNext(projectDirectory);
     await validateCurrentProjectState(initialInspection);
-    const release = await acquireProjectLease(initialInspection);
+    const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
+    const lease = await acquireProjectLease(initialInspection);
     try {
       const inspection = await inspectProjectVNext(projectDirectory);
       await validateCurrentProjectState(inspection);
@@ -2251,9 +2420,119 @@ async function openProjectVNext(inputPath) {
           `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
         );
       }
-      return { inspection, release };
+      let currentInspection = inspection;
+      let saveQueue = Promise.resolve();
+      let closing = false;
+      let releasePromise = null;
+      const assertWritable = async () => {
+        await lease.assertCurrent();
+        let facts;
+        try {
+          facts = await lstat2(projectDirectory);
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u76EE\u5F55\u5DF2\u7ECF\u79FB\u52A8\u6216\u4E0D\u53EF\u7528\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+            { cause }
+          );
+        }
+        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, directoryIdentity)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u76EE\u5F55\u8EAB\u4EFD\u5DF2\u7ECF\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002"
+          );
+        }
+        try {
+          const manifestPath = join2(projectDirectory, "narracut.json");
+          const manifestFacts = await lstat2(manifestPath);
+          if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
+            throw new Error("\u9879\u76EE\u6E05\u5355\u6587\u4EF6\u8EAB\u4EFD\u65E0\u6548");
+          }
+          const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+          if (manifest.projectId !== initialInspection.manifest.projectId) {
+            throw new Error("\u9879\u76EE\u6E05\u5355\u4E2D\u7684 projectId \u5DF2\u53D8\u5316");
+          }
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u6E05\u5355\u8EAB\u4EFD\u5DF2\u7ECF\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+            { cause }
+          );
+        }
+      };
+      const saveProject = (project, baselineRevision) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536\u65B0\u7684\u5199\u5165\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const projectFile = join2(projectDirectory, "project.json");
+          try {
+            await assertWritable();
+            if (await currentProjectRevision(
+              projectFile,
+              "\u65E0\u6CD5\u786E\u8BA4 project.json \u4ECD\u662F\u5F53\u524D\u78C1\u76D8\u57FA\u7EBF\uFF1BNarracut \u5DF2\u505C\u6B62\u81EA\u52A8\u4FDD\u5B58\u3002"
+            ) !== baselineRevision) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_CONFLICT",
+                projectFile,
+                "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u81EA\u52A8\u4FDD\u5B58\uFF0C\u4E0D\u4F1A\u8986\u76D6\u78C1\u76D8\u5185\u5BB9\u3002"
+              );
+            }
+            const validated = validateProjectVNextForSave(project, projectFile);
+            assertSceneOnlyMutation(currentInspection.project, validated.project, projectFile);
+            await validateProjectVNextResources(projectDirectory, validated.project);
+            const nextRevision = revisionOf(validated.bytes);
+            if (nextRevision !== baselineRevision) {
+              await replaceProjectFile(projectFile, validated.bytes, async () => {
+                await assertWritable();
+                if (await currentProjectRevision(
+                  projectFile,
+                  "project.json \u5728\u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                ) !== baselineRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    projectFile,
+                    "project.json \u5728\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                  );
+                }
+              });
+            }
+            currentInspection = {
+              ...currentInspection,
+              project: validated.project,
+              projectRevision: nextRevision
+            };
+            return { inspection: currentInspection };
+          } catch (cause) {
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) {
+              throw cause;
+            }
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              projectFile,
+              "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 project.json\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+              { cause }
+            );
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      const release = async () => {
+        closing = true;
+        releasePromise ??= saveQueue.then(() => lease.release());
+        await releasePromise;
+      };
+      return { inspection, saveProject, release };
     } catch (error) {
-      await release();
+      await lease.release();
       throw error;
     }
   } catch (error) {
@@ -2275,6 +2554,10 @@ var MCP_PROTOCOL_VERSION = "2025-06-18";
 var WORKBENCH_URI = "ui://narracut/workbench-v1.html";
 var WORKBENCH_PATH = fileURLToPath(new URL(
   import.meta.url.endsWith("/server.mjs") ? "./workbench.html" : "../workbench.html",
+  import.meta.url
+));
+var WORKBENCH_SCRIPT_PATH = fileURLToPath(new URL(
+  import.meta.url.endsWith("/server.mjs") ? "./workbench.js" : "../workbench.js",
   import.meta.url
 ));
 var ASSET_BASE = import.meta.url.endsWith("/server.mjs") ? "./assets/" : "../assets/";
@@ -2352,6 +2635,25 @@ var tools = [
     _meta: { ui: { resourceUri: WORKBENCH_URI } }
   },
   {
+    name: "save_project_scenes",
+    title: "\u4FDD\u5B58\u8868\u683C\u5DE5\u4F5C\u533A Scene",
+    description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u6309\u9879\u76EE\u8EAB\u4EFD\u4E0E\u78C1\u76D8\u57FA\u7EBF\u539F\u5B50\u4FDD\u5B58\u4E25\u683C Scene DSL\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "baselineRevision", "project"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        baselineRevision: { type: "string", minLength: 1 },
+        project: { type: "object" }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
     name: "inspect_project",
     title: "\u68C0\u67E5 Narracut \u9879\u76EE",
     description: "\u53EA\u8BFB\u68C0\u67E5\u7528\u6237\u660E\u786E\u7ED9\u51FA\u7684 Project VNext \u7EDD\u5BF9\u76EE\u5F55\uFF0C\u8FD4\u56DE\u9879\u76EE\u8EAB\u4EFD\u3001Scene \u4E0E\u56FA\u5B9A\u63A7\u5236\u6587\u4EF6\u72B6\u6001\uFF0C\u5E76\u6253\u5F00\u5DE5\u4F5C\u53F0\u3002\u4E0D\u4F1A\u6D4F\u89C8\u5176\u4ED6\u76EE\u5F55\u3001\u5199\u6587\u4EF6\u3001\u6267\u884C Shell \u6216\u8BBF\u95EE\u7F51\u7EDC\u3002",
@@ -2426,17 +2728,20 @@ var tools = [
     annotations: taskToolAnnotations
   }
 ];
-function connectedState() {
-  return { status: "connected", readOnly: true };
+function connectedState(readOnly = true) {
+  return { status: "connected", readOnly };
 }
 function launcherConnectionState() {
   return { status: "connected", readOnly: false };
 }
-function serializeInspection(inspection) {
+function serializeInspection(inspection, writable = false) {
   const assets = new Map(inspection.project.assets.map((asset) => [asset.id, asset]));
   return {
     status: "valid",
-    connection: connectedState(),
+    connection: connectedState(!writable),
+    writable,
+    projectRevision: inspection.projectRevision,
+    projectDsl: inspection.project,
     project: {
       directory: inspection.projectDirectory,
       folderName: basename2(inspection.projectDirectory),
@@ -2478,14 +2783,15 @@ function diagnosticSummary(diagnostics) {
   }));
 }
 async function loadWorkbench() {
-  const [html, paperTexture, filmTexture, displayFont] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont] = await Promise.all([
     readFile2(WORKBENCH_PATH, "utf8"),
+    readFile2(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile2(PAPER_TEXTURE_PATH),
     readFile2(FILM_TEXTURE_PATH),
     readFile2(DISPLAY_FONT_PATH)
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
-  return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables);
+  return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", script);
 }
 async function inspectProject(argumentsValue) {
   if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue) || typeof argumentsValue.projectDirectory !== "string") {
@@ -2569,6 +2875,19 @@ var ProjectWorkspaceSession = class {
     this.#opened = next;
     return next.inspection;
   }
+  async save(input) {
+    const opened = this.#opened;
+    if (opened === null || opened.inspection.projectDirectory !== input.projectDirectory || opened.inspection.manifest.projectId !== input.projectId) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        input.projectDirectory,
+        "\u5F53\u524D\u5DE5\u4F5C\u53F0\u6CA1\u6709\u6301\u6709\u8BE5\u9879\u76EE\u7684\u5199\u5165\u79DF\u7EA6\uFF1BNarracut \u62D2\u7EDD\u4FDD\u5B58\u3002"
+      );
+    }
+    const saved = await opened.saveProject(input.project, input.baselineRevision);
+    opened.inspection = saved.inspection;
+    return saved.inspection;
+  }
   async dispose() {
     const opened = this.#opened;
     this.#opened = null;
@@ -2598,8 +2917,8 @@ async function callTool(params, hostValidation, workspace) {
   const { name, arguments: argumentsValue } = params;
   if (name === "health_check") {
     return {
-      structuredContent: { status: "connected", server: "narracut", readOnly: true },
-      content: [{ type: "text", text: "Narracut \u63D2\u4EF6\u5DF2\u8FDE\u63A5\uFF1B\u53EF\u539F\u5B50\u521B\u5EFA\u3001\u4E25\u683C\u6253\u5F00 Project VNext\uFF0C\u6253\u5F00\u540E\u7684\u9879\u76EE\u5DE5\u4F5C\u53F0\u4FDD\u6301\u53EA\u8BFB\u3002" }]
+      structuredContent: { status: "connected", server: "narracut", readOnly: false },
+      content: [{ type: "text", text: "Narracut \u63D2\u4EF6\u5DF2\u8FDE\u63A5\uFF1B\u53EF\u539F\u5B50\u521B\u5EFA\u3001\u4E25\u683C\u6253\u5F00 Project VNext\uFF0C\u5E76\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u7F16\u8F91 Scene\u3002" }]
     };
   }
   if (name === "show_launcher") {
@@ -2634,7 +2953,7 @@ async function callTool(params, hostValidation, workspace) {
       }
       const inspection = await workspace.open(projectDirectory);
       return {
-        structuredContent: { ...serializeInspection(inspection), operation },
+        structuredContent: { ...serializeInspection(inspection, true), operation },
         content: [{
           type: "text",
           text: operation === "created" ? `${basename2(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename2(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
@@ -2664,6 +2983,55 @@ async function callTool(params, hostValidation, workspace) {
       }
       if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
         return lifecycleFailure(error);
+      }
+      throw error;
+    }
+  }
+  if (name === "save_project_scenes") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "save-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "\u4FDD\u5B58\u53C2\u6570\u5FC5\u987B\u662F\u5BF9\u8C61\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u4FDD\u5B58 Scene\uFF1A\u4FDD\u5B58\u53C2\u6570\u65E0\u6548\u3002" }]
+      };
+    }
+    const input = argumentsValue;
+    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "save-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u57FA\u7EBF\u6216 Project DSL \u65E0\u6548\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u4FDD\u5B58 Scene\uFF1A\u9879\u76EE\u8EAB\u4EFD\u3001\u57FA\u7EBF\u6216 Project DSL \u65E0\u6548\u3002" }]
+      };
+    }
+    try {
+      const inspection = await workspace.save({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        baselineRevision: input.baselineRevision,
+        project: input.project
+      });
+      return {
+        structuredContent: { ...serializeInspection(inspection, true), status: "saved" },
+        content: [{ type: "text", text: `\u5DF2\u539F\u5B50\u4FDD\u5B58 ${inspection.project.scenes.length} \u4E2A Scene\u3002` }]
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        const status = error instanceof ProjectLifecycleError && error.code === "PROJECT_SAVE_CONFLICT" ? "save-conflict" : error instanceof ProjectLifecycleError && error.code === "PROJECT_IDENTITY_LOST" ? "identity-lost" : "save-failed";
+        const failure = lifecycleFailure(error);
+        return {
+          ...failure,
+          structuredContent: {
+            ...failure.structuredContent,
+            status,
+            connection: connectedState(false)
+          }
+        };
       }
       throw error;
     }
@@ -2733,7 +3101,7 @@ function createNarracutRequestHandler(options = {}) {
           protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: { tools: {}, resources: {} },
           serverInfo: { name: "narracut", version: SERVER_VERSION },
-          instructions: "\u53EA\u63A5\u89E6\u7528\u6237\u901A\u8FC7\u7CFB\u7EDF\u6587\u4EF6\u5939\u9009\u62E9\u7A97\u53E3\u6216\u53C2\u6570\u660E\u786E\u7ED9\u51FA\u7684\u76EE\u5F55\u3002\u53EF\u4EE5\u5728\u4E0D\u5B58\u5728\u7684\u76EE\u6807\u539F\u5B50\u521B\u5EFA Project VNext\uFF0C\u6216\u4E25\u683C\u6253\u5F00\u6709\u6548\u9879\u76EE\uFF1B\u6253\u5F00\u540E\u7684\u9879\u76EE\u5DE5\u4F5C\u53F0\u4FDD\u6301\u53EA\u8BFB\uFF0CAgent \u5DE5\u4F5C\u533A\u53EF\u8FD0\u884C\u56FA\u5B9A\u7684 Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\u3002"
+          instructions: "\u53EA\u63A5\u89E6\u7528\u6237\u901A\u8FC7\u7CFB\u7EDF\u6587\u4EF6\u5939\u9009\u62E9\u7A97\u53E3\u6216\u53C2\u6570\u660E\u786E\u7ED9\u51FA\u7684\u76EE\u5F55\u3002\u53EF\u4EE5\u5728\u4E0D\u5B58\u5728\u7684\u76EE\u6807\u539F\u5B50\u521B\u5EFA Project VNext\uFF0C\u6216\u4E25\u683C\u6253\u5F00\u6709\u6548\u9879\u76EE\uFF1B\u8868\u683C\u5DE5\u4F5C\u533A\u53EA\u4FEE\u6539 Scene \u4E0E Narration\uFF0CAgent \u5DE5\u4F5C\u533A\u4FDD\u6301\u53EA\u8BFB\u5E76\u53EF\u8FD0\u884C\u56FA\u5B9A\u7684 Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\u3002"
         };
       }
       case "ping":
@@ -2747,7 +3115,7 @@ function createNarracutRequestHandler(options = {}) {
           resources: [{
             uri: WORKBENCH_URI,
             name: "Narracut \u5DE5\u4F5C\u53F0",
-            description: "Project VNext \u542F\u52A8\u5668\u4E0E\u53EA\u8BFB\u53CC\u5DE5\u4F5C\u533A\u5916\u58F3",
+            description: "Project VNext \u542F\u52A8\u5668\u3001\u53EF\u7F16\u8F91 Scene \u63A5\u89E6\u8868\u4E0E\u53EA\u8BFB Agent \u5DE5\u4F5C\u533A",
             mimeType: "text/html;profile=mcp-app"
           }]
         };

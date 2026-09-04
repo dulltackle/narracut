@@ -10,6 +10,7 @@ import type {
   StartCodexTurnInput,
 } from "../plugins/narracut/src/codex-host";
 import { createNarracutRequestHandler, handleRequest } from "../plugins/narracut/src/server";
+import { createProjectVNext } from "../src/server/project-lifecycle";
 
 class PluginTestHost implements CodexHostAdapter {
   turn: (StartCodexTurnInput & { turnId: string }) | null = null;
@@ -261,6 +262,83 @@ describe("Narracut Codex 插件", () => {
       project: { directory: projectDirectory, sceneCount: 0 },
     });
     await competingRequest.dispose();
+  });
+
+  it("只允许已打开工作台按基线保存 Scene，并把写入工具限制为 app 可见", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-save-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [],
+      scenes: [{
+        id: "30000000-0000-4000-8000-000000000001",
+        narration: { text: "原 Narration" },
+        assetIds: [],
+      }],
+    }));
+    const pluginRequest = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+    const listed = await pluginRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" }) as {
+      tools: Array<{ name: string; _meta?: unknown }>;
+    };
+    expect(listed.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "save_project_scenes",
+        _meta: { ui: { visibility: ["app"] } },
+      }),
+    ]));
+
+    const opened = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "open_project", arguments: { projectDirectory } },
+    }) as { structuredContent: any };
+    expect(opened.structuredContent).toMatchObject({
+      connection: { readOnly: false },
+      writable: true,
+      projectDsl: { assets: [], scenes: [expect.objectContaining({ id: expect.any(String) })] },
+      projectRevision: expect.stringMatching(/^sha256:/u),
+    });
+    const originalId = opened.structuredContent.projectDsl.scenes[0].id;
+    const nextId = "30000000-0000-4000-8000-000000000099";
+
+    const saved = await pluginRequest({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "save_project_scenes",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          baselineRevision: opened.structuredContent.projectRevision,
+          project: {
+            assets: [],
+            scenes: [
+              { id: originalId, narration: { text: "改写后的 Narration" }, assetIds: [] },
+              { id: nextId, narration: { text: "" }, assetIds: [] },
+            ],
+          },
+        },
+      },
+    }) as { structuredContent: any };
+    expect(saved.structuredContent).toMatchObject({
+      status: "saved",
+      projectRevision: expect.stringMatching(/^sha256:/u),
+      project: { sceneCount: 2 },
+      scenes: [
+        expect.objectContaining({ id: originalId, narration: "改写后的 Narration" }),
+        expect.objectContaining({ id: nextId, narration: "" }),
+      ],
+    });
+    expect(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8"))).toEqual({
+      assets: [],
+      scenes: [
+        { id: originalId, narration: { text: "改写后的 Narration" }, assetIds: [] },
+        { id: nextId, narration: { text: "" }, assetIds: [] },
+      ],
+    });
+    await pluginRequest.dispose();
   });
 
   it("无效目录把同一错误写入结构化结果，且 UI 资源可独立读取", async () => {

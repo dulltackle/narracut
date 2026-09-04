@@ -128,6 +128,163 @@ describe("Project VNext 生命周期", () => {
     await reopened.release();
   });
 
+  it("已打开工作区按基线原子保存严格 Project DSL，并保留 Scene 身份与顺序", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-save-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+    const firstSceneId = "30000000-0000-4000-8000-000000000001";
+    const secondSceneId = "30000000-0000-4000-8000-000000000002";
+
+    const saved = await opened.saveProject({
+      assets: [],
+      scenes: [
+        { id: secondSceneId, narration: { text: "第二幕" }, assetIds: [] },
+        { id: firstSceneId, narration: { text: "第一幕" }, assetIds: [] },
+      ],
+    }, opened.inspection.projectRevision);
+
+    expect(saved.inspection.project.scenes.map((scene) => scene.id)).toEqual([
+      secondSceneId,
+      firstSceneId,
+    ]);
+    expect(saved.inspection.projectRevision).not.toBe(opened.inspection.projectRevision);
+    expect(await readFile(join(projectDirectory, "project.json"), "utf8")).toBe(
+      `{"assets":[],"scenes":[{"id":"${secondSceneId}","narration":{"text":"第二幕"},"assetIds":[]},{"id":"${firstSceneId}","narration":{"text":"第一幕"},"assetIds":[]}]}`,
+    );
+    await opened.release();
+  });
+
+  it("保存时磁盘基线变化会保留外部内容并报告冲突", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-save-conflict-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+    const external = '{"assets":[],"scenes":[],"external":true}';
+    await writeFile(join(projectDirectory, "project.json"), external);
+
+    await expect(opened.saveProject(
+      { assets: [], scenes: [] },
+      opened.inspection.projectRevision,
+    )).rejects.toMatchObject({ code: "PROJECT_SAVE_CONFLICT" });
+    expect(await readFile(join(projectDirectory, "project.json"), "utf8")).toBe(external);
+    await opened.release();
+  });
+
+  it("保存时 project.json 被替换为链接会停止写入且不触碰链接目标", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-save-link-conflict-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+    const projectFile = join(projectDirectory, "project.json");
+    const externalFile = join(parentDirectory, "external.json");
+    const external = await readFile(projectFile, "utf8");
+    await writeFile(externalFile, external);
+    await rename(projectFile, join(projectDirectory, "project.original.json"));
+    await symlink(externalFile, projectFile);
+
+    await expect(opened.saveProject(
+      { assets: [], scenes: [] },
+      opened.inspection.projectRevision,
+    )).rejects.toMatchObject({ code: "PROJECT_SAVE_CONFLICT" });
+    expect(await readFile(externalFile, "utf8")).toBe(external);
+    await opened.release();
+  });
+
+  it("保存前重新拒绝已被替换为链接的 Asset 资源", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-save-resource-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const assetId = "20000000-0000-4000-8000-000000000001";
+    await writeFile(join(projectDirectory, "project.json"), JSON.stringify({
+      assets: [{ id: assetId, path: "assets/source.png" }],
+      scenes: [],
+    }));
+    const opened = await openProjectVNext(projectDirectory);
+    const externalFile = join(parentDirectory, "external.png");
+    await writeFile(externalFile, "external");
+    await symlink(externalFile, join(projectDirectory, "assets", "source.png"));
+
+    await expect(opened.saveProject({
+      assets: [{ id: assetId, path: "assets/source.png" }],
+      scenes: [{
+        id: "30000000-0000-4000-8000-000000000001",
+        narration: { text: "" },
+        assetIds: [],
+      }],
+    }, opened.inspection.projectRevision)).rejects.toMatchObject({ code: "PROJECT_CONTENT_INVALID" });
+    await opened.release();
+  });
+
+  it("释放开始后拒绝新保存，并等待已有保存队列后再移除租约", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-save-release-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+    const save = opened.saveProject({
+      assets: [],
+      scenes: [{
+        id: "30000000-0000-4000-8000-000000000001",
+        narration: { text: "保存后再释放" },
+        assetIds: [],
+      }],
+    }, opened.inspection.projectRevision);
+    const release = opened.release();
+
+    await expect(opened.saveProject(
+      { assets: [], scenes: [] },
+      opened.inspection.projectRevision,
+    )).rejects.toMatchObject({ code: "PROJECT_IDENTITY_LOST" });
+    await save;
+    await release;
+    const reopened = await openProjectVNext(projectDirectory);
+    expect(reopened.inspection.project.scenes[0]?.narration.text).toBe("保存后再释放");
+    await reopened.release();
+  });
+
+  it("保存前严格拒绝超出 Scene 上限的输入且不改变持久字节", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-save-invalid-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+    const before = await readFile(join(projectDirectory, "project.json"), "utf8");
+    const scenes = Array.from({ length: 1001 }, (_, index) => ({
+      id: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      narration: { text: "" },
+      assetIds: [],
+    }));
+
+    await expect(opened.saveProject(
+      { assets: [], scenes },
+      opened.inspection.projectRevision,
+    )).rejects.toMatchObject({
+      code: "PROJECT_CONTENT_INVALID",
+      diagnostics: [{ code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED", metric: "scenes" }],
+    });
+    expect(await readFile(join(projectDirectory, "project.json"), "utf8")).toBe(before);
+    await opened.release();
+  });
+
+  it("保存前项目清单身份变化会停止写入并保留 project.json", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-save-identity-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+    const projectFile = join(projectDirectory, "project.json");
+    const before = await readFile(projectFile, "utf8");
+    const manifestFile = join(projectDirectory, "narracut.json");
+    const manifest = JSON.parse(await readFile(manifestFile, "utf8")) as Record<string, unknown>;
+    manifest.projectId = "10000000-0000-4000-8000-000000000099";
+    await writeFile(manifestFile, JSON.stringify(manifest));
+
+    await expect(opened.saveProject(
+      { assets: [], scenes: [] },
+      opened.inspection.projectRevision,
+    )).rejects.toMatchObject({ code: "PROJECT_IDENTITY_LOST" });
+    expect(await readFile(projectFile, "utf8")).toBe(before);
+    await opened.release();
+  });
+
   it("项目持有租约时即使目录被移动，同一物理目录仍不能重复打开", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-open-moved-"));
     const projectDirectory = join(parentDirectory, "project");

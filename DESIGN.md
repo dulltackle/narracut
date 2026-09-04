@@ -1,6 +1,6 @@
 ---
 name: Narracut VNext Workbench
-description: 以暗房接触印样组织 Project VNext 检查与只读 Codex 宿主验证的 Operate 工作台。
+description: 以暗房接触印样组织 Project VNext Scene 剪接、保存状态与只读 Codex 宿主验证的 Operate 工作台。
 colors:
   darkroom: "#090d0e"
   shell: "#101516"
@@ -159,7 +159,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的批注槽，始终禁用并说明完整创作指令将在后续功能中启用。
 
-当前只读交付把不可用能力留在可见位置并解释原因。状态台只展示当前任务、连接、有界结果与可用操作；它不展示候选 Render Program、预览、对话或日志历史，也不暗示项目会被写入。
+当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑和保存状态明确哪些内容正在改变；Asset、Speech、Agent、Preview、Render Program 与 Composer 的不可写边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示候选 Render Program、预览、对话或日志历史。
 
 **Key Characteristics:**
 
@@ -236,7 +236,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 ## Layout
 
-首屏采用四层固定结构：项目身份栏（`68px`）、工作区标签（`54px`）、可伸缩主工作区、底部 Composer（`102px`）。主工作区是接触表与 `320px` 项目检查的两列布局；舞台内边距为 `14px`，胶片框左右内边距为 `24px`。Scene 行固定为 `112px` 高，桌面列依次为 Scene、Narration、Asset、Speech，Narration 获得唯一弹性主列。
+首屏采用四层固定结构：项目身份栏（`68px`）、工作区标签（`54px`）、可伸缩主工作区、底部 Composer（`102px`）。主工作区是接触表与 `320px` 项目检查的两列布局；舞台内边距为 `14px`，胶片框左右内边距为 `24px`。接触表上沿增加 `56px` Scene 操作轨。Scene 行仍固定为 `112px` 高，桌面列依次为 Scene、Narration、Asset、Speech，Narration 获得唯一弹性主列；原位多行编辑器在行内滚动，不改变虚拟列表节奏。
 
 在 Agent 工作区，桌面主面以 `.82fr / 1.18fr` 并置“临时任务状态”与“验证结果”，底部操作栏固定承载开始验证、停止和继续。在 `900px` 以下，项目检查收窄到 `280px`，Scene/Speech 最右列隐藏，Agent 的任务与结果改为单列；在 `700px` 以下，Project ID 移到独立第二行，连接文字继续可见，项目检查改为从右侧打开的抽屉，Composer 仍固定在底部。移动端接触表保留 Scene、Narration 与 Asset 三列并允许横向内容自然裁切；Agent 舞台则由外层自然滚动，标题、任务状态、验证结果和操作按钮依次纵向排列。
 
@@ -283,13 +283,17 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 胶片框包含顶部/底部边码、背光纸面和校片角标。纸面表头固定为等宽大写标签；真实纸张与胶片 raster 只增强触感，不削弱边界、文字对比或滚动性能。两张 raster 和展示字体由 MCP Resource 转换为 data URI，禁止运行时网络请求。
 
+### Scene Action Rail
+
+操作轨是接触表的一部分，不是全局应用栏。桌面左侧保留“新增 Scene”，中部承载复制、上下移动、移动到位置与删除，右侧固定 Undo、Redo 与文字/形状并用的保存状态。窄屏只直接保留新增、Undo/Redo 和保存状态，其余动作收进清楚命名的“Scene 操作”面板；长距离移动始终提供数字位置输入，不依赖精细拖拽。Undo/Redo 快照共享受控历史语义，并以 `24 MiB` 内存预算淘汰最旧步骤，不能因合法的 `10 MiB` 项目上限放大为无界内存占用。
+
 ### Scene Rows
 
-Scene 行是签名组件：大号 Scene 编号、校片边码、最多两行 Narration、Asset identity/path/placeholder 与 Speech 状态按固定列对齐。默认纸面、悬停纸面和选中纸面保持同一材料；选中态叠加 `3px` 蓝色内框、左侧蓝色三角与圈记边码。Scene 列表使用固定行高虚拟窗口，不能把固定 `112px` 节奏改成内容高度瀑布流。
+Scene 行是签名组件：大号 Scene 编号、独立拖拽手柄、校片边码、最多两行 Narration、Asset identity/path/placeholder 与 Speech 状态按固定列对齐。默认纸面、悬停纸面和选中纸面保持同一材料；选中态叠加 `3px` 蓝色内框、左侧蓝色三角与圈记边码。行容器使用分组语义，Scene 选择按钮与拖拽、编辑、展开控件保持同级，避免嵌套交互角色吞掉读屏语义。选择不自动开始编辑；“编辑 Narration”把主列原位切换为固定高度多行编辑器，并提供展开编辑。Scene 列表使用固定行高虚拟窗口，不能把固定 `112px` 节奏改成内容高度瀑布流。
 
 ### Project Inspection
 
-检查栏是暗色窄侧台，以点、文字和状态词同时表达控制文件有效性。当前 Scene 显示 Narration 与 Scene ID、Asset 数量、Speech 状态；只读段落以琥珀展示标签、以灰色正文解释影响。窄屏时它成为可关闭抽屉，并保留最小 `44px` 关闭目标。
+检查栏是暗色窄侧台，以点、文字和状态词同时表达控制文件有效性。当前 Scene 显示 Narration 与 Scene ID、Asset 数量、Speech 状态；边界段落明确表格工作区独占 Scene/Narration 写入，Asset、Speech、Agent、Preview 与 Render Program 只读。窄屏时它成为可关闭抽屉，并保留最小 `44px` 关闭目标。
 
 ### Agent Host Validation
 
@@ -305,11 +309,11 @@ Agent 工作区是单任务 Codex 宿主验证状态台，不是聊天界面。�
 
 ### Disabled Composer
 
-Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案说明后续启用；第二行在表格工作区明确“当前交付只支持只读检查”，在 Agent 工作区明确“完整创作指令将在后续功能中启用”，并通过 `aria-describedby` 与输入建立程序化关联。锁形图标辅助表达状态，但不能替代文字。
+Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案说明后续启用；第二行在表格工作区明确“Composer 不编辑 Scene，请使用接触表”，在 Agent 工作区明确“完整创作指令将在后续功能中启用”，并通过 `aria-describedby` 与输入建立程序化关联。锁形图标辅助表达状态，但不能替代文字。
 
 ### Empty, Loading, and Invalid States
 
-状态面沿用暗房框体与 `9px` 圆角，不切换到通用白卡。空项目明确显示零 Scene 仍可只读检查；加载态使用三条静态骨架；无效项目展示稳定错误代码与有界诊断，并重复说明 Narracut 未修改目录。
+状态面沿用暗房框体与 `9px` 圆角，不切换到通用白卡。可写空项目的主操作是“新增第一个 Scene”；只读检查仍明确显示零 Scene。加载态使用三条静态骨架；无效项目展示稳定错误代码与有界诊断，并重复说明 Narracut 未修改目录。保存失败提供重试且保留合法内存修改；冲突和身份失效停止自动保存，并用文字、方形状态记号与颜色共同表达。
 
 ## Do's and Don'ts
 
@@ -327,7 +331,7 @@ Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案
 ### Don't:
 
 - **Don't** 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。
-- **Don't** 在当前只读表面加入写操作、文件选择器、Asset Preview、TTS、Render、导入或 Legacy 项目入口。
+- **Don't** 让表格工作区以外的 Agent、Preview、Render Program、Composer 或桥接层获得 Scene 写入口；不要加入 Asset 编辑、TTS、Render、导入或 Legacy 项目入口。
 - **Don't** 用颜色作为选择、连接、有效或只读状态的唯一信号。
 - **Don't** 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene。
 - **Don't** 隐藏或启用 Composer；禁用原因必须同时可见且可被辅助技术读取。

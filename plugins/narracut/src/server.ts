@@ -27,6 +27,10 @@ const WORKBENCH_PATH = fileURLToPath(new URL(
   import.meta.url.endsWith("/server.mjs") ? "./workbench.html" : "../workbench.html",
   import.meta.url,
 ));
+const WORKBENCH_SCRIPT_PATH = fileURLToPath(new URL(
+  import.meta.url.endsWith("/server.mjs") ? "./workbench.js" : "../workbench.js",
+  import.meta.url,
+));
 const ASSET_BASE = import.meta.url.endsWith("/server.mjs") ? "./assets/" : "../assets/";
 const PAPER_TEXTURE_PATH = fileURLToPath(new URL(`${ASSET_BASE}contact-paper-texture.webp`, import.meta.url));
 const FILM_TEXTURE_PATH = fileURLToPath(new URL(`${ASSET_BASE}film-edge-texture.webp`, import.meta.url));
@@ -120,6 +124,25 @@ const tools = [
     _meta: { ui: { resourceUri: WORKBENCH_URI } },
   },
   {
+    name: "save_project_scenes",
+    title: "保存表格工作区 Scene",
+    description: "仅供 Narracut 工作台 app 使用：按项目身份与磁盘基线原子保存严格 Scene DSL。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "baselineRevision", "project"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        baselineRevision: { type: "string", minLength: 1 },
+        project: { type: "object" },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } },
+  },
+  {
     name: "inspect_project",
     title: "检查 Narracut 项目",
     description:
@@ -197,19 +220,25 @@ const tools = [
   },
 ] as const;
 
-function connectedState(): { status: "connected"; readOnly: true } {
-  return { status: "connected", readOnly: true };
+function connectedState(readOnly = true): { status: "connected"; readOnly: boolean } {
+  return { status: "connected", readOnly };
 }
 
 function launcherConnectionState(): { status: "connected"; readOnly: false } {
   return { status: "connected", readOnly: false };
 }
 
-function serializeInspection(inspection: ProjectVNextInspection): Record<string, unknown> {
+function serializeInspection(
+  inspection: ProjectVNextInspection,
+  writable = false,
+): Record<string, unknown> {
   const assets = new Map(inspection.project.assets.map((asset) => [asset.id, asset]));
   return {
     status: "valid",
-    connection: connectedState(),
+    connection: connectedState(!writable),
+    writable,
+    projectRevision: inspection.projectRevision,
+    projectDsl: inspection.project,
     project: {
       directory: inspection.projectDirectory,
       folderName: basename(inspection.projectDirectory),
@@ -255,14 +284,17 @@ function diagnosticSummary(diagnostics: readonly ProjectInspectionDiagnostic[]):
 }
 
 async function loadWorkbench(): Promise<string> {
-  const [html, paperTexture, filmTexture, displayFont] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont] = await Promise.all([
     readFile(WORKBENCH_PATH, "utf8"),
+    readFile(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile(PAPER_TEXTURE_PATH),
     readFile(FILM_TEXTURE_PATH),
     readFile(DISPLAY_FONT_PATH),
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
-  return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables);
+  return html
+    .replace("/*__NARRACUT_MATERIALS__*/", materialVariables)
+    .replace("/*__NARRACUT_WORKBENCH_JS__*/", script);
 }
 
 async function inspectProject(argumentsValue: unknown): Promise<ToolResult> {
@@ -357,6 +389,29 @@ class ProjectWorkspaceSession {
     return next.inspection;
   }
 
+  async save(input: {
+    projectDirectory: string;
+    projectId: string;
+    baselineRevision: string;
+    project: unknown;
+  }): Promise<ProjectVNextInspection> {
+    const opened = this.#opened;
+    if (
+      opened === null ||
+      opened.inspection.projectDirectory !== input.projectDirectory ||
+      opened.inspection.manifest.projectId !== input.projectId
+    ) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        input.projectDirectory,
+        "当前工作台没有持有该项目的写入租约；Narracut 拒绝保存。",
+      );
+    }
+    const saved = await opened.saveProject(input.project, input.baselineRevision);
+    opened.inspection = saved.inspection;
+    return saved.inspection;
+  }
+
   async dispose(): Promise<void> {
     const opened = this.#opened;
     this.#opened = null;
@@ -394,8 +449,8 @@ async function callTool(
   const { name, arguments: argumentsValue } = params as { name?: unknown; arguments?: unknown };
   if (name === "health_check") {
     return {
-      structuredContent: { status: "connected", server: "narracut", readOnly: true },
-      content: [{ type: "text", text: "Narracut 插件已连接；可原子创建、严格打开 Project VNext，打开后的项目工作台保持只读。" }],
+      structuredContent: { status: "connected", server: "narracut", readOnly: false },
+      content: [{ type: "text", text: "Narracut 插件已连接；可原子创建、严格打开 Project VNext，并在表格工作区编辑 Scene。" }],
     };
   }
   if (name === "show_launcher") {
@@ -433,7 +488,7 @@ async function callTool(
       }
       const inspection = await workspace.open(projectDirectory);
       return {
-        structuredContent: { ...serializeInspection(inspection), operation },
+        structuredContent: { ...serializeInspection(inspection, true), operation },
         content: [{
           type: "text",
           text: operation === "created"
@@ -467,6 +522,64 @@ async function callTool(
       }
       if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
         return lifecycleFailure(error);
+      }
+      throw error;
+    }
+  }
+  if (name === "save_project_scenes") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "save-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "保存参数必须是对象。" },
+        },
+        content: [{ type: "text", text: "无法保存 Scene：保存参数无效。" }],
+      };
+    }
+    const input = argumentsValue as Record<string, unknown>;
+    if (
+      typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
+      typeof input.projectId !== "string" ||
+      typeof input.baselineRevision !== "string" ||
+      !("project" in input)
+    ) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "save-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "项目身份、基线或 Project DSL 无效。" },
+        },
+        content: [{ type: "text", text: "无法保存 Scene：项目身份、基线或 Project DSL 无效。" }],
+      };
+    }
+    try {
+      const inspection = await workspace.save({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        baselineRevision: input.baselineRevision,
+        project: input.project,
+      });
+      return {
+        structuredContent: { ...serializeInspection(inspection, true), status: "saved" },
+        content: [{ type: "text", text: `已原子保存 ${inspection.project.scenes.length} 个 Scene。` }],
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        const status = error instanceof ProjectLifecycleError && error.code === "PROJECT_SAVE_CONFLICT"
+          ? "save-conflict"
+          : error instanceof ProjectLifecycleError && error.code === "PROJECT_IDENTITY_LOST"
+            ? "identity-lost"
+            : "save-failed";
+        const failure = lifecycleFailure(error);
+        return {
+          ...failure,
+          structuredContent: {
+            ...failure.structuredContent,
+            status,
+            connection: connectedState(false),
+          },
+        };
       }
       throw error;
     }
@@ -553,7 +666,7 @@ export function createNarracutRequestHandler(
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {}, resources: {} },
         serverInfo: { name: "narracut", version: SERVER_VERSION },
-        instructions: "只接触用户通过系统文件夹选择窗口或参数明确给出的目录。可以在不存在的目标原子创建 Project VNext，或严格打开有效项目；打开后的项目工作台保持只读，Agent 工作区可运行固定的 Codex 创作线程宿主验证。",
+        instructions: "只接触用户通过系统文件夹选择窗口或参数明确给出的目录。可以在不存在的目标原子创建 Project VNext，或严格打开有效项目；表格工作区只修改 Scene 与 Narration，Agent 工作区保持只读并可运行固定的 Codex 创作线程宿主验证。",
       };
     }
     case "ping": return {};
@@ -563,7 +676,7 @@ export function createNarracutRequestHandler(
       resources: [{
         uri: WORKBENCH_URI,
         name: "Narracut 工作台",
-        description: "Project VNext 启动器与只读双工作区外壳",
+        description: "Project VNext 启动器、可编辑 Scene 接触表与只读 Agent 工作区",
         mimeType: "text/html;profile=mcp-app",
       }],
     };

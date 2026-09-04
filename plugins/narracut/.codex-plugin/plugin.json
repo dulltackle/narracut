@@ -1,7 +1,7 @@
 {
   "name": "narracut",
   "version": "0.1.0",
-  "description": "在 Codex 中创建、打开并检查 Project VNext。",
+  "description": "在 Codex 中创建、打开、编辑并检查 Project VNext。",
   "author": {
     "name": "Narracut contributors",
     "url": "https://github.com/dulltackle/narracut"
@@ -12,15 +12,16 @@
   "keywords": ["video", "scene", "project-inspection", "codex-thread"],
   "interface": {
     "displayName": "Narracut",
-    "shortDescription": "创建、打开并检查 Narracut 项目。",
-    "longDescription": "通过本地启动器原子创建或严格打开 Narracut Project VNext，再检查项目身份与内容；Agent 工作区可运行固定、只读的 Codex 创作线程宿主验证。",
+    "shortDescription": "创建、打开并编辑 Narracut Scene。",
+    "longDescription": "通过本地启动器原子创建或严格打开 Narracut Project VNext，在表格工作区编辑并自动保存 Scene；Agent 工作区可运行固定、只读的 Codex 创作线程宿主验证。",
     "developerName": "Narracut contributors",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Read"],
+    "capabilities": ["Interactive", "Read", "Write"],
     "defaultPrompt": [
       "打开 Narracut 项目启动器。",
       "创建一个空的 Narracut Project VNext。",
       "检查这个 Narracut 项目并打开工作台。",
+      "在 Narracut 表格工作区编辑 Scene。",
       "确认 Narracut 插件连接是否正常。",
       "运行一次 Codex 创作线程宿主验证。"
     ],

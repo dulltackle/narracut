@@ -9,7 +9,7 @@ if (
   initialized?.protocolVersion !== "2025-06-18" ||
   initialized?.serverInfo?.name !== "narracut" ||
   health?.structuredContent?.status !== "connected" ||
-  health?.structuredContent?.readOnly !== true ||
+  health?.structuredContent?.readOnly !== false ||
   inspection?.structuredContent?.status !== "valid" ||
   inspection?.structuredContent?.project?.sceneCount !== 1 ||
   resource?.mimeType !== "text/html;profile=mcp-app" ||

@@ -30,6 +30,7 @@ export type ProjectVNextInspection = {
   projectDirectory: string;
   manifest: ProjectManifestVNext;
   project: ProjectVNext;
+  projectRevision: string;
   videoBrief: string;
   renderPrograms: { directories: string[] };
   warnings: readonly ProjectInspectionDiagnostic[];
@@ -452,6 +453,63 @@ function validateProjectDsl(value: unknown): {
   };
 }
 
+export function validateProjectVNextForSave(
+  value: unknown,
+  projectPath = "project.json",
+): { project: ProjectVNext; bytes: Buffer } {
+  let inputBytes: Buffer;
+  try {
+    inputBytes = Buffer.from(JSON.stringify(value), "utf8");
+  } catch (cause) {
+    throw invalidControlFile(projectPath, {
+      code: "PROJECT_DSL_SCHEMA_INVALID",
+      component: "project.json",
+      jsonPath: "$",
+      message: "Project DSL 必须是可序列化的 JSON 对象。",
+    }, { cause });
+  }
+  if (inputBytes.length > 10 * 1024 * 1024) {
+    throw invalidControlFile(projectPath, {
+      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+      component: "project.json",
+      message: `project.json 为 ${inputBytes.length} 字节，超过上限 ${10 * 1024 * 1024}；请缩减内容后重试。`,
+      metric: "bytes",
+      actual: inputBytes.length,
+      limit: 10 * 1024 * 1024,
+    });
+  }
+  const parsed = parseControlJson(
+    inputBytes.toString("utf8"),
+    projectPath,
+    "project.json",
+    PROJECT_JSON_LIMITS,
+  );
+  const validation = validateProjectDsl(parsed);
+  if (validation.project === undefined) {
+    throw invalidContent(projectPath, validation.diagnostics);
+  }
+  const project = validation.project;
+  const bytes = Buffer.from(JSON.stringify({
+    assets: project.assets.map((asset) => ({ id: asset.id, path: asset.path })),
+    scenes: project.scenes.map((scene) => ({
+      id: scene.id,
+      narration: { text: scene.narration.text },
+      assetIds: [...scene.assetIds],
+      ...(scene.speech === undefined
+        ? {}
+        : {
+            speech: {
+              path: scene.speech.path,
+              durationMs: scene.speech.durationMs,
+              sourceTextHash: scene.speech.sourceTextHash,
+              ttsProfileId: scene.speech.ttsProfileId,
+            },
+          }),
+    })),
+  }), "utf8");
+  return { project, bytes };
+}
+
 function decodeUtf8(bytes: Buffer, path: string, component: string, allowBom: boolean): string {
   if (!allowBom && bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     throw invalidControlFile(path, {
@@ -570,6 +628,11 @@ async function readBoundedControlFile(
   }
 }
 
+export async function readProjectVNextRevision(projectPath: string): Promise<string> {
+  const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
 async function requireDirectory(path: string): Promise<void> {
   const facts = await lstat(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`必需目录无效：${path}`);
@@ -665,6 +728,20 @@ async function validateOrdinaryResource(
         relative(projectDirectory, identity.path),
         `${relative(projectDirectory, identity.path)} 在检查期间被替换；请停止外部修改后重试。`,
       );
+    }
+  }
+}
+
+export async function validateProjectVNextResources(
+  projectDirectory: string,
+  project: ProjectVNext,
+): Promise<void> {
+  for (const asset of project.assets) {
+    await validateOrdinaryResource(projectDirectory, asset.path, false);
+  }
+  for (const scene of project.scenes) {
+    if (scene.speech !== undefined) {
+      await validateOrdinaryResource(projectDirectory, scene.speech.path, true);
     }
   }
 }
@@ -991,18 +1068,12 @@ export async function inspectProjectVNext(inputPath: string): Promise<ProjectVNe
   if (projectValidation.project === undefined) {
     throw invalidContent(projectPath, projectValidation.diagnostics);
   }
-  for (const asset of projectValidation.project.assets) {
-    await validateOrdinaryResource(projectDirectory, asset.path, false);
-  }
-  for (const scene of projectValidation.project.scenes) {
-    if (scene.speech !== undefined) {
-      await validateOrdinaryResource(projectDirectory, scene.speech.path, true);
-    }
-  }
+  await validateProjectVNextResources(projectDirectory, projectValidation.project);
   return {
     projectDirectory,
     manifest: manifest as ProjectManifestVNext,
     project: projectValidation.project,
+    projectRevision: `sha256:${createHash("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
     renderPrograms: { directories: renderProgramDirectories },
     warnings: [],
