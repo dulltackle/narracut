@@ -1,7 +1,7 @@
 // plugins/narracut/src/server.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
 import { readFile as readFile3 } from "node:fs/promises";
-import { basename as basename3, isAbsolute as isAbsolute2 } from "node:path";
+import { basename as basename3, isAbsolute as isAbsolute3 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -1602,6 +1602,14 @@ async function readProjectVNextRevision(projectPath) {
   const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
   return `sha256:${createHash2("sha256").update(bytes).digest("hex")}`;
 }
+async function readVideoBriefVNext(videoBriefPath) {
+  const buffer = await readBoundedControlFile(videoBriefPath, "video.md", 2 * 1024 * 1024);
+  return {
+    content: decodeUtf8(buffer, videoBriefPath, "video.md", true),
+    revision: `sha256:${createHash2("sha256").update(buffer).digest("hex")}`,
+    bytes: buffer.length
+  };
+}
 async function requireDirectory(path) {
   const facts = await lstat2(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
@@ -2071,6 +2079,7 @@ async function inspectProjectVNext(inputPath, options = {}) {
     project: projectValidation.project,
     projectRevision: `sha256:${createHash2("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
+    videoBriefRevision: `sha256:${createHash2("sha256").update(videoBuffer).digest("hex")}`,
     renderPrograms: { directories: renderProgramDirectories },
     assetStates,
     tts,
@@ -2098,7 +2107,7 @@ import {
   unlink,
   writeFile
 } from "node:fs/promises";
-import { basename, dirname as dirname2, join as join3, resolve as resolve2 } from "node:path";
+import { basename, dirname as dirname2, isAbsolute as isAbsolute2, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
 var STARTER_REACT_VERSION = "19.2.8";
 var STARTER_REMOTION_VERSION = "4.0.512";
 var ProjectLifecycleError = class extends Error {
@@ -2252,6 +2261,7 @@ function starterRevision(revisionId) {
   return JSON.stringify({
     revisionId,
     previousRevisionId: null,
+    briefFingerprint: revisionOf(Buffer.alloc(0)),
     source: "starter",
     summary: "Narracut starter Render Program"
   });
@@ -2360,6 +2370,7 @@ async function readRegularUtf8(path, maxBytes) {
 async function validateCurrentProjectState(inspection) {
   const projectDirectory = inspection.projectDirectory;
   const currentPath = join3(projectDirectory, ".narracut", "current.json");
+  let briefRevision = null;
   try {
     const current = parseStrictJson(
       await readRegularUtf8(currentPath, 4096),
@@ -2382,8 +2393,8 @@ async function validateCurrentProjectState(inspection) {
       readRegularUtf8(join3(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
     ]);
     if (!isPlainRecord(revision) || Object.keys(revision).some(
-      (key) => !["revisionId", "previousRevisionId", "source", "summary"].includes(key)
-    ) || revision.revisionId !== revisionId || !(revision.previousRevisionId === null || typeof revision.previousRevisionId === "string" && UUID_PATTERN2.test(revision.previousRevisionId)) || typeof revision.source !== "string" || typeof revision.summary !== "string") {
+      (key) => !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary"].includes(key)
+    ) || revision.revisionId !== revisionId || !(revision.previousRevisionId === null || typeof revision.previousRevisionId === "string" && UUID_PATTERN2.test(revision.previousRevisionId)) || revision.briefFingerprint !== void 0 && (typeof revision.briefFingerprint !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(revision.briefFingerprint)) || typeof revision.source !== "string" || typeof revision.summary !== "string") {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u5143\u6570\u636E\u65E0\u6548\u3002");
     }
     const output = isPlainRecord(program) && isPlainRecord(program.output) ? program.output : null;
@@ -2405,6 +2416,7 @@ async function validateCurrentProjectState(inspection) {
     ) || !source.includes("export function RenderProgram(input:")) {
       throw new Error("\u5F53\u524D Render Program \u4F9D\u8D56\u6216\u5165\u53E3\u65E0\u6548\u3002");
     }
+    briefRevision = typeof revision.briefFingerprint === "string" ? revision.briefFingerprint : null;
   } catch (cause) {
     if (cause instanceof ProjectLifecycleError) throw cause;
     throw new ProjectLifecycleError(
@@ -2414,6 +2426,7 @@ async function validateCurrentProjectState(inspection) {
       { cause }
     );
   }
+  return briefRevision;
 }
 async function captureDirectoryIdentity(path) {
   const facts = await lstat3(path);
@@ -2858,7 +2871,7 @@ async function copyStableFile(source, opened, temporaryPath, assertDestinationCu
   }
 }
 async function replaceProjectFile(projectFile, bytes, assertWritable) {
-  const temporaryFile = join3(dirname2(projectFile), `.project.json.${randomUUID3()}.tmp`);
+  const temporaryFile = join3(dirname2(projectFile), `.${basename(projectFile)}.${randomUUID3()}.tmp`);
   let committed = false;
   try {
     const handle = await openFile(temporaryFile, "wx", 384);
@@ -2895,7 +2908,12 @@ async function openProjectVNext(inputPath, options = {}) {
     let speechDirectoryHandle = null;
     try {
       const inspection = await inspectProjectVNext(projectDirectory, options);
-      await validateCurrentProjectState(inspection);
+      const acceptedBriefRevision = await validateCurrentProjectState(inspection);
+      inspection.currentRenderProgram = {
+        briefRevision: acceptedBriefRevision,
+        briefReviewPending: acceptedBriefRevision !== inspection.videoBriefRevision,
+        previewPreserved: true
+      };
       if (inspection.manifest.projectId !== initialInspection.manifest.projectId) {
         throw new ProjectLifecycleError(
           "PROJECT_IDENTITY_LOST",
@@ -3084,6 +3102,145 @@ async function openProjectVNext(inputPath, options = {}) {
         });
         saveQueue = operation.then(() => void 0, () => void 0);
         return operation;
+      };
+      const saveVideoBrief = (content, baselineRevision) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536\u65B0\u7684\u5199\u5165\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const videoBriefPath = join3(projectDirectory, "video.md");
+          try {
+            await assertWritable();
+            const bytes = Buffer.from(content, "utf8");
+            if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_FAILED",
+                videoBriefPath,
+                "Video Brief \u5305\u542B\u4E0D\u80FD\u8868\u793A\u4E3A\u4E25\u683C UTF-8 \u7684\u5B57\u7B26\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002"
+              );
+            }
+            if (bytes.length > 2 * 1024 * 1024) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_FAILED",
+                videoBriefPath,
+                `Video Brief \u4E3A ${bytes.length} \u5B57\u8282\uFF0C\u8D85\u8FC7 2 MiB \u4E0A\u9650\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002`
+              );
+            }
+            const disk = await readVideoBriefVNext(videoBriefPath);
+            if (disk.revision !== baselineRevision) return { status: "conflict", disk };
+            const nextRevision = revisionOf(bytes);
+            if (nextRevision !== baselineRevision) {
+              await replaceProjectFile(videoBriefPath, bytes, async () => {
+                await assertWritable();
+                const current = await readVideoBriefVNext(videoBriefPath);
+                if (current.revision !== baselineRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    videoBriefPath,
+                    "video.md \u5728\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                  );
+                }
+              });
+            }
+            currentInspection = {
+              ...currentInspection,
+              videoBrief: content,
+              videoBriefRevision: nextRevision,
+              currentRenderProgram: currentInspection.currentRenderProgram === void 0 ? void 0 : {
+                ...currentInspection.currentRenderProgram,
+                briefReviewPending: currentInspection.currentRenderProgram.briefRevision !== nextRevision
+              }
+            };
+            return { status: "saved", inspection: currentInspection };
+          } catch (cause) {
+            if (cause instanceof ProjectLifecycleError && cause.code === "PROJECT_SAVE_CONFLICT") {
+              try {
+                return { status: "conflict", disk: await readVideoBriefVNext(videoBriefPath) };
+              } catch {
+                throw cause;
+              }
+            }
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              videoBriefPath,
+              "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 video.md\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+              { cause }
+            );
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      const exportVideoBriefLocal = async (content, targetDirectory) => {
+        await assertWritable();
+        const bytes = Buffer.from(content, "utf8");
+        if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content || bytes.length > 2 * 1024 * 1024) {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            projectDirectory,
+            "Video Brief LOCAL \u5FC5\u987B\u662F\u6700\u591A 2 MiB \u7684\u4E25\u683C UTF-8\uFF1BNarracut \u62D2\u7EDD\u5BFC\u51FA\u3002"
+          );
+        }
+        const destinationDirectory = await realpath2(resolve2(targetDirectory)).catch((cause) => {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            resolve2(targetDirectory),
+            "\u65E0\u6CD5\u8BBF\u95EE Video Brief LOCAL \u5BFC\u51FA\u76EE\u5F55\u3002",
+            { cause }
+          );
+        });
+        const relation = relative2(projectDirectory, destinationDirectory);
+        if (relation === "" || !relation.startsWith(`..${sep2}`) && relation !== ".." && !isAbsolute2(relation)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            destinationDirectory,
+            "Video Brief LOCAL \u53EA\u80FD\u5BFC\u51FA\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002"
+          );
+        }
+        const facts = await lstat3(destinationDirectory);
+        if (!facts.isDirectory() || facts.isSymbolicLink()) {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            destinationDirectory,
+            "Video Brief LOCAL \u5BFC\u51FA\u76EE\u6807\u5FC5\u987B\u662F\u666E\u901A\u76EE\u5F55\u3002"
+          );
+        }
+        for (let suffix = 1; suffix <= 1e4; suffix += 1) {
+          const filename = suffix === 1 ? "video-brief-local.md" : `video-brief-local-${suffix}.md`;
+          const path = join3(destinationDirectory, filename);
+          let handle = null;
+          try {
+            handle = await openFile(path, "wx", 384);
+            await handle.writeFile(bytes);
+            await handle.sync();
+            return { path, bytes: bytes.length, revision: revisionOf(bytes) };
+          } catch (cause) {
+            if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") continue;
+            if (handle !== null) {
+              const openedFacts = await handle.stat().catch(() => null);
+              const currentFacts = await lstat3(path).catch(() => null);
+              if (openedFacts !== null && currentFacts !== null && openedFacts.dev === currentFacts.dev && openedFacts.ino === currentFacts.ino) await unlink(path).catch(() => void 0);
+            }
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              path,
+              "\u65E0\u6CD5\u5BFC\u51FA Video Brief LOCAL\uFF1BNarracut \u6CA1\u6709\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002",
+              { cause }
+            );
+          } finally {
+            await handle?.close().catch(() => void 0);
+          }
+        }
+        throw new ProjectLifecycleError(
+          "PROJECT_SAVE_FAILED",
+          destinationDirectory,
+          "\u5BFC\u51FA\u76EE\u5F55\u4E2D\u5DF2\u6709\u8FC7\u591A\u540C\u540D Video Brief LOCAL \u6587\u4EF6\uFF1BNarracut \u6CA1\u6709\u8986\u76D6\u5B83\u4EEC\u3002"
+        );
       };
       const importAsset = (input) => {
         if (closing) {
@@ -3584,7 +3741,17 @@ async function openProjectVNext(inputPath, options = {}) {
         });
         await releasePromise;
       };
-      return { inspection, saveProject, importAsset, saveTtsSettings, probeSpeechAudio, commitSpeech, release };
+      return {
+        inspection,
+        saveProject,
+        saveVideoBrief,
+        exportVideoBriefLocal,
+        importAsset,
+        saveTtsSettings,
+        probeSpeechAudio,
+        commitSpeech,
+        release
+      };
     } catch (error) {
       try {
         await lease.release();
@@ -3819,6 +3986,44 @@ var tools = [
     _meta: { ui: { visibility: ["app"] } }
   },
   {
+    name: "save_project_video_brief",
+    title: "\u4FDD\u5B58 Video Brief",
+    description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u6309\u72EC\u7ACB Brief ETag \u539F\u5B50\u4FDD\u5B58\u5B8C\u6574 video.md\uFF0C\u4E0D\u8986\u76D6\u5916\u90E8\u53D8\u5316\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "baselineRevision", "content"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        baselineRevision: { type: "string", minLength: 1 },
+        content: { type: "string" }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
+    name: "export_project_video_brief_local",
+    title: "\u5BFC\u51FA Video Brief LOCAL",
+    description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u628A\u51B2\u7A81\u4E2D\u7684 Brief LOCAL \u5BFC\u51FA\u5230\u9879\u76EE\u5916\u7684\u65B0\u6587\u4EF6\uFF0C\u4E0D\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "targetDirectory", "content"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        targetDirectory: { type: "string", minLength: 1 },
+        content: { type: "string" }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
     name: "import_project_asset",
     title: "\u5BFC\u5165\u4E00\u4E2A\u9879\u76EE Asset",
     description: "\u4EC5\u4F9B Narracut \u5DE5\u4F5C\u53F0 app \u4F7F\u7528\uFF1A\u9010\u5B57\u8282\u590D\u5236\u4E00\u4E2A\u7CFB\u7EDF\u6587\u4EF6\u9009\u62E9\u5668\u8FD4\u56DE\u7684\u666E\u901A\u6587\u4EF6\uFF0C\u767B\u8BB0\u540E\u53EF\u7ED1\u5B9A\u539F\u76EE\u6807 Scene\u3002",
@@ -4014,6 +4219,13 @@ function serializeInspection(inspection, writable = false, credential = { status
     connection: connectedState(!writable),
     writable,
     projectRevision: inspection.projectRevision,
+    videoBrief: {
+      content: inspection.videoBrief,
+      revision: inspection.videoBriefRevision,
+      bytes: Buffer.byteLength(inspection.videoBrief, "utf8"),
+      state: inspection.videoBrief.length === 0 ? "empty" : "saved"
+    },
+    ...inspection.currentRenderProgram === void 0 ? {} : { currentRenderProgram: inspection.currentRenderProgram },
     projectDsl: inspection.project,
     tts: {
       ...inspection.tts,
@@ -4088,7 +4300,7 @@ async function inspectProject(argumentsValue) {
     };
   }
   const projectDirectory = argumentsValue.projectDirectory;
-  if (!isAbsolute2(projectDirectory)) {
+  if (!isAbsolute3(projectDirectory)) {
     return {
       isError: true,
       structuredContent: {
@@ -4212,6 +4424,16 @@ var ProjectWorkspaceSession = class {
     const saved = await opened.saveProject(input.project, input.baselineRevision);
     opened.inspection = saved.inspection;
     return saved.inspection;
+  }
+  async saveVideoBrief(input) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    const saved = await opened.saveVideoBrief(input.content, input.baselineRevision);
+    if (saved.status === "saved") opened.inspection = saved.inspection;
+    return saved;
+  }
+  async exportVideoBriefLocal(input) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    return opened.exportVideoBriefLocal(input.content, input.targetDirectory);
   }
   async importAsset(input) {
     const opened = this.#opened;
@@ -4487,7 +4709,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "create_project" || name === "open_project") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute2(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute3(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {
@@ -4557,7 +4779,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
       return {
         isError: true,
         structuredContent: {
@@ -4594,6 +4816,103 @@ async function callTool(params, hostValidation, workspace) {
       throw error;
     }
   }
+  if (name === "save_project_video_brief") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "brief-save-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "Video Brief \u4FDD\u5B58\u53C2\u6570\u5FC5\u987B\u662F\u5BF9\u8C61\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u4FDD\u5B58 Video Brief\uFF1A\u53C2\u6570\u65E0\u6548\u3002" }]
+      };
+    }
+    const input = argumentsValue;
+    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "brief-save-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001Brief ETag \u6216 Markdown \u5185\u5BB9\u65E0\u6548\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u4FDD\u5B58 Video Brief\uFF1A\u9879\u76EE\u8EAB\u4EFD\u3001Brief ETag \u6216\u5185\u5BB9\u65E0\u6548\u3002" }]
+      };
+    }
+    try {
+      const saved = await workspace.saveVideoBrief({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        baselineRevision: input.baselineRevision,
+        content: input.content
+      });
+      if (saved.status === "conflict") {
+        return {
+          structuredContent: { status: "brief-conflict", disk: saved.disk },
+          content: [{ type: "text", text: "video.md \u5DF2\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u4FDD\u7559 BASE\u3001LOCAL \u4E0E DISK\uFF0C\u672A\u8986\u76D6\u78C1\u76D8\u5185\u5BB9\u3002" }]
+        };
+      }
+      return {
+        structuredContent: { ...workspace.serialize(saved.inspection), status: "brief-saved" },
+        content: [{ type: "text", text: "\u5DF2\u6309 Brief ETag \u539F\u5B50\u4FDD\u5B58\u5B8C\u6574 video.md\u3002" }]
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        const failure = lifecycleFailure(error);
+        return {
+          ...failure,
+          structuredContent: {
+            ...failure.structuredContent,
+            status: error instanceof ProjectLifecycleError && error.code === "PROJECT_IDENTITY_LOST" ? "identity-lost" : "brief-save-failed"
+          }
+        };
+      }
+      throw error;
+    }
+  }
+  if (name === "export_project_video_brief_local") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "brief-export-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "Video Brief LOCAL \u5BFC\u51FA\u53C2\u6570\u5FC5\u987B\u662F\u5BF9\u8C61\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u5BFC\u51FA Video Brief LOCAL\uFF1A\u53C2\u6570\u65E0\u6548\u3002" }]
+      };
+    }
+    const input = argumentsValue;
+    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute3(input.targetDirectory) || typeof input.content !== "string") {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "brief-export-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u5BFC\u51FA\u76EE\u5F55\u6216 LOCAL \u5185\u5BB9\u65E0\u6548\u3002" }
+        },
+        content: [{ type: "text", text: "\u65E0\u6CD5\u5BFC\u51FA Video Brief LOCAL\uFF1A\u9879\u76EE\u8EAB\u4EFD\u3001\u76EE\u5F55\u6216\u5185\u5BB9\u65E0\u6548\u3002" }]
+      };
+    }
+    try {
+      const exported = await workspace.exportVideoBriefLocal({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        targetDirectory: input.targetDirectory,
+        content: input.content
+      });
+      return {
+        structuredContent: { status: "brief-exported", exported },
+        content: [{ type: "text", text: `Video Brief LOCAL \u5DF2\u5BFC\u51FA\u5230 ${exported.path}\uFF1B\u672A\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002` }]
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        const failure = lifecycleFailure(error);
+        return {
+          ...failure,
+          structuredContent: { ...failure.structuredContent, status: "brief-export-failed" }
+        };
+      }
+      throw error;
+    }
+  }
   if (name === "import_project_asset") {
     if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
       return {
@@ -4606,7 +4925,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute2(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute3(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -4657,7 +4976,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
       return {
         isError: true,
         structuredContent: { assetPreview: { status: "dangling", id: "", reason: "\u9879\u76EE\u8EAB\u4EFD\u6216 Asset ID \u65E0\u6548\u3002" } },
@@ -4700,7 +5019,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
       return {
         isError: true,
         structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u914D\u7F6E\u6216\u51ED\u636E\u64CD\u4F5C\u65E0\u6548\u3002" } },
@@ -4757,7 +5076,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute2(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
       return {
         isError: true,
         structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u6216 Scene ID \u65E0\u6548\u3002" } },
@@ -4821,7 +5140,7 @@ async function callTool(params, hostValidation, workspace) {
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute2(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute3(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {

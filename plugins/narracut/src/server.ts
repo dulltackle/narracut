@@ -178,6 +178,44 @@ const tools = [
     _meta: { ui: { visibility: ["app"] } },
   },
   {
+    name: "save_project_video_brief",
+    title: "保存 Video Brief",
+    description: "仅供 Narracut 工作台 app 使用：按独立 Brief ETag 原子保存完整 video.md，不覆盖外部变化。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "baselineRevision", "content"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        baselineRevision: { type: "string", minLength: 1 },
+        content: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } },
+  },
+  {
+    name: "export_project_video_brief_local",
+    title: "导出 Video Brief LOCAL",
+    description: "仅供 Narracut 工作台 app 使用：把冲突中的 Brief LOCAL 导出到项目外的新文件，不覆盖已有文件。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "targetDirectory", "content"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        targetDirectory: { type: "string", minLength: 1 },
+        content: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } },
+  },
+  {
     name: "import_project_asset",
     title: "导入一个项目 Asset",
     description: "仅供 Narracut 工作台 app 使用：逐字节复制一个系统文件选择器返回的普通文件，登记后可绑定原目标 Scene。",
@@ -382,6 +420,15 @@ function serializeInspection(
     connection: connectedState(!writable),
     writable,
     projectRevision: inspection.projectRevision,
+    videoBrief: {
+      content: inspection.videoBrief,
+      revision: inspection.videoBriefRevision,
+      bytes: Buffer.byteLength(inspection.videoBrief, "utf8"),
+      state: inspection.videoBrief.length === 0 ? "empty" : "saved",
+    },
+    ...(inspection.currentRenderProgram === undefined
+      ? {}
+      : { currentRenderProgram: inspection.currentRenderProgram }),
     projectDsl: inspection.project,
     tts: {
       ...inspection.tts,
@@ -612,6 +659,28 @@ class ProjectWorkspaceSession {
     const saved = await opened.saveProject(input.project, input.baselineRevision);
     opened.inspection = saved.inspection;
     return saved.inspection;
+  }
+
+  async saveVideoBrief(input: {
+    projectDirectory: string;
+    projectId: string;
+    baselineRevision: string;
+    content: string;
+  }): Promise<Awaited<ReturnType<OpenedProjectVNext["saveVideoBrief"]>>> {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    const saved = await opened.saveVideoBrief(input.content, input.baselineRevision);
+    if (saved.status === "saved") opened.inspection = saved.inspection;
+    return saved;
+  }
+
+  async exportVideoBriefLocal(input: {
+    projectDirectory: string;
+    projectId: string;
+    targetDirectory: string;
+    content: string;
+  }): Promise<Awaited<ReturnType<OpenedProjectVNext["exportVideoBriefLocal"]>>> {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    return opened.exportVideoBriefLocal(input.content, input.targetDirectory);
   }
 
   async importAsset(input: {
@@ -1072,6 +1141,115 @@ async function callTool(
             status,
             connection: connectedState(false),
           },
+        };
+      }
+      throw error;
+    }
+  }
+  if (name === "save_project_video_brief") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "brief-save-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "Video Brief 保存参数必须是对象。" },
+        },
+        content: [{ type: "text", text: "无法保存 Video Brief：参数无效。" }],
+      };
+    }
+    const input = argumentsValue as Record<string, unknown>;
+    if (
+      typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
+      typeof input.projectId !== "string" ||
+      typeof input.baselineRevision !== "string" ||
+      typeof input.content !== "string"
+    ) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "brief-save-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "项目身份、Brief ETag 或 Markdown 内容无效。" },
+        },
+        content: [{ type: "text", text: "无法保存 Video Brief：项目身份、Brief ETag 或内容无效。" }],
+      };
+    }
+    try {
+      const saved = await workspace.saveVideoBrief({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        baselineRevision: input.baselineRevision,
+        content: input.content,
+      });
+      if (saved.status === "conflict") {
+        return {
+          structuredContent: { status: "brief-conflict", disk: saved.disk },
+          content: [{ type: "text", text: "video.md 已发生外部变化；Narracut 保留 BASE、LOCAL 与 DISK，未覆盖磁盘内容。" }],
+        };
+      }
+      return {
+        structuredContent: { ...workspace.serialize(saved.inspection), status: "brief-saved" },
+        content: [{ type: "text", text: "已按 Brief ETag 原子保存完整 video.md。" }],
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        const failure = lifecycleFailure(error);
+        return {
+          ...failure,
+          structuredContent: {
+            ...failure.structuredContent,
+            status: error instanceof ProjectLifecycleError && error.code === "PROJECT_IDENTITY_LOST"
+              ? "identity-lost"
+              : "brief-save-failed",
+          },
+        };
+      }
+      throw error;
+    }
+  }
+  if (name === "export_project_video_brief_local") {
+    if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue)) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "brief-export-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "Video Brief LOCAL 导出参数必须是对象。" },
+        },
+        content: [{ type: "text", text: "无法导出 Video Brief LOCAL：参数无效。" }],
+      };
+    }
+    const input = argumentsValue as Record<string, unknown>;
+    if (
+      typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
+      typeof input.projectId !== "string" ||
+      typeof input.targetDirectory !== "string" || !isAbsolute(input.targetDirectory) ||
+      typeof input.content !== "string"
+    ) {
+      return {
+        isError: true,
+        structuredContent: {
+          status: "brief-export-failed",
+          error: { code: "INVALID_TOOL_INPUT", message: "项目身份、导出目录或 LOCAL 内容无效。" },
+        },
+        content: [{ type: "text", text: "无法导出 Video Brief LOCAL：项目身份、目录或内容无效。" }],
+      };
+    }
+    try {
+      const exported = await workspace.exportVideoBriefLocal({
+        projectDirectory: input.projectDirectory,
+        projectId: input.projectId,
+        targetDirectory: input.targetDirectory,
+        content: input.content,
+      });
+      return {
+        structuredContent: { status: "brief-exported", exported },
+        content: [{ type: "text", text: `Video Brief LOCAL 已导出到 ${exported.path}；未覆盖已有文件。` }],
+      };
+    } catch (error) {
+      if (error instanceof ProjectLifecycleError || error instanceof ProjectInspectionError) {
+        const failure = lifecycleFailure(error);
+        return {
+          ...failure,
+          structuredContent: { ...failure.structuredContent, status: "brief-export-failed" },
         };
       }
       throw error;

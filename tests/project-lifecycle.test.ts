@@ -526,6 +526,93 @@ describe("Project VNext 生命周期", () => {
     await opened.release();
   });
 
+  it("按 Video Brief 基线原子保存完整 Markdown 并标记当前 Render Program 待复核", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-brief-save-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+
+    const saved = await opened.saveVideoBrief(
+      "# 产品方向\n\n保留原始 Markdown。\n",
+      opened.inspection.videoBriefRevision,
+    );
+
+    expect(saved.status).toBe("saved");
+    if (saved.status !== "saved") throw new Error("预期 Video Brief 保存成功。");
+    expect(saved).toMatchObject({
+      status: "saved",
+      inspection: {
+        videoBrief: "# 产品方向\n\n保留原始 Markdown。\n",
+        videoBriefRevision: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+        currentRenderProgram: {
+          briefReviewPending: true,
+          previewPreserved: true,
+        },
+      },
+    });
+    expect(saved.inspection.videoBriefRevision).not.toBe(opened.inspection.videoBriefRevision);
+    expect(await readFile(join(projectDirectory, "video.md"), "utf8"))
+      .toBe("# 产品方向\n\n保留原始 Markdown。\n");
+    await opened.release();
+  });
+
+  it("Video Brief 外部变化时保留 DISK 证据并拒绝覆盖", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-brief-conflict-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+    await writeFile(join(projectDirectory, "video.md"), "# 外部版本\n");
+
+    const conflicted = await opened.saveVideoBrief(
+      "# 本地版本\n",
+      opened.inspection.videoBriefRevision,
+    );
+
+    expect(conflicted).toMatchObject({
+      status: "conflict",
+      disk: {
+        content: "# 外部版本\n",
+        revision: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+        bytes: Buffer.byteLength("# 外部版本\n"),
+      },
+    });
+    expect(await readFile(join(projectDirectory, "video.md"), "utf8")).toBe("# 外部版本\n");
+    await opened.release();
+  });
+
+  it("把未保存 Video Brief 导出到项目外的新普通文件且不覆盖同名文件", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-brief-export-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const exportDirectory = join(parentDirectory, "exports");
+    await createProjectVNext(projectDirectory);
+    await mkdir(exportDirectory);
+    await writeFile(join(exportDirectory, "video-brief-local.md"), "保留");
+    const opened = await openProjectVNext(projectDirectory);
+
+    const exported = await opened.exportVideoBriefLocal("# 待抢救 LOCAL\n", exportDirectory);
+
+    expect(exported.path).toBe(join(exportDirectory, "video-brief-local-2.md"));
+    expect(await readFile(exported.path, "utf8")).toBe("# 待抢救 LOCAL\n");
+    expect(await readFile(join(exportDirectory, "video-brief-local.md"), "utf8")).toBe("保留");
+    await expect(opened.exportVideoBriefLocal("不能落入项目", projectDirectory))
+      .rejects.toMatchObject({ code: "PROJECT_SAVE_FAILED" });
+    await opened.release();
+  });
+
+  it("Video Brief 保存严格拒绝无效 Unicode 与超过 2 MiB 的内容", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-brief-bounds-"));
+    const projectDirectory = join(parentDirectory, "project");
+    await createProjectVNext(projectDirectory);
+    const opened = await openProjectVNext(projectDirectory);
+
+    await expect(opened.saveVideoBrief("\ud800", opened.inspection.videoBriefRevision))
+      .rejects.toMatchObject({ code: "PROJECT_SAVE_FAILED" });
+    await expect(opened.saveVideoBrief("a".repeat(2 * 1024 * 1024 + 1), opened.inspection.videoBriefRevision))
+      .rejects.toMatchObject({ code: "PROJECT_SAVE_FAILED" });
+    expect(await readFile(join(projectDirectory, "video.md"), "utf8")).toBe("");
+    await opened.release();
+  });
+
   it("保存时 project.json 被替换为链接会停止写入且不触碰链接目标", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-save-link-conflict-"));
     const projectDirectory = join(parentDirectory, "project");

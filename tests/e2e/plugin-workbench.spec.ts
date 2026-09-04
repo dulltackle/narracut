@@ -30,11 +30,24 @@ function scene(index: number): Scene {
 function validResult(sceneCount = 5) {
   const scenes = Array.from({ length: sceneCount }, (_, index) => scene(index + 1));
   const assets = scenes.flatMap((item) => item.assets);
+  const videoBriefContent = "# 产品演示\n\n保留纸张与胶片的触感。\n";
+  const videoBriefRevision = `sha256:${createHash("sha256").update(videoBriefContent).digest("hex")}`;
   return {
     status: "valid",
     connection: { status: "connected", readOnly: false },
     writable: true,
     projectRevision: `sha256:${"1".repeat(64)}`,
+    videoBrief: {
+      content: videoBriefContent,
+      revision: videoBriefRevision,
+      bytes: Buffer.byteLength(videoBriefContent),
+      state: "saved",
+    },
+    currentRenderProgram: {
+      briefRevision: videoBriefRevision,
+      briefReviewPending: false,
+      previewPreserved: true,
+    },
     projectDsl: {
       assets,
       scenes: scenes.map((item) => ({
@@ -140,6 +153,234 @@ test("初始加载态不会提前宣称连接正常", async ({ page }) => {
   await expect(page.getByText("连接中", { exact: true })).toBeVisible();
   await expect(page.getByText("连接正常", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("正在连接 Narracut")).toBeVisible();
+});
+
+test("Video Brief 使用独立历史与串行 ETag 保存，关闭后恢复入口焦点", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  const calls: Array<Record<string, any>> = [];
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  await installAppToolBridge(page, async (name, args) => {
+    expect(name).toBe("save_project_video_brief");
+    calls.push(structuredClone(args));
+    if (calls.length === 1) await firstGate;
+    const revision = `sha256:${String(calls.length + 1).repeat(64).slice(0, 64)}`;
+    return {
+      structuredContent: {
+        ...initial,
+        status: "brief-saved",
+        videoBrief: {
+          content: args.content,
+          revision,
+          bytes: new TextEncoder().encode(args.content).length,
+          state: args.content === "" ? "empty" : "saved",
+        },
+        currentRenderProgram: {
+          briefRevision: initial.videoBrief.revision,
+          briefReviewPending: true,
+          previewPreserved: true,
+        },
+      },
+    };
+  });
+  await sendResult(page, initial);
+
+  const entry = page.getByRole("button", { name: /Video Brief.*已保存/ });
+  await entry.click();
+  const editor = page.getByRole("textbox", { name: "Video Brief 原始 Markdown" });
+  await expect(page.getByRole("dialog", { name: "编辑 Video Brief" })).toBeVisible();
+  await expect(editor).toBeFocused();
+  await editor.fill("# 第一版\n");
+  await expect.poll(() => calls.length).toBe(1);
+  await editor.fill("# 第二版\n");
+  await page.waitForTimeout(550);
+  expect(calls).toHaveLength(1);
+
+  releaseFirst();
+  await expect.poll(() => calls.length).toBe(2);
+  expect(calls[0]).toMatchObject({
+    baselineRevision: initial.videoBrief.revision,
+    content: "# 第一版\n",
+  });
+  expect(calls[1]).toMatchObject({
+    baselineRevision: `sha256:${"2".repeat(64)}`,
+    content: "# 第二版\n",
+  });
+  await expect(page.getByRole("dialog", { name: "编辑 Video Brief" }).getByRole("status"))
+    .toHaveText("已保存");
+
+  await page.getByRole("button", { name: "Video Brief Undo" }).click();
+  await expect(editor).toHaveValue("# 第一版\n");
+  await page.getByRole("button", { name: "关闭 Video Brief 编辑器" }).click();
+  await expect(entry).toBeFocused();
+  await expect(page.locator("[data-scene-row]").first()).toHaveAttribute("data-selected", "true");
+  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
+  await page.getByRole("tab", { name: "Agent 工作区" }).click();
+  await expect(page.getByText("Brief 待复核", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前 Render Program 与既有 Preview 保持不变", { exact: true })).toBeVisible();
+});
+
+test("Video Brief 保留混合原始换行，且编辑后可立即 Undo", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial: any = validResult(1);
+  const original = "# BASE\r\n第一行\r第二行\n";
+  initial.videoBrief = {
+    content: original,
+    revision: `sha256:${createHash("sha256").update(original).digest("hex")}`,
+    bytes: Buffer.byteLength(original),
+    state: "saved",
+  };
+  initial.currentRenderProgram = {
+    briefRevision: initial.videoBrief.revision,
+    briefReviewPending: false,
+    previewPreserved: true,
+  };
+  const calls: Array<Record<string, any>> = [];
+  await installAppToolBridge(page, (_name, args) => {
+    calls.push(structuredClone(args));
+    return {
+      structuredContent: {
+        ...initial,
+        status: "brief-saved",
+        videoBrief: {
+          content: args.content,
+          revision: `sha256:${createHash("sha256").update(args.content).digest("hex")}`,
+          bytes: Buffer.byteLength(args.content),
+          state: "saved",
+        },
+      },
+    };
+  });
+  await sendResult(page, initial);
+  const entry = page.getByRole("button", { name: /Video Brief.*已保存/ });
+  await entry.click();
+  const editor = page.getByRole("textbox", { name: "Video Brief 原始 Markdown" });
+
+  await editor.fill("# BASE\n第一行\n第二行\n补充");
+  await editor.blur();
+  await expect.poll(() => calls.length).toBe(1);
+  expect(calls[0]?.content).toBe(`${original}补充`);
+  await expect(page.getByRole("dialog", { name: "编辑 Video Brief" }).getByRole("status"))
+    .toHaveText("已保存");
+
+  await editor.fill("# BASE\n第一行\n第二行\n临时改动");
+  await page.getByRole("button", { name: "Video Brief Undo" }).click();
+  await expect(editor).toHaveValue("# BASE\n第一行\n第二行\n补充");
+  await expect.poll(() => calls.length).toBe(2);
+  expect(calls[1]?.content).toBe(`${original}补充`);
+  await page.getByRole("button", { name: "关闭 Video Brief 编辑器" }).click();
+  await expect(entry).toHaveAccessibleName("Video Brief 已保存");
+});
+
+test("Video Brief 外部冲突展示 BASE、LOCAL、DISK 与显式出口", async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 860 });
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  await installAppToolBridge(page, (name) => {
+    expect(name).toBe("save_project_video_brief");
+    return {
+      structuredContent: {
+        status: "brief-conflict",
+        disk: {
+          content: "# DISK\n\n外部工具的版本。\n",
+          revision: `sha256:${"d".repeat(64)}`,
+          bytes: 32,
+        },
+      },
+    };
+  });
+  await sendResult(page, initial);
+  await page.getByRole("button", { name: "打开项目检查" }).click();
+  await page.getByRole("button", { name: /Video Brief.*已保存/ }).click();
+  await page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }).fill("# LOCAL\n\n我的版本。\n");
+
+  await expect(page.getByRole("heading", { name: "外部冲突" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "BASE 只读证据" })).toHaveValue(initial.videoBrief.content);
+  await page.getByRole("tab", { name: "查看 LOCAL" }).click();
+  await expect(page.getByRole("textbox", { name: "LOCAL 只读证据" })).toHaveValue("# LOCAL\n\n我的版本。\n");
+  await page.getByRole("tab", { name: "查看 DISK" }).click();
+  await expect(page.getByRole("textbox", { name: "DISK 只读证据" })).toHaveValue("# DISK\n\n外部工具的版本。\n");
+  await expect(page.getByRole("textbox", { name: "合并结果" })).toHaveValue("# LOCAL\n\n我的版本。\n");
+  await expect(page.getByRole("button", { name: "提交合并结果" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "放弃 LOCAL 并载入 DISK" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "导出 LOCAL" })).toBeVisible();
+  await expect(page.getByText(/强制覆盖/u)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "放弃 LOCAL 并载入 DISK" }).click();
+  await expect(page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }))
+    .toHaveValue("# DISK\n\n外部工具的版本。\n");
+  await expect(page.getByRole("dialog", { name: "编辑 Video Brief" }).getByRole("status"))
+    .toHaveText("已保存");
+  await expect(page.getByRole("button", { name: "Video Brief Undo" })).toBeDisabled();
+});
+
+test("只读检查不会把未知的 Brief 指纹关系宣称为已绑定", async ({ page }) => {
+  await loadWorkbench(page);
+  const inspected: any = validResult(1);
+  inspected.writable = false;
+  inspected.connection = { status: "connected", readOnly: true };
+  delete inspected.currentRenderProgram;
+  await sendResult(page, inspected);
+
+  await page.getByRole("tab", { name: "Agent 工作区" }).click();
+  await expect(page.getByText("Brief 关系未检查", { exact: true })).toBeVisible();
+  await expect(page.getByText("已对应当前 Brief", { exact: true })).toHaveCount(0);
+});
+
+test("Video Brief 冲突中的 LOCAL 可经系统目录选择导出后载入 DISK", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  const calls: Array<{ name: string; args: Record<string, any> }> = [];
+  await page.exposeFunction("handleNarracutBriefTool", (name: string, args: Record<string, any>) => {
+    calls.push({ name, args: structuredClone(args) });
+    if (name === "save_project_video_brief") {
+      return {
+        structuredContent: {
+          status: "brief-conflict",
+          disk: {
+            content: "# DISK\n",
+            revision: `sha256:${"d".repeat(64)}`,
+            bytes: 7,
+          },
+        },
+      };
+    }
+    expect(name).toBe("export_project_video_brief_local");
+    return {
+      structuredContent: {
+        status: "brief-exported",
+        exported: { path: "/work/exports/video-brief-local.md", bytes: 8 },
+      },
+    };
+  });
+  await page.evaluate(() => {
+    (window as any).openai = {
+      selectDirectory: () => ({ path: "/work/exports" }),
+      callTool: (name: string, args: Record<string, unknown>) =>
+        (window as any).handleNarracutBriefTool(name, args),
+    };
+  });
+  await sendResult(page, initial);
+  await page.getByRole("button", { name: /Video Brief.*已保存/ }).click();
+  await page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }).fill("# LOCAL\n");
+  await expect(page.getByRole("heading", { name: "外部冲突" })).toBeVisible();
+
+  await page.getByRole("button", { name: "导出 LOCAL" }).click();
+
+  await expect(page.getByRole("dialog", { name: "编辑 Video Brief" }).getByRole("status")
+    .filter({ hasText: "LOCAL 已导出到 /work/exports/video-brief-local.md；编辑器已载入 DISK。" }))
+    .toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Video Brief 原始 Markdown" })).toHaveValue("# DISK\n");
+  expect(calls.at(-1)).toEqual({
+    name: "export_project_video_brief_local",
+    args: {
+      projectDirectory: initial.project.directory,
+      projectId: initial.project.projectId,
+      targetDirectory: "/work/exports",
+      content: "# LOCAL\n",
+    },
+  });
 });
 
 test("启动器通过系统文件夹选择完成原子创建并把焦点交给零 Scene 空状态", async ({ page }) => {

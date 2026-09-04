@@ -16,12 +16,13 @@ import {
   writeFile,
   type FileHandle,
 } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   inspectProjectVNext,
   ProjectInspectionError,
   readProjectVNextRevision,
+  readVideoBriefVNext,
   validateProjectVNextForSave,
   validateProjectVNextResources,
   type ProjectVNext,
@@ -240,6 +241,7 @@ function starterRevision(revisionId: string): string {
   return JSON.stringify({
     revisionId,
     previousRevisionId: null,
+    briefFingerprint: revisionOf(Buffer.alloc(0)),
     source: "starter",
     summary: "Narracut starter Render Program",
   });
@@ -383,9 +385,10 @@ async function readRegularUtf8(path: string, maxBytes: number): Promise<string> 
 
 async function validateCurrentProjectState(
   inspection: ProjectVNextInspection,
-): Promise<void> {
+): Promise<string | null> {
   const projectDirectory = inspection.projectDirectory;
   const currentPath = join(projectDirectory, ".narracut", "current.json");
+  let briefRevision: string | null = null;
   try {
     const current = parseStrictJson(
       await readRegularUtf8(currentPath, 4096),
@@ -418,11 +421,13 @@ async function validateCurrentProjectState(
     if (
       !isPlainRecord(revision) ||
       Object.keys(revision).some((key) =>
-        !["revisionId", "previousRevisionId", "source", "summary"].includes(key)
+        !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary"].includes(key)
       ) ||
       revision.revisionId !== revisionId ||
       !(revision.previousRevisionId === null ||
         (typeof revision.previousRevisionId === "string" && UUID_PATTERN.test(revision.previousRevisionId))) ||
+      (revision.briefFingerprint !== undefined &&
+        (typeof revision.briefFingerprint !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(revision.briefFingerprint))) ||
       typeof revision.source !== "string" ||
       typeof revision.summary !== "string"
     ) {
@@ -458,6 +463,7 @@ async function validateCurrentProjectState(
     ) {
       throw new Error("当前 Render Program 依赖或入口无效。");
     }
+    briefRevision = typeof revision.briefFingerprint === "string" ? revision.briefFingerprint : null;
   } catch (cause) {
     if (cause instanceof ProjectLifecycleError) throw cause;
     throw new ProjectLifecycleError(
@@ -467,6 +473,7 @@ async function validateCurrentProjectState(
       { cause },
     );
   }
+  return briefRevision;
 }
 
 type DirectoryIdentity = { dev: number; ino: number };
@@ -664,6 +671,17 @@ export type OpenedProjectVNext = {
     project: unknown,
     baselineRevision: string,
   ) => Promise<{ inspection: ProjectVNextInspection }>;
+  saveVideoBrief: (
+    content: string,
+    baselineRevision: string,
+  ) => Promise<
+    | { status: "saved"; inspection: ProjectVNextInspection }
+    | { status: "conflict"; disk: { content: string; revision: string; bytes: number } }
+  >;
+  exportVideoBriefLocal: (
+    content: string,
+    targetDirectory: string,
+  ) => Promise<{ path: string; bytes: number; revision: string }>;
   importAsset: (input: {
     sourcePath: string;
     targetSceneId?: string;
@@ -1049,7 +1067,7 @@ async function replaceProjectFile(
   bytes: Buffer,
   assertWritable: () => Promise<void>,
 ): Promise<void> {
-  const temporaryFile = join(dirname(projectFile), `.project.json.${randomUUID()}.tmp`);
+  const temporaryFile = join(dirname(projectFile), `.${basename(projectFile)}.${randomUUID()}.tmp`);
   let committed = false;
   try {
     const handle = await openFile(temporaryFile, "wx", 0o600);
@@ -1091,7 +1109,12 @@ export async function openProjectVNext(
     let speechDirectoryHandle: FileHandle | null = null;
     try {
       const inspection = await inspectProjectVNext(projectDirectory, options);
-      await validateCurrentProjectState(inspection);
+      const acceptedBriefRevision = await validateCurrentProjectState(inspection);
+      inspection.currentRenderProgram = {
+        briefRevision: acceptedBriefRevision,
+        briefReviewPending: acceptedBriefRevision !== inspection.videoBriefRevision,
+        previewPreserved: true,
+      };
       if (inspection.manifest.projectId !== initialInspection.manifest.projectId) {
         throw new ProjectLifecycleError(
           "PROJECT_IDENTITY_LOST",
@@ -1286,6 +1309,153 @@ export async function openProjectVNext(
         });
         saveQueue = operation.then(() => undefined, () => undefined);
         return operation;
+      };
+      const saveVideoBrief: OpenedProjectVNext["saveVideoBrief"] = (content, baselineRevision) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "项目工作区正在关闭；Narracut 已停止接收新的写入。",
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const videoBriefPath = join(projectDirectory, "video.md");
+          try {
+            await assertWritable();
+            const bytes = Buffer.from(content, "utf8");
+            if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_FAILED",
+                videoBriefPath,
+                "Video Brief 包含不能表示为严格 UTF-8 的字符；Narracut 已保留内存修改。",
+              );
+            }
+            if (bytes.length > 2 * 1024 * 1024) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_FAILED",
+                videoBriefPath,
+                `Video Brief 为 ${bytes.length} 字节，超过 2 MiB 上限；Narracut 已保留内存修改。`,
+              );
+            }
+            const disk = await readVideoBriefVNext(videoBriefPath);
+            if (disk.revision !== baselineRevision) return { status: "conflict" as const, disk };
+            const nextRevision = revisionOf(bytes);
+            if (nextRevision !== baselineRevision) {
+              await replaceProjectFile(videoBriefPath, bytes, async () => {
+                await assertWritable();
+                const current = await readVideoBriefVNext(videoBriefPath);
+                if (current.revision !== baselineRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    videoBriefPath,
+                    "video.md 在提交前发生外部变化；Narracut 拒绝覆盖。",
+                  );
+                }
+              });
+            }
+            currentInspection = {
+              ...currentInspection,
+              videoBrief: content,
+              videoBriefRevision: nextRevision,
+              currentRenderProgram: currentInspection.currentRenderProgram === undefined
+                ? undefined
+                : {
+                    ...currentInspection.currentRenderProgram,
+                    briefReviewPending: currentInspection.currentRenderProgram.briefRevision !== nextRevision,
+                  },
+            };
+            return { status: "saved" as const, inspection: currentInspection };
+          } catch (cause) {
+            if (cause instanceof ProjectLifecycleError && cause.code === "PROJECT_SAVE_CONFLICT") {
+              try {
+                return { status: "conflict" as const, disk: await readVideoBriefVNext(videoBriefPath) };
+              } catch {
+                throw cause;
+              }
+            }
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              videoBriefPath,
+              "无法原子保存 video.md；Narracut 已保留内存修改。",
+              { cause },
+            );
+          }
+        });
+        saveQueue = operation.then(() => undefined, () => undefined);
+        return operation;
+      };
+      const exportVideoBriefLocal: OpenedProjectVNext["exportVideoBriefLocal"] = async (
+        content,
+        targetDirectory,
+      ) => {
+        await assertWritable();
+        const bytes = Buffer.from(content, "utf8");
+        if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content || bytes.length > 2 * 1024 * 1024) {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            projectDirectory,
+            "Video Brief LOCAL 必须是最多 2 MiB 的严格 UTF-8；Narracut 拒绝导出。",
+          );
+        }
+        const destinationDirectory = await realpath(resolve(targetDirectory)).catch((cause) => {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            resolve(targetDirectory),
+            "无法访问 Video Brief LOCAL 导出目录。",
+            { cause },
+          );
+        });
+        const relation = relative(projectDirectory, destinationDirectory);
+        if (relation === "" || (!relation.startsWith(`..${sep}`) && relation !== ".." && !isAbsolute(relation))) {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            destinationDirectory,
+            "Video Brief LOCAL 只能导出到项目目录之外。",
+          );
+        }
+        const facts = await lstat(destinationDirectory);
+        if (!facts.isDirectory() || facts.isSymbolicLink()) {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            destinationDirectory,
+            "Video Brief LOCAL 导出目标必须是普通目录。",
+          );
+        }
+        for (let suffix = 1; suffix <= 10_000; suffix += 1) {
+          const filename = suffix === 1 ? "video-brief-local.md" : `video-brief-local-${suffix}.md`;
+          const path = join(destinationDirectory, filename);
+          let handle: FileHandle | null = null;
+          try {
+            handle = await openFile(path, "wx", 0o600);
+            await handle.writeFile(bytes);
+            await handle.sync();
+            return { path, bytes: bytes.length, revision: revisionOf(bytes) };
+          } catch (cause) {
+            if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") continue;
+            if (handle !== null) {
+              const openedFacts = await handle.stat().catch(() => null);
+              const currentFacts = await lstat(path).catch(() => null);
+              if (
+                openedFacts !== null && currentFacts !== null &&
+                openedFacts.dev === currentFacts.dev && openedFacts.ino === currentFacts.ino
+              ) await unlink(path).catch(() => undefined);
+            }
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              path,
+              "无法导出 Video Brief LOCAL；Narracut 没有覆盖已有文件。",
+              { cause },
+            );
+          } finally {
+            await handle?.close().catch(() => undefined);
+          }
+        }
+        throw new ProjectLifecycleError(
+          "PROJECT_SAVE_FAILED",
+          destinationDirectory,
+          "导出目录中已有过多同名 Video Brief LOCAL 文件；Narracut 没有覆盖它们。",
+        );
       };
       const importAsset: OpenedProjectVNext["importAsset"] = (input) => {
         if (closing) {
@@ -1805,7 +1975,17 @@ export async function openProjectVNext(
         });
         await releasePromise;
       };
-      return { inspection, saveProject, importAsset, saveTtsSettings, probeSpeechAudio, commitSpeech, release };
+      return {
+        inspection,
+        saveProject,
+        saveVideoBrief,
+        exportVideoBriefLocal,
+        importAsset,
+        saveTtsSettings,
+        probeSpeechAudio,
+        commitSpeech,
+        release,
+      };
     } catch (error) {
       try {
         await lease.release();

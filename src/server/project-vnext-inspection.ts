@@ -41,6 +41,12 @@ export type ProjectVNextInspection = {
   project: ProjectVNext;
   projectRevision: string;
   videoBrief: string;
+  videoBriefRevision: string;
+  currentRenderProgram?: {
+    briefRevision: string | null;
+    briefReviewPending: boolean;
+    previewPreserved: true;
+  };
   renderPrograms: { directories: string[] };
   assetStates: readonly AssetRuntimeState[];
   tts: ProjectTtsState;
@@ -676,6 +682,19 @@ export async function readProjectVNextRevision(projectPath: string): Promise<str
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
+export async function readVideoBriefVNext(videoBriefPath: string): Promise<{
+  content: string;
+  revision: string;
+  bytes: number;
+}> {
+  const buffer = await readBoundedControlFile(videoBriefPath, "video.md", 2 * 1024 * 1024);
+  return {
+    content: decodeUtf8(buffer, videoBriefPath, "video.md", true),
+    revision: `sha256:${createHash("sha256").update(buffer).digest("hex")}`,
+    bytes: buffer.length,
+  };
+}
+
 async function requireDirectory(path: string): Promise<void> {
   const facts = await lstat(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`必需目录无效：${path}`);
@@ -1211,6 +1230,7 @@ export async function inspectProjectVNext(
     project: projectValidation.project,
     projectRevision: `sha256:${createHash("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
+    videoBriefRevision: `sha256:${createHash("sha256").update(videoBuffer).digest("hex")}`,
     renderPrograms: { directories: renderProgramDirectories },
     assetStates,
     tts,

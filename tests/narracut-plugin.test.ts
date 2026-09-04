@@ -341,6 +341,97 @@ describe("Narracut Codex 插件", () => {
     await pluginRequest.dispose();
   });
 
+  it("通过 app 专用工具保存、冲突保全并导出 Video Brief LOCAL", async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-brief-"));
+    const projectDirectory = join(parentDirectory, "project");
+    const exportDirectory = join(parentDirectory, "exports");
+    await createProjectVNext(projectDirectory);
+    await mkdir(exportDirectory);
+    const pluginRequest = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+    const listed = await pluginRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" }) as {
+      tools: Array<{ name: string; _meta?: unknown }>;
+    };
+    expect(listed.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "save_project_video_brief",
+        _meta: { ui: { visibility: ["app"] } },
+      }),
+      expect.objectContaining({
+        name: "export_project_video_brief_local",
+        _meta: { ui: { visibility: ["app"] } },
+      }),
+    ]));
+
+    const opened = await pluginRequest({
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "open_project", arguments: { projectDirectory } },
+    }) as { structuredContent: any };
+    expect(opened.structuredContent).toMatchObject({
+      videoBrief: {
+        content: "",
+        revision: expect.stringMatching(/^sha256:/u),
+        bytes: 0,
+      },
+      currentRenderProgram: { briefReviewPending: false, previewPreserved: true },
+    });
+
+    const saved = await pluginRequest({
+      jsonrpc: "2.0", id: 3, method: "tools/call",
+      params: {
+        name: "save_project_video_brief",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          baselineRevision: opened.structuredContent.videoBrief.revision,
+          content: "# LOCAL\n",
+        },
+      },
+    }) as { structuredContent: any };
+    expect(saved.structuredContent).toMatchObject({
+      status: "brief-saved",
+      videoBrief: { content: "# LOCAL\n", revision: expect.stringMatching(/^sha256:/u) },
+      currentRenderProgram: { briefReviewPending: true, previewPreserved: true },
+    });
+
+    await writeFile(join(projectDirectory, "video.md"), "# DISK\n");
+    const conflicted = await pluginRequest({
+      jsonrpc: "2.0", id: 4, method: "tools/call",
+      params: {
+        name: "save_project_video_brief",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          baselineRevision: saved.structuredContent.videoBrief.revision,
+          content: "# LOCAL 2\n",
+        },
+      },
+    }) as { structuredContent: any };
+    expect(conflicted.structuredContent).toMatchObject({
+      status: "brief-conflict",
+      disk: { content: "# DISK\n", revision: expect.stringMatching(/^sha256:/u) },
+    });
+    expect(await readFile(join(projectDirectory, "video.md"), "utf8")).toBe("# DISK\n");
+
+    const exported = await pluginRequest({
+      jsonrpc: "2.0", id: 5, method: "tools/call",
+      params: {
+        name: "export_project_video_brief_local",
+        arguments: {
+          projectDirectory,
+          projectId: opened.structuredContent.project.projectId,
+          targetDirectory: exportDirectory,
+          content: "# LOCAL 2\n",
+        },
+      },
+    }) as { structuredContent: any };
+    expect(exported.structuredContent).toMatchObject({
+      status: "brief-exported",
+      exported: { path: join(exportDirectory, "video-brief-local.md") },
+    });
+    expect(await readFile(join(exportDirectory, "video-brief-local.md"), "utf8")).toBe("# LOCAL 2\n");
+    await pluginRequest.dispose();
+  });
+
   it("通过 app 专用工具逐项导入 Asset，并返回可继续保存的完整项目状态", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-asset-"));
     const projectDirectory = join(parentDirectory, "project");
