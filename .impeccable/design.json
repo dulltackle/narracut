@@ -1,93 +1,596 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-04T03:22:44Z",
+  "generatedAt": "2026-09-04T07:51:22.481Z",
   "title": "Design System: Narracut VNext Workbench",
   "extensions": {
     "colorMeta": {
       "darkroom": {
         "role": "neutral",
         "displayName": "暗房黑",
-        "tonalRamp": ["oklch(15% 0.0069 214.4)", "oklch(27% 0.0069 214.4)", "oklch(39% 0.0069 214.4)", "oklch(51% 0.0069 214.4)", "oklch(63% 0.0069 214.4)", "oklch(75% 0.0069 214.4)", "oklch(87% 0.0069 214.4)", "oklch(95% 0.0069 214.4)"]
+        "tonalRamp": [
+          "oklch(15% 0.0069 214.4)",
+          "oklch(27% 0.0069 214.4)",
+          "oklch(39% 0.0069 214.4)",
+          "oklch(51% 0.0069 214.4)",
+          "oklch(63% 0.0069 214.4)",
+          "oklch(75% 0.0069 214.4)",
+          "oklch(87% 0.0069 214.4)",
+          "oklch(95% 0.0069 214.4)"
+        ]
       },
       "shell": {
         "role": "neutral",
         "displayName": "机身黑",
-        "tonalRamp": ["oklch(15% 0.0080 211.1)", "oklch(27% 0.0080 211.1)", "oklch(39% 0.0080 211.1)", "oklch(51% 0.0080 211.1)", "oklch(63% 0.0080 211.1)", "oklch(75% 0.0080 211.1)", "oklch(87% 0.0080 211.1)", "oklch(95% 0.0080 211.1)"]
+        "tonalRamp": [
+          "oklch(15% 0.0080 211.1)",
+          "oklch(27% 0.0080 211.1)",
+          "oklch(39% 0.0080 211.1)",
+          "oklch(51% 0.0080 211.1)",
+          "oklch(63% 0.0080 211.1)",
+          "oklch(75% 0.0080 211.1)",
+          "oklch(87% 0.0080 211.1)",
+          "oklch(95% 0.0080 211.1)"
+        ]
       },
       "film": {
         "role": "neutral",
         "displayName": "胶片黑",
-        "tonalRamp": ["oklch(15% 0.0047 196.6)", "oklch(27% 0.0047 196.6)", "oklch(39% 0.0047 196.6)", "oklch(51% 0.0047 196.6)", "oklch(63% 0.0047 196.6)", "oklch(75% 0.0047 196.6)", "oklch(87% 0.0047 196.6)", "oklch(95% 0.0047 196.6)"]
+        "tonalRamp": [
+          "oklch(15% 0.0047 196.6)",
+          "oklch(27% 0.0047 196.6)",
+          "oklch(39% 0.0047 196.6)",
+          "oklch(51% 0.0047 196.6)",
+          "oklch(63% 0.0047 196.6)",
+          "oklch(75% 0.0047 196.6)",
+          "oklch(87% 0.0047 196.6)",
+          "oklch(95% 0.0047 196.6)"
+        ]
       },
       "stage": {
         "role": "neutral",
         "displayName": "舞台黑",
-        "tonalRamp": ["oklch(15% 0.0090 205)", "oklch(27% 0.0090 205)", "oklch(39% 0.0090 205)", "oklch(51% 0.0090 205)", "oklch(63% 0.0090 205)", "oklch(75% 0.0090 205)", "oklch(87% 0.0090 205)", "oklch(95% 0.0090 205)"]
+        "tonalRamp": [
+          "oklch(15% 0.0093 208.8)",
+          "oklch(27% 0.0093 208.8)",
+          "oklch(39% 0.0093 208.8)",
+          "oklch(51% 0.0093 208.8)",
+          "oklch(63% 0.0093 208.8)",
+          "oklch(75% 0.0093 208.8)",
+          "oklch(87% 0.0093 208.8)",
+          "oklch(95% 0.0093 208.8)"
+        ]
       },
       "panel": {
         "role": "neutral",
         "displayName": "状态台黑",
-        "tonalRamp": ["oklch(15% 0.0070 205)", "oklch(27% 0.0070 205)", "oklch(39% 0.0070 205)", "oklch(51% 0.0070 205)", "oklch(63% 0.0070 205)", "oklch(75% 0.0070 205)", "oklch(87% 0.0070 205)", "oklch(95% 0.0070 205)"]
+        "tonalRamp": [
+          "oklch(15% 0.0081 211.1)",
+          "oklch(27% 0.0081 211.1)",
+          "oklch(39% 0.0081 211.1)",
+          "oklch(51% 0.0081 211.1)",
+          "oklch(63% 0.0081 211.1)",
+          "oklch(75% 0.0081 211.1)",
+          "oklch(87% 0.0081 211.1)",
+          "oklch(95% 0.0081 211.1)"
+        ]
       },
       "control": {
         "role": "neutral",
         "displayName": "控件黑",
-        "tonalRamp": ["oklch(15% 0.0090 205)", "oklch(27% 0.0090 205)", "oklch(39% 0.0090 205)", "oklch(51% 0.0090 205)", "oklch(63% 0.0090 205)", "oklch(75% 0.0090 205)", "oklch(87% 0.0090 205)", "oklch(95% 0.0090 205)"]
+        "tonalRamp": [
+          "oklch(15% 0.0092 208.8)",
+          "oklch(27% 0.0092 208.8)",
+          "oklch(39% 0.0092 208.8)",
+          "oklch(51% 0.0092 208.8)",
+          "oklch(63% 0.0092 208.8)",
+          "oklch(75% 0.0092 208.8)",
+          "oklch(87% 0.0092 208.8)",
+          "oklch(95% 0.0092 208.8)"
+        ]
       },
       "line": {
         "role": "neutral",
         "displayName": "结构线",
-        "tonalRamp": ["oklch(15% 0.0097 207.1)", "oklch(27% 0.0097 207.1)", "oklch(39% 0.0097 207.1)", "oklch(51% 0.0097 207.1)", "oklch(63% 0.0097 207.1)", "oklch(75% 0.0097 207.1)", "oklch(87% 0.0097 207.1)", "oklch(95% 0.0097 207.1)"]
+        "tonalRamp": [
+          "oklch(15% 0.0097 207.1)",
+          "oklch(27% 0.0097 207.1)",
+          "oklch(39% 0.0097 207.1)",
+          "oklch(51% 0.0097 207.1)",
+          "oklch(63% 0.0097 207.1)",
+          "oklch(75% 0.0097 207.1)",
+          "oklch(87% 0.0097 207.1)",
+          "oklch(95% 0.0097 207.1)"
+        ]
       },
       "separator": {
         "role": "neutral",
         "displayName": "状态分隔",
-        "tonalRamp": ["oklch(15% 0.0110 205)", "oklch(27% 0.0110 205)", "oklch(39% 0.0110 205)", "oklch(51% 0.0110 205)", "oklch(63% 0.0110 205)", "oklch(75% 0.0110 205)", "oklch(87% 0.0110 205)", "oklch(95% 0.0110 205)"]
+        "tonalRamp": [
+          "oklch(15% 0.0133 204.0)",
+          "oklch(27% 0.0133 204.0)",
+          "oklch(39% 0.0133 204.0)",
+          "oklch(51% 0.0133 204.0)",
+          "oklch(63% 0.0133 204.0)",
+          "oklch(75% 0.0133 204.0)",
+          "oklch(87% 0.0133 204.0)",
+          "oklch(95% 0.0133 204.0)"
+        ]
       },
       "paper": {
         "role": "neutral",
         "displayName": "背光纸白",
-        "tonalRamp": ["oklch(15% 0.0108 118.0)", "oklch(27% 0.0108 118.0)", "oklch(39% 0.0108 118.0)", "oklch(51% 0.0108 118.0)", "oklch(63% 0.0108 118.0)", "oklch(75% 0.0108 118.0)", "oklch(87% 0.0108 118.0)", "oklch(95% 0.0108 118.0)"]
+        "tonalRamp": [
+          "oklch(15% 0.0108 118.0)",
+          "oklch(27% 0.0108 118.0)",
+          "oklch(39% 0.0108 118.0)",
+          "oklch(51% 0.0108 118.0)",
+          "oklch(63% 0.0108 118.0)",
+          "oklch(75% 0.0108 118.0)",
+          "oklch(87% 0.0108 118.0)",
+          "oklch(95% 0.0108 118.0)"
+        ]
       },
       "paper-hover": {
         "role": "neutral",
         "displayName": "纸面悬停",
-        "tonalRamp": ["oklch(15% 0.0127 126.4)", "oklch(27% 0.0127 126.4)", "oklch(39% 0.0127 126.4)", "oklch(51% 0.0127 126.4)", "oklch(63% 0.0127 126.4)", "oklch(75% 0.0127 126.4)", "oklch(87% 0.0127 126.4)", "oklch(95% 0.0127 126.4)"]
+        "tonalRamp": [
+          "oklch(15% 0.0127 126.4)",
+          "oklch(27% 0.0127 126.4)",
+          "oklch(39% 0.0127 126.4)",
+          "oklch(51% 0.0127 126.4)",
+          "oklch(63% 0.0127 126.4)",
+          "oklch(75% 0.0127 126.4)",
+          "oklch(87% 0.0127 126.4)",
+          "oklch(95% 0.0127 126.4)"
+        ]
       },
       "paper-selected": {
         "role": "neutral",
         "displayName": "选中纸白",
-        "tonalRamp": ["oklch(15% 0.0080 114.2)", "oklch(27% 0.0080 114.2)", "oklch(39% 0.0080 114.2)", "oklch(51% 0.0080 114.2)", "oklch(63% 0.0080 114.2)", "oklch(75% 0.0080 114.2)", "oklch(87% 0.0080 114.2)", "oklch(95% 0.0080 114.2)"]
+        "tonalRamp": [
+          "oklch(15% 0.0080 114.2)",
+          "oklch(27% 0.0080 114.2)",
+          "oklch(39% 0.0080 114.2)",
+          "oklch(51% 0.0080 114.2)",
+          "oklch(63% 0.0080 114.2)",
+          "oklch(75% 0.0080 114.2)",
+          "oklch(87% 0.0080 114.2)",
+          "oklch(95% 0.0080 114.2)"
+        ]
       },
       "ink": {
         "role": "neutral",
         "displayName": "纸面墨色",
-        "tonalRamp": ["oklch(15% 0.0060 196.7)", "oklch(27% 0.0060 196.7)", "oklch(39% 0.0060 196.7)", "oklch(51% 0.0060 196.7)", "oklch(63% 0.0060 196.7)", "oklch(75% 0.0060 196.7)", "oklch(87% 0.0060 196.7)", "oklch(95% 0.0060 196.7)"]
+        "tonalRamp": [
+          "oklch(15% 0.0060 196.7)",
+          "oklch(27% 0.0060 196.7)",
+          "oklch(39% 0.0060 196.7)",
+          "oklch(51% 0.0060 196.7)",
+          "oklch(63% 0.0060 196.7)",
+          "oklch(75% 0.0060 196.7)",
+          "oklch(87% 0.0060 196.7)",
+          "oklch(95% 0.0060 196.7)"
+        ]
       },
       "muted": {
         "role": "neutral",
         "displayName": "暗房灰",
-        "tonalRamp": ["oklch(15% 0.0108 181.2)", "oklch(27% 0.0108 181.2)", "oklch(39% 0.0108 181.2)", "oklch(51% 0.0108 181.2)", "oklch(63% 0.0108 181.2)", "oklch(75% 0.0108 181.2)", "oklch(87% 0.0108 181.2)", "oklch(95% 0.0108 181.2)"]
+        "tonalRamp": [
+          "oklch(15% 0.0108 181.2)",
+          "oklch(27% 0.0108 181.2)",
+          "oklch(39% 0.0108 181.2)",
+          "oklch(51% 0.0108 181.2)",
+          "oklch(63% 0.0108 181.2)",
+          "oklch(75% 0.0108 181.2)",
+          "oklch(87% 0.0108 181.2)",
+          "oklch(95% 0.0108 181.2)"
+        ]
       },
       "proof-blue": {
         "role": "primary",
         "displayName": "校片蓝",
-        "tonalRamp": ["oklch(15% 0.1452 258.3)", "oklch(27% 0.1452 258.3)", "oklch(39% 0.1452 258.3)", "oklch(51% 0.1452 258.3)", "oklch(63% 0.1452 258.3)", "oklch(75% 0.1452 258.3)", "oklch(87% 0.1452 258.3)", "oklch(95% 0.1452 258.3)"]
+        "tonalRamp": [
+          "oklch(15% 0.1452 258.3)",
+          "oklch(27% 0.1452 258.3)",
+          "oklch(39% 0.1452 258.3)",
+          "oklch(51% 0.1452 258.3)",
+          "oklch(63% 0.1452 258.3)",
+          "oklch(75% 0.1452 258.3)",
+          "oklch(87% 0.1452 258.3)",
+          "oklch(95% 0.1452 258.3)"
+        ]
       },
       "proof-blue-deep": {
         "role": "primary",
         "displayName": "深校片蓝",
-        "tonalRamp": ["oklch(15% 0.1356 256.9)", "oklch(27% 0.1356 256.9)", "oklch(39% 0.1356 256.9)", "oklch(51% 0.1356 256.9)", "oklch(63% 0.1356 256.9)", "oklch(75% 0.1356 256.9)", "oklch(87% 0.1356 256.9)", "oklch(95% 0.1356 256.9)"]
+        "tonalRamp": [
+          "oklch(15% 0.1356 256.9)",
+          "oklch(27% 0.1356 256.9)",
+          "oklch(39% 0.1356 256.9)",
+          "oklch(51% 0.1356 256.9)",
+          "oklch(63% 0.1356 256.9)",
+          "oklch(75% 0.1356 256.9)",
+          "oklch(87% 0.1356 256.9)",
+          "oklch(95% 0.1356 256.9)"
+        ]
       },
       "readonly-amber": {
         "role": "secondary",
         "displayName": "只读琥珀",
-        "tonalRamp": ["oklch(15% 0.1298 73.8)", "oklch(27% 0.1298 73.8)", "oklch(39% 0.1298 73.8)", "oklch(51% 0.1298 73.8)", "oklch(63% 0.1298 73.8)", "oklch(75% 0.1298 73.8)", "oklch(87% 0.1298 73.8)", "oklch(95% 0.1298 73.8)"]
+        "tonalRamp": [
+          "oklch(15% 0.1298 73.8)",
+          "oklch(27% 0.1298 73.8)",
+          "oklch(39% 0.1298 73.8)",
+          "oklch(51% 0.1298 73.8)",
+          "oklch(63% 0.1298 73.8)",
+          "oklch(75% 0.1298 73.8)",
+          "oklch(87% 0.1298 73.8)",
+          "oklch(95% 0.1298 73.8)"
+        ]
       },
       "connected-green": {
         "role": "secondary",
         "displayName": "连接绿",
-        "tonalRamp": ["oklch(15% 0.1415 147.9)", "oklch(27% 0.1415 147.9)", "oklch(39% 0.1415 147.9)", "oklch(51% 0.1415 147.9)", "oklch(63% 0.1415 147.9)", "oklch(75% 0.1415 147.9)", "oklch(87% 0.1415 147.9)", "oklch(95% 0.1415 147.9)"]
+        "tonalRamp": [
+          "oklch(15% 0.1415 147.9)",
+          "oklch(27% 0.1415 147.9)",
+          "oklch(39% 0.1415 147.9)",
+          "oklch(51% 0.1415 147.9)",
+          "oklch(63% 0.1415 147.9)",
+          "oklch(75% 0.1415 147.9)",
+          "oklch(87% 0.1415 147.9)",
+          "oklch(95% 0.1415 147.9)"
+        ]
+      },
+      "focus-blue": {
+        "role": "primary",
+        "displayName": "焦点蓝",
+        "tonalRamp": [
+          "oklch(15% 0.0818 260.6)",
+          "oklch(27% 0.0818 260.6)",
+          "oklch(39% 0.0818 260.6)",
+          "oklch(51% 0.0818 260.6)",
+          "oklch(63% 0.0818 260.6)",
+          "oklch(75% 0.0818 260.6)",
+          "oklch(87% 0.0818 260.6)",
+          "oklch(95% 0.0818 260.6)"
+        ]
+      },
+      "high-contrast-white": {
+        "role": "neutral",
+        "displayName": "高对比白",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.9)",
+          "oklch(27% 0.0000 89.9)",
+          "oklch(39% 0.0000 89.9)",
+          "oklch(51% 0.0000 89.9)",
+          "oklch(63% 0.0000 89.9)",
+          "oklch(75% 0.0000 89.9)",
+          "oklch(87% 0.0000 89.9)",
+          "oklch(95% 0.0000 89.9)"
+        ]
+      },
+      "asset-divider": {
+        "role": "neutral",
+        "displayName": "Asset 分隔线",
+        "tonalRamp": [
+          "oklch(15% 0.0121 204.8)",
+          "oklch(27% 0.0121 204.8)",
+          "oklch(39% 0.0121 204.8)",
+          "oklch(51% 0.0121 204.8)",
+          "oklch(63% 0.0121 204.8)",
+          "oklch(75% 0.0121 204.8)",
+          "oklch(87% 0.0121 204.8)",
+          "oklch(95% 0.0121 204.8)"
+        ]
+      },
+      "preview-frame": {
+        "role": "neutral",
+        "displayName": "预览框线",
+        "tonalRamp": [
+          "oklch(15% 0.0116 204.8)",
+          "oklch(27% 0.0116 204.8)",
+          "oklch(39% 0.0116 204.8)",
+          "oklch(51% 0.0116 204.8)",
+          "oklch(63% 0.0116 204.8)",
+          "oklch(75% 0.0116 204.8)",
+          "oklch(87% 0.0116 204.8)",
+          "oklch(95% 0.0116 204.8)"
+        ]
+      },
+      "preview-control-line": {
+        "role": "neutral",
+        "displayName": "预览控件线",
+        "tonalRamp": [
+          "oklch(15% 0.0140 203.3)",
+          "oklch(27% 0.0140 203.3)",
+          "oklch(39% 0.0140 203.3)",
+          "oklch(51% 0.0140 203.3)",
+          "oklch(63% 0.0140 203.3)",
+          "oklch(75% 0.0140 203.3)",
+          "oklch(87% 0.0140 203.3)",
+          "oklch(95% 0.0140 203.3)"
+        ]
+      },
+      "blue-control-hover": {
+        "role": "primary",
+        "displayName": "蓝色控件悬停",
+        "tonalRamp": [
+          "oklch(15% 0.0735 257.4)",
+          "oklch(27% 0.0735 257.4)",
+          "oklch(39% 0.0735 257.4)",
+          "oklch(51% 0.0735 257.4)",
+          "oklch(63% 0.0735 257.4)",
+          "oklch(75% 0.0735 257.4)",
+          "oklch(87% 0.0735 257.4)",
+          "oklch(95% 0.0735 257.4)"
+        ]
+      },
+      "preview-label": {
+        "role": "neutral",
+        "displayName": "预览标签",
+        "tonalRamp": [
+          "oklch(15% 0.0136 177.8)",
+          "oklch(27% 0.0136 177.8)",
+          "oklch(39% 0.0136 177.8)",
+          "oklch(51% 0.0136 177.8)",
+          "oklch(63% 0.0136 177.8)",
+          "oklch(75% 0.0136 177.8)",
+          "oklch(87% 0.0136 177.8)",
+          "oklch(95% 0.0136 177.8)"
+        ]
+      },
+      "asset-muted": {
+        "role": "neutral",
+        "displayName": "Asset 次级灰",
+        "tonalRamp": [
+          "oklch(15% 0.0123 176.1)",
+          "oklch(27% 0.0123 176.1)",
+          "oklch(39% 0.0123 176.1)",
+          "oklch(51% 0.0123 176.1)",
+          "oklch(63% 0.0123 176.1)",
+          "oklch(75% 0.0123 176.1)",
+          "oklch(87% 0.0123 176.1)",
+          "oklch(95% 0.0123 176.1)"
+        ]
+      },
+      "preview-muted": {
+        "role": "neutral",
+        "displayName": "预览次级灰",
+        "tonalRamp": [
+          "oklch(15% 0.0123 176.1)",
+          "oklch(27% 0.0123 176.1)",
+          "oklch(39% 0.0123 176.1)",
+          "oklch(51% 0.0123 176.1)",
+          "oklch(63% 0.0123 176.1)",
+          "oklch(75% 0.0123 176.1)",
+          "oklch(87% 0.0123 176.1)",
+          "oklch(95% 0.0123 176.1)"
+        ]
+      },
+      "asset-path-muted": {
+        "role": "neutral",
+        "displayName": "Asset 路径灰",
+        "tonalRamp": [
+          "oklch(15% 0.0123 176.1)",
+          "oklch(27% 0.0123 176.1)",
+          "oklch(39% 0.0123 176.1)",
+          "oklch(51% 0.0123 176.1)",
+          "oklch(63% 0.0123 176.1)",
+          "oklch(75% 0.0123 176.1)",
+          "oklch(87% 0.0123 176.1)",
+          "oklch(95% 0.0123 176.1)"
+        ]
+      },
+      "asset-search-label": {
+        "role": "neutral",
+        "displayName": "Asset 搜索标签",
+        "tonalRamp": [
+          "oklch(15% 0.0121 176.2)",
+          "oklch(27% 0.0121 176.2)",
+          "oklch(39% 0.0121 176.2)",
+          "oklch(51% 0.0121 176.2)",
+          "oklch(63% 0.0121 176.2)",
+          "oklch(75% 0.0121 176.2)",
+          "oklch(87% 0.0121 176.2)",
+          "oklch(95% 0.0121 176.2)"
+        ]
+      },
+      "preview-copy": {
+        "role": "neutral",
+        "displayName": "预览正文",
+        "tonalRamp": [
+          "oklch(15% 0.0109 174.2)",
+          "oklch(27% 0.0109 174.2)",
+          "oklch(39% 0.0109 174.2)",
+          "oklch(51% 0.0109 174.2)",
+          "oklch(63% 0.0109 174.2)",
+          "oklch(75% 0.0109 174.2)",
+          "oklch(87% 0.0109 174.2)",
+          "oklch(95% 0.0109 174.2)"
+        ]
+      },
+      "import-ledger-copy": {
+        "role": "neutral",
+        "displayName": "导入台账正文",
+        "tonalRamp": [
+          "oklch(15% 0.0108 174.2)",
+          "oklch(27% 0.0108 174.2)",
+          "oklch(39% 0.0108 174.2)",
+          "oklch(51% 0.0108 174.2)",
+          "oklch(63% 0.0108 174.2)",
+          "oklch(75% 0.0108 174.2)",
+          "oklch(87% 0.0108 174.2)",
+          "oklch(95% 0.0108 174.2)"
+        ]
+      },
+      "preview-code": {
+        "role": "neutral",
+        "displayName": "预览代码",
+        "tonalRamp": [
+          "oklch(15% 0.0097 171.7)",
+          "oklch(27% 0.0097 171.7)",
+          "oklch(39% 0.0097 171.7)",
+          "oklch(51% 0.0097 171.7)",
+          "oklch(63% 0.0097 171.7)",
+          "oklch(75% 0.0097 171.7)",
+          "oklch(87% 0.0097 171.7)",
+          "oklch(95% 0.0097 171.7)"
+        ]
+      },
+      "preview-value": {
+        "role": "neutral",
+        "displayName": "预览值",
+        "tonalRamp": [
+          "oklch(15% 0.0077 164.9)",
+          "oklch(27% 0.0077 164.9)",
+          "oklch(39% 0.0077 164.9)",
+          "oklch(51% 0.0077 164.9)",
+          "oklch(63% 0.0077 164.9)",
+          "oklch(75% 0.0077 164.9)",
+          "oklch(87% 0.0077 164.9)",
+          "oklch(95% 0.0077 164.9)"
+        ]
+      },
+      "asset-fact-value": {
+        "role": "neutral",
+        "displayName": "Asset 事实值",
+        "tonalRamp": [
+          "oklch(15% 0.0087 168.7)",
+          "oklch(27% 0.0087 168.7)",
+          "oklch(39% 0.0087 168.7)",
+          "oklch(51% 0.0087 168.7)",
+          "oklch(63% 0.0087 168.7)",
+          "oklch(75% 0.0087 168.7)",
+          "oklch(87% 0.0087 168.7)",
+          "oklch(95% 0.0087 168.7)"
+        ]
+      },
+      "asset-warning-copy": {
+        "role": "secondary",
+        "displayName": "Asset 警告文案",
+        "tonalRamp": [
+          "oklch(15% 0.0768 78.9)",
+          "oklch(27% 0.0768 78.9)",
+          "oklch(39% 0.0768 78.9)",
+          "oklch(51% 0.0768 78.9)",
+          "oklch(63% 0.0768 78.9)",
+          "oklch(75% 0.0768 78.9)",
+          "oklch(87% 0.0768 78.9)",
+          "oklch(95% 0.0768 78.9)"
+        ]
+      },
+      "asset-capacity-copy": {
+        "role": "secondary",
+        "displayName": "Asset 容量文案",
+        "tonalRamp": [
+          "oklch(15% 0.0807 78.7)",
+          "oklch(27% 0.0807 78.7)",
+          "oklch(39% 0.0807 78.7)",
+          "oklch(51% 0.0807 78.7)",
+          "oklch(63% 0.0807 78.7)",
+          "oklch(75% 0.0807 78.7)",
+          "oklch(87% 0.0807 78.7)",
+          "oklch(95% 0.0807 78.7)"
+        ]
+      },
+      "asset-control-copy": {
+        "role": "neutral",
+        "displayName": "Asset 控件文案",
+        "tonalRamp": [
+          "oklch(15% 0.0076 164.9)",
+          "oklch(27% 0.0076 164.9)",
+          "oklch(39% 0.0076 164.9)",
+          "oklch(51% 0.0076 164.9)",
+          "oklch(63% 0.0076 164.9)",
+          "oklch(75% 0.0076 164.9)",
+          "oklch(87% 0.0076 164.9)",
+          "oklch(95% 0.0076 164.9)"
+        ]
+      },
+      "asset-field-copy": {
+        "role": "neutral",
+        "displayName": "Asset 字段文案",
+        "tonalRamp": [
+          "oklch(15% 0.0059 153.8)",
+          "oklch(27% 0.0059 153.8)",
+          "oklch(39% 0.0059 153.8)",
+          "oklch(51% 0.0059 153.8)",
+          "oklch(63% 0.0059 153.8)",
+          "oklch(75% 0.0059 153.8)",
+          "oklch(87% 0.0059 153.8)",
+          "oklch(95% 0.0059 153.8)"
+        ]
+      },
+      "project-asset-title": {
+        "role": "neutral",
+        "displayName": "项目 Asset 标题",
+        "tonalRamp": [
+          "oklch(15% 0.0059 153.8)",
+          "oklch(27% 0.0059 153.8)",
+          "oklch(39% 0.0059 153.8)",
+          "oklch(51% 0.0059 153.8)",
+          "oklch(63% 0.0059 153.8)",
+          "oklch(75% 0.0059 153.8)",
+          "oklch(87% 0.0059 153.8)",
+          "oklch(95% 0.0059 153.8)"
+        ]
+      },
+      "asset-title": {
+        "role": "neutral",
+        "displayName": "Asset 标题",
+        "tonalRamp": [
+          "oklch(15% 0.0059 153.8)",
+          "oklch(27% 0.0059 153.8)",
+          "oklch(39% 0.0059 153.8)",
+          "oklch(51% 0.0059 153.8)",
+          "oklch(63% 0.0059 153.8)",
+          "oklch(75% 0.0059 153.8)",
+          "oklch(87% 0.0059 153.8)",
+          "oklch(95% 0.0059 153.8)"
+        ]
+      },
+      "preview-title": {
+        "role": "neutral",
+        "displayName": "预览标题",
+        "tonalRamp": [
+          "oklch(15% 0.0062 137.8)",
+          "oklch(27% 0.0062 137.8)",
+          "oklch(39% 0.0062 137.8)",
+          "oklch(51% 0.0062 137.8)",
+          "oklch(63% 0.0062 137.8)",
+          "oklch(75% 0.0062 137.8)",
+          "oklch(87% 0.0062 137.8)",
+          "oklch(95% 0.0062 137.8)"
+        ]
+      },
+      "asset-hover-tint": {
+        "role": "neutral",
+        "displayName": "Asset 悬停薄色",
+        "tonalRamp": [
+          "oklch(15% 0.1452 258.3 / 0.035)",
+          "oklch(27% 0.1452 258.3 / 0.035)",
+          "oklch(39% 0.1452 258.3 / 0.035)",
+          "oklch(51% 0.1452 258.3 / 0.035)",
+          "oklch(63% 0.1452 258.3 / 0.035)",
+          "oklch(75% 0.1452 258.3 / 0.035)",
+          "oklch(87% 0.1452 258.3 / 0.035)",
+          "oklch(95% 0.1452 258.3 / 0.035)"
+        ]
+      },
+      "preview-scrim": {
+        "role": "neutral",
+        "displayName": "预览遮罩",
+        "tonalRamp": [
+          "oklch(15% 0.0060 196.3 / 0.9)",
+          "oklch(27% 0.0060 196.3 / 0.9)",
+          "oklch(39% 0.0060 196.3 / 0.9)",
+          "oklch(51% 0.0060 196.3 / 0.9)",
+          "oklch(63% 0.0060 196.3 / 0.9)",
+          "oklch(75% 0.0060 196.3 / 0.9)",
+          "oklch(87% 0.0060 196.3 / 0.9)",
+          "oklch(95% 0.0060 196.3 / 0.9)"
+        ]
       }
     },
     "typographyMeta": {
@@ -120,22 +623,22 @@
       {
         "name": "film-pressure",
         "value": "0 26px 70px rgba(0,0,0,.58), inset 0 1px rgba(255,255,255,.045), inset 0 0 0 5px rgba(0,0,0,.18)",
-        "purpose": "把整张胶片接触印样压入暗房。"
+        "purpose": "只用于整张接触印样框。"
       },
       {
         "name": "paper-backlight",
         "value": "0 0 34px rgba(241,243,235,.34), inset 0 0 36px rgba(68,76,72,.14)",
-        "purpose": "为背光纸面提供唯一的灯箱亮度。"
+        "purpose": "只用于背光接触表。"
       },
       {
         "name": "focus-ring",
         "value": "0 0 0 5px rgba(78,136,223,.24)",
-        "purpose": "与 2px 可见轮廓共同标识键盘焦点。"
+        "purpose": "与 2px 可见轮廓共同出现，不能代替轮廓。"
       },
       {
         "name": "inspection-drawer",
         "value": "-18px 0 45px rgba(0,0,0,.48)",
-        "purpose": "仅用于窄屏项目检查抽屉。"
+        "purpose": "仅在窄屏项目检查打开时出现。"
       },
       {
         "name": "asset-preview",
@@ -218,28 +721,35 @@
       "css": ".ds-agent-panel { overflow:hidden; border:1px solid #3d4546; border-radius:9px; background:#0d1213; color:#d5dbd8; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; box-shadow:0 18px 54px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.035); } .ds-agent-head { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:24px; padding:28px 30px 24px; border-bottom:1px solid #364041; } .ds-agent-head h1 { margin:0; color:#f1f3ee; font-family:\"Narracut Display\",sans-serif; font-size:2rem; font-weight:760; letter-spacing:-.025em; line-height:1; } .ds-agent-head p { max-width:68ch; margin:13px 0 0; color:#adb6b3; font-size:.82rem; line-height:1.7; } .ds-agent-head b { color:var(--amber,#d89a3d); font:700 .64rem/1.4 ui-monospace,monospace; letter-spacing:.07em; } .ds-agent-main { display:grid; grid-template-columns:minmax(250px,.82fr) minmax(300px,1.18fr); } .ds-task-board,.ds-result-board { min-width:0; padding:26px 30px; } .ds-task-board { border-right:1px solid #364041; } .ds-task-board h2,.ds-result-board h2 { display:flex; justify-content:space-between; gap:14px; margin:0 0 18px; font-size:.82rem; } .ds-task-board h2 small,.ds-result-board h2 small { color:#87918e; font:600 .62rem/1 ui-monospace,monospace; letter-spacing:.07em; } .ds-task-board dl { margin:0; } .ds-task-board dl>div { display:grid; grid-template-columns:16px 96px minmax(0,1fr); align-items:center; gap:10px; min-height:47px; border-top:1px solid #30393a; } .ds-task-board dl>div:last-child { border-bottom:1px solid #30393a; } .ds-task-board dt { color:#899390; font:600 .65rem/1.35 ui-monospace,monospace; } .ds-task-board dd { margin:0; font-size:.78rem; font-weight:620; } .ds-task-board dd small { display:block; margin-top:4px; color:#9dbcf0; font:600 .64rem/1.35 ui-monospace,monospace; } .ds-status { width:10px; height:10px; border:2px solid #76817e; border-radius:50%; } .ds-status.ds-running { border-color:var(--blue,#4e88df); background:var(--blue,#4e88df); } .ds-status.ds-success { border-color:var(--green,#67c477); background:var(--green,#67c477); } .ds-status.ds-stopped { border-color:var(--amber,#d89a3d); border-radius:2px; } .ds-result { min-height:156px; padding:22px 0; border-top:1px solid #30393a; border-bottom:1px solid #30393a; } .ds-result h3 { margin:0; color:#f1f3ee; font-size:1.35rem; } .ds-result p { max-width:65ch; margin:12px 0 0; color:#aeb7b4; font-size:.82rem; line-height:1.75; } .ds-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; } @media(max-width:900px) { .ds-agent-main { grid-template-columns:1fr; } .ds-task-board { border-right:0; border-bottom:1px solid #364041; } } @media(max-width:700px) { .ds-agent-head { grid-template-columns:1fr; } .ds-task-board,.ds-result-board { padding:20px 18px; } }"
     },
     {
-      "name": "Agent Validation Actions",
-      "kind": "button",
-      "refersTo": "agent-action-primary",
-      "description": "底部只保留开始验证、停止、继续，并根据单任务状态启用唯一下一步。",
-      "html": "<footer class=\"ds-agent-actions\" aria-label=\"宿主验证操作\"><button class=\"ds-agent-action ds-primary\" type=\"button\">开始验证</button><button class=\"ds-agent-action ds-stop\" type=\"button\" disabled>停止</button><button class=\"ds-agent-action ds-primary\" type=\"button\" disabled>继续</button><small>不保存对话副本、推理、工具日志或未提交修改</small></footer>",
-      "css": ".ds-agent-actions { display:flex; align-items:center; gap:10px; padding:16px 30px; border:1px solid #364041; background:#0a0f10; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-agent-action { min-width:126px; min-height:44px; padding:0 18px; border:1px solid #465152; border-radius:6px; background:#151b1c; color:#d4dad7; cursor:pointer; font-size:.78rem; font-weight:680; } .ds-agent-action:hover:not(:disabled) { border-color:#72807e; background:#1a2223; } .ds-agent-action:focus-visible { outline:2px solid #8ab7f8; outline-offset:3px; box-shadow:0 0 0 5px rgba(78,136,223,.24); } .ds-agent-action.ds-primary { border-color:var(--blue,#4e88df); background:#245da9; color:#fff; } .ds-agent-action.ds-primary:hover:not(:disabled) { background:#2e6abb; } .ds-agent-action.ds-stop { color:#e1b36c; } .ds-agent-action:disabled { cursor:not-allowed; color:#68716f; border-color:#2c3435; background:#111617; opacity:.72; } .ds-agent-actions small { margin-left:auto; color:#808a87; font:600 .62rem/1.45 ui-monospace,monospace; text-align:right; } @media(max-width:700px) { .ds-agent-actions { flex-direction:column; align-items:stretch; padding:14px 18px; } .ds-agent-action { width:100%; } .ds-agent-actions small { margin:4px 0 0; text-align:left; } }"
-    },
-    {
       "name": "Disabled Composer",
       "kind": "input",
       "refersTo": "composer-disabled",
       "description": "始终禁用，并按工作区以可见文字和 aria-describedby 解释 Scene 应在接触表编辑或完整创作指令的后续启用。",
       "html": "<div class=\"ds-composer\"><label for=\"ds-composer-input\">Composer</label><div><input id=\"ds-composer-input\" aria-describedby=\"ds-composer-reason\" disabled><span>Composer 将在后续功能中启用</span><small id=\"ds-composer-reason\">Composer 不编辑 Scene，请使用接触表</small></div><i class=\"ds-lock\" aria-hidden=\"true\"></i></div>",
       "css": ".ds-composer { display:grid; grid-template-columns:auto minmax(0,1fr) 54px; align-items:center; gap:16px; padding:14px 16px; border:1px solid var(--line,#303738); background:#0b1011; color:#b6bebb; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-composer label { font-size:.95rem; font-weight:680; } .ds-composer > div { position:relative; min-width:0; } .ds-composer input { width:100%; min-height:48px; padding:0 18px; border:1px solid #3d4647; border-radius:7px; background:#171d1f; color:#a7afac; opacity:1; -webkit-text-fill-color:#a7afac; } .ds-composer span,.ds-composer small { position:absolute; left:18px; pointer-events:none; } .ds-composer span { top:8px; color:#a7afac; font-size:.8rem; } .ds-composer small { top:27px; color:#939c99; font:500 .75rem/1.2 ui-monospace,monospace; } .ds-lock { position:relative; width:18px; height:15px; place-self:center; border:2px solid #69716f; border-radius:2px; } .ds-lock:before { content:\"\"; position:absolute; width:10px; height:9px; left:2px; top:-10px; border:2px solid #69716f; border-bottom:0; border-radius:8px 8px 0 0; }"
+    },
+    {
+      "name": "Asset Reference Panel",
+      "kind": "custom",
+      "description": "复用项目检查侧台管理当前 Scene 的有序 Asset 引用，不扩张为第三列或缩略图画廊。",
+      "html": "<aside class=\"ds-asset-panel\"><button class=\"ds-back\" type=\"button\">返回项目检查</button><h2>Scene 03 · Asset</h2><dl><div><dt>SCENE ID</dt><dd>30000000…</dd></div><div><dt>引用</dt><dd>2 / 256</dd></div></dl><div class=\"ds-primary-actions\"><button type=\"button\">导入并绑定</button><button type=\"button\">添加已有 Asset</button></div><article class=\"ds-asset-item\"><header><strong>scene-03.mp4</strong><span>可用</span></header><code>assets/scene-03.mp4</code><div><button type=\"button\">预览</button><button type=\"button\">下移</button><button type=\"button\">解除引用</button></div></article></aside>",
+      "css": ".ds-asset-panel { width:320px; padding:20px; border:1px solid var(--asset-divider,#343d3e); background:var(--panel,#0d1213); color:var(--asset-control-copy,#d7ddda); font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-asset-panel h2 { margin:0 0 18px; color:var(--asset-title,#e3e7e4); font-size:1.08rem; } .ds-back { min-height:44px; margin-bottom:18px; border:0; background:transparent; color:var(--focus-blue,#9dbcf0); cursor:pointer; } .ds-asset-panel dl { display:grid; gap:8px; margin:0; } .ds-asset-panel dl div { display:flex; justify-content:space-between; gap:12px; color:var(--asset-muted,#8f9996); font:600 .68rem/1.4 ui-monospace,monospace; } .ds-asset-panel dd { margin:0; color:var(--asset-fact-value,#c8cfcc); } .ds-primary-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:18px; } .ds-asset-panel button { min-height:44px; border:1px solid var(--preview-control-line,#4a5556); border-radius:6px; background:var(--control,#151b1c); color:var(--asset-control-copy,#d7ddda); padding:0 10px; font-weight:700; cursor:pointer; } .ds-primary-actions button:first-child { border-color:var(--proof-blue,#4e88df); background:var(--proof-blue-deep,#245da9); color:#fff; } .ds-asset-panel button:hover { border-color:var(--blue-control-hover,#6f8db8); color:#fff; } .ds-asset-panel button:focus-visible { outline:2px solid var(--focus-blue,#9dbcf0); outline-offset:3px; } .ds-asset-item { margin-top:18px; padding:16px 0; border-top:1px solid var(--asset-divider,#343d3e); border-bottom:1px solid var(--asset-divider,#343d3e); } .ds-asset-item header { display:flex; align-items:center; gap:8px; } .ds-asset-item header strong { min-width:0; overflow:hidden; color:var(--asset-title,#e3e7e4); text-overflow:ellipsis; white-space:nowrap; } .ds-asset-item header span { margin-left:auto; color:var(--connected-green,#67c477); font:700 .62rem ui-monospace,monospace; } .ds-asset-item code { display:block; margin-top:7px; color:var(--asset-path-muted,#919b98); font:500 .64rem/1.45 ui-monospace,monospace; overflow-wrap:anywhere; } .ds-asset-item div { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:12px; }"
+    },
+    {
+      "name": "Asset Preview",
+      "kind": "custom",
+      "description": "独立只读媒体舞台，完整保留文件事实；关闭后停止媒体并把焦点还给发起按钮。",
+      "html": "<div class=\"ds-preview-layer\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"ds-preview-title\"><section class=\"ds-preview-sheet\"><header><div><strong id=\"ds-preview-title\">Asset 只读预览</strong><span>只检查文件本体，不改变 Scene 或 Player</span></div><button type=\"button\">关闭</button></header><div class=\"ds-preview-media\">16:9 MEDIA · CONTAIN</div><dl class=\"ds-preview-facts\"><div><dt>文件名</dt><dd>scene-03.mp4</dd></div><div><dt>项目路径</dt><dd>assets/scene-03.mp4</dd></div><div><dt>大小</dt><dd>24.8 MiB</dd></div></dl></section></div>",
+      "css": ".ds-preview-layer { display:grid; place-items:center; min-height:520px; padding:24px; background:var(--preview-scrim,rgba(3,5,5,.9)); font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-preview-sheet { width:min(900px,96vw); height:min(620px,86vh); display:grid; grid-template-rows:auto minmax(0,1fr) auto; overflow:hidden; border:1px solid var(--preview-frame,#485152); border-radius:9px; background:var(--panel,#0d1213); box-shadow:0 28px 80px rgba(0,0,0,.7); } .ds-preview-sheet>header { display:flex; align-items:center; justify-content:space-between; gap:20px; min-height:72px; padding:12px 18px; border-bottom:1px solid var(--separator,#364041); } .ds-preview-sheet header strong,.ds-preview-sheet header span { display:block; } .ds-preview-sheet header strong { color:var(--preview-title,#eef1ed); font-size:.9rem; } .ds-preview-sheet header span { margin-top:5px; color:var(--preview-muted,#909a97); font-size:.68rem; } .ds-preview-sheet button { min-width:72px; min-height:44px; border:1px solid var(--preview-control-line,#4a5556); border-radius:6px; background:var(--control,#151b1c); color:var(--asset-control-copy,#d7ddda); cursor:pointer; } .ds-preview-sheet button:hover { border-color:var(--blue-control-hover,#6f8db8); color:#fff; } .ds-preview-sheet button:focus-visible { outline:2px solid var(--focus-blue,#9dbcf0); outline-offset:3px; } .ds-preview-media { min-height:0; display:grid; place-items:center; padding:20px; background:var(--film,#050707); color:var(--preview-code,#c0c8c5); font:600 .67rem ui-monospace,monospace; } .ds-preview-facts { display:grid; grid-template-columns:1fr 2fr 1fr; margin:0; border-top:1px solid var(--line,#303738); } .ds-preview-facts div { min-width:0; padding:14px 18px; border-right:1px solid var(--line,#303738); } .ds-preview-facts div:last-child { border-right:0; } .ds-preview-facts dt { color:var(--preview-label,#7f8a87); font:600 .62rem ui-monospace,monospace; } .ds-preview-facts dd { margin:6px 0 0; overflow-wrap:anywhere; color:var(--preview-value,#c8cecb); font-size:.72rem; } @media(max-width:700px) { .ds-preview-layer { padding:6px; } .ds-preview-sheet { width:100%; height:100%; border-radius:6px; } .ds-preview-facts { grid-template-columns:1fr; } .ds-preview-facts div { border-right:0; border-bottom:1px solid var(--line,#303738); } }"
     }
   ],
   "narrative": {
     "northStar": "暗房接触印样台",
-    "overview": "Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。\n\n这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的批注槽，始终禁用并说明完整创作指令将在后续功能中启用。\n\n当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑和保存状态明确哪些内容正在改变；Asset、Speech、Agent、Preview、Render Program 与 Composer 的不可写边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示候选 Render Program、预览、对话或日志历史。",
+    "overview": "Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。\n\n这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的批注槽，始终禁用并说明完整创作指令将在后续功能中启用。\n\n当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑、Asset 子视图和保存状态明确哪些内容正在改变。Asset 列继续只做摘要，导入、有序引用和只读预览在既有项目检查层与独立预览层中完成，不抢占接触表主面。Speech、Agent、Render Program 与 Composer 的不可写边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示候选 Render Program、对话或日志历史。",
     "keyCharacteristics": [
       "黑色暗房外壳包围背光暖白接触表，主内容拥有最高亮度与面积。",
-      "Scene 是连续剪接行；Narration 居主列并可原位编辑，Asset 与 Speech 只显示身份、路径或状态。",
+      "Scene 是连续校片行；Narration 居主列，Asset 仅显示身份、路径或占位。",
+      "Asset 引用管理复用项目检查侧台；内容预览仅在独立只读层中出现，关闭后回到原操作位置。",
       "蓝色校片线同时配合三角指示与圈记边码表达选择，不只依赖颜色。",
       "Agent 工作区是单任务验证台：桌面任务/结果双列，窄屏顺序叠放，不出现对话气泡。",
       "状态同时使用文字与形状：蓝色圆点表示运行，绿色圆点表示连接或成功，琥珀方形表示停止或不可用。",
@@ -310,7 +820,7 @@
     ],
     "donts": [
       "Don't 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。",
-      "Don't 让表格工作区以外的 Agent、Preview、Render Program、Composer 或桥接层获得 Scene 写入口；不要加入 Asset 编辑、TTS、Render、导入或 Legacy 项目入口。",
+      "Don't 让表格工作区以外的 Agent、Preview、Render Program、Composer 或桥接层获得 Scene 写入口；不要加入 Asset 删除/重命名/转码/裁切、TTS、Render 或 Legacy 项目入口。",
       "Don't 用颜色作为选择、连接、有效或只读状态的唯一信号。",
       "Don't 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene。",
       "Don't 隐藏或启用 Composer；禁用原因必须同时可见且可被辅助技术读取。",
