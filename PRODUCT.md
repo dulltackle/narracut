@@ -24,7 +24,7 @@ Narracut 以脚本和 Scene 为内容骨架，让 AI 创作独立的 Render Prog
 
 Narracut 不是传统视频编辑器，也不是在通用 IDE 三栏里堆叠媒体工具。Scene 是稳定、可扫描的内容与时间单位；Project DSL 保存最小内容事实，Render Program 独占成片表现，Narration 与 Speech 决定时间。
 
-当前表格工作区把 Scene 表现为接触印样中的连续剪接行：Narration 是可原位编辑的主内容，Asset 列保持紧凑摘要，具体引用在右侧检查子视图管理，不以缩略图画廊主导阅读。接触表上沿的操作轨承载新增、复制、重排、删除、Undo/Redo 与项目级保存状态；Asset 子视图承载导入、添加已有登记、排序、解除引用与只读预览。Agent 工作区继续提供固定、只读的 Codex 创作线程宿主验证；Composer 保留稳定位置并诚实禁用。
+当前表格工作区把 Scene 表现为接触印样中的连续剪接行：Narration 是可原位编辑的主内容，Asset 列保持紧凑摘要，具体引用在右侧检查子视图管理，不以缩略图画廊主导阅读。接触表上沿的操作轨承载新增、复制、重排、删除、Undo/Redo 与项目级保存状态；Asset 子视图承载导入、添加已有登记、排序、解除引用与只读预览。Agent 工作区继续提供固定、只读的 Codex 创作线程宿主验证；Composer 保留稳定位置，提供本次会话的多行创作草稿，发送入口保持禁用。
 
 ## Operating Context
 
@@ -35,8 +35,8 @@ Narracut 不是传统视频编辑器，也不是在通用 IDE 三栏里堆叠媒
 - `inspect_project` 只接受用户明确给出的 Project VNext 绝对目录，不负责浏览或选择目录。
 - MCP 同时返回结构化检查结果与内嵌工作台；模型和用户看到同一项目身份、检查结论与错误语义。
 - Agent 宿主验证由工作台自动创建或恢复专用 Codex 线程；用户不选择 Thread，也不输入 Thread ID。线程失效时继续操作会自动绑定替代线程。
-- 工作台顶部持续显示项目文件夹、Project ID 和连接文字；表格工作区与 Agent 工作区共享所选 Scene、编辑内容、受 `24 MiB` 内存预算约束的 Scene 撤销历史和串行保存队列，禁用 Composer 固定在底部。
-- 桌面端同时显示 Scene 接触表与项目检查；移动端保留 Project ID 和连接文字，并把项目检查收进可打开的抽屉。
+- 工作台顶部持续显示项目文件夹、Project ID 和连接文字；表格工作区与 Agent 工作区由两个常驻 `tabpanel` 承载，共享所选 Scene、编辑内容、受 `24 MiB` 内存预算约束的 Scene 撤销历史和串行保存队列；切换只改变可见工作区，不重建这些状态。Composer 的同一个多行输入框固定在底部，保留会话草稿。
+- 桌面端同时显示 Scene 接触表与项目检查；移动端保留 Project ID 和连接文字，并把项目检查收进可打开的抽屉；打开时焦点进入关闭按钮，关闭后返回入口。窄屏 Agent 内容与成片 Preview 占位沿同一个工作区纵向滚动。
 - 字体与两张纸张/胶片 raster 由插件资源以内嵌 data URI 提供；工作台运行时不依赖公网资源。
 
 ## Capabilities and Constraints
@@ -50,7 +50,10 @@ Narracut 不是传统视频编辑器，也不是在通用 IDE 三栏里堆叠媒
 - 失败状态向模型和工作台返回相同的稳定错误与有界诊断，并明确说明目录未被修改。
 - 表格工作区可新增、编辑、复制、重排和删除最多 1,000 个 Scene，并为其添加、重排和解除 Asset 引用；修改 Narration 立即移除失效 Speech，复制生成新 Scene ID 且不复制 Speech。Asset 删除/重命名/转码/裁切、Speech 生成、Render、候选管理和自由 Agent 创作任务不在当前交付内。
 - Scene 写入在客户端提交前和服务端落盘前独立执行严格结构、一致性、资源与身份验证；原子提交前失败保留旧持久字节和合法内存修改，外部冲突与身份失效停止自动写入。
-- Composer 必须保持可见且禁用，并通过 `aria-describedby` 在表格工作区说明“Composer 不编辑 Scene，请使用接触表”，在 Agent 工作区说明完整创作指令尚未启用。
+- Composer 使用常驻的原生多行 `textarea`，支持输入、选择、粘贴与中文组合输入；工作区切换和 Agent 状态刷新不替换输入节点。草稿仅保留在本次会话，不写入项目或发送给 Agent。发送按钮保持原生 `disabled`，并通过可见说明及 `aria-describedby` 明确“草稿仅保留在本次会话，创作发送尚未启用”和“Composer 不编辑 Scene，请使用接触表”。
+- 工作区标签采用手动键盘激活：左右方向键与 Home/End 只移动焦点，Enter/Space 或点击才切换；Scene 选择不驱动播放位置，切换不触发任务或保存调用。
+- Agent 侧项目检查只读；“前往表格工作区修改 Scene”仅提供手工处理修改建议的入口，不自动应用修改。Agent 状态变化只局部更新任务区域，不打断 Scene 编辑、Composer 草稿或只读媒体。
+- 成片 Preview 与候选审核当前只显示“尚无播放位置 · Preview 尚未接入”和“尚未检查 · 候选审核尚未接入”；这些占位不代表真实播放、候选新鲜度判断或验收能力，已接入的 Asset 文件只读预览与之区分。
 - 每个临时宿主验证任务同一时刻只有一个当前线程驱动；停止、重绑或线程失效会先撤销旧驱动写权，迟到回调只能产生有界诊断。
 - 持久检查点只包含任务 ID、状态、停止原因与可失效线程指针，不保存对话副本、推理、工具日志或未提交修改。
 - Project VNext 是对 V1–V3、封闭 Visual Type、Text Preset、固定 Composition 与独立浏览器工作台的破坏性替代；不兼容、不迁移，也不只读打开 Legacy Project。
@@ -78,7 +81,7 @@ Narracut 不是传统视频编辑器，也不是在通用 IDE 三栏里堆叠媒
 - `CONTEXT.md`：领域术语、内容与表现权威、时间模型、Asset、Speech、Preview 与 Render 的稳定定义。
 - `src/server/project-lifecycle.ts`、`src/server/project-vnext-inspection.ts` 与 `src/server/project-asset-preview.ts`：项目租约内的 Asset 复制/登记、运行时可用性检查与安全只读预览实现。
 - `plugins/narracut/src/server.ts`、`plugins/narracut/src/codex-host.ts` 与 `plugins/narracut/src/codex-app-server-host.ts`：MCP 工具、Asset app-only 工具、宿主状态机、Codex app-server 适配器、结构化输出与 UI Resource 的实现。
-- `plugins/narracut/workbench.html` 与 `plugins/narracut/workbench.js`：当前双工作区外壳、Scene 接触表、Asset 子视图/预览层、Agent 宿主验证、移动端抽屉和禁用 Composer 的实现。
+- `plugins/narracut/workbench.html` 与 `plugins/narracut/workbench.js`：当前双工作区外壳、Scene 接触表、Asset 子视图/预览层、Agent 宿主验证、移动端抽屉和会话草稿 Composer 的实现。
 - `tests/project-lifecycle.test.ts`、`tests/narracut-plugin.test.ts`、`tests/project-vnext-inspection.test.ts` 与 `tests/e2e/plugin-workbench.spec.ts`：Asset 字节导入、安全拒绝、插件契约、可用性状态、引用管理、预览与响应式工作台行为证据。`tests/codex-host-validation.test.ts` 和 `tests/narracut-codex-host.live.test.ts` 继续覆盖宿主验证。
 - 当前没有已确认的客户证言、公开案例、性能基准、商业数据或行业背书；产品界面不得自行编造。
 

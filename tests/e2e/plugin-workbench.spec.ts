@@ -497,12 +497,12 @@ test("有效项目首屏显示连接、身份、双工作区、Scene 与检查�
   await expect(page.getByText("项目清单", { exact: true })).toBeVisible();
   await expect(page.getByText("Project DSL", { exact: true })).toBeVisible();
   await expect(page.getByText("video.md", { exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toBeDisabled();
+  await expect(page.getByRole("textbox", { name: "Composer" })).toBeEnabled();
   await expect(page.getByRole("textbox", { name: "Composer" })).toHaveAttribute(
     "aria-describedby",
-    "composer-disabled-reason",
+    "composer-draft-reason composer-scope",
   );
-  await expect(page.getByText("Composer 将在后续功能中启用", { exact: true })).toBeVisible();
+  await expect(page.getByText("草稿仅保留在本次会话，创作发送尚未启用", { exact: true })).toBeVisible();
 });
 
 test("只读检查的非空项目不显示无响应的 Scene 写控件", async ({ page }) => {
@@ -532,7 +532,7 @@ test("键盘焦点不改变 Scene，显式激活后切换工作区仍保留选�
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
   await expect(page.getByRole("tab", { name: "Agent 工作区" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByText("Scene 02 保持选中", { exact: true })).toBeVisible();
-  await expect(page.getByText("Composer 将在后续功能中启用", { exact: true })).toBeVisible();
+  await expect(page.getByText("草稿仅保留在本次会话，创作发送尚未启用", { exact: true })).toBeVisible();
 });
 
 test("零 Scene 与无效项目都有明确、非纯颜色状态", async ({ page }) => {
@@ -602,7 +602,10 @@ test("窄面板把项目检查收进可操作抽屉，Composer 仍可见", async
   await expect(inspectionToggle).toBeVisible();
   await inspectionToggle.click();
   await expect(page.getByRole("complementary", { name: "项目检查" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "关闭项目检查" })).toBeFocused();
   await expect(page.getByRole("textbox", { name: "Composer" })).toBeInViewport();
+  await page.getByRole("button", { name: "关闭项目检查" }).click();
+  await expect(inspectionToggle).toBeFocused();
 });
 
 test("Scene Speech 单元格引导项目 TTS 配置、生成状态与半开时间窗", async ({ page }) => {
@@ -892,9 +895,11 @@ test("保存失败可显式重试，工作区切换保留编辑与历史；冲�
   await page.getByRole("textbox", { name: "Scene 01 Narration" }).blur();
   await expect(page.getByText("保存失败", { exact: true })).toBeVisible();
   await expect.poll(() => calls).toBe(1);
+  await page.getByRole("textbox", { name: "Composer" }).fill("保存失败时保留创作草稿");
 
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
   await page.getByRole("tab", { name: "表格工作区" }).click();
+  await expect(page.getByRole("textbox", { name: "Composer" })).toHaveValue("保存失败时保留创作草稿");
   await expect(page.getByRole("textbox", { name: "Scene 01 Narration" })).toHaveValue("保留在内存中的合法修改");
   await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
   mode = "success";
@@ -1314,8 +1319,8 @@ test("Agent 工作区运行固定宿主验证并展示经过身份校验的有�
   await expect(page.getByText("项目内容未修改", { exact: true })).toBeVisible();
   await expect(page.locator("[data-chat-message]")).toHaveCount(0);
   await expect(page.getByText("不保存对话副本、推理、工具日志或未提交修改", { exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toBeDisabled();
-  await expect(page.getByText("完整创作指令将在后续功能中启用", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Composer" })).toBeEnabled();
+  await expect(page.getByText("草稿仅保留在本次会话，创作发送尚未启用", { exact: true })).toBeVisible();
 });
 
 test("Agent 验证可停止、继续，并在窄面板纵向排列状态与操作", async ({ page }) => {
@@ -1406,10 +1411,10 @@ test("Agent 验证可停止、继续，并在窄面板纵向排列状态与操�
   await stopButton.scrollIntoViewIfNeeded();
   await expect(stopButton).toBeInViewport();
   await stopButton.focus();
-  const scrollTop = await page.locator(".stage").evaluate((element) => element.scrollTop);
+  const scrollTop = await page.locator(".stage:visible").evaluate((element) => element.scrollTop);
   await page.waitForTimeout(650);
   await expect(stopButton).toBeFocused();
-  await expect.poll(() => page.locator(".stage").evaluate((element) => element.scrollTop)).toBe(scrollTop);
+  await expect.poll(() => page.locator(".stage:visible").evaluate((element) => element.scrollTop)).toBe(scrollTop);
 });
 
 test("线程丢失态保留恢复指针但显示不可用语义", async ({ page }) => {
@@ -1433,7 +1438,7 @@ test("线程丢失态保留恢复指针但显示不可用语义", async ({ page 
   });
 
   await expect(page.getByText("Codex 创作线程不可用", { exact: true })).toBeVisible();
-  await expect(page.locator('.status-mark[data-status="unavailable"]')).toHaveCSS("border-radius", "2px");
+  await expect(page.getByRole('region', { name: '临时任务状态' }).locator('.status-mark[data-status="unavailable"]')).toHaveCSS("border-radius", "2px");
   await expect(page.getByText("thread-lost", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "继续" })).toBeEnabled();
 });
@@ -1450,4 +1455,83 @@ test("Agent 标题在支持的窄屏与桌面宽度不产生孤字换行或溢�
     );
     expect(titleFits).toBe(true);
   }
+});
+
+test("双工作区共享多行草稿、Scene 历史与活动任务，刷新不中断中文输入", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(2);
+  const calls: string[] = [];
+  await installAppToolBridge(page, (name) => {
+    calls.push(name);
+    return { structuredContent: { status: "saved", projectRevision: `sha256:${"2".repeat(64)}` } };
+  });
+  const taskCalls: string[] = [];
+  await installHostToolBridge(page, (name) => {
+    taskCalls.push(name);
+    return { taskId: "task-shared", status: "running", reason: null,
+      connection: { status: "connected", threadId: "thread-shared", replaced: false } };
+  });
+  await sendResult(page, initial);
+  await page.getByRole("button", { name: /Scene 02/ }).click();
+  await page.locator('[data-scene-row]').nth(1).getByRole("button", { name: "编辑 Narration" }).click();
+  await page.getByRole("textbox", { name: "Scene 02 Narration" }).fill("保留第二幕的修改");
+  const draft = page.getByRole("textbox", { name: "Composer" });
+  await draft.fill("第一行创作要求\n第二行待补充");
+  const draftNode = await draft.elementHandle();
+  const tableNode = await page.getByRole("tabpanel", { name: "表格工作区" }).elementHandle();
+  await page.getByRole("tab", { name: "Agent 工作区" }).click();
+  await expect(page.getByText("Scene 02 保持选中", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "管理项目 Asset" })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: /Narration/ })).toHaveCount(0);
+  await draft.focus();
+  await draft.dispatchEvent("compositionstart", { data: "创" });
+  await sendResult(page, { hostValidation: {
+    taskId: "task-shared", status: "running", reason: null,
+    connection: { status: "connected", threadId: "thread-shared", replaced: false },
+  } });
+  await draft.evaluate((node: HTMLTextAreaElement) => {
+    node.value += "\n创作中";
+    node.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
+  });
+  await draft.dispatchEvent("compositionend", { data: "创作中" });
+  await expect(draft).toBeFocused();
+  await expect(draft).toHaveValue("第一行创作要求\n第二行待补充\n创作中");
+  expect(await draftNode!.evaluate((node) => node === document.getElementById("composer-draft"))).toBe(true);
+  await page.getByRole("button", { name: "前往表格工作区修改 Scene" }).click();
+  expect(await tableNode!.evaluate((node) => node === document.getElementById("workspace-table"))).toBe(true);
+  await expect(page.getByRole("textbox", { name: "Scene 02 Narration" })).toHaveValue("保留第二幕的修改");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator('[data-scene-row]').nth(1)).toContainText(initial.scenes[1]!.narration);
+  expect(calls.every((name) => name === "save_project_scenes")).toBe(true);
+  await expect.poll(() => taskCalls.length).toBeGreaterThan(0);
+  expect(taskCalls.every((name) => name === "get_agent_host_validation")).toBe(true);
+  await page.getByRole("tab", { name: "Agent 工作区" }).click();
+  await expect(page.getByText("task-shared", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "停止", exact: true })).toBeEnabled();
+});
+
+test("工作区标签支持手动键盘激活，零 Scene 与长草稿在窄屏可用", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await loadWorkbench(page);
+  await sendResult(page, validResult(0));
+  const table = page.getByRole("tab", { name: "表格工作区" });
+  const agent = page.getByRole("tab", { name: "Agent 工作区" });
+  await table.focus();
+  await table.press("ArrowRight");
+  await expect(agent).toBeFocused();
+  await expect(table).toHaveAttribute("aria-selected", "true");
+  await agent.press("Enter");
+  await expect(page.getByRole("tabpanel", { name: "Agent 工作区" })).toBeVisible();
+  await expect(page.getByText("当前项目没有 Scene", { exact: true })).toBeVisible();
+  await expect(page.getByText("尚未检查 · 候选审核尚未接入", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "开始验证" }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("button", { name: "开始验证" })).toBeInViewport();
+  expect(await page.locator("#workspace-agent .stage").evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true);
+  const draft = page.getByRole("textbox", { name: "Composer" });
+  await draft.fill("长草稿保留\n".repeat(100));
+  await expect(draft).toBeInViewport();
+  await table.click();
+  await expect(draft).toHaveValue("长草稿保留\n".repeat(100));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

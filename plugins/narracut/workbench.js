@@ -13,6 +13,10 @@
   let activeBriefSavePromise = null;
   let assetPreviewRequest = 0;
   let speechPollTimer = null;
+  let bindings = new AbortController();
+  let composing = false;
+  let renderPending = false;
+  const renderedRegions = new WeakMap();
 
   const state = {
     result: null,
@@ -25,6 +29,7 @@
     autosaveStopped: false,
     saveInFlight: false,
     workspace: "table",
+    composerDraft: "",
     selected: null,
     start: 0,
     inspectionOpen: false,
@@ -113,24 +118,21 @@
 
   function tabs() {
     return `<nav class="tabs" role="tablist" aria-label="Narracut 工作区">
-      <button class="tab" type="button" role="tab" data-workspace="table" aria-selected="${state.workspace === "table"}">表格工作区</button>
-      <button class="tab" type="button" role="tab" data-workspace="agent" aria-selected="${state.workspace === "agent"}">Agent 工作区</button>
+      <button class="tab" type="button" role="tab" id="workspace-tab-table" aria-controls="workspace-table" data-workspace="table" aria-selected="${state.workspace === "table"}">表格工作区</button>
+      <button class="tab" type="button" role="tab" id="workspace-tab-agent" aria-controls="workspace-agent" data-workspace="agent" aria-selected="${state.workspace === "agent"}">Agent 工作区</button>
       <button class="inspection-toggle" type="button" data-open-inspection aria-expanded="${state.inspectionOpen}">打开项目检查</button>
     </nav>`;
   }
 
   function composer() {
-    const reason = state.workspace === "agent"
-      ? "完整创作指令将在后续功能中启用"
-      : "Composer 不编辑 Scene，请使用接触表";
-    return `<footer class="composer">
-      <div class="composer-label">Composer</div>
+    return `<footer class="composer" aria-label="创作草稿">
+      <label class="composer-label" for="composer-draft">Composer</label>
       <div class="composer-field">
-        <input aria-label="Composer" aria-describedby="composer-disabled-reason" type="text" disabled>
-        <span class="composer-placeholder">Composer 将在后续功能中启用</span>
-        <div class="composer-reason" id="composer-disabled-reason">${reason}</div>
+        <textarea id="composer-draft" aria-label="Composer" aria-describedby="composer-draft-reason composer-scope" rows="2" placeholder="记下创作要求…">${escapeHtml(state.composerDraft)}</textarea>
+        <p class="composer-reason" id="composer-draft-reason">草稿仅保留在本次会话，创作发送尚未启用</p>
+        <p class="composer-reason" id="composer-scope">Composer 不编辑 Scene，请使用接触表</p>
       </div>
-      <div class="lock" aria-hidden="true"><span class="lock-shape"></span></div>
+      <button class="composer-send" type="button" disabled aria-describedby="composer-draft-reason">发送</button>
     </footer>`;
   }
 
@@ -393,6 +395,7 @@
   }
 
   function inspector(result) {
+    if (state.workspace === "agent") return projectInspector({ ...result, writable: false });
     if (state.inspectorMode === "tts") return ttsInspector(result);
     if (state.inspectorMode === "scene-assets") return sceneAssetInspector(result);
     if (state.inspectorMode === "asset-picker") return assetPickerInspector(result, false);
@@ -556,7 +559,7 @@
         <div class="status-line"><span class="status-mark" data-status="${status.mark}" aria-hidden="true"></span><dt>任务状态</dt><dd><span>${status.label}</span><span class="replacement-note">${escapeHtml(status.detail)}</span></dd></div>
         <div class="status-line"><span class="status-mark" data-status="${connected ? "connected" : validation ? "unavailable" : "idle"}" aria-hidden="true"></span><dt>线程连接</dt><dd><span>${connected ? "Codex 创作线程已连接" : validation ? "Codex 创作线程不可用" : "等待开始"}</span>${replaced ? '<span class="replacement-note">替代线程已接管</span>' : ""}</dd></div>
         <div class="status-line" data-brief-review="${briefReviewPending === true}"><span class="status-mark" data-status="${briefReviewState.mark}" aria-hidden="true"></span><dt>Video Brief</dt><dd><span>${briefReviewState.label}</span><span class="replacement-note">${briefReviewState.detail}</span></dd></div>
-        <div class="status-line"><span class="status-mark" data-status="idle" aria-hidden="true"></span><dt>当前 Scene</dt><dd>${scene ? `Scene ${pad(sceneIndex)} 保持选中` : "当前项目没有 Scene"}</dd></div>
+        <div class="status-line"><span class="status-mark" data-status="idle" aria-hidden="true"></span><dt>所选 Scene</dt><dd>${scene ? `Scene ${pad(sceneIndex)} 保持选中` : "当前项目没有 Scene"}</dd></div>
         <div class="status-line"><span class="status-mark" data-status="idle" aria-hidden="true"></span><dt>Task ID</dt><dd>${escapeHtml(taskId)}</dd></div><div class="status-line"><span class="status-mark" data-status="idle" aria-hidden="true"></span><dt>Thread</dt><dd>${escapeHtml(threadId)}</dd></div>
       </dl></section><section class="result-board" aria-label="验证结果"><h2 class="board-title"><span>验证结果</span><span>BOUNDED RESULT</span></h2><div class="result-field" data-status="${succeeded ? "succeeded" : status.mark}"><h2>${succeeded ? "验证成功" : running ? "正在验证" : stopped ? "验证已停止" : "等待验证"}</h2><p>${succeeded ? escapeHtml(summary) : running ? "结果只有通过任务身份、当前驱动身份和项目身份校验后才会进入这里。" : stopped ? "已保留最小任务检查点；继续时优先恢复原线程，失效则自动创建替代线程。" : "开始后，Narracut 将自动创建专用 Codex 创作线程；无需选择 Thread 或输入 Thread ID。"}</p>${succeeded ? '<div class="proof-list"><div class="proof-item">任务与当前驱动身份已校验</div><div class="proof-item">项目内容未修改</div></div>' : ""}</div>${diagnostic ? `<div class="agent-diagnostic" role="status"><strong>${escapeHtml(diagnostic.code)}</strong>${escapeHtml(diagnostic.message)}</div>` : ""}</section></div>
       <footer class="agent-actions" aria-label="宿主验证操作"><button class="agent-action" data-agent-action="start" data-kind="primary" type="button" ${state.agentBusy || running || stopped ? "disabled" : ""}>开始验证</button><button class="agent-action" data-agent-action="stop" data-kind="stop" type="button" ${state.agentBusy || !running ? "disabled" : ""}>停止</button><button class="agent-action" data-agent-action="continue" data-kind="primary" type="button" ${state.agentBusy || !stopped ? "disabled" : ""}>继续</button><div class="agent-action-note">不保存对话副本、推理、工具日志或未提交修改</div></footer>
@@ -613,7 +616,7 @@
   }
 
   function valid(result) {
-    return `<div class="workspace">${state.workspace === "table" ? table(result) : agent(result)}${inspector(result)}</div>${assetPreviewLayer()}${briefEditorLayer()}`;
+    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="preview-context" aria-label="成片 Preview 与候选审核"><h2>成片 Preview</h2><dl><div><dt>播放 Scene</dt><dd>尚无播放位置 · Preview 尚未接入</dd></div><div><dt>候选新鲜度</dt><dd><span class="status-mark" data-status="unavailable" aria-hidden="true"></span>尚未检查 · 候选审核尚未接入</dd></div></dl><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
   }
 
   function invalid(result) {
@@ -626,13 +629,69 @@
     return `<div class="workspace"><main class="stage"><section class="state-panel"><div class="loading" aria-label="正在连接 Narracut"><i></i><i></i><i></i></div></section></main><aside class="inspection" aria-label="项目检查"><h2>项目检查</h2><div class="rule"></div><p>等待工具结果…</p></aside></div>`;
   }
 
+  // 外壳、草稿与 Preview 宿主始终留在原 DOM 位置；状态刷新只更新相关区域。
+  function updateRegion(element, html) {
+    if (!element || renderedRegions.get(element) === html) return;
+    element.innerHTML = html;
+    renderedRegions.set(element, html);
+  }
+
+  function updateWorkspaceVisibility() {
+    document.querySelectorAll("[data-workspace]").forEach((tab) => {
+      const selected = state.workspace === tab.dataset.workspace;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    });
+    for (const name of ["table", "agent"]) {
+      const panel = document.getElementById(`workspace-${name}`);
+      if (panel) panel.hidden = name !== state.workspace;
+    }
+  }
+
+  function switchWorkspace(workspace) {
+    if (state.workspace === workspace) return;
+    state.workspace = workspace;
+    updateWorkspaceVisibility();
+    // 不调用任务、保存或 Scene 写入口，也不由 Scene 选择驱动播放位置。
+    updateRegion(document.querySelector("[data-agent-content]"), agent(state.result));
+    updateRegion(document.querySelector("[data-inspector-region]"), inspector(state.result));
+    bindings.abort();
+    bindings = new AbortController();
+    bind();
+    document.querySelector(`[data-workspace="${workspace}"]`)?.focus();
+  }
+
   function render() {
+    if (composing) {
+      renderPending = true;
+      return;
+    }
+    renderPending = false;
     const result = state.result;
     const launcherMode = result?.status === "launcher";
     app.className = `app-shell${launcherMode ? " launcher-shell" : state.project ? " editing-shell" : ""}`;
-    app.innerHTML = launcherMode
-      ? `${launcherRail()}${launcher()}${launcherFooter()}`
-      : `${rail(result)}${tabs()}${result === null ? loading() : result.status === "valid" ? valid(result) : invalid(result)}${composer()}`;
+    bindings.abort();
+    bindings = new AbortController();
+    if (launcherMode) {
+      app.innerHTML = `${launcherRail()}${launcher()}${launcherFooter()}`;
+    } else {
+      if (!document.getElementById("composer-draft")) {
+        app.innerHTML = `<div data-rail-region></div><div data-tabs-region></div><div data-workspace-region></div>${composer()}`;
+        const draft = document.getElementById("composer-draft");
+        draft.addEventListener("input", () => { state.composerDraft = draft.value; });
+      }
+      updateRegion(document.querySelector("[data-rail-region]"), rail(result));
+      updateRegion(document.querySelector("[data-tabs-region]"), tabs());
+      const region = document.querySelector("[data-workspace-region]");
+      updateRegion(region, result === null ? loading() : result.status === "valid" ? valid(result) : invalid(result));
+      if (result?.status === "valid") {
+        updateRegion(document.getElementById("workspace-table"), table(result));
+        updateRegion(document.querySelector("[data-agent-content]"), agent(result));
+        updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
+        updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}`);
+      }
+      updateWorkspaceVisibility();
+    }
     bind();
     if (state.focusTarget) {
       const target = state.focusTarget;
@@ -642,6 +701,13 @@
       else requestAnimationFrame(() => document.querySelector(target)?.focus());
     }
   }
+
+  app.addEventListener("compositionstart", () => { composing = true; });
+  app.addEventListener("compositionend", () => {
+    composing = false;
+    // 最后一条 input 先提交，避免用上一次草稿替换中文候选。
+    queueMicrotask(() => { if (renderPending) render(); });
+  });
 
   function announce(message) {
     const announcer = document.getElementById("launcher-status-announcer");
@@ -1717,58 +1783,58 @@
         state.selected = row.dataset.sceneId;
         state.toast = null;
         render();
-      });
+      }, { signal: bindings.signal });
       row.querySelector(".scene-select")?.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
         state.toast = null;
         render();
-      });
+      }, { signal: bindings.signal });
       row.querySelector("[data-edit-narration]")?.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
         state.editing = row.dataset.sceneId;
         state.editGroupOpen = false;
         state.focusTarget = "[data-narration-editor]";
         render();
-      });
+      }, { signal: bindings.signal });
       row.querySelector("[data-open-scene-assets]")?.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
         state.inspectorMode = "scene-assets";
         state.inspectionOpen = true;
         state.assetSearch = "";
         render();
-      });
-      row.querySelector("[data-speech-action]")?.addEventListener("click", () => startSpeech(row.dataset.sceneId));
-      row.querySelector("[data-cancel-speech]")?.addEventListener("click", () => cancelSpeech(row.dataset.sceneId));
+      }, { signal: bindings.signal });
+      row.querySelector("[data-speech-action]")?.addEventListener("click", () => startSpeech(row.dataset.sceneId), { signal: bindings.signal });
+      row.querySelector("[data-cancel-speech]")?.addEventListener("click", () => cancelSpeech(row.dataset.sceneId), { signal: bindings.signal });
       const editor = row.querySelector("[data-narration-editor]");
-      editor?.addEventListener("input", () => updateNarration(row.dataset.sceneId, editor.value, editor));
+      editor?.addEventListener("input", () => updateNarration(row.dataset.sceneId, editor.value, editor), { signal: bindings.signal });
       editor?.addEventListener("blur", (event) => {
         if (event.relatedTarget?.matches?.("[data-expand]")) return;
         state.editGroupOpen = false;
         saveProject();
-      });
+      }, { signal: bindings.signal });
       row.querySelector("[data-expand]")?.addEventListener("click", () => {
         state.expanded = row.dataset.sceneId;
         state.focusTarget = "[data-expanded-editor]";
         render();
-      });
+      }, { signal: bindings.signal });
       const handle = row.querySelector(".drag-handle");
       handle?.addEventListener("dragstart", (event) => {
         state.dragged = row.dataset.sceneId;
         row.dataset.dragging = "true";
         event.dataTransfer.effectAllowed = "move";
-      });
+      }, { signal: bindings.signal });
       handle?.addEventListener("dragend", () => {
         state.dragged = null;
         delete row.dataset.dragging;
-      });
-      row.addEventListener("dragover", (event) => event.preventDefault());
+      }, { signal: bindings.signal });
+      row.addEventListener("dragover", (event) => event.preventDefault(), { signal: bindings.signal });
       row.addEventListener("drop", (event) => {
         event.preventDefault();
         if (!state.dragged) return;
         state.selected = state.dragged;
         moveScene(currentScenes().findIndex((scene) => scene.id === row.dataset.sceneId));
         state.dragged = null;
-      });
+      }, { signal: bindings.signal });
     });
   }
 
@@ -1781,36 +1847,36 @@
         render();
         requestAnimationFrame(() => { document.querySelector(".scene-scroll").scrollTop = scrollTop; });
       }
-    }, { passive: true });
+    }, { signal: bindings.signal, passive: true });
   }
 
   function bindTable() {
-    document.querySelectorAll("[data-add],[data-add-first]").forEach((button) => button.addEventListener("click", addScene));
-    document.querySelectorAll("[data-copy]").forEach((button) => button.addEventListener("click", copyScene));
-    document.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", deleteScene));
-    document.querySelectorAll("[data-move-up]").forEach((button) => button.addEventListener("click", () => moveScene(currentScenes().findIndex((scene) => scene.id === state.selected) - 1)));
-    document.querySelectorAll("[data-move-down]").forEach((button) => button.addEventListener("click", () => moveScene(currentScenes().findIndex((scene) => scene.id === state.selected) + 1)));
+    document.querySelectorAll("[data-add],[data-add-first]").forEach((button) => button.addEventListener("click", addScene, { signal: bindings.signal }));
+    document.querySelectorAll("[data-copy]").forEach((button) => button.addEventListener("click", copyScene, { signal: bindings.signal }));
+    document.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", deleteScene, { signal: bindings.signal }));
+    document.querySelectorAll("[data-move-up]").forEach((button) => button.addEventListener("click", () => moveScene(currentScenes().findIndex((scene) => scene.id === state.selected) - 1), { signal: bindings.signal }));
+    document.querySelectorAll("[data-move-down]").forEach((button) => button.addEventListener("click", () => moveScene(currentScenes().findIndex((scene) => scene.id === state.selected) + 1), { signal: bindings.signal }));
     document.querySelectorAll("[data-move]").forEach((button) => button.addEventListener("click", () => {
       const input = button.previousElementSibling;
       moveScene(Number(input.value) - 1);
-    }));
-    document.querySelector("[data-undo]")?.addEventListener("click", undo);
-    document.querySelector("[data-redo]")?.addEventListener("click", redo);
-    document.querySelector("[data-undo-delete]")?.addEventListener("click", undo);
+    }, { signal: bindings.signal }));
+    document.querySelector("[data-undo]")?.addEventListener("click", undo, { signal: bindings.signal });
+    document.querySelector("[data-redo]")?.addEventListener("click", redo, { signal: bindings.signal });
+    document.querySelector("[data-undo-delete]")?.addEventListener("click", undo, { signal: bindings.signal });
     document.querySelector("[data-retry]")?.addEventListener("click", () => {
       state.saveStatus = "dirty";
       state.saveError = null;
       render();
       saveProject();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-close-expanded]")?.addEventListener("click", () => {
       state.expanded = null;
       state.editGroupOpen = false;
       render();
       saveProject();
-    });
+    }, { signal: bindings.signal });
     const expanded = document.querySelector("[data-expanded-editor]");
-    expanded?.addEventListener("input", () => updateNarration(state.expanded, expanded.value, expanded));
+    expanded?.addEventListener("input", () => updateNarration(state.expanded, expanded.value, expanded), { signal: bindings.signal });
     bindSceneScroll();
     bindSceneRows();
   }
@@ -1820,90 +1886,91 @@
       state.inspectionOpen = false;
       document.querySelector(".inspection")?.setAttribute("data-open", "false");
       document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "false");
-    });
+      document.querySelector("[data-open-inspection]")?.focus();
+    }, { signal: bindings.signal });
     document.querySelectorAll("[data-project-inspection]").forEach((button) => button.addEventListener("click", () => {
       state.inspectorMode = "project";
       state.assetSearch = "";
       state.ttsBlockedReason = null;
       state.ttsPendingConfirm = null;
       render();
-    }));
+    }, { signal: bindings.signal }));
     document.querySelector("[data-open-brief]")?.addEventListener("click", () => {
       state.brief.open = true;
       state.brief.error = null;
       state.focusTarget = state.brief.conflict ? "[data-brief-merge]" : "[data-brief-editor]";
       render();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-open-tts]")?.addEventListener("click", () => {
       state.inspectorMode = "tts";
       state.inspectionOpen = true;
       state.ttsBlockedReason = null;
       initializeTtsForm();
       render();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-manage-project-assets]")?.addEventListener("click", () => {
       state.inspectorMode = "project-assets";
       state.assetSearch = "";
       state.inspectionOpen = true;
       render();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-add-existing]")?.addEventListener("click", () => {
       state.inspectorMode = "asset-picker";
       state.assetSearch = "";
       render();
       document.querySelector("[aria-label='搜索项目 Asset']")?.focus();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-scene-assets]")?.addEventListener("click", () => {
       state.inspectorMode = "scene-assets";
       state.assetSearch = "";
       render();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[aria-label='搜索项目 Asset']")?.addEventListener("input", (event) => {
       state.assetSearch = event.currentTarget.value;
       render();
       const input = document.querySelector("[aria-label='搜索项目 Asset']");
       input?.focus();
       input?.setSelectionRange(state.assetSearch.length, state.assetSearch.length);
-    });
-    document.querySelectorAll("[data-import-assets]").forEach((button) => button.addEventListener("click", () => importAssets(button.dataset.targetScene)));
-    document.querySelectorAll("[data-add-asset]").forEach((button) => button.addEventListener("click", () => addExistingAsset(button.dataset.addAsset)));
-    document.querySelectorAll("[data-preview-asset]").forEach((button) => button.addEventListener("click", () => openAssetPreview(button.dataset.previewAsset)));
+    }, { signal: bindings.signal });
+    document.querySelectorAll("[data-import-assets]").forEach((button) => button.addEventListener("click", () => importAssets(button.dataset.targetScene), { signal: bindings.signal }));
+    document.querySelectorAll("[data-add-asset]").forEach((button) => button.addEventListener("click", () => addExistingAsset(button.dataset.addAsset), { signal: bindings.signal }));
+    document.querySelectorAll("[data-preview-asset]").forEach((button) => button.addEventListener("click", () => openAssetPreview(button.dataset.previewAsset), { signal: bindings.signal }));
     document.querySelectorAll("[data-move-asset]").forEach((button) => button.addEventListener("click", () => {
       const scene = selectedScene();
       const index = scene?.assetIds.indexOf(button.dataset.moveAsset) ?? -1;
       moveAssetReference(button.dataset.moveAsset, index + (button.dataset.direction === "up" ? -1 : 1));
-    }));
+    }, { signal: bindings.signal }));
     document.querySelectorAll("[data-apply-asset-position]").forEach((button) => button.addEventListener("click", () => {
       const input = document.querySelector(`[data-asset-position="${CSS.escape(button.dataset.applyAssetPosition)}"]`);
       moveAssetReference(button.dataset.applyAssetPosition, Number(input?.value) - 1);
-    }));
-    document.querySelectorAll("[data-unlink-asset]").forEach((button) => button.addEventListener("click", () => unlinkAssetReference(button.dataset.unlinkAsset)));
+    }, { signal: bindings.signal }));
+    document.querySelectorAll("[data-unlink-asset]").forEach((button) => button.addEventListener("click", () => unlinkAssetReference(button.dataset.unlinkAsset), { signal: bindings.signal }));
     document.querySelectorAll("[data-tts-field]").forEach((field) => field.addEventListener("input", () => {
       const key = field.dataset.ttsField;
       state.ttsForm[key] = field.type === "number" ? Number(field.value) : field.value;
       state.ttsPendingConfirm = null;
-    }));
+    }, { signal: bindings.signal }));
     document.querySelector("[data-tts-api-key]")?.addEventListener("input", (event) => {
       state.ttsApiKey = event.currentTarget.value;
       state.ttsClearCredential = false;
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-clear-tts-key]")?.addEventListener("click", () => {
       state.ttsClearCredential = true;
       state.ttsApiKey = "";
       render();
       document.querySelector("[data-tts-api-key]")?.focus();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-tts-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       if (!event.currentTarget.reportValidity()) return;
       saveTtsSettings(false);
-    });
-    document.querySelector("[data-confirm-tts]")?.addEventListener("click", () => saveTtsSettings(true));
+    }, { signal: bindings.signal });
+    document.querySelector("[data-confirm-tts]")?.addEventListener("click", () => saveTtsSettings(true), { signal: bindings.signal });
     document.querySelector("[data-cancel-tts-confirm]")?.addEventListener("click", () => {
       state.ttsPendingConfirm = null;
       render();
       document.querySelector(".tts-save")?.focus();
-    });
+    }, { signal: bindings.signal });
   }
 
   function bindBriefEditor() {
@@ -1914,33 +1981,33 @@
       state.focusTarget = "[data-open-brief]";
       saveVideoBrief();
       render();
-    });
-    document.querySelector("[data-brief-undo]")?.addEventListener("click", () => moveBriefHistory(state.brief.undo, state.brief.redo));
-    document.querySelector("[data-brief-redo]")?.addEventListener("click", () => moveBriefHistory(state.brief.redo, state.brief.undo));
+    }, { signal: bindings.signal });
+    document.querySelector("[data-brief-undo]")?.addEventListener("click", () => moveBriefHistory(state.brief.undo, state.brief.redo), { signal: bindings.signal });
+    document.querySelector("[data-brief-redo]")?.addEventListener("click", () => moveBriefHistory(state.brief.redo, state.brief.undo), { signal: bindings.signal });
     document.querySelector("[data-retry-brief]")?.addEventListener("click", () => {
       state.brief.status = "dirty";
       state.brief.error = null;
       saveVideoBrief();
       updateBriefIndicator();
-    });
+    }, { signal: bindings.signal });
     const editor = document.querySelector("[data-brief-editor]");
-    editor?.addEventListener("input", () => updateBrief(editor.value));
+    editor?.addEventListener("input", () => updateBrief(editor.value), { signal: bindings.signal });
     editor?.addEventListener("blur", (event) => {
       if (event.relatedTarget?.matches?.("[data-brief-undo],[data-brief-redo]")) return;
       state.brief.editGroupOpen = false;
       saveVideoBrief();
-    });
+    }, { signal: bindings.signal });
     document.querySelectorAll("[data-brief-conflict-tab]").forEach((button) => button.addEventListener("click", () => {
       state.brief.conflictTab = button.dataset.briefConflictTab;
       state.focusTarget = `[data-brief-conflict-tab="${button.dataset.briefConflictTab}"]`;
       render();
-    }));
+    }, { signal: bindings.signal }));
     document.querySelector("[data-brief-merge]")?.addEventListener("input", (event) => {
       state.brief.merge = reconcileBriefEditorText(state.brief.merge, event.currentTarget.value);
-    });
-    document.querySelector("[data-submit-brief-merge]")?.addEventListener("click", submitBriefMerge);
-    document.querySelector("[data-discard-brief-local]")?.addEventListener("click", discardBriefLocal);
-    document.querySelector("[data-export-brief-local]")?.addEventListener("click", exportBriefLocal);
+    }, { signal: bindings.signal });
+    document.querySelector("[data-submit-brief-merge]")?.addEventListener("click", submitBriefMerge, { signal: bindings.signal });
+    document.querySelector("[data-discard-brief-local]")?.addEventListener("click", discardBriefLocal, { signal: bindings.signal });
+    document.querySelector("[data-export-brief-local]")?.addEventListener("click", exportBriefLocal, { signal: bindings.signal });
   }
 
   function bind() {
@@ -1949,17 +2016,23 @@
       return;
     }
     document.querySelectorAll("[data-workspace]").forEach((tab) => tab.addEventListener("click", () => {
-      state.workspace = tab.dataset.workspace;
-      state.editGroupOpen = false;
-      render();
-    }));
+      if (state.result?.status === "valid") switchWorkspace(tab.dataset.workspace);
+    }, { signal: bindings.signal }));
+    document.querySelector("[data-scene-suggestion]")?.addEventListener("click", () => switchWorkspace("table"), { signal: bindings.signal });
+    document.querySelectorAll("[data-workspace]").forEach((tab) => tab.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const target = event.key === "Home" ? "table" : event.key === "End" ? "agent" : tab.dataset.workspace === "table" ? "agent" : "table";
+      document.querySelector(`[data-workspace="${target}"]`)?.focus();
+    }, { signal: bindings.signal }));
     document.querySelector("[data-open-inspection]")?.addEventListener("click", () => {
       state.inspectionOpen = true;
       document.querySelector(".inspection")?.setAttribute("data-open", "true");
       document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "true");
-    });
-    document.querySelectorAll("[data-agent-action]").forEach((button) => button.addEventListener("click", () => runAgentAction(button.dataset.agentAction)));
-    document.querySelector("[data-close-preview]")?.addEventListener("click", closeAssetPreview);
+      document.querySelector(".inspection [data-close-inspection]")?.focus();
+    }, { signal: bindings.signal });
+    document.querySelectorAll("[data-agent-action]").forEach((button) => button.addEventListener("click", () => runAgentAction(button.dataset.agentAction), { signal: bindings.signal }));
+    document.querySelector("[data-close-preview]")?.addEventListener("click", closeAssetPreview, { signal: bindings.signal });
     document.onkeydown = (event) => {
       trapAssetPreviewFocus(event);
       trapBriefFocus(event);
@@ -1977,12 +2050,12 @@
     };
     bindInspector();
     bindBriefEditor();
-    if (state.workspace === "table" && state.result?.status === "valid" && state.result.writable) bindTable();
+    if (state.result?.status === "valid" && state.result.writable) bindTable();
     if (state.result?.status === "valid" && !state.result.writable) {
       document.querySelectorAll("[data-scene-id]").forEach((row) => row.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
         render();
-      }));
+      }, { signal: bindings.signal }));
       bindSceneScroll();
     }
   }
@@ -2087,17 +2160,17 @@
   }
 
   function bindLauncher() {
-    document.querySelector("[data-pick-parent]")?.addEventListener("click", pickParent);
-    document.querySelector("[data-open-project]")?.addEventListener("click", openFromLauncher);
-    document.querySelector("[data-create-project]")?.addEventListener("click", () => createFromLauncher(false));
-    document.querySelector("[data-confirm-residue]")?.addEventListener("click", () => createFromLauncher(true));
+    document.querySelector("[data-pick-parent]")?.addEventListener("click", pickParent, { signal: bindings.signal });
+    document.querySelector("[data-open-project]")?.addEventListener("click", openFromLauncher, { signal: bindings.signal });
+    document.querySelector("[data-create-project]")?.addEventListener("click", () => createFromLauncher(false), { signal: bindings.signal });
+    document.querySelector("[data-confirm-residue]")?.addEventListener("click", () => createFromLauncher(true), { signal: bindings.signal });
     document.querySelector(".name-field")?.addEventListener("input", (event) => {
       state.launcher.projectName = event.currentTarget.value;
       state.launcher.error = null;
       render();
       document.querySelector(".name-field")?.focus();
       document.querySelector(".name-field")?.setSelectionRange(state.launcher.projectName.length, state.launcher.projectName.length);
-    });
+    }, { signal: bindings.signal });
   }
 
   function schedulePoll(delay = 250) {
@@ -2128,7 +2201,13 @@
     state.agentError = null;
     pollFailures = 0;
     if (changed) {
-      render();
+      // 任务刷新只触及任务区域，不中断 Scene 编辑、草稿或只读媒体。
+      if (document.querySelector("[data-agent-content]")) {
+        updateRegion(document.querySelector("[data-agent-content]"), agent(state.result));
+        bindings.abort();
+        bindings = new AbortController();
+        bind();
+      } else render();
       const status = statusCopy(validation);
       document.getElementById("agent-status-announcer").textContent = `${status.label}。${status.detail}`;
     }

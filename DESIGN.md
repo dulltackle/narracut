@@ -189,12 +189,12 @@ components:
     rounded: "{rounded.control}"
     padding: "0 18px"
     height: "44px"
-  composer-disabled:
-    backgroundColor: "#171d1f"
-    textColor: "#a7afac"
+  composer-draft:
+    backgroundColor: "{colors.control}"
+    textColor: "{colors.paper}"
     rounded: "{rounded.field}"
-    padding: "0 18px"
-    height: "48px"
+    padding: "8px 12px"
+    height: "64px"
 ---
 
 # Design System: Narracut VNext Workbench
@@ -205,9 +205,9 @@ components:
 
 Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。
 
-这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的批注槽，始终禁用并说明完整创作指令将在后续功能中启用。
+这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的多行批注槽，可记录会话草稿，发送按钮保持禁用并说明创作发送尚未启用。
 
-当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑、Asset 子视图和保存状态明确哪些内容正在改变。Asset 列继续只做摘要，导入、有序引用和只读预览在既有项目检查层与独立预览层中完成，不抢占接触表主面。Speech 单元格以文字与形状展示生成阶段，并提供单 Scene 生成、重试或取消；项目 TTS 输出契约在右侧检查台的子视图中配置，移动端沿用抽屉。Video Brief 从项目检查进入独立的原始 Markdown 编辑层，拥有与 Scene 分离的历史、保存状态和冲突决策。Agent、Render Program 与 Composer 的不可写边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示候选 Render Program、对话或日志历史。
+当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑、Asset 子视图和保存状态明确哪些内容正在改变。Asset 列继续只做摘要，导入、有序引用和只读预览在既有项目检查层与独立预览层中完成，不抢占接触表主面。Speech 单元格以文字与形状展示生成阶段，并提供单 Scene 生成、重试或取消；项目 TTS 输出契约在右侧检查台的子视图中配置，移动端沿用抽屉。Video Brief 从项目检查进入独立的原始 Markdown 编辑层，拥有与 Scene 分离的历史、保存状态和冲突决策。Agent、Render Program 与 Composer 不改写 Scene 的边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示候选 Render Program、对话或日志历史。
 
 **Key Characteristics:**
 
@@ -288,11 +288,11 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 ## Layout
 
-首屏采用四层固定结构：项目身份栏（`68px`）、工作区标签（`54px`）、可伸缩主工作区、底部 Composer（`102px`）。主工作区是接触表与 `320px` 项目检查的两列布局；舞台内边距为 `14px`，胶片框左右内边距为 `24px`。接触表上沿增加 `56px` Scene 操作轨。Scene 行仍固定为 `112px` 高，桌面列依次为 Scene、Narration、Asset、Speech，Narration 获得唯一弹性主列；原位多行编辑器在行内滚动，不改变虚拟列表节奏。
+首屏采用四层固定结构：项目身份栏（`68px`）、工作区标签（`54px`）、可伸缩主工作区、底部 Composer（桌面 `138px`、窄屏 `164px`）。主工作区是接触表与 `320px` 项目检查的两列布局；舞台内边距为 `14px`，胶片框左右内边距为 `24px`。接触表上沿增加 `56px` Scene 操作轨。Scene 行仍固定为 `112px` 高，桌面列依次为 Scene、Narration、Asset、Speech，Narration 获得唯一弹性主列；原位多行编辑器在行内滚动，不改变虚拟列表节奏。
 
-在 Agent 工作区，桌面主面以 `.82fr / 1.18fr` 并置“临时任务状态”与“验证结果”，底部操作栏固定承载开始验证、停止和继续。在 `900px` 以下，项目检查收窄到 `280px`，Scene/Speech 最右列隐藏，Agent 的任务与结果改为单列；在 `700px` 以下，Project ID 移到独立第二行，连接文字继续可见，项目检查改为从右侧打开的抽屉，Composer 仍固定在底部。移动端接触表保留 Scene、Narration 与 Asset 三列并允许横向内容自然裁切；Agent 舞台则由外层自然滚动，标题、任务状态、验证结果和操作按钮依次纵向排列。
+在 Agent 工作区，桌面主面以 `.82fr / 1.18fr` 并置“临时任务状态”与“验证结果”，底部操作栏固定承载开始验证、停止和继续。在 `900px` 以下，项目检查收窄到 `280px`，Scene/Speech 最右列隐藏，Agent 的任务与结果改为单列；在 `700px` 以下，Project ID 移到独立第二行，连接文字继续可见，项目检查改为从右侧打开的抽屉，Composer 仍固定在底部。移动端接触表保留 Scene、Narration 与 Asset 三列并允许横向内容自然裁切；Agent 工作区以单一纵向滚动容器承载标题、任务状态、验证结果、操作按钮和成片 Preview 占位；内层舞台与状态台自然展开，避免多层滚动截断内容。
 
-键盘焦点只表示下一次操作位置，不能自动改变所选 Scene。Scene 行通过显式激活改变选择；移动端抽屉按钮以 `aria-expanded` 表达状态，Composer 通过 `aria-describedby` 解释禁用原因。Asset 预览是 `aria-modal` 对话层，Tab 焦点不离开该层，Escape 和关闭按钮都停止媒体并把焦点还给原预览按钮。
+键盘焦点只表示下一次操作位置，不能自动改变所选 Scene。Scene 行通过显式激活改变选择；移动端抽屉按钮以 `aria-expanded` 表达状态，打开时焦点进入关闭按钮，关闭后回到抽屉入口。Composer 通过 `aria-describedby` 说明会话保留范围与发送未接入原因。Asset 预览是 `aria-modal` 对话层，Tab 焦点不离开该层，Escape 和关闭按钮都停止媒体并把焦点还给原预览按钮。
 
 **The Identity Before Tools Rule.** 所有尺寸都保留文件夹、Project ID 与连接文字的稳定位置；不要为了节省空间把身份藏进菜单。
 
@@ -329,7 +329,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 ### Workspace Tabs
 
-标签是稳定双工作区切换，不是胶囊筛选。默认态使用暗房灰；当前态使用白字、底部 `3px` 校片蓝线和极淡蓝色底。按钮最小高度不低于 `44px`，键盘焦点使用可见蓝色轮廓与光环。
+标签是稳定双工作区切换，不是胶囊筛选。默认态使用暗房灰；当前态使用白字、底部 `3px` 校片蓝线和极淡蓝色底。按钮最小高度不低于 `44px`，键盘焦点使用可见蓝色轮廓与光环。标签通过 `aria-controls` 对应两个常驻 `tabpanel`，用 `hidden` 切换可见性；方向键及 Home/End 只移动焦点，Enter/Space 或点击才激活。切换保留所选 Scene、Scene 历史、保存队列和 Composer 输入节点，不把焦点移动当成选择或播放命令。
 
 ### Contact Sheet
 
@@ -345,7 +345,7 @@ Scene 行是签名组件：大号 Scene 编号、独立拖拽手柄、校片边�
 
 ### Project Inspection
 
-检查栏是暗色窄侧台，以点、文字和状态词同时表达控制文件有效性。当前 Scene 显示 Narration 与 Scene ID、Asset 数量、Speech 状态；“管理项目 Asset”和 Scene Asset 单元格在同一侧台中进入子视图，不新增第三列。窄屏时它成为可关闭抽屉，并保留最小 `44px` 关闭目标。
+检查栏是暗色窄侧台，以点、文字和状态词同时表达控制文件有效性。当前 Scene 显示 Narration 与 Scene ID、Asset 数量、Speech 状态；“管理项目 Asset”和 Scene Asset 单元格在同一侧台中进入子视图，不新增第三列。Agent 工作区复用只读项目检查，不暴露 Scene、Asset、TTS 或 Video Brief 写入口；修改建议通过“前往表格工作区修改 Scene”返回接触表手工处理。窄屏时它成为可关闭抽屉，并保留最小 `44px` 关闭目标。
 
 ### Video Brief Editor
 
@@ -363,19 +363,19 @@ Scene Asset 面板以 Scene 编号、截断 ID、引用计数和“导入并绑�
 
 ### Agent Host Validation
 
-Agent 工作区是单任务 Codex 宿主验证状态台，不是聊天界面。顶部只说明固定、只读的宿主任务和协议边界；中部桌面端以任务/结果双列呈现，在 `900px` 以下转为单列。只显示当前任务身份、线程连接、所选 Scene、有界验证结果与最小诊断；不展示候选 Render Program、预览、对话、推理、工具日志或历史列表。界面必须明说验证不会修改项目内容。
+Agent 工作区是单任务 Codex 宿主验证状态台，不是聊天界面。顶部只说明固定、只读的宿主任务和协议边界；中部桌面端以任务/结果双列呈现，在 `900px` 以下转为单列。只显示当前任务身份、线程连接、所选 Scene、有界验证结果与最小诊断；不展示候选 Render Program、预览、对话、推理、工具日志或历史列表。界面必须明说验证不会修改项目内容。状态台之后的成片 Preview 区域只显示播放位置与候选新鲜度尚未接入的占位说明，不呈现真实成片媒体或审核结果，也不与独立 Asset 只读预览混淆。
 
 ### Agent Status Ledger
 
-状态台以紧凑分隔行展示任务状态、线程连接、当前 Scene、Task ID 与 Thread。每个可变状态同时提供简短文字和符合“蓝圆运行、绿圆连接/成功、琥珀方形停止/不可用”的形状。状态刷新应先比对有界状态，无变化时不全页重绘；独立隐藏的 `role="status"` / `aria-live="polite"` 区域只播报简短状态与细节，不复读整个面板。
+状态台以紧凑分隔行展示任务状态、线程连接、当前 Scene、Task ID 与 Thread。每个可变状态同时提供简短文字和符合“蓝圆运行、绿圆连接/成功、琥珀方形停止/不可用”的形状。状态刷新应先比对有界状态，无变化时不重绘；变化时仅更新 Agent 任务区域，保留 Scene 编辑器、Composer 输入节点与只读媒体宿主；独立隐藏的 `role="status"` / `aria-live="polite"` 区域只播报简短状态与细节，不复读整个面板。
 
 ### Agent Validation Actions
 
 底部操作栏只包含“开始验证”、“停止”和“继续”，按任务状态启用唯一可用的下一步。开始与继续使用深校片蓝实心按钮，停止使用控件黑与琥珀文字，禁用态降低对比并保留标签。所有按钮最小高度为 `44px`；在 `700px` 以下改为纵向、通栏排列。
 
-### Disabled Composer
+### Composer Draft
 
-Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案说明后续启用；第二行在表格工作区明确“Composer 不编辑 Scene，请使用接触表”，在 Agent 工作区明确“完整创作指令将在后续功能中启用”，并通过 `aria-describedby` 与输入建立程序化关联。锁形图标辅助表达状态，但不能替代文字。
+Composer 始终固定在底部，以同一个原生多行 `textarea` 承载本次会话草稿；高度 `64px`、内边距 `8px 12px`，沿用暗色控件面与纸白文字。输入、选区、粘贴和中文组合输入不因工作区切换或 Agent 刷新中断。发送按钮保持原生 `disabled`；两条可见说明持续表达“草稿仅保留在本次会话，创作发送尚未启用”和“Composer 不编辑 Scene，请使用接触表”，通过 `aria-describedby` 与输入及发送边界建立关联。草稿不落盘，也不触发项目写入或 Agent 调用。
 
 ### Empty, Loading, and Invalid States
 
@@ -399,8 +399,8 @@ Composer 始终固定在底部。输入框保持原生 `disabled`，可见文案
 - **Don't** 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。
 - **Don't** 让表格工作区以外的 Agent、Preview、Render Program、Composer 或桥接层获得 Scene 写入口；不要加入 Asset 删除/重命名/转码/裁切、TTS、Render 或 Legacy 项目入口。
 - **Don't** 用颜色作为选择、连接、有效或只读状态的唯一信号。
-- **Don't** 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene。
-- **Don't** 隐藏或启用 Composer；禁用原因必须同时可见且可被辅助技术读取。
+- **Don't** 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene、历史、保存队列与会话草稿。
+- **Don't** 隐藏 Composer、禁用草稿输入或启用尚未接入的发送；会话保留范围与发送禁用原因必须同时可见且可被辅助技术读取。
 - **Don't** 把 Agent 工作区做成聊天，或展示候选 Render Program、预览、对话、推理、工具日志与历史。
 - **Don't** 用 Agent 状态或验证结果暗示 Scene、Render Program 或任何项目文件已被写入。
 - **Don't** 引入霓虹 AI、玻璃拟态、渐变品牌面或大量圆角卡片，稀释暗房与接触印样的材料逻辑。
