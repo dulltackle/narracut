@@ -1,6 +1,252 @@
+// src/server/project-candidate.ts
+import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
+var CandidateError = class extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+  code;
+};
+var hash = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+var fail = (code, message) => {
+  throw new CandidateError(code, message);
+};
+var MAX_BYTES = 32 * 1024 * 1024;
+var safePath = (path) => path.length <= 1024 && !path.includes("\\") && !path.includes("\0") && path.split("/").every((p) => p && p !== "." && p !== ".." && !["node_modules", "bundle", ".cache"].includes(p));
+async function regular(path, max = MAX_BYTES) {
+  const facts = await lstat(path);
+  if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > max) throw new Error("\u6587\u4EF6\u7C7B\u578B\u6216\u5927\u5C0F\u65E0\u6548");
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > max) throw new Error("\u6587\u4EF6\u7C7B\u578B\u6216\u5927\u5C0F\u65E0\u6548");
+    return await handle.readFile();
+  } finally {
+    await handle.close();
+  }
+}
+async function directory(path) {
+  const stat = await lstat(path);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("\u76EE\u5F55\u5B8C\u6574\u6027\u65E0\u6548");
+  return `${stat.dev}:${stat.ino}`;
+}
+async function readTree(root) {
+  const tree = /* @__PURE__ */ new Map();
+  let bytes = 0;
+  async function walk(path, prefix, depth) {
+    if (depth > 24) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 24 \u5C42");
+    const identity2 = await directory(path);
+    for (const name of (await readdir(path)).sort()) {
+      const relative3 = prefix ? `${prefix}/${name}` : name;
+      if (!safePath(relative3) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
+      const full = join(path, name);
+      const stat = await lstat(full);
+      if (stat.isDirectory() && !stat.isSymbolicLink()) {
+        tree.set(relative3, null);
+        await walk(full, relative3, depth + 1);
+      } else {
+        const content = await regular(full);
+        bytes += content.length;
+        if (bytes > MAX_BYTES) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 32 MiB");
+        tree.set(relative3, content);
+      }
+    }
+    if (await directory(path) !== identity2) throw new Error("\u8BFB\u53D6\u671F\u95F4\u76EE\u5F55\u88AB\u66FF\u6362");
+  }
+  await walk(root, "", 0);
+  for (const required of ["program.json", "package.json", "pnpm-lock.yaml", "src/RenderProgram.tsx"]) {
+    if (!Buffer.isBuffer(tree.get(required))) throw new Error(`\u7A0B\u5E8F\u6811\u7F3A\u5C11 ${required}`);
+  }
+  if (tree.get("src") !== null || tree.get("resources") !== null) throw new Error("\u7A0B\u5E8F\u6811\u7F3A\u5C11 src/ \u6216 resources/");
+  for (const path of tree.keys()) {
+    if (!["program.json", "package.json", "pnpm-lock.yaml", "src", "resources"].includes(path) && !path.startsWith("src/") && !path.startsWith("resources/")) throw new Error("\u7A0B\u5E8F\u6811\u5305\u542B\u672A\u5141\u8BB8\u7684\u9876\u5C42\u8DEF\u5F84");
+  }
+  return tree;
+}
+function identity(tree) {
+  return hash(JSON.stringify([...tree].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => [path, bytes === null ? "directory" : hash(bytes)])));
+}
+async function writeBytes(path, bytes) {
+  const handle = await open(path, "wx", 384);
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function writeTree(root, tree) {
+  await mkdir(root);
+  for (const [path, bytes] of [...tree].sort(([a], [b]) => a.length - b.length)) {
+    if (bytes === null) await mkdir(join(root, path));
+    else await writeBytes(join(root, path), bytes);
+  }
+  for (const [path, bytes] of [...tree].reverse()) if (bytes === null) await syncDirectory(join(root, path));
+  await syncDirectory(root);
+}
+async function syncDirectory(path) {
+  const handle = await open(path, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function createCandidateManager(project, assertWritable) {
+  const internal = join(project, ".narracut");
+  const internalIdentity = await directory(internal);
+  const pointer = join(internal, "candidate.json");
+  const assertCurrent = async () => {
+    await assertWritable();
+    if (await directory(internal) !== internalIdentity) fail("PROJECT_IDENTITY_LOST", "\u9879\u76EE\u5185\u90E8\u76EE\u5F55\u8EAB\u4EFD\u53D8\u5316\uFF1B\u5DF2\u505C\u6B62\u5019\u9009\u5199\u5165\u3002");
+  };
+  async function currentRevision() {
+    const value = JSON.parse((await regular(join(internal, "current.json"), 4096)).toString());
+    if (!/^[0-9a-f-]{36}$/i.test(value.revisionId)) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u8EAB\u4EFD\u65E0\u6548");
+    return value.revisionId;
+  }
+  async function pointerBytes() {
+    try {
+      return await regular(pointer, 16384);
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+  const refValid = (ref) => ref && /^\.narracut\/candidate-[0-9a-f-]{36}\/(candidate|checkpoint)$/.test(ref.path) && /^sha256:[0-9a-f]{64}$/.test(ref.identity);
+  async function inspect() {
+    await assertCurrent();
+    const sourceRevision = await currentRevision();
+    let raw = null;
+    let state = null;
+    try {
+      raw = await pointerBytes();
+      if (raw === null) return { view: { status: "absent", sourceRevision, baseline: hash("absent"), candidate: null, checkpoint: null }, state: null, raw };
+      const parsed = JSON.parse(raw.toString());
+      if (parsed.version !== 1 || !/^[0-9a-f-]{36}$/i.test(parsed.sourceRevision) || !refValid(parsed.candidate) || !(parsed.checkpoint === null || refValid(parsed.checkpoint) && dirname(parsed.checkpoint.path) === dirname(parsed.candidate.path) && parsed.checkpoint.path.endsWith("/checkpoint")) || !parsed.candidate.path.endsWith("/candidate")) throw new Error("\u5019\u9009\u6307\u9488\u5B8C\u6574\u6027\u65E0\u6548");
+      state = parsed;
+      await directory(dirname(join(project, state.candidate.path)));
+      const tree = await readTree(join(project, state.candidate.path));
+      const treeId = identity(tree);
+      let checkpointId = null;
+      if (state.checkpoint) {
+        await directory(dirname(join(project, state.checkpoint.path)));
+        checkpointId = identity(await readTree(join(project, state.checkpoint.path)));
+        if (checkpointId !== state.checkpoint.identity) throw new Error("\u6062\u590D\u68C0\u67E5\u70B9\u5B57\u8282\u53D1\u751F\u53D8\u5316");
+      }
+      const external = treeId !== state.candidate.identity;
+      return { raw, state, tree, view: {
+        status: external ? "external-change" : "saved",
+        sourceRevision: state.sourceRevision,
+        baseline: hash(JSON.stringify([hash(raw), treeId, checkpointId])),
+        candidate: { ...state.candidate, identity: treeId },
+        checkpoint: state.checkpoint,
+        ...external ? { error: { code: "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", message: "\u5019\u9009\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF0C\u5916\u90E8\u5B57\u8282\u5DF2\u4FDD\u7559\u3002\u9700\u8981\u91CD\u65B0\u68C0\u67E5\uFF1B\u672A\u63D0\u4EA4\u4FEE\u6539\u4E0D\u5F97\u8986\u76D6\u3002" } } : {}
+      } };
+    } catch (error) {
+      return { raw, state, view: {
+        status: "integrity-failed",
+        sourceRevision,
+        baseline: hash(raw ?? "invalid"),
+        candidate: state?.candidate ?? null,
+        checkpoint: state?.checkpoint ?? null,
+        error: { code: "CANDIDATE_INTEGRITY_FAILED", message: `\u5019\u9009\u6216\u6062\u590D\u68C0\u67E5\u70B9\u5B8C\u6574\u6027\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u73B0\u573A\u3002\u8BF7\u5916\u90E8\u4FEE\u590D\u540E\u91CD\u65B0\u68C0\u67E5\uFF0C\u6216\u660E\u786E\u653E\u5F03\u3002${error.message}` }
+      } };
+    }
+  }
+  return async (request) => {
+    const before = await inspect();
+    if (request.action === "read") return before.view;
+    if (request.action === "create" && before.view.status !== "absent") fail("CANDIDATE_ALREADY_EXISTS", "\u9879\u76EE\u5DF2\u7ECF\u5B58\u5728\u552F\u4E00\u5019\u9009\uFF1B\u8BF7\u7EE7\u7EED\u4F7F\u7528\u6216\u660E\u786E\u653E\u5F03\u3002");
+    if (request.action !== "create" && request.baseline !== before.view.baseline) fail("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u57FA\u7EBF\u5DF2\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u5916\u90E8\u5B57\u8282\u4E0E\u6062\u590D\u68C0\u67E5\u70B9\u5DF2\u4FDD\u7559\u3002");
+    if (request.action === "discard") {
+      if (!request.confirmed) fail("CANDIDATE_DISCARD_CONFIRMATION_REQUIRED", "\u653E\u5F03\u4E0D\u53EF\u64A4\u9500\uFF0C\u9700\u8981\u660E\u786E\u786E\u8BA4\u3002");
+      if (before.view.status === "absent") return before.view;
+      await assertCurrent();
+      if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u6307\u9488\u5DF2\u53D8\u5316\uFF0C\u672A\u653E\u5F03\u3002");
+      await rm(pointer);
+      if (before.state) await rm(dirname(join(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => void 0);
+      return { status: "absent", baseline: hash("absent"), sourceRevision: await currentRevision(), candidate: null, checkpoint: null };
+    }
+    if (request.action !== "create" && (before.view.status !== "saved" || !before.tree)) {
+      fail(before.view.error?.code ?? "CANDIDATE_MISSING", before.view.error?.message ?? "\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\u3002");
+    }
+    const sourceRevision = await currentRevision();
+    const currentRoot = join(internal, "revisions", sourceRevision, "render-program");
+    let next;
+    if (request.action === "create") {
+      await directory(join(internal, "revisions"));
+      await directory(dirname(currentRoot));
+      next = await readTree(currentRoot);
+    } else {
+      next = new Map(before.tree);
+      if (!Array.isArray(request.changes) || request.changes.length === 0 || request.changes.length > 256) fail("CANDIDATE_BATCH_INVALID", "\u4FEE\u6539\u6279\u6B21\u5FC5\u987B\u5305\u542B 1\u2013256 \u9879\u3002");
+      const seen = /* @__PURE__ */ new Set();
+      for (const change of request.changes) {
+        if (!change || typeof change.path !== "string" || !safePath(change.path) || !(change.path === "program.json" || change.path.startsWith("src/") || change.path.startsWith("resources/")) || !(change.content === null || typeof change.content === "string") || seen.has(change.path)) fail("CANDIDATE_BATCH_INVALID", "\u6279\u6B21\u8DEF\u5F84\u3001\u5185\u5BB9\u6216\u91CD\u590D\u9879\u65E0\u6548\uFF1B\u4F9D\u8D56\u6587\u4EF6\u53EA\u80FD\u7531\u4F9D\u8D56\u534F\u8C03\u4FEE\u6539\u3002");
+        seen.add(change.path);
+        if (next.get(change.path) === null) fail("CANDIDATE_BATCH_INVALID", "\u4E0D\u80FD\u5C06\u76EE\u5F55\u4F5C\u4E3A\u6587\u4EF6\u4FEE\u6539\u3002");
+        if (change.content === null) next.delete(change.path);
+        else {
+          const bytes = Buffer.from(change.content, "utf8");
+          if (bytes.length > MAX_BYTES || bytes.toString() !== change.content) fail("CANDIDATE_BATCH_INVALID", "\u5185\u5BB9\u8D85\u9650\u6216\u4E0D\u662F\u4E25\u683C UTF-8\u3002");
+          const parts = change.path.split("/");
+          for (let i = 1; i < parts.length; i++) {
+            const parent = parts.slice(0, i).join("/");
+            if (Buffer.isBuffer(next.get(parent))) fail("CANDIDATE_BATCH_INVALID", "\u6587\u4EF6\u4E0E\u76EE\u5F55\u8DEF\u5F84\u51B2\u7A81\u3002");
+            next.set(parent, null);
+          }
+          next.set(change.path, bytes);
+        }
+      }
+    }
+    const generation = `.narracut/candidate-${randomUUID()}`;
+    const root = join(project, generation);
+    let committed = false;
+    try {
+      await assertCurrent();
+      await mkdir(root);
+      await writeTree(join(root, "candidate"), next);
+      const treeId = identity(await readTree(join(root, "candidate")));
+      if (before.tree) await writeTree(join(root, "checkpoint"), before.tree);
+      const state = {
+        version: 1,
+        sourceRevision: before.state?.sourceRevision ?? sourceRevision,
+        candidate: { path: `${generation}/candidate`, identity: treeId },
+        checkpoint: before.tree ? { path: `${generation}/checkpoint`, identity: identity(before.tree) } : null
+      };
+      const bytes = Buffer.from(JSON.stringify(state));
+      await writeBytes(join(root, "state.json"), bytes);
+      await syncDirectory(root);
+      await assertCurrent();
+      const latest = await inspect();
+      if (latest.view.baseline !== before.view.baseline || latest.view.status !== before.view.status || await currentRevision() !== sourceRevision || request.action === "create" && identity(await readTree(currentRoot)) !== treeId) fail("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u5DF2\u4FDD\u7559\u3002");
+      await rename(join(root, "state.json"), pointer);
+      committed = true;
+      await syncDirectory(internal).catch(() => void 0);
+      if (before.state) await rm(dirname(join(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => void 0);
+      return {
+        status: "saved",
+        sourceRevision: state.sourceRevision,
+        baseline: hash(JSON.stringify([hash(bytes), treeId, state.checkpoint?.identity ?? null])),
+        candidate: state.candidate,
+        checkpoint: state.checkpoint
+      };
+    } catch (error) {
+      if (error instanceof CandidateError) throw error;
+      return fail("CANDIDATE_SAVE_FAILED", `\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u4E0E\u6062\u590D\u68C0\u67E5\u70B9\u5DF2\u4FDD\u7559\u3002${error.message}`);
+    } finally {
+      if (!committed) await rm(root, { recursive: true, force: true }).catch(() => void 0);
+    }
+  };
+}
+
 // plugins/narracut/src/server.ts
-import { randomUUID as randomUUID4 } from "node:crypto";
-import { readFile as readFile3 } from "node:fs/promises";
+import { randomUUID as randomUUID5 } from "node:crypto";
+import { readFile as readFile4 } from "node:fs/promises";
 import { basename as basename3, isAbsolute as isAbsolute3 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,7 +255,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 // plugins/narracut/src/codex-host.ts
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 var CodexThreadUnavailableError = class extends Error {
   threadId;
   constructor(threadId) {
@@ -74,7 +320,7 @@ var AgentHostValidationService = class {
   #unsubscribe;
   constructor(host, options = {}) {
     this.#host = host;
-    this.#idFactory = options.idFactory ?? randomUUID;
+    this.#idFactory = options.idFactory ?? randomUUID2;
     this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
   }
   async start(request) {
@@ -568,9 +814,9 @@ var CodexAppServerHost = class {
 };
 
 // src/server/project-vnext-inspection.ts
-import { createHash as createHash2 } from "node:crypto";
-import { lstat as lstat2, open as open2, readdir, realpath } from "node:fs/promises";
-import { isAbsolute, join as join2, relative, resolve, sep } from "node:path";
+import { createHash as createHash3 } from "node:crypto";
+import { lstat as lstat3, open as open3, readdir as readdir2, realpath } from "node:fs/promises";
+import { isAbsolute, join as join3, relative, resolve, sep } from "node:path";
 
 // src/server/strict-json.ts
 var StrictJsonFailure = class extends Error {
@@ -793,10 +1039,10 @@ function parseStrictJson(input, limits) {
 
 // src/server/project-speech-vnext.ts
 import { execFile } from "node:child_process";
-import { createHash, randomUUID as randomUUID2 } from "node:crypto";
+import { createHash as createHash2, randomUUID as randomUUID3 } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { lstat, open, readFile, rename, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { lstat as lstat2, open as open2, readFile as readFile2, rename as rename2, rm as rm2 } from "node:fs/promises";
+import { dirname as dirname2, join as join2 } from "node:path";
 import { promisify } from "node:util";
 var execFileAsync = promisify(execFile);
 var DRAFT_DURATION_MS = 5e3;
@@ -868,17 +1114,17 @@ function ttsProfileId(config) {
     pitch: config.pitch,
     audio: TTS_CAPABILITIES.audio
   });
-  return `sha256:${createHash("sha256").update(stable, "utf8").digest("hex")}`;
+  return `sha256:${createHash2("sha256").update(stable, "utf8").digest("hex")}`;
 }
 async function readProjectTtsConfig(projectDirectory) {
-  const path = join(projectDirectory, "tts.json");
+  const path = join2(projectDirectory, "tts.json");
   let bytes;
   try {
-    const facts = await lstat(path);
+    const facts = await lstat2(path);
     if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 16 * 1024) {
       throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u5C0F\u4E8E 16 KiB \u7684\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002", path);
     }
-    bytes = await readFile(path);
+    bytes = await readFile2(path);
   } catch (cause) {
     if (cause instanceof ProjectTtsConfigError) throw cause;
     if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
@@ -912,11 +1158,11 @@ async function readProjectTtsConfig(projectDirectory) {
 }
 async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
   const config = validateProjectTtsConfig(input);
-  const path = join(projectDirectory, "tts.json");
-  const temporaryPath = join(projectDirectory, `.tts.json.${randomUUID2()}.tmp`);
+  const path = join2(projectDirectory, "tts.json");
+  const temporaryPath = join2(projectDirectory, `.tts.json.${randomUUID3()}.tmp`);
   let committed = false;
   try {
-    const handle = await open(temporaryPath, "wx", 384);
+    const handle = await open2(temporaryPath, "wx", 384);
     try {
       await handle.writeFile(Buffer.from(JSON.stringify(config), "utf8"));
       await handle.sync();
@@ -924,19 +1170,19 @@ async function writeProjectTtsConfig(projectDirectory, input, assertWritable = a
       await handle.close();
     }
     await assertWritable();
-    await rename(temporaryPath, path);
+    await rename2(temporaryPath, path);
     committed = true;
     try {
-      const directory = await open(dirname(path), "r");
+      const directory2 = await open2(dirname2(path), "r");
       try {
-        await directory.sync();
+        await directory2.sync();
       } finally {
-        await directory.close();
+        await directory2.close();
       }
     } catch {
     }
   } finally {
-    if (!committed) await rm(temporaryPath, { force: true }).catch(() => void 0);
+    if (!committed) await rm2(temporaryPath, { force: true }).catch(() => void 0);
   }
   return { status: "configured", config, profileId: ttsProfileId(config) };
 }
@@ -976,18 +1222,18 @@ async function probeSpeechDurationMs(path) {
   return Math.round(duration * 1e3);
 }
 async function speechContentHash(path) {
-  const handle = await open(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  const handle = await open2(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
   try {
-    const hash = createHash("sha256");
+    const hash2 = createHash2("sha256");
     const chunk = Buffer.allocUnsafe(64 * 1024);
     let position = 0;
     while (true) {
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
       if (bytesRead === 0) break;
-      hash.update(chunk.subarray(0, bytesRead));
+      hash2.update(chunk.subarray(0, bytesRead));
       position += bytesRead;
     }
-    return `sha256:${hash.digest("hex")}`;
+    return `sha256:${hash2.digest("hex")}`;
   } finally {
     await handle.close();
   }
@@ -1003,7 +1249,7 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
       durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
       continue;
     }
-    const currentSourceTextHash = `sha256:${createHash("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
+    const currentSourceTextHash = `sha256:${createHash2("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
     if (speech.sourceTextHash !== currentSourceTextHash) {
       states.push({
         sceneId: scene.id,
@@ -1024,10 +1270,10 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
       durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
       continue;
     }
-    const absolutePath = join(projectDirectory, speech.path);
+    const absolutePath = join2(projectDirectory, speech.path);
     let before;
     try {
-      before = await lstat(absolutePath);
+      before = await lstat2(absolutePath);
       if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) throw new Error("not ordinary");
     } catch {
       states.push({
@@ -1068,7 +1314,7 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
     }
     let after;
     try {
-      after = await lstat(absolutePath);
+      after = await lstat2(absolutePath);
     } catch {
       after = void 0;
     }
@@ -1198,8 +1444,8 @@ function isCanonicalResourcePath(value, root) {
 function boundedDiagnostics(diagnostics) {
   const unique = /* @__PURE__ */ new Map();
   for (const diagnostic of diagnostics) {
-    const identity = `${diagnostic.jsonPath ?? ""}${diagnostic.code}${diagnostic.message}`;
-    if (!unique.has(identity)) unique.set(identity, diagnostic);
+    const identity2 = `${diagnostic.jsonPath ?? ""}${diagnostic.code}${diagnostic.message}`;
+    if (!unique.has(identity2)) unique.set(identity2, diagnostic);
   }
   const sorted = [...unique.values()].sort((left, right) => compareStableText(
     `${left.jsonPath ?? ""}${left.code}`,
@@ -1424,7 +1670,7 @@ function validateProjectDsl(value) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.durationMs`, "durationMs \u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002"));
         }
         const narrationText = isRecord2(scene.narration) && typeof scene.narration.text === "string" ? scene.narration.text : void 0;
-        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash2("sha256").update(narrationText, "utf8").digest("hex")}`;
+        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash3("sha256").update(narrationText, "utf8").digest("hex")}`;
         if (typeof scene.speech.sourceTextHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.sourceTextHash) || expectedHash !== void 0 && scene.speech.sourceTextHash !== expectedHash) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SPEECH_MISMATCH", `${path}.speech.sourceTextHash`, "sourceTextHash \u5FC5\u987B\u5339\u914D\u5F53\u524D Narration \u7684\u539F\u59CB UTF-8 \u5B57\u8282\u3002"));
         }
@@ -1548,7 +1794,7 @@ function parseControlJson(input, path, component, limits) {
   }
 }
 async function readBoundedControlFile(path, component, limit) {
-  const pathFacts = await lstat2(path);
+  const pathFacts = await lstat3(path);
   if (!pathFacts.isFile() || pathFacts.isSymbolicLink() || pathFacts.nlink !== 1) {
     throw invalidControlFile(path, {
       code: "PROJECT_REQUIRED_CONTENT_INVALID",
@@ -1556,7 +1802,7 @@ async function readBoundedControlFile(path, component, limit) {
       message: `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
     });
   }
-  const handle = await open2(path, "r");
+  const handle = await open3(path, "r");
   try {
     const facts = await handle.stat();
     if (!facts.isFile() || facts.dev !== pathFacts.dev || facts.ino !== pathFacts.ino) {
@@ -1600,22 +1846,22 @@ async function readBoundedControlFile(path, component, limit) {
 }
 async function readProjectVNextRevision(projectPath) {
   const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
-  return `sha256:${createHash2("sha256").update(bytes).digest("hex")}`;
+  return `sha256:${createHash3("sha256").update(bytes).digest("hex")}`;
 }
 async function readVideoBriefVNext(videoBriefPath) {
   const buffer = await readBoundedControlFile(videoBriefPath, "video.md", 2 * 1024 * 1024);
   return {
     content: decodeUtf8(buffer, videoBriefPath, "video.md", true),
-    revision: `sha256:${createHash2("sha256").update(buffer).digest("hex")}`,
+    revision: `sha256:${createHash3("sha256").update(buffer).digest("hex")}`,
     bytes: buffer.length
   };
 }
 async function requireDirectory(path) {
-  const facts = await lstat2(path);
+  const facts = await lstat3(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
 }
 async function requireFile(path) {
-  const facts = await lstat2(path);
+  const facts = await lstat3(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1) {
     throw new Error(`\u5FC5\u9700\u6587\u4EF6\u65E0\u6548\uFF1A${path}`);
   }
@@ -1638,10 +1884,10 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
   const directoryIdentities = [];
   for (let index = 0; index < parts.length; index += 1) {
     const component = parts.slice(0, index + 1).join("/");
-    const path = join2(projectDirectory, component);
+    const path = join3(projectDirectory, component);
     let facts;
     try {
-      facts = await lstat2(path);
+      facts = await lstat3(path);
     } catch (cause) {
       if (isFileSystemError(cause) && cause.code === "ENOENT" && !required) return;
       if (isFileSystemError(cause) && cause.code === "ENOENT") {
@@ -1672,8 +1918,8 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
       );
     }
   }
-  const resourcePath = join2(projectDirectory, relativePath);
-  const allowedRoot = await realpath(join2(projectDirectory, parts[0]));
+  const resourcePath = join3(projectDirectory, relativePath);
+  const allowedRoot = await realpath(join3(projectDirectory, parts[0]));
   const resolvedResource = await realpath(resourcePath);
   const relation = relative(allowedRoot, resolvedResource);
   if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
@@ -1683,13 +1929,13 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
       `${relativePath} \u89E3\u6790\u5230 ${allowedRoot} \u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002`
     );
   }
-  for (const identity of directoryIdentities) {
-    const current = await lstat2(identity.path);
-    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity.dev || current.ino !== identity.ino) {
+  for (const identity2 of directoryIdentities) {
+    const current = await lstat3(identity2.path);
+    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity2.dev || current.ino !== identity2.ino) {
       throw invalidResource(
-        identity.path,
-        relative(projectDirectory, identity.path),
-        `${relative(projectDirectory, identity.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
+        identity2.path,
+        relative(projectDirectory, identity2.path),
+        `${relative(projectDirectory, identity2.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
       );
     }
   }
@@ -1697,11 +1943,11 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
 async function validateProjectVNextResources(projectDirectory, project, options = {}) {
   const assetStates = [];
   for (const asset of project.assets) {
-    const path = join2(projectDirectory, asset.path);
+    const path = join3(projectDirectory, asset.path);
     await validateOrdinaryResource(projectDirectory, asset.path, false);
     let facts;
     try {
-      facts = await lstat2(path);
+      facts = await lstat3(path);
     } catch (cause) {
       assetStates.push({
         id: asset.id,
@@ -1712,7 +1958,7 @@ async function validateProjectVNextResources(projectDirectory, project, options 
       continue;
     }
     try {
-      const handle = await open2(path, "r");
+      const handle = await open3(path, "r");
       await handle.close();
       assetStates.push({
         id: asset.id,
@@ -1763,8 +2009,8 @@ async function validateProjectVNextResources(projectDirectory, project, options 
     })), ...speechWarnings])
   };
 }
-async function readStableDirectory(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
+async function readStableDirectory(directory2) {
+  const entries = await readdir2(directory2, { withFileTypes: true });
   entries.sort((left, right) => compareStableText(left.name, right.name));
   return entries;
 }
@@ -1787,28 +2033,28 @@ async function discoverRenderProgramDirectories(projectDirectory) {
   const programs = [];
   let directoriesVisited = 0;
   while (stack.length > 0) {
-    const { directory, depth } = stack.pop();
+    const { directory: directory2, depth } = stack.pop();
     directoriesVisited += 1;
     if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
-      throw directoryTreeLimit(projectDirectory, directory, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
     }
     let entries;
     try {
-      entries = await readStableDirectory(directory);
+      entries = await readStableDirectory(directory2);
     } catch (cause) {
       throw new ProjectInspectionError(
         "PROJECT_PATH_UNAVAILABLE",
-        directory,
-        `\u65E0\u6CD5\u68C0\u67E5\u9879\u76EE\u5185\u5BB9\u76EE\u5F55 ${directory}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+        directory2,
+        `\u65E0\u6CD5\u68C0\u67E5\u9879\u76EE\u5185\u5BB9\u76EE\u5F55 ${directory2}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
         [],
         { cause }
       );
     }
     for (const entry of [...entries].reverse()) {
-      if (directory === projectDirectory && excludedRoots.has(entry.name)) continue;
+      if (directory2 === projectDirectory && excludedRoots.has(entry.name)) continue;
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
-      const path = join2(directory, entry.name);
-      const facts = await lstat2(path);
+      const path = join3(directory2, entry.name);
+      const facts = await lstat3(path);
       if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
       const childDepth = depth + 1;
       if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
@@ -1844,10 +2090,10 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
     ["resources", "directory"]
   ];
   for (const [entry, kind] of requiredEntries) {
-    const path = join2(programDirectory, ...entry.split("/"));
+    const path = join3(programDirectory, ...entry.split("/"));
     let facts;
     try {
-      facts = await lstat2(path);
+      facts = await lstat3(path);
     } catch (cause) {
       if (isFileSystemError(cause) && cause.code === "ENOENT") {
         throw missingContent(path, relative(projectDirectory, path));
@@ -1872,18 +2118,18 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
   const stack = [{ directory: programDirectory, depth: 0 }];
   let directoriesVisited = 0;
   while (stack.length > 0) {
-    const { directory, depth } = stack.pop();
+    const { directory: directory2, depth } = stack.pop();
     directoriesVisited += 1;
     if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
-      throw directoryTreeLimit(projectDirectory, directory, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
     }
-    for (const entry of [...await readStableDirectory(directory)].reverse()) {
-      const path = join2(directory, entry.name);
+    for (const entry of [...await readStableDirectory(directory2)].reverse()) {
+      const path = join3(directory2, entry.name);
       const component = relative(projectDirectory, path);
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
         throw invalidResource(path, component, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
       }
-      const facts = await lstat2(path);
+      const facts = await lstat3(path);
       if (facts.isSymbolicLink()) {
         throw invalidResource(path, component, `${component} \u662F\u7B26\u53F7\u94FE\u63A5\uFF1BRender Program \u6811\u53EA\u5141\u8BB8\u666E\u901A\u6587\u4EF6\u548C\u76EE\u5F55\u3002`);
       }
@@ -1919,7 +2165,7 @@ async function inspectProjectVNext(inputPath, options = {}) {
       { cause }
     );
   }
-  const manifestPath = join2(projectDirectory, "narracut.json");
+  const manifestPath = join3(projectDirectory, "narracut.json");
   let manifestBuffer;
   try {
     manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
@@ -1967,9 +2213,9 @@ async function inspectProjectVNext(inputPath, options = {}) {
   const manifestDiagnostics = validateProjectManifest(manifest);
   if (manifestDiagnostics.length > 0) throw invalidContent(manifestPath, manifestDiagnostics);
   const requiredEntries = [
-    [join2(projectDirectory, "assets"), "assets/", "directory"],
-    [join2(projectDirectory, "speech"), "speech/", "directory"],
-    [join2(projectDirectory, "renders"), "renders/", "directory"]
+    [join3(projectDirectory, "assets"), "assets/", "directory"],
+    [join3(projectDirectory, "speech"), "speech/", "directory"],
+    [join3(projectDirectory, "renders"), "renders/", "directory"]
   ];
   for (const [path, component, kind] of requiredEntries) {
     try {
@@ -2003,12 +2249,12 @@ async function inspectProjectVNext(inputPath, options = {}) {
   try {
     [projectBuffer, videoBuffer] = await Promise.all([
       readBoundedControlFile(
-        join2(projectDirectory, "project.json"),
+        join3(projectDirectory, "project.json"),
         "project.json",
         10 * 1024 * 1024
       ),
       readBoundedControlFile(
-        join2(projectDirectory, "video.md"),
+        join3(projectDirectory, "video.md"),
         "video.md",
         2 * 1024 * 1024
       )
@@ -2030,17 +2276,17 @@ async function inspectProjectVNext(inputPath, options = {}) {
   }
   const projectBytes = decodeUtf8(
     projectBuffer,
-    join2(projectDirectory, "project.json"),
+    join3(projectDirectory, "project.json"),
     "project.json",
     false
   );
   const videoBytes = decodeUtf8(
     videoBuffer,
-    join2(projectDirectory, "video.md"),
+    join3(projectDirectory, "video.md"),
     "video.md",
     true
   );
-  const projectPath = join2(projectDirectory, "project.json");
+  const projectPath = join3(projectDirectory, "project.json");
   const parsedProject = parseControlJson(
     projectBytes,
     projectPath,
@@ -2077,9 +2323,9 @@ async function inspectProjectVNext(inputPath, options = {}) {
     projectDirectory,
     manifest,
     project: projectValidation.project,
-    projectRevision: `sha256:${createHash2("sha256").update(projectBuffer).digest("hex")}`,
+    projectRevision: `sha256:${createHash3("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
-    videoBriefRevision: `sha256:${createHash2("sha256").update(videoBuffer).digest("hex")}`,
+    videoBriefRevision: `sha256:${createHash3("sha256").update(videoBuffer).digest("hex")}`,
     renderPrograms: { directories: renderProgramDirectories },
     assetStates,
     tts,
@@ -2090,24 +2336,24 @@ async function inspectProjectVNext(inputPath, options = {}) {
 }
 
 // src/server/project-lifecycle.ts
-import { createHash as createHash3, randomUUID as randomUUID3 } from "node:crypto";
+import { createHash as createHash4, randomUUID as randomUUID4 } from "node:crypto";
 import { constants as fsConstants2 } from "node:fs";
 import {
   access,
   link,
-  lstat as lstat3,
-  mkdir,
+  lstat as lstat4,
+  mkdir as mkdir2,
   open as openFile,
-  readFile as readFile2,
-  readdir as readdir2,
+  readFile as readFile3,
+  readdir as readdir3,
   realpath as realpath2,
-  rename as rename2,
+  rename as rename3,
   rmdir,
-  rm as rm2,
+  rm as rm3,
   unlink,
   writeFile
 } from "node:fs/promises";
-import { basename, dirname as dirname2, isAbsolute as isAbsolute2, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+import { basename, dirname as dirname3, isAbsolute as isAbsolute2, join as join4, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
 var STARTER_REACT_VERSION = "19.2.8";
 var STARTER_REMOTION_VERSION = "4.0.512";
 var ProjectLifecycleError = class extends Error {
@@ -2138,7 +2384,7 @@ function isCreateOperationMarker(value, projectDirectory, operationToken) {
 }
 async function pathExists(path) {
   try {
-    await lstat3(path);
+    await lstat4(path);
     return true;
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
@@ -2146,7 +2392,7 @@ async function pathExists(path) {
   }
 }
 async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory, confirmed) {
-  const facts = await lstat3(temporaryDirectory);
+  const facts = await lstat4(temporaryDirectory);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -2154,14 +2400,14 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u8DEF\u5F84\u4E0D\u662F\u53EF\u786E\u8BA4\u5F52\u5C5E\u7684\u666E\u901A\u76EE\u5F55\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  const markerPath = join3(temporaryDirectory, OPERATION_MARKER);
+  const markerPath = join4(temporaryDirectory, OPERATION_MARKER);
   let marker;
   try {
-    const markerFacts = await lstat3(markerPath);
+    const markerFacts = await lstat4(markerPath);
     if (!markerFacts.isFile() || markerFacts.isSymbolicLink() || markerFacts.nlink !== 1 || markerFacts.size > 4096) {
       throw new Error("invalid marker");
     }
-    marker = JSON.parse(await readFile2(markerPath, "utf8"));
+    marker = JSON.parse(await readFile3(markerPath, "utf8"));
   } catch {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -2183,7 +2429,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u53D1\u73B0\u4E0E\u672C\u6B21\u76EE\u6807\u5339\u914D\u7684\u521B\u5EFA\u6B8B\u7559\uFF1A${temporaryDirectory}\u3002\u8BF7\u786E\u8BA4\u6E05\u7406\u540E\u4ECE\u5934\u91CD\u8BD5\u3002`
     );
   }
-  const currentFacts = await lstat3(temporaryDirectory);
+  const currentFacts = await lstat4(temporaryDirectory);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino || !currentFacts.isDirectory()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -2191,7 +2437,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u76EE\u5F55\u5728\u786E\u8BA4\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  await rm2(temporaryDirectory, { recursive: true });
+  await rm3(temporaryDirectory, { recursive: true });
 }
 function starterLockfile() {
   return `lockfileVersion: '9.0'
@@ -2283,7 +2529,7 @@ function starterSource() {
   return 'import { AbsoluteFill } from "remotion";\n\ntype RenderProgramInputV1 = Readonly<{ apiVersion: 1 }>;\n\nexport function RenderProgram(input: RenderProgramInputV1) {\n  void input;\n  return <AbsoluteFill style={{ backgroundColor: "#090d0e" }} />;\n}\n';
 }
 async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join3(
+  const renderProgramDirectory = join4(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -2291,29 +2537,29 @@ async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
     "render-program"
   );
   await Promise.all([
-    mkdir(join3(temporaryDirectory, "assets"), { recursive: true }),
-    mkdir(join3(temporaryDirectory, "speech"), { recursive: true }),
-    mkdir(join3(temporaryDirectory, "renders"), { recursive: true }),
-    mkdir(join3(renderProgramDirectory, "src"), { recursive: true }),
-    mkdir(join3(renderProgramDirectory, "resources"), { recursive: true })
+    mkdir2(join4(temporaryDirectory, "assets"), { recursive: true }),
+    mkdir2(join4(temporaryDirectory, "speech"), { recursive: true }),
+    mkdir2(join4(temporaryDirectory, "renders"), { recursive: true }),
+    mkdir2(join4(renderProgramDirectory, "src"), { recursive: true }),
+    mkdir2(join4(renderProgramDirectory, "resources"), { recursive: true })
   ]);
   await Promise.all([
-    writeFile(join3(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
-    writeFile(join3(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
-    writeFile(join3(temporaryDirectory, "video.md"), ""),
-    writeFile(join3(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
+    writeFile(join4(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
+    writeFile(join4(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
+    writeFile(join4(temporaryDirectory, "video.md"), ""),
+    writeFile(join4(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
     writeFile(
-      join3(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
+      join4(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
       starterRevision(revisionId)
     ),
-    writeFile(join3(renderProgramDirectory, "program.json"), starterProgramManifest()),
-    writeFile(join3(renderProgramDirectory, "package.json"), starterPackageManifest()),
-    writeFile(join3(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
-    writeFile(join3(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
+    writeFile(join4(renderProgramDirectory, "program.json"), starterProgramManifest()),
+    writeFile(join4(renderProgramDirectory, "package.json"), starterPackageManifest()),
+    writeFile(join4(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
+    writeFile(join4(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
   ]);
 }
 async function validateStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join3(
+  const renderProgramDirectory = join4(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -2333,15 +2579,15 @@ async function validateStarterProject(temporaryDirectory, projectId, revisionId)
     source
   ] = await Promise.all([
     inspectProjectVNext(temporaryDirectory),
-    readFile2(join3(temporaryDirectory, "narracut.json"), "utf8"),
-    readFile2(join3(temporaryDirectory, "project.json"), "utf8"),
-    readFile2(join3(temporaryDirectory, "video.md"), "utf8"),
-    readFile2(join3(temporaryDirectory, ".narracut", "current.json"), "utf8"),
-    readFile2(join3(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
-    readFile2(join3(renderProgramDirectory, "program.json"), "utf8"),
-    readFile2(join3(renderProgramDirectory, "package.json"), "utf8"),
-    readFile2(join3(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
-    readFile2(join3(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
+    readFile3(join4(temporaryDirectory, "narracut.json"), "utf8"),
+    readFile3(join4(temporaryDirectory, "project.json"), "utf8"),
+    readFile3(join4(temporaryDirectory, "video.md"), "utf8"),
+    readFile3(join4(temporaryDirectory, ".narracut", "current.json"), "utf8"),
+    readFile3(join4(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
+    readFile3(join4(renderProgramDirectory, "program.json"), "utf8"),
+    readFile3(join4(renderProgramDirectory, "package.json"), "utf8"),
+    readFile3(join4(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
+    readFile3(join4(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
   ]);
   if (inspection.manifest.projectId !== projectId || inspection.project.assets.length !== 0 || inspection.project.scenes.length !== 0 || inspection.videoBrief !== "" || manifest !== starterManifest(projectId) || projectDsl !== '{"assets":[],"scenes":[]}' || videoBrief !== "" || current !== starterCurrent(revisionId) || revision !== starterRevision(revisionId) || programManifest !== starterProgramManifest() || packageManifest !== starterPackageManifest() || lockfile !== starterLockfile() || source !== starterSource()) {
     throw new Error("starter \u9879\u76EE\u590D\u6838\u7ED3\u679C\u4E0E\u521B\u5EFA\u8F93\u5165\u4E0D\u4E00\u81F4\u3002");
@@ -2361,15 +2607,15 @@ function isPlainRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 async function readRegularUtf8(path, maxBytes) {
-  const facts = await lstat3(path);
+  const facts = await lstat4(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > maxBytes) {
     throw new Error(`\u4E0D\u662F\u53D7\u652F\u6301\u7684\u666E\u901A\u6587\u4EF6\uFF1A${path}`);
   }
-  return readFile2(path, "utf8");
+  return readFile3(path, "utf8");
 }
 async function validateCurrentProjectState(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const currentPath = join3(projectDirectory, ".narracut", "current.json");
+  const currentPath = join4(projectDirectory, ".narracut", "current.json");
   let briefRevision = null;
   try {
     const current = parseStrictJson(
@@ -2380,17 +2626,17 @@ async function validateCurrentProjectState(inspection) {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6307\u9488\u65E0\u6548\u3002");
     }
     const revisionId = current.revisionId;
-    const revisionDirectory = join3(projectDirectory, ".narracut", "revisions", revisionId);
-    const renderProgramDirectory = join3(revisionDirectory, "render-program");
+    const revisionDirectory = join4(projectDirectory, ".narracut", "revisions", revisionId);
+    const renderProgramDirectory = join4(revisionDirectory, "render-program");
     if (!inspection.renderPrograms.directories.includes(renderProgramDirectory)) {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6CA1\u6709\u53EF\u68C0\u67E5\u7684 Render Program\u3002");
     }
     const [revision, program, packageJson, lockfile, source] = await Promise.all([
-      readRegularUtf8(join3(revisionDirectory, "revision.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join3(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join3(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join3(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
-      readRegularUtf8(join3(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
+      readRegularUtf8(join4(revisionDirectory, "revision.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join4(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join4(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join4(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
+      readRegularUtf8(join4(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
     ]);
     if (!isPlainRecord(revision) || Object.keys(revision).some(
       (key) => !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary"].includes(key)
@@ -2429,49 +2675,49 @@ async function validateCurrentProjectState(inspection) {
   return briefRevision;
 }
 async function captureDirectoryIdentity(path) {
-  const facts = await lstat3(path);
+  const facts = await lstat4(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new Error(`\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u76EE\u5F55\uFF1A${path}`);
   }
   return { dev: facts.dev, ino: facts.ino };
 }
-function hasIdentity(facts, identity) {
-  return facts.dev === identity.dev && facts.ino === identity.ino;
+function hasIdentity(facts, identity2) {
+  return facts.dev === identity2.dev && facts.ino === identity2.ino;
 }
-async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity, markerWritten, projectDirectory, operationToken) {
+async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, markerWritten, projectDirectory, operationToken) {
   let facts;
   try {
-    facts = await lstat3(temporaryDirectory);
+    facts = await lstat4(temporaryDirectory);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
   }
-  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity)) {
+  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity2)) {
     throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u5DF2\u88AB\u66FF\u6362\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
   }
   if (markerWritten) {
     const marker = JSON.parse(await readRegularUtf8(
-      join3(temporaryDirectory, OPERATION_MARKER),
+      join4(temporaryDirectory, OPERATION_MARKER),
       4096
     ));
     if (!isCreateOperationMarker(marker, projectDirectory, operationToken)) {
       throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u5DF2\u53D8\u5316\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
     }
   }
-  await rm2(temporaryDirectory, { recursive: true });
+  await rm3(temporaryDirectory, { recursive: true });
 }
-async function cleanupTargetReservation(projectDirectory, identity) {
+async function cleanupTargetReservation(projectDirectory, identity2) {
   let facts;
   try {
-    facts = await lstat3(projectDirectory);
+    facts = await lstat4(projectDirectory);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
   }
-  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity)) {
+  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity2)) {
     throw new Error("\u53D1\u5E03\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u5DF2\u88AB\u66FF\u6362\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
   }
-  if ((await readdir2(projectDirectory)).length !== 0) {
+  if ((await readdir3(projectDirectory)).length !== 0) {
     throw new Error("\u53D1\u5E03\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u51FA\u73B0\u5916\u90E8\u5185\u5BB9\uFF0CNarracut \u62D2\u7EDD\u5220\u9664\u3002");
   }
   await rmdir(projectDirectory);
@@ -2486,11 +2732,11 @@ async function createProjectVNext(inputPath, options = {}) {
       "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
     );
   }
-  const temporaryDirectory = join3(dirname2(projectDirectory), `.${projectName}.narracut-tmp`);
-  const createId = options.createId ?? randomUUID3;
+  const temporaryDirectory = join4(dirname3(projectDirectory), `.${projectName}.narracut-tmp`);
+  const createId = options.createId ?? randomUUID4;
   const projectId = createId();
   const revisionId = createId();
-  const operationToken = randomUUID3();
+  const operationToken = randomUUID4();
   let temporaryIdentity = null;
   let markerWritten = false;
   let targetReservationIdentity = null;
@@ -2509,9 +2755,9 @@ async function createProjectVNext(inputPath, options = {}) {
         options.confirmTemporaryCleanup === true
       );
     }
-    await mkdir(temporaryDirectory);
+    await mkdir2(temporaryDirectory);
     temporaryIdentity = await captureDirectoryIdentity(temporaryDirectory);
-    await writeFile(join3(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
+    await writeFile(join4(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
       kind: "narracut-operation",
       version: 1,
       operation: "create",
@@ -2523,7 +2769,7 @@ async function createProjectVNext(inputPath, options = {}) {
     await validateStarterProject(temporaryDirectory, projectId, revisionId);
     if (process.platform !== "win32") {
       try {
-        await mkdir(projectDirectory);
+        await mkdir2(projectDirectory);
       } catch (error) {
         if (error instanceof Error && "code" in error && error.code === "EEXIST") {
           throw new ProjectLifecycleError(
@@ -2543,11 +2789,11 @@ async function createProjectVNext(inputPath, options = {}) {
         `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`
       );
     }
-    await unlink(join3(temporaryDirectory, OPERATION_MARKER));
+    await unlink(join4(temporaryDirectory, OPERATION_MARKER));
     markerWritten = false;
     if (targetReservationIdentity !== null) {
-      const currentReservation = await lstat3(projectDirectory);
-      if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir2(projectDirectory)).length !== 0) {
+      const currentReservation = await lstat4(projectDirectory);
+      if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir3(projectDirectory)).length !== 0) {
         throw new ProjectLifecycleError(
           "PROJECT_CREATE_TARGET_EXISTS",
           projectDirectory,
@@ -2555,7 +2801,7 @@ async function createProjectVNext(inputPath, options = {}) {
         );
       }
     }
-    await rename2(temporaryDirectory, projectDirectory);
+    await rename3(temporaryDirectory, projectDirectory);
     temporaryIdentity = null;
     targetReservationIdentity = null;
     return { projectDirectory, projectId, revisionId };
@@ -2593,7 +2839,7 @@ async function createProjectVNext(inputPath, options = {}) {
 async function readProcessIdentity(pid) {
   if (process.platform !== "linux") return null;
   try {
-    const statBytes = await readFile2(`/proc/${pid}/stat`, "utf8");
+    const statBytes = await readFile3(`/proc/${pid}/stat`, "utf8");
     const commandEnd = statBytes.lastIndexOf(")");
     if (commandEnd < 0) return null;
     return statBytes.slice(commandEnd + 2).trim().split(/\s+/u)[19] ?? null;
@@ -2622,21 +2868,21 @@ async function clearStaleLease(leasePath) {
   let facts;
   let marker;
   try {
-    facts = await lstat3(leasePath);
+    facts = await lstat4(leasePath);
     if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 4096) return false;
-    marker = JSON.parse(await readFile2(leasePath, "utf8"));
+    marker = JSON.parse(await readFile3(leasePath, "utf8"));
   } catch {
     return false;
   }
   if (!isLeaseMarker(marker) || await leaseHolderIsAlive(marker)) return false;
-  const currentFacts = await lstat3(leasePath);
+  const currentFacts = await lstat4(leasePath);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino) return false;
   await unlink(leasePath);
   return true;
 }
 async function acquireProjectLease(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const leasePath = join3(projectDirectory, ".narracut", "workspace.lease");
+  const leasePath = join4(projectDirectory, ".narracut", "workspace.lease");
   if (activeLeasePaths.has(leasePath)) {
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -2651,7 +2897,7 @@ async function acquireProjectLease(inspection) {
     projectId: inspection.manifest.projectId,
     pid: process.pid,
     processIdentity: await readProcessIdentity(process.pid),
-    token: randomUUID3()
+    token: randomUUID4()
   };
   let handle;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -2681,7 +2927,7 @@ async function acquireProjectLease(inspection) {
     await handle.sync();
   } catch (cause) {
     await handle.close();
-    await rm2(leasePath, { force: true });
+    await rm3(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
       projectDirectory,
@@ -2692,9 +2938,9 @@ async function acquireProjectLease(inspection) {
   await handle.close();
   let leaseDirectoryHandle;
   try {
-    leaseDirectoryHandle = await openFile(dirname2(leasePath), "r");
+    leaseDirectoryHandle = await openFile(dirname3(leasePath), "r");
   } catch (cause) {
-    await rm2(leasePath, { force: true });
+    await rm3(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
       projectDirectory,
@@ -2713,7 +2959,7 @@ async function acquireProjectLease(inspection) {
       );
     }
     try {
-      const current = JSON.parse(await readFile2(leasePath, "utf8"));
+      const current = JSON.parse(await readFile3(leasePath, "utf8"));
       if (current.token !== marker.token || current.projectId !== marker.projectId) throw new Error("\u79DF\u7EA6\u8EAB\u4EFD\u4E0D\u5339\u914D");
     } catch (cause) {
       throw new ProjectLifecycleError(
@@ -2730,7 +2976,7 @@ async function acquireProjectLease(inspection) {
     activeLeasePaths.delete(leasePath);
     const anchoredLeasePath = process.platform === "win32" ? leasePath : `/dev/fd/${leaseDirectoryHandle.fd}/workspace.lease`;
     try {
-      const current = JSON.parse(await readFile2(anchoredLeasePath, "utf8"));
+      const current = JSON.parse(await readFile3(anchoredLeasePath, "utf8"));
       if (current.token === marker.token) await unlink(anchoredLeasePath);
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
@@ -2741,7 +2987,7 @@ async function acquireProjectLease(inspection) {
   return { assertCurrent, release };
 }
 function revisionOf(bytes) {
-  return `sha256:${createHash3("sha256").update(bytes).digest("hex")}`;
+  return `sha256:${createHash4("sha256").update(bytes).digest("hex")}`;
 }
 async function currentProjectRevision(projectFile, message) {
   try {
@@ -2827,19 +3073,19 @@ async function uniqueAssetPath(assetsDirectory, sourcePath) {
     const candidate = suffixedAssetFilename(filename, suffix);
     const relativePath = `assets/${candidate}`;
     try {
-      await access(join3(assetsDirectory, candidate));
+      await access(join4(assetsDirectory, candidate));
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return relativePath;
       throw error;
     }
   }
-  return `assets/${randomUUID3()}`;
+  return `assets/${randomUUID4()}`;
 }
 async function isProjectControlFile(projectDirectory, sourcePath, sourceFacts) {
   for (const name of ["narracut.json", "project.json", "video.md"]) {
-    const controlPath = join3(projectDirectory, name);
+    const controlPath = join4(projectDirectory, name);
     if (resolve2(sourcePath) === controlPath) return true;
-    const controlFacts = await lstat3(controlPath);
+    const controlFacts = await lstat4(controlPath);
     if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
   }
   return false;
@@ -2871,7 +3117,7 @@ async function copyStableFile(source, opened, temporaryPath, assertDestinationCu
   }
 }
 async function replaceProjectFile(projectFile, bytes, assertWritable) {
-  const temporaryFile = join3(dirname2(projectFile), `.${basename(projectFile)}.${randomUUID3()}.tmp`);
+  const temporaryFile = join4(dirname3(projectFile), `.${basename(projectFile)}.${randomUUID4()}.tmp`);
   let committed = false;
   try {
     const handle = await openFile(temporaryFile, "wx", 384);
@@ -2882,19 +3128,19 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
       await handle.close();
     }
     await assertWritable();
-    await rename2(temporaryFile, projectFile);
+    await rename3(temporaryFile, projectFile);
     committed = true;
     try {
-      const directory = await openFile(dirname2(projectFile), "r");
+      const directory2 = await openFile(dirname3(projectFile), "r");
       try {
-        await directory.sync();
+        await directory2.sync();
       } finally {
-        await directory.close();
+        await directory2.close();
       }
     } catch {
     }
   } finally {
-    if (!committed) await rm2(temporaryFile, { force: true }).catch(() => void 0);
+    if (!committed) await rm3(temporaryFile, { force: true }).catch(() => void 0);
   }
 }
 async function openProjectVNext(inputPath, options = {}) {
@@ -2921,7 +3167,7 @@ async function openProjectVNext(inputPath, options = {}) {
           `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
         );
       }
-      const assetsDirectory = join3(projectDirectory, "assets");
+      const assetsDirectory = join4(projectDirectory, "assets");
       const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
       assetsDirectoryHandle = await openFile(assetsDirectory, "r");
       const openedAssetsDirectory = await assetsDirectoryHandle.stat();
@@ -2933,7 +3179,7 @@ async function openProjectVNext(inputPath, options = {}) {
         );
       }
       const anchoredAssetsDirectory = process.platform === "win32" ? assetsDirectory : `/dev/fd/${assetsDirectoryHandle.fd}`;
-      const speechDirectory = join3(projectDirectory, "speech");
+      const speechDirectory = join4(projectDirectory, "speech");
       const speechDirectoryIdentity = await captureDirectoryIdentity(speechDirectory);
       speechDirectoryHandle = await openFile(speechDirectory, "r");
       const openedSpeechDirectory = await speechDirectoryHandle.stat();
@@ -2953,7 +3199,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await lease.assertCurrent();
         let facts;
         try {
-          facts = await lstat3(projectDirectory);
+          facts = await lstat4(projectDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -2970,12 +3216,12 @@ async function openProjectVNext(inputPath, options = {}) {
           );
         }
         try {
-          const manifestPath = join3(projectDirectory, "narracut.json");
-          const manifestFacts = await lstat3(manifestPath);
+          const manifestPath = join4(projectDirectory, "narracut.json");
+          const manifestFacts = await lstat4(manifestPath);
           if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
             throw new Error("\u9879\u76EE\u6E05\u5355\u6587\u4EF6\u8EAB\u4EFD\u65E0\u6548");
           }
-          const manifest = JSON.parse(await readFile2(manifestPath, "utf8"));
+          const manifest = JSON.parse(await readFile3(manifestPath, "utf8"));
           if (manifest.projectId !== initialInspection.manifest.projectId) {
             throw new Error("\u9879\u76EE\u6E05\u5355\u4E2D\u7684 projectId \u5DF2\u53D8\u5316");
           }
@@ -2988,11 +3234,19 @@ async function openProjectVNext(inputPath, options = {}) {
           );
         }
       };
+      const candidateManager = await createCandidateManager(projectDirectory, assertWritable);
+      const candidate = (request) => {
+        if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002"));
+        const operation = saveQueue.then(() => candidateManager(request));
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      await candidate({ action: "read" });
       const assertAssetsDirectoryCurrent = async () => {
         await assertWritable();
         let facts;
         try {
-          facts = await lstat3(assetsDirectory);
+          facts = await lstat4(assetsDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -3013,7 +3267,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await assertWritable();
         let facts;
         try {
-          facts = await lstat3(speechDirectory);
+          facts = await lstat4(speechDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -3039,7 +3293,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join3(projectDirectory, "project.json");
+          const projectFile = join4(projectDirectory, "project.json");
           try {
             await assertWritable();
             if (await currentProjectRevision(
@@ -3112,7 +3366,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const videoBriefPath = join3(projectDirectory, "video.md");
+          const videoBriefPath = join4(projectDirectory, "video.md");
           try {
             await assertWritable();
             const bytes = Buffer.from(content, "utf8");
@@ -3202,7 +3456,7 @@ async function openProjectVNext(inputPath, options = {}) {
             "Video Brief LOCAL \u53EA\u80FD\u5BFC\u51FA\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002"
           );
         }
-        const facts = await lstat3(destinationDirectory);
+        const facts = await lstat4(destinationDirectory);
         if (!facts.isDirectory() || facts.isSymbolicLink()) {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
@@ -3212,7 +3466,7 @@ async function openProjectVNext(inputPath, options = {}) {
         }
         for (let suffix = 1; suffix <= 1e4; suffix += 1) {
           const filename = suffix === 1 ? "video-brief-local.md" : `video-brief-local-${suffix}.md`;
-          const path = join3(destinationDirectory, filename);
+          const path = join4(destinationDirectory, filename);
           let handle = null;
           try {
             handle = await openFile(path, "wx", 384);
@@ -3223,7 +3477,7 @@ async function openProjectVNext(inputPath, options = {}) {
             if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") continue;
             if (handle !== null) {
               const openedFacts = await handle.stat().catch(() => null);
-              const currentFacts = await lstat3(path).catch(() => null);
+              const currentFacts = await lstat4(path).catch(() => null);
               if (openedFacts !== null && currentFacts !== null && openedFacts.dev === currentFacts.dev && openedFacts.ino === currentFacts.ino) await unlink(path).catch(() => void 0);
             }
             throw new ProjectLifecycleError(
@@ -3251,7 +3505,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join3(projectDirectory, "project.json");
+          const projectFile = join4(projectDirectory, "project.json");
           const sourcePath = resolve2(input.sourcePath);
           await assertWritable();
           if (await currentProjectRevision(
@@ -3266,7 +3520,7 @@ async function openProjectVNext(inputPath, options = {}) {
           }
           let pathFacts;
           try {
-            pathFacts = await lstat3(sourcePath);
+            pathFacts = await lstat4(sourcePath);
           } catch (cause) {
             return {
               status: "failed",
@@ -3327,11 +3581,11 @@ async function openProjectVNext(inputPath, options = {}) {
             }
             await assertAssetsDirectoryCurrent();
             const asset = {
-              id: randomUUID3(),
+              id: randomUUID4(),
               path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath)
             };
-            const temporaryPath = join3(anchoredAssetsDirectory, `.import-${randomUUID3()}.tmp`);
-            let finalPath = join3(anchoredAssetsDirectory, basename(asset.path));
+            const temporaryPath = join4(anchoredAssetsDirectory, `.import-${randomUUID4()}.tmp`);
+            let finalPath = join4(anchoredAssetsDirectory, basename(asset.path));
             let published = false;
             try {
               await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
@@ -3344,7 +3598,7 @@ async function openProjectVNext(inputPath, options = {}) {
                 } catch (cause) {
                   if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
                   asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
-                  finalPath = join3(anchoredAssetsDirectory, basename(asset.path));
+                  finalPath = join4(anchoredAssetsDirectory, basename(asset.path));
                 }
               }
               if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
@@ -3422,7 +3676,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join3(projectDirectory, "project.json");
+          const projectFile = join4(projectDirectory, "project.json");
           await assertWritable();
           if (await currentProjectRevision(
             projectFile,
@@ -3436,7 +3690,7 @@ async function openProjectVNext(inputPath, options = {}) {
           }
           const config = validateProjectTtsConfig(input.config);
           const nextProfileId = ttsProfileId(config);
-          const previousProjectBytes = await readFile2(projectFile);
+          const previousProjectBytes = await readFile3(projectFile);
           if (revisionOf(previousProjectBytes) !== currentInspection.projectRevision) {
             throw new ProjectLifecycleError(
               "PROJECT_SAVE_CONFLICT",
@@ -3521,7 +3775,7 @@ async function openProjectVNext(inputPath, options = {}) {
             if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
             throw new ProjectLifecycleError(
               "PROJECT_SAVE_FAILED",
-              join3(projectDirectory, "tts.json"),
+              join4(projectDirectory, "tts.json"),
               "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1BNarracut \u5DF2\u4FDD\u7559\u539F\u914D\u7F6E\u4E0E Scene \u5185\u5BB9\u3002",
               { cause }
             );
@@ -3532,8 +3786,8 @@ async function openProjectVNext(inputPath, options = {}) {
       };
       const probeSpeechAudio = async (input) => {
         await assertSpeechDirectoryCurrent();
-        const probeFile = join3(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
-        const decoderPath = process.platform === "linux" ? join3(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join3(speechDirectory, `.probe-${input.jobId}.mp3`);
+        const probeFile = join4(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
+        const decoderPath = process.platform === "linux" ? join4(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join4(speechDirectory, `.probe-${input.jobId}.mp3`);
         let created = false;
         try {
           const handle = await openFile(probeFile, "wx", 384);
@@ -3552,7 +3806,7 @@ async function openProjectVNext(inputPath, options = {}) {
           await assertSpeechDirectoryCurrent();
           return durationMs;
         } finally {
-          if (created) await rm2(probeFile, { force: true }).catch(() => void 0);
+          if (created) await rm3(probeFile, { force: true }).catch(() => void 0);
         }
       };
       const commitSpeech = (input) => {
@@ -3574,7 +3828,7 @@ async function openProjectVNext(inputPath, options = {}) {
               inspection: currentInspection
             };
           }
-          const scene = currentInspection.project.scenes.find((candidate) => candidate.id === input.sceneId);
+          const scene = currentInspection.project.scenes.find((candidate2) => candidate2.id === input.sceneId);
           if (scene === void 0) {
             return {
               status: "rejected",
@@ -3599,9 +3853,9 @@ async function openProjectVNext(inputPath, options = {}) {
               inspection: currentInspection
             };
           }
-          const finalFile = join3(anchoredSpeechDirectory, `${scene.id}.mp3`);
-          const temporaryFile = join3(anchoredSpeechDirectory, `.speech-${randomUUID3()}.tmp`);
-          const backupFile = join3(anchoredSpeechDirectory, `.speech-${randomUUID3()}.previous`);
+          const finalFile = join4(anchoredSpeechDirectory, `${scene.id}.mp3`);
+          const temporaryFile = join4(anchoredSpeechDirectory, `.speech-${randomUUID4()}.tmp`);
+          const backupFile = join4(anchoredSpeechDirectory, `.speech-${randomUUID4()}.previous`);
           let previousFile = false;
           let published = false;
           try {
@@ -3613,7 +3867,7 @@ async function openProjectVNext(inputPath, options = {}) {
               await handle.close();
             }
             try {
-              const finalFacts = await lstat3(finalFile);
+              const finalFacts = await lstat4(finalFile);
               if (!finalFacts.isFile() || finalFacts.isSymbolicLink()) {
                 throw new ProjectLifecycleError(
                   "PROJECT_IDENTITY_LOST",
@@ -3622,7 +3876,7 @@ async function openProjectVNext(inputPath, options = {}) {
                 );
               }
               await link(finalFile, backupFile);
-              const backupFacts = await lstat3(backupFile);
+              const backupFacts = await lstat4(backupFile);
               if (!backupFacts.isFile() || backupFacts.isSymbolicLink() || !hasIdentity(backupFacts, finalFacts)) {
                 throw new ProjectLifecycleError(
                   "PROJECT_IDENTITY_LOST",
@@ -3636,18 +3890,18 @@ async function openProjectVNext(inputPath, options = {}) {
             }
             await assertSpeechDirectoryCurrent();
             if (input.isCancelled?.()) throw new Error("Speech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002");
-            await rename2(temporaryFile, finalFile);
+            await rename3(temporaryFile, finalFile);
             published = true;
             const project = structuredClone(currentInspection.project);
-            const target = project.scenes.find((candidate) => candidate.id === scene.id);
+            const target = project.scenes.find((candidate2) => candidate2.id === scene.id);
             target.speech = {
               path: `speech/${scene.id}.mp3`,
               durationMs: input.durationMs,
-              sourceTextHash: `sha256:${createHash3("sha256").update(input.narrationText, "utf8").digest("hex")}`,
+              sourceTextHash: `sha256:${createHash4("sha256").update(input.narrationText, "utf8").digest("hex")}`,
               ttsProfileId: input.ttsProfileId,
-              audioContentHash: `sha256:${createHash3("sha256").update(input.audio).digest("hex")}`
+              audioContentHash: `sha256:${createHash4("sha256").update(input.audio).digest("hex")}`
             };
-            const projectFile = join3(projectDirectory, "project.json");
+            const projectFile = join4(projectDirectory, "project.json");
             const baselineRevision = currentInspection.projectRevision;
             const validated = validateProjectVNextForSave(project, projectFile);
             const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
@@ -3686,7 +3940,7 @@ async function openProjectVNext(inputPath, options = {}) {
               timeline,
               warnings
             };
-            await rm2(backupFile, { force: true }).catch(() => void 0);
+            await rm3(backupFile, { force: true }).catch(() => void 0);
             return {
               status: "applied",
               code: "SPEECH_APPLIED",
@@ -3698,15 +3952,15 @@ async function openProjectVNext(inputPath, options = {}) {
             if (published) {
               try {
                 if (previousFile) {
-                  if (process.platform === "win32") await rm2(finalFile, { force: true });
-                  await rename2(backupFile, finalFile);
-                } else await rm2(finalFile, { force: true });
+                  if (process.platform === "win32") await rm3(finalFile, { force: true });
+                  await rename3(backupFile, finalFile);
+                } else await rm3(finalFile, { force: true });
               } catch (rollbackCause) {
                 rollbackFailure = rollbackCause;
               }
             }
-            await rm2(temporaryFile, { force: true }).catch(() => void 0);
-            if (rollbackFailure === void 0) await rm2(backupFile, { force: true }).catch(() => void 0);
+            await rm3(temporaryFile, { force: true }).catch(() => void 0);
+            if (rollbackFailure === void 0) await rm3(backupFile, { force: true }).catch(() => void 0);
             if (rollbackFailure !== void 0) {
               throw new ProjectLifecycleError(
                 "PROJECT_SAVE_FAILED",
@@ -3742,6 +3996,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await releasePromise;
       };
       return {
+        candidate,
         inspection,
         saveProject,
         saveVideoBrief,
@@ -3776,8 +4031,8 @@ async function openProjectVNext(inputPath, options = {}) {
 
 // src/server/project-asset-preview.ts
 import { constants as fsConstants3 } from "node:fs";
-import { lstat as lstat4, open as openFile2 } from "node:fs/promises";
-import { basename as basename2, join as join4 } from "node:path";
+import { lstat as lstat5, open as openFile2 } from "node:fs/promises";
+import { basename as basename2, join as join5 } from "node:path";
 var MAX_INLINE_PREVIEW_BYTES = 32 * 1024 * 1024;
 function startsWith(bytes, signature) {
   return signature.every((byte, index) => bytes[index] === byte);
@@ -3816,7 +4071,7 @@ async function readProjectAssetPreview(inspection, assetId) {
   if (asset === void 0) {
     return { status: "dangling", id: assetId, reason: "\u672A\u627E\u5230\u767B\u8BB0\u7684 Asset\u3002" };
   }
-  const absolutePath = join4(inspection.projectDirectory, asset.path);
+  const absolutePath = join5(inspection.projectDirectory, asset.path);
   try {
     const { assetStates: [runtime] } = await validateProjectVNextResources(
       inspection.projectDirectory,
@@ -3830,7 +4085,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         reason: runtime?.reason ?? "Asset \u6587\u4EF6\u4E0D\u53EF\u7528\u3002"
       };
     }
-    const before = await lstat4(absolutePath);
+    const before = await lstat5(absolutePath);
     const handle = await openFile2(absolutePath, fsConstants3.O_RDONLY | (fsConstants3.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
@@ -3909,6 +4164,31 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  {
+    name: "manage_project_candidate",
+    title: "\u7BA1\u7406\u552F\u4E00\u5019\u9009 Render Program",
+    description: "\u5728\u5F53\u524D\u9879\u76EE\u79DF\u7EA6\u5185\u8BFB\u53D6\u3001\u663E\u5F0F\u521B\u5EFA\u3001\u539F\u5B50\u4FEE\u6539\u6216\u786E\u8BA4\u653E\u5F03\u552F\u4E00\u5019\u9009\u3002apply \u4F7F\u7528\u8BFB\u53D6\u6240\u5F97 baseline\uFF1Bchanges \u53EA\u4FEE\u6539 program.json\u3001src/ \u548C resources/\uFF0C\u4E0D\u6267\u884C\u4EE3\u7801\u3001\u4E0D\u4FEE\u6539\u4F9D\u8D56\u6216\u5F53\u524D\u4FEE\u8BA2\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "action"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        action: { type: "string", enum: ["read", "create", "apply", "discard"] },
+        baseline: { type: "string" },
+        confirmed: { type: "boolean" },
+        changes: { type: "array", maxItems: 256, items: {
+          type: "object",
+          required: ["path", "content"],
+          additionalProperties: false,
+          properties: { path: { type: "string" }, content: { type: ["string", "null"] } }
+        } }
+      },
+      additionalProperties: false
+    },
+    outputSchema: { type: "object" },
+    annotations: { ...taskToolAnnotations, destructiveHint: true }
+  },
   {
     name: "health_check",
     title: "\u68C0\u67E5 Narracut \u8FDE\u63A5",
@@ -4278,11 +4558,11 @@ function diagnosticSummary(diagnostics) {
 }
 async function loadWorkbench() {
   const [html, script, paperTexture, filmTexture, displayFont] = await Promise.all([
-    readFile3(WORKBENCH_PATH, "utf8"),
-    readFile3(WORKBENCH_SCRIPT_PATH, "utf8"),
-    readFile3(PAPER_TEXTURE_PATH),
-    readFile3(FILM_TEXTURE_PATH),
-    readFile3(DISPLAY_FONT_PATH)
+    readFile4(WORKBENCH_PATH, "utf8"),
+    readFile4(WORKBENCH_SCRIPT_PATH, "utf8"),
+    readFile4(PAPER_TEXTURE_PATH),
+    readFile4(FILM_TEXTURE_PATH),
+    readFile4(DISPLAY_FONT_PATH)
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", script);
@@ -4395,8 +4675,9 @@ var ProjectWorkspaceSession = class {
   credential(projectId) {
     return credentialState(this.#credentials.get(projectId));
   }
+  #candidateStatus = null;
   serialize(inspection, writable = true) {
-    return serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId));
+    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus };
   }
   async open(projectDirectory) {
     const next = await openProjectVNext(projectDirectory, {
@@ -4410,7 +4691,13 @@ var ProjectWorkspaceSession = class {
       throw error;
     }
     this.#opened = next;
+    this.#candidateStatus = await next.candidate({ action: "read" });
     return next.inspection;
+  }
+  async candidate(input) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    this.#candidateStatus = await opened.candidate(input);
+    return this.#candidateStatus;
   }
   async save(input) {
     const opened = this.#opened;
@@ -4509,7 +4796,7 @@ var ProjectWorkspaceSession = class {
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const job = {
-      id: randomUUID4(),
+      id: randomUUID5(),
       sceneId: scene.id,
       status: "queued",
       stage: "\u6392\u961F",
@@ -4765,6 +5052,21 @@ async function callTool(params, hostValidation, workspace) {
         return lifecycleFailure(error);
       }
       throw error;
+    }
+  }
+  if (name === "manage_project_candidate") {
+    const input = argumentsValue;
+    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
+      return { isError: true, structuredContent: { status: "candidate-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" } }, content: [{ type: "text", text: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" }] };
+    }
+    try {
+      const candidate = await workspace.candidate(input);
+      return { structuredContent: { status: "candidate-state", candidate }, content: [{ type: "text", text: candidate.error?.message ?? (candidate.status === "absent" ? "\u6CA1\u6709\u5019\u9009\uFF1B\u5F53\u524D\u4FEE\u8BA2\u4FDD\u7559\u3002" : "\u5019\u9009\u5DF2\u4FDD\u5B58\uFF0C\u5C1A\u672A\u68C0\u67E5\u3001\u5C1A\u672A\u63A5\u53D7\u3002") }] };
+    } catch (error) {
+      if (error instanceof CandidateError || error instanceof ProjectLifecycleError) {
+        return { isError: true, structuredContent: { status: error.code === "PROJECT_IDENTITY_LOST" ? "identity-lost" : "candidate-failed", error: { code: error.code, message: error.message } }, content: [{ type: "text", text: error.message }] };
+      }
+      return { isError: true, structuredContent: { status: "candidate-failed", error: { code: "CANDIDATE_SAVE_FAILED", message: "\u5019\u9009\u64CD\u4F5C\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u5019\u9009\u3002" } }, content: [{ type: "text", text: "\u5019\u9009\u64CD\u4F5C\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u5019\u9009\u3002" }] };
     }
   }
   if (name === "save_project_scenes") {
@@ -5205,7 +5507,7 @@ function createNarracutRequestHandler(options = {}) {
           protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: { tools: {}, resources: {} },
           serverInfo: { name: "narracut", version: SERVER_VERSION },
-          instructions: "\u53EA\u63A5\u89E6\u7528\u6237\u901A\u8FC7\u7CFB\u7EDF\u6587\u4EF6\u5939\u9009\u62E9\u7A97\u53E3\u6216\u53C2\u6570\u660E\u786E\u7ED9\u51FA\u7684\u76EE\u5F55\u3002\u53EF\u4EE5\u5728\u4E0D\u5B58\u5728\u7684\u76EE\u6807\u539F\u5B50\u521B\u5EFA Project VNext\uFF0C\u6216\u4E25\u683C\u6253\u5F00\u6709\u6548\u9879\u76EE\uFF1B\u8868\u683C\u5DE5\u4F5C\u533A\u53EA\u4FEE\u6539 Scene \u4E0E Narration\uFF0CAgent \u5DE5\u4F5C\u533A\u4FDD\u6301\u53EA\u8BFB\u5E76\u53EF\u8FD0\u884C\u56FA\u5B9A\u7684 Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\u3002"
+          instructions: "\u53EA\u63A5\u89E6\u7528\u6237\u901A\u8FC7\u7CFB\u7EDF\u6587\u4EF6\u5939\u9009\u62E9\u7A97\u53E3\u6216\u53C2\u6570\u660E\u786E\u7ED9\u51FA\u7684\u76EE\u5F55\u3002\u53EF\u4EE5\u5728\u4E0D\u5B58\u5728\u7684\u76EE\u6807\u539F\u5B50\u521B\u5EFA Project VNext\uFF0C\u6216\u4E25\u683C\u6253\u5F00\u6709\u6548\u9879\u76EE\uFF1B\u8868\u683C\u5DE5\u4F5C\u533A\u53EA\u4FEE\u6539 Scene \u4E0E Narration\uFF0CAgent \u5DE5\u4F5C\u533A\u53EF\u663E\u5F0F\u521B\u5EFA\u3001\u8BFB\u53D6\u6216\u653E\u5F03\u552F\u4E00\u5019\u9009\uFF0C\u5E76\u53EF\u8FD0\u884C\u56FA\u5B9A\u7684\u53EA\u8BFB Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\uFF1B\u53D7\u63A7\u5DE5\u5177\u53EA\u539F\u5B50\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u4FEE\u6539\u5F53\u524D\u4FEE\u8BA2\u3002"
         };
       }
       case "ping":

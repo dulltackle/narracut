@@ -1535,3 +1535,74 @@ test("工作区标签支持手动键盘激活，零 Scene 与长草稿在窄屏�
   await expect(draft).toHaveValue("长草稿保留\n".repeat(100));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+for (const width of [1440, 390]) {
+  test(`候选真实持久化、工作区连续性与安全放弃 ${width}`, async ({ page }) => {
+    const { mkdtemp, mkdir, readFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { createNarracutRequestHandler } = await import('../../plugins/narracut/src/server');
+    const handler = createNarracutRequestHandler();
+    let id = 500;
+    const tool = (name: string, args: Record<string, any>) => handler({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } }) as Promise<any>;
+    const directory = join(await mkdtemp(join(tmpdir(), 'candidate-ui-')), 'project');
+    const created = await tool('create_project', { projectDirectory: directory });
+    await page.setViewportSize({ width, height: 1000 });
+    await loadWorkbench(page);
+    await installAppToolBridge(page, tool);
+    await sendResult(page, created.structuredContent);
+    const composer = page.locator('#composer-draft');
+    await composer.fill('保留这份创作草稿');
+    await page.locator('[data-workspace="agent"]').click();
+    await page.getByRole('button', { name: '从当前修订创建候选' }).click();
+    await expect(page.locator('.candidate-save')).toContainText('已保存');
+    const args = { projectDirectory: directory, projectId: created.structuredContent.project.projectId };
+    const first = (await tool('manage_project_candidate', { ...args, action: 'read' })).structuredContent.candidate;
+    const saved = await tool('manage_project_candidate', { ...args, action: 'apply', baseline: first.baseline, changes: [{ path: 'resources/说明.txt', content: '第二批原子保存' }] });
+    expect(saved.isError).not.toBe(true);
+    await page.getByRole('button', { name: '重新检查完整性' }).click();
+    await expect(page.locator('.candidate-panel')).toContainText('上一份完整候选已保留');
+    await page.locator('[data-workspace="table"]').click();
+    await expect(composer).toHaveValue('保留这份创作草稿');
+    await page.locator('[data-workspace="agent"]').click();
+    await expect(page.locator('.candidate-save')).toContainText('已保存');
+    await mkdir('.impeccable/review', { recursive: true });
+    await page.screenshot({ path: `.impeccable/review/candidate-${width === 390 ? 'mobile' : 'desktop'}.png`, fullPage: true });
+    await page.getByRole('button', { name: '放弃候选', exact: true }).click();
+    await expect(page.getByRole('button', { name: '取消', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: '放弃候选', exact: true })).toBeFocused();
+    expect(await readFile(join(directory, saved.structuredContent.candidate.candidate.path, 'resources/说明.txt'), 'utf8')).toBe('第二批原子保存');
+    await page.getByRole('button', { name: '放弃候选', exact: true }).click();
+    await page.getByRole('button', { name: '确认永久放弃' }).click();
+    await expect(page.getByRole('button', { name: '从当前修订创建候选' })).toBeVisible();
+    await expect(composer).toHaveValue('保留这份创作草稿');
+    await handler.dispose();
+  });
+}
+
+test('候选失败和外部变化通知保留草稿、所选 Scene 与详情焦点，检查状态不冒充保存', async ({ page }) => {
+  await loadWorkbench(page);
+  const candidate = { status: 'saved', baseline: 'one', sourceRevision: 'revision-one', candidate: { path: '.narracut/candidate-one/candidate', identity: 'sha256:one' }, checkpoint: null };
+  await installAppToolBridge(page, async () => {
+    await new Promise(resolve => setTimeout(resolve, 350));
+    return { structuredContent: { status: 'candidate-state', candidate } };
+  });
+  await sendResult(page, { ...validResult(), candidate });
+  await page.locator('#composer-draft').fill('不要清空这份草稿');
+  await page.locator('[data-workspace="agent"]').click();
+  await page.getByRole('button', { name: '重新检查完整性' }).click();
+  await expect(page.locator('.candidate-save')).toContainText('正在检查完整性');
+  await expect(page.locator('.candidate-save')).toContainText('已保存');
+  const summary = page.locator('[data-candidate-details] summary');
+  await summary.click();
+  await page.waitForTimeout(4500);
+  await expect(summary).toBeFocused();
+  await sendResult(page, { status: 'candidate-state', candidate: { ...candidate, status: 'external-change', baseline: 'two', error: { code: 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', message: '候选发生外部变化' } } });
+  await expect(summary).toBeFocused();
+  await sendResult(page, { status: 'candidate-failed', error: { code: 'CANDIDATE_SAVE_FAILED', message: '本批未保存，上一份候选已保留' } });
+  await expect(page.locator('.candidate-error')).toContainText('本批未保存');
+  await expect(page.locator('#composer-draft')).toHaveValue('不要清空这份草稿');
+  await page.locator('[data-workspace="table"]').click();
+  await expect(page.locator('.scene-row')).toHaveCount(5);
+});

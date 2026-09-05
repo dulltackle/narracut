@@ -20,6 +20,12 @@
 
   const state = {
     result: null,
+    candidate: null,
+    candidateBusy: false,
+    candidateAction: null,
+    candidateError: null,
+    candidateConfirm: false,
+    candidateDetails: false,
     project: null,
     baselineRevision: null,
     version: 0,
@@ -395,6 +401,10 @@
   }
 
   function inspector(result) {
+    return inspectorContent(result).replace('<div class="rule"></div>', `<div class="rule"></div><p class="candidate-summary">候选：<span data-candidate-summary>${candidateLabel()}</span></p>`);
+  }
+
+  function inspectorContent(result) {
     if (state.workspace === "agent") return projectInspector({ ...result, writable: false });
     if (state.inspectorMode === "tts") return ttsInspector(result);
     if (state.inspectorMode === "scene-assets") return sceneAssetInspector(result);
@@ -615,8 +625,93 @@
     return `<div class="brief-layer" role="dialog" aria-modal="true" aria-label="编辑 Video Brief" aria-labelledby="brief-editor-title"><section class="brief-sheet">${header}<main class="brief-editor-main"><label><span class="sr-only">Video Brief 原始 Markdown</span><textarea data-brief-editor aria-label="Video Brief 原始 Markdown" spellcheck="true" maxlength="2097152">${escapeHtml(normalizeBriefEditorText(brief.local))}</textarea></label><footer><span>${formatBytes(byteCount)} / 2 MiB</span><span>保存完整原始字节 · 不自动格式化</span></footer>${brief.error ? `<div class="brief-error" role="alert">${escapeHtml(brief.error.message)}${brief.status === "failed" ? '<button type="button" data-retry-brief>重试保存</button>' : ""}</div>` : ""}${brief.exportMessage ? `<div class="brief-export-message" role="status">${escapeHtml(brief.exportMessage)}</div>` : ""}</main></section></div>`;
   }
 
+  function candidateLabel() {
+    if (state.candidateBusy) return { read: "正在检查完整性", create: "正在创建", discard: "正在放弃" }[state.candidateAction] ?? "正在保存";
+    return { absent: "尚无候选", saved: "已保存 · 尚未接受", "external-change": "外部变化 · 需要重新检查", "integrity-failed": "完整性失败 · 现场已保留" }[state.candidate?.status] ?? "候选状态尚未读取";
+  }
+
+  function candidatePanel() {
+    const candidate = state.candidate;
+    const absent = candidate?.status === "absent";
+    const disabled = state.candidateBusy || state.autosaveStopped || !state.result?.writable;
+    return `<section class="candidate-panel" aria-labelledby="candidate-title"><header><h2 id="candidate-title">候选 Render Program</h2><span class="candidate-save" role="status"><span class="status-mark" data-status="${candidate?.status === "saved" ? "succeeded" : "unavailable"}" aria-hidden="true"></span>${candidateLabel()}</span></header>
+      <p>${absent ? "从当前修订建立唯一可写候选。创建后尚未接受。" : "Agent、人工与受控工具共享这个候选。停止活动或切换工作区都会保留它。"}</p>
+      <dl><div><dt>检查</dt><dd>尚未检查 · 检查与 Preview 尚未接入</dd></div><div><dt>恢复检查点</dt><dd>${candidate?.checkpoint ? "上一份完整候选已保留" : "尚无恢复检查点"}</dd></div></dl>
+      ${state.candidateError || candidate?.error ? `<p class="candidate-error" role="alert">${escapeHtml((state.candidateError ?? candidate.error).message)}</p>` : ""}
+      <div class="candidate-actions">${absent ? `<button type="button" class="agent-action primary" data-candidate-action="create" ${disabled ? "disabled" : ""}>从当前修订创建候选</button>` : ""}<button type="button" class="agent-action" data-candidate-action="read" ${disabled ? "disabled" : ""}>重新检查完整性</button>${candidate && !absent ? `<button type="button" class="agent-action" data-candidate-discard ${disabled ? "disabled" : ""}>放弃候选</button>` : ""}</div>
+      <details ${state.candidateDetails ? "open" : ""} data-candidate-details><summary>身份与完整性详情</summary><dl><div><dt>来源修订</dt><dd>${escapeHtml(candidate?.sourceRevision ?? "尚未读取")}</dd></div>${[ ["候选", candidate?.candidate], ["恢复检查点", candidate?.checkpoint] ].map(([label, ref]) => ref ? `<div><dt>${label}路径</dt><dd><code>${escapeHtml(ref.path)}</code></dd></div><div><dt>${label}完整树身份</dt><dd><code>${escapeHtml(ref.identity)}</code></dd></div>` : "").join("")}</dl><p>完整性检查核对目录、普通文件和完整树字节；不表示源码、类型或构建检查通过。恢复替换与损坏导出尚未接入。</p></details>
+      ${state.candidateConfirm ? `<div class="candidate-confirm" role="alertdialog" aria-modal="true" aria-labelledby="candidate-discard-title" aria-describedby="candidate-discard-help"><h3 id="candidate-discard-title">永久放弃候选？</h3><p id="candidate-discard-help">候选及恢复检查点将被删除，且不可撤销。当前修订保留。</p><div class="candidate-actions"><button type="button" class="agent-action" data-candidate-cancel>取消</button><button type="button" class="agent-action" data-candidate-action="discard">确认永久放弃</button></div></div>` : ""}</section>`;
+  }
+
+  function updateCandidate() {
+    if (composing) return;
+    const region = document.querySelector("[data-candidate-region]");
+    const active = region?.contains(document.activeElement) ? document.activeElement : null;
+    const focusSelector = active?.matches("[data-candidate-discard]") ? "[data-candidate-discard]"
+      : active?.matches("[data-candidate-cancel]") ? "[data-candidate-cancel]"
+      : active?.matches("summary") ? "[data-candidate-details] summary"
+      : active?.dataset.candidateAction ? `[data-candidate-action="${active.dataset.candidateAction}"]` : null;
+    updateRegion(region, candidatePanel());
+    document.querySelectorAll("[data-candidate-summary]").forEach(node => { node.textContent = candidateLabel(); });
+    if (focusSelector) region?.querySelector(focusSelector)?.focus({ preventScroll: true });
+  }
+
+  async function candidateOperation(action, quiet = false) {
+    if (state.candidateBusy || !state.result?.writable || state.autosaveStopped || (quiet && state.candidateConfirm)) return;
+    const project = state.result.project;
+    state.candidateBusy = true;
+    state.candidateAction = action;
+    if (!quiet) { state.candidateError = null; updateCandidate(); }
+    try {
+      const response = await callHostTool("manage_project_candidate", { projectDirectory: project.directory, projectId: project.projectId, action, ...(action === "discard" ? { baseline: state.candidate?.baseline, confirmed: true } : {}) });
+      if (state.result?.project !== project) return;
+      const content = response?.structuredContent;
+      if (content?.candidate) { state.candidate = content.candidate; state.candidateError = null; }
+      else if (content?.error) {
+        state.candidateError = content.error;
+        if (content.error.code === "PROJECT_IDENTITY_LOST") state.autosaveStopped = true;
+      } else if (!quiet) state.candidateError = { message: "候选操作未返回有效状态，请重试。" };
+    } catch (error) {
+      if (state.result?.project === project && !quiet) state.candidateError = { message: `候选操作失败，请重试。${error.message}` };
+    } finally {
+      if (state.result?.project === project) {
+        state.candidateBusy = false;
+        if (action === "discard") state.candidateConfirm = false;
+        updateCandidate();
+        if (action === "discard") document.querySelector("[data-candidate-action]")?.focus();
+      }
+    }
+  }
+
+  // 事件委托使后台状态刷新不重绑 Composer、Scene 或候选控件。
+  app.addEventListener("click", event => {
+    const action = event.target.closest("[data-candidate-action]");
+    if (action && !action.disabled) candidateOperation(action.dataset.candidateAction);
+    if (event.target.closest("[data-candidate-discard]")) {
+      state.candidateConfirm = true; updateCandidate();
+      document.querySelector("[data-candidate-cancel]")?.focus();
+    }
+    if (event.target.closest("[data-candidate-cancel]")) {
+      state.candidateConfirm = false; updateCandidate();
+      document.querySelector("[data-candidate-discard]")?.focus();
+    }
+  });
+  app.addEventListener("toggle", event => {
+    if (event.target.matches?.("[data-candidate-details]")) state.candidateDetails = event.target.open;
+  }, true);
+  app.addEventListener("keydown", event => {
+    if (!state.candidateConfirm) return;
+    if (event.key === "Escape") { event.preventDefault(); document.querySelector("[data-candidate-cancel]")?.click(); }
+    if (event.key === "Tab") {
+      const buttons = [...document.querySelectorAll(".candidate-confirm button")];
+      event.preventDefault();
+      buttons[(buttons.indexOf(document.activeElement) + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
+    }
+  });
+  setInterval(() => { if (!document.hidden && state.candidate) candidateOperation("read", true); }, 4000);
+
   function valid(result) {
-    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="preview-context" aria-label="成片 Preview 与候选审核"><h2>成片 Preview</h2><dl><div><dt>播放 Scene</dt><dd>尚无播放位置 · Preview 尚未接入</dd></div><div><dt>候选新鲜度</dt><dd><span class="status-mark" data-status="unavailable" aria-hidden="true"></span>尚未检查 · 候选审核尚未接入</dd></div></dl><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
+    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><div data-candidate-region></div><section class="preview-context" aria-label="成片 Preview 与候选审核"><h2>成片 Preview</h2><dl><div><dt>播放 Scene</dt><dd>尚无播放位置 · Preview 尚未接入</dd></div><div><dt>候选新鲜度</dt><dd><span class="status-mark" data-status="unavailable" aria-hidden="true"></span>尚未检查 · 候选审核尚未接入</dd></div></dl><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
   }
 
   function invalid(result) {
@@ -687,6 +782,7 @@
       if (result?.status === "valid") {
         updateRegion(document.getElementById("workspace-table"), table(result));
         updateRegion(document.querySelector("[data-agent-content]"), agent(result));
+        updateCandidate();
         updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
         updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}`);
       }
@@ -2249,6 +2345,10 @@
     activeBriefSavePromise = null;
     const previousProjectId = state.result?.project?.projectId;
     state.result = result;
+    state.candidate = result?.candidate ?? null;
+    state.candidateBusy = false;
+    state.candidateError = null;
+    state.candidateConfirm = false;
     state.start = 0;
     state.inspectionOpen = false;
     state.inspectorMode = "project";
@@ -2332,7 +2432,13 @@
     }
     if (message.method === "ui/notifications/tool-result") {
       const content = message.params?.structuredContent;
-      if (content?.hostValidation) applyHostValidation(content.hostValidation);
+      if (content?.status === "candidate-state") { state.candidate = content.candidate; state.candidateError = null; updateCandidate(); }
+      else if (content?.status === "candidate-failed" || (content?.status === "identity-lost" && content?.error)) {
+        state.candidateError = content.error;
+        if (content.status === "identity-lost") state.autosaveStopped = true;
+        updateCandidate();
+      }
+      else if (content?.hostValidation) applyHostValidation(content.hostValidation);
       else accept(content, content?.operation === "created" && content?.project?.sceneCount === 0);
     }
   }, { passive: true });

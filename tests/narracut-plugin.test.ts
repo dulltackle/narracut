@@ -947,3 +947,22 @@ describe("Narracut Codex 插件", () => {
     expect(after).toEqual(before);
   });
 });
+
+it('停止宿主活动保留唯一候选及检查点，仍读取同一完整树身份', async () => {
+  const projectDirectory = join(await mkdtemp(join(tmpdir(), 'candidate-stop-')), 'project');
+  const request = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+  let id = 900;
+  const call = (name: string, args: Record<string, unknown>) => request({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } }) as Promise<any>;
+  try {
+    const created = await call('create_project', { projectDirectory });
+    const projectId = created.structuredContent.project.projectId;
+    const args = { projectDirectory, projectId };
+    const first = await call('manage_project_candidate', { ...args, action: 'create' });
+    const saved = await call('manage_project_candidate', { ...args, action: 'apply', baseline: first.structuredContent.candidate.baseline, changes: [{ path: 'resources/stop.txt', content: '停止后保留' }] });
+    const started = await call('start_agent_host_validation', { projectDirectory });
+    const stopped = await call('stop_agent_host_validation', { taskId: started.structuredContent.hostValidation.taskId });
+    expect(stopped.structuredContent.hostValidation.status).toBe('stopped');
+    expect((await call('manage_project_candidate', { ...args, action: 'read' })).structuredContent.candidate).toEqual(saved.structuredContent.candidate);
+    expect(saved.structuredContent.candidate.checkpoint).not.toBeNull();
+  } finally { await request.dispose(); }
+});

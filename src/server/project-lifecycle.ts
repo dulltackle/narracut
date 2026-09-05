@@ -1,3 +1,4 @@
+import { createCandidateManager, type CandidateRequest, type CandidateStatus } from "./project-candidate";
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, type Stats } from "node:fs";
 import {
@@ -666,6 +667,7 @@ export async function createProjectVNext(
 }
 
 export type OpenedProjectVNext = {
+  candidate: (request: CandidateRequest) => Promise<CandidateStatus>;
   inspection: ProjectVNextInspection;
   saveProject: (
     project: unknown,
@@ -1193,6 +1195,14 @@ export async function openProjectVNext(
           );
         }
       };
+      const candidateManager = await createCandidateManager(projectDirectory, assertWritable);
+      const candidate: OpenedProjectVNext["candidate"] = (request) => {
+        if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "项目正在关闭。"));
+        const operation = saveQueue.then(() => candidateManager(request));
+        saveQueue = operation.then(() => undefined, () => undefined);
+        return operation;
+      };
+      await candidate({ action: "read" });
       const assertAssetsDirectoryCurrent = async () => {
         await assertWritable();
         let facts;
@@ -1976,6 +1986,7 @@ export async function openProjectVNext(
         await releasePromise;
       };
       return {
+        candidate,
         inspection,
         saveProject,
         saveVideoBrief,

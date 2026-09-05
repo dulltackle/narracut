@@ -1,3 +1,4 @@
+import { CandidateError, type CandidateRequest, type CandidateStatus } from "../../../src/server/project-candidate";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
@@ -99,6 +100,29 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  {
+    name: "manage_project_candidate",
+    title: "管理唯一候选 Render Program",
+    description: "在当前项目租约内读取、显式创建、原子修改或确认放弃唯一候选。apply 使用读取所得 baseline；changes 只修改 program.json、src/ 和 resources/，不执行代码、不修改依赖或当前修订。",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "action"],
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 },
+        projectId: { type: "string", minLength: 1 },
+        action: { type: "string", enum: ["read", "create", "apply", "discard"] },
+        baseline: { type: "string" },
+        confirmed: { type: "boolean" },
+        changes: { type: "array", maxItems: 256, items: {
+          type: "object", required: ["path", "content"], additionalProperties: false,
+          properties: { path: { type: "string" }, content: { type: ["string", "null"] } },
+        } },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: { type: "object" },
+    annotations: { ...taskToolAnnotations, destructiveHint: true },
+  },
   {
     name: "health_check",
     title: "检查 Narracut 连接",
@@ -619,8 +643,10 @@ class ProjectWorkspaceSession {
     return credentialState(this.#credentials.get(projectId));
   }
 
+  #candidateStatus: CandidateStatus | null = null;
+
   serialize(inspection: ProjectVNextInspection, writable = true): Record<string, unknown> {
-    return serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId));
+    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus };
   }
 
   async open(projectDirectory: string): Promise<ProjectVNextInspection> {
@@ -635,7 +661,14 @@ class ProjectWorkspaceSession {
       throw error;
     }
     this.#opened = next;
+    this.#candidateStatus = await next.candidate({ action: "read" });
     return next.inspection;
+  }
+
+  async candidate(input: CandidateRequest & { projectDirectory: string; projectId: string }) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    this.#candidateStatus = await opened.candidate(input);
+    return this.#candidateStatus;
   }
 
   async save(input: {
@@ -1086,6 +1119,25 @@ async function callTool(
         return lifecycleFailure(error);
       }
       throw error;
+    }
+  }
+  if (name === "manage_project_candidate") {
+    const input = argumentsValue as Record<string, unknown> | null;
+    if (!input || typeof input !== "object" || Array.isArray(input) ||
+      typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
+      typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) ||
+      (input.baseline !== undefined && typeof input.baseline !== "string") ||
+      (input.confirmed !== undefined && typeof input.confirmed !== "boolean")) {
+      return { isError: true, structuredContent: { status: "candidate-failed", error: { code: "INVALID_TOOL_INPUT", message: "候选操作参数无效。" } }, content: [{ type: "text", text: "候选操作参数无效。" }] };
+    }
+    try {
+      const candidate = await workspace.candidate(input as CandidateRequest & { projectDirectory: string; projectId: string });
+      return { structuredContent: { status: "candidate-state", candidate }, content: [{ type: "text", text: candidate.error?.message ?? (candidate.status === "absent" ? "没有候选；当前修订保留。" : "候选已保存，尚未检查、尚未接受。") }] };
+    } catch (error) {
+      if (error instanceof CandidateError || error instanceof ProjectLifecycleError) {
+        return { isError: true, structuredContent: { status: error.code === "PROJECT_IDENTITY_LOST" ? "identity-lost" : "candidate-failed", error: { code: error.code, message: error.message } }, content: [{ type: "text", text: error.message }] };
+      }
+      return { isError: true, structuredContent: { status: "candidate-failed", error: { code: "CANDIDATE_SAVE_FAILED", message: "候选操作失败，已保留原候选。" } }, content: [{ type: "text", text: "候选操作失败，已保留原候选。" }] };
     }
   }
   if (name === "save_project_scenes") {
@@ -1602,7 +1654,7 @@ export function createNarracutRequestHandler(
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {}, resources: {} },
         serverInfo: { name: "narracut", version: SERVER_VERSION },
-        instructions: "只接触用户通过系统文件夹选择窗口或参数明确给出的目录。可以在不存在的目标原子创建 Project VNext，或严格打开有效项目；表格工作区只修改 Scene 与 Narration，Agent 工作区保持只读并可运行固定的 Codex 创作线程宿主验证。",
+        instructions: "只接触用户通过系统文件夹选择窗口或参数明确给出的目录。可以在不存在的目标原子创建 Project VNext，或严格打开有效项目；表格工作区只修改 Scene 与 Narration，Agent 工作区可显式创建、读取或放弃唯一候选，并可运行固定的只读 Codex 创作线程宿主验证；受控工具只原子修改候选，不修改当前修订。",
       };
     }
     case "ping": return {};
