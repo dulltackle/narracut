@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-04T07:51:22.481Z",
+  "generatedAt": "2026-09-05T07:40:24.576Z",
   "title": "Design System: Narracut VNext Workbench",
   "extensions": {
     "colorMeta": {
@@ -721,12 +721,12 @@
       "css": ".ds-agent-panel { overflow:hidden; border:1px solid #3d4546; border-radius:9px; background:#0d1213; color:#d5dbd8; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; box-shadow:0 18px 54px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.035); } .ds-agent-head { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:24px; padding:28px 30px 24px; border-bottom:1px solid #364041; } .ds-agent-head h1 { margin:0; color:#f1f3ee; font-family:\"Narracut Display\",sans-serif; font-size:2rem; font-weight:760; letter-spacing:-.025em; line-height:1; } .ds-agent-head p { max-width:68ch; margin:13px 0 0; color:#adb6b3; font-size:.82rem; line-height:1.7; } .ds-agent-head b { color:var(--amber,#d89a3d); font:700 .64rem/1.4 ui-monospace,monospace; letter-spacing:.07em; } .ds-agent-main { display:grid; grid-template-columns:minmax(250px,.82fr) minmax(300px,1.18fr); } .ds-task-board,.ds-result-board { min-width:0; padding:26px 30px; } .ds-task-board { border-right:1px solid #364041; } .ds-task-board h2,.ds-result-board h2 { display:flex; justify-content:space-between; gap:14px; margin:0 0 18px; font-size:.82rem; } .ds-task-board h2 small,.ds-result-board h2 small { color:#87918e; font:600 .62rem/1 ui-monospace,monospace; letter-spacing:.07em; } .ds-task-board dl { margin:0; } .ds-task-board dl>div { display:grid; grid-template-columns:16px 96px minmax(0,1fr); align-items:center; gap:10px; min-height:47px; border-top:1px solid #30393a; } .ds-task-board dl>div:last-child { border-bottom:1px solid #30393a; } .ds-task-board dt { color:#899390; font:600 .65rem/1.35 ui-monospace,monospace; } .ds-task-board dd { margin:0; font-size:.78rem; font-weight:620; } .ds-task-board dd small { display:block; margin-top:4px; color:#9dbcf0; font:600 .64rem/1.35 ui-monospace,monospace; } .ds-status { width:10px; height:10px; border:2px solid #76817e; border-radius:50%; } .ds-status.ds-running { border-color:var(--blue,#4e88df); background:var(--blue,#4e88df); } .ds-status.ds-success { border-color:var(--green,#67c477); background:var(--green,#67c477); } .ds-status.ds-stopped { border-color:var(--amber,#d89a3d); border-radius:2px; } .ds-result { min-height:156px; padding:22px 0; border-top:1px solid #30393a; border-bottom:1px solid #30393a; } .ds-result h3 { margin:0; color:#f1f3ee; font-size:1.35rem; } .ds-result p { max-width:65ch; margin:12px 0 0; color:#aeb7b4; font-size:.82rem; line-height:1.75; } .ds-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; } @media(max-width:900px) { .ds-agent-main { grid-template-columns:1fr; } .ds-task-board { border-right:0; border-bottom:1px solid #364041; } } @media(max-width:700px) { .ds-agent-head { grid-template-columns:1fr; } .ds-task-board,.ds-result-board { padding:20px 18px; } }"
     },
     {
-      "name": "Disabled Composer",
+      "name": "Composer Draft",
       "kind": "input",
-      "refersTo": "composer-disabled",
-      "description": "始终禁用，并按工作区以可见文字和 aria-describedby 解释 Scene 应在接触表编辑或完整创作指令的后续启用。",
-      "html": "<div class=\"ds-composer\"><label for=\"ds-composer-input\">Composer</label><div><input id=\"ds-composer-input\" aria-describedby=\"ds-composer-reason\" disabled><span>Composer 将在后续功能中启用</span><small id=\"ds-composer-reason\">Composer 不编辑 Scene，请使用接触表</small></div><i class=\"ds-lock\" aria-hidden=\"true\"></i></div>",
-      "css": ".ds-composer { display:grid; grid-template-columns:auto minmax(0,1fr) 54px; align-items:center; gap:16px; padding:14px 16px; border:1px solid var(--line,#303738); background:#0b1011; color:#b6bebb; font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif; } .ds-composer label { font-size:.95rem; font-weight:680; } .ds-composer > div { position:relative; min-width:0; } .ds-composer input { width:100%; min-height:48px; padding:0 18px; border:1px solid #3d4647; border-radius:7px; background:#171d1f; color:#a7afac; opacity:1; -webkit-text-fill-color:#a7afac; } .ds-composer span,.ds-composer small { position:absolute; left:18px; pointer-events:none; } .ds-composer span { top:8px; color:#a7afac; font-size:.8rem; } .ds-composer small { top:27px; color:#939c99; font:500 .75rem/1.2 ui-monospace,monospace; } .ds-lock { position:relative; width:18px; height:15px; place-self:center; border:2px solid #69716f; border-radius:2px; } .ds-lock:before { content:\"\"; position:absolute; width:10px; height:9px; left:2px; top:-10px; border:2px solid #69716f; border-bottom:0; border-radius:8px 8px 0 0; }"
+      "refersTo": "composer-draft",
+      "description": "固定在底部的原生多行会话草稿；输入可用，发送禁用，并持续说明会话保留范围与 Scene 编辑边界。",
+      "html": "<div class=\"ds-composer\"><label class=\"ds-composer-label\" for=\"ds-composer-draft\">Composer</label><div class=\"ds-composer-field\"><textarea id=\"ds-composer-draft\" aria-label=\"Composer\" aria-describedby=\"ds-composer-draft-reason ds-composer-scope\" rows=\"2\" placeholder=\"记下创作要求…\"></textarea><p class=\"ds-composer-reason\" id=\"ds-composer-draft-reason\">草稿仅保留在本次会话，创作发送尚未启用</p><p class=\"ds-composer-reason\" id=\"ds-composer-scope\">Composer 不编辑 Scene，请使用接触表</p></div><button class=\"ds-composer-send\" type=\"button\" disabled aria-describedby=\"ds-composer-draft-reason\">发送</button></div>",
+      "css": ".ds-composer{position:relative;z-index:5;display:grid;grid-template-columns:auto minmax(0,1fr) 64px;align-items:center;gap:16px;padding:12px 16px;border-top:1px solid var(--line,#303738);background:var(--darkroom,#090d0e)}.ds-composer-label{color:var(--preview-copy,#aab3b0);font-size:.95rem;font-weight:680}.ds-composer-field{min-width:0}.ds-composer textarea{display:block;width:100%;height:64px;resize:none;overflow:auto;border:1px solid var(--preview-control-line,#4a5556);border-radius:7px;padding:8px 12px;background:var(--control,#151b1c);color:var(--paper,#f1f3eb);line-height:1.5;caret-color:var(--focus-blue,#9dbcf0)}.ds-composer textarea::placeholder{color:var(--preview-copy,#aab3b0)}.ds-composer-reason{margin:5px 0 0;color:var(--preview-copy,#aab3b0);font-size:.7rem;line-height:1.4}.ds-composer-send{min-height:44px;border:1px solid var(--separator,#364041);border-radius:6px;background:var(--control,#151b1c);color:var(--muted,#909997);cursor:not-allowed} .ds-composer{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif} .ds-composer textarea{font:inherit} .ds-composer textarea:focus-visible{outline:2px solid var(--focus-blue,#9dbcf0);outline-offset:3px;box-shadow:0 0 0 5px rgba(78,136,223,.24)} @media(max-width:700px){.ds-composer{grid-template-columns:minmax(0,1fr) 54px;gap:10px;padding:12px}.ds-composer-label{display:none}}"
     },
     {
       "name": "Asset Reference Panel",
@@ -745,11 +745,13 @@
   ],
   "narrative": {
     "northStar": "暗房接触印样台",
-    "overview": "Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。\n\n这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的批注槽，始终禁用并说明完整创作指令将在后续功能中启用。\n\n当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑、Asset 子视图和保存状态明确哪些内容正在改变。Asset 列继续只做摘要，导入、有序引用和只读预览在既有项目检查层与独立预览层中完成，不抢占接触表主面。Speech、Agent、Render Program 与 Composer 的不可写边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示候选 Render Program、对话或日志历史。",
+    "overview": "Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。\n\n这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区则是一块克制的单任务 Codex 宿主验证状态台，以任务与结果并置的工业仪表感延续暗房世界，不模仿聊天。Composer 是固定在灯箱下沿的多行批注槽，可记录会话草稿，发送按钮保持禁用并说明创作发送尚未启用。\n\n当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑、Asset 子视图和保存状态明确哪些内容正在改变。Asset 列继续只做摘要，导入、有序引用和只读预览在既有项目检查层与独立预览层中完成，不抢占接触表主面。Speech 单元格以文字与形状展示生成阶段，并提供单 Scene 生成、重试或取消；项目 TTS 输出契约在右侧检查台的子视图中配置，移动端沿用抽屉。Video Brief 从项目检查进入独立的原始 Markdown 编辑层，拥有与 Scene 分离的历史、保存状态和冲突决策。Agent、Render Program 与 Composer 不改写 Scene 的边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示候选 Render Program、对话或日志历史。",
     "keyCharacteristics": [
       "黑色暗房外壳包围背光暖白接触表，主内容拥有最高亮度与面积。",
       "Scene 是连续校片行；Narration 居主列，Asset 仅显示身份、路径或占位。",
       "Asset 引用管理复用项目检查侧台；内容预览仅在独立只读层中出现，关闭后回到原操作位置。",
+      "Speech 动作用紧凑的校片控件贴在接触表行内；成功状态显示实际时长，项目检查同时显示半开帧窗口与 Render 就绪性。",
+      "TTS 配置复用右侧检查台，不建立新的全局设置页；凭据缺失、会话存储限制和输出规格在同一决策点说明。",
       "蓝色校片线同时配合三角指示与圈记边码表达选择，不只依赖颜色。",
       "Agent 工作区是单任务验证台：桌面任务/结果双列，窄屏顺序叠放，不出现对话气泡。",
       "状态同时使用文字与形状：蓝色圆点表示运行，绿色圆点表示连接或成功，琥珀方形表示停止或不可用。",
@@ -809,24 +811,24 @@
       }
     ],
     "dos": [
-      "Do 让项目身份先于工作区工具，并在移动端继续展示 Project ID 与连接文字。",
-      "Do 让 Narration 成为每条 Scene 的视觉主内容；Asset 只显示 identity、path 或 placeholder。",
-      "Do 用蓝色线框、位置标记和程序化状态共同表达选择，让焦点与选择保持独立。",
-      "Do 把琥珀限制在胶片边码、只读与诊断提醒，把绿色限制在真实有效状态。",
-      "Do 保持项目检查在桌面端为窄侧栏、移动端为抽屉，并让 Composer 在所有尺寸下可见。",
-      "Do 以内嵌本地字体与 raster 建立材料感，同时尊重 `prefers-reduced-motion`。",
-      "Do 把 Agent 工作区保持为单任务状态台，并在桌面双列、窄屏单列之间保留状态、结果与操作顺序。",
-      "Do 用文字与形状共同表达 Agent 状态，且只在有界状态变化时更新可见面板与隐藏播报。"
+      "**Do** 让项目身份先于工作区工具，并在移动端继续展示 Project ID 与连接文字。",
+      "**Do** 让 Narration 成为每条 Scene 的视觉主内容；Asset 只显示 identity、path 或 placeholder。",
+      "**Do** 用蓝色线框、位置标记和程序化状态共同表达选择，让焦点与选择保持独立。",
+      "**Do** 把琥珀限制在胶片边码、只读与诊断提醒，把绿色限制在真实有效状态。",
+      "**Do** 保持项目检查在桌面端为窄侧栏、移动端为抽屉，并让 Composer 在所有尺寸下可见。",
+      "**Do** 以内嵌本地字体与 raster 建立材料感，同时尊重 `prefers-reduced-motion`。",
+      "**Do** 把 Agent 工作区保持为单任务状态台，并在桌面双列、窄屏单列之间保留状态、结果与操作顺序。",
+      "**Do** 用文字与形状共同表达 Agent 状态，且只在有界状态变化时更新可见面板与隐藏播报。"
     ],
     "donts": [
-      "Don't 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。",
-      "Don't 让表格工作区以外的 Agent、Preview、Render Program、Composer 或桥接层获得 Scene 写入口；不要加入 Asset 删除/重命名/转码/裁切、TTS、Render 或 Legacy 项目入口。",
-      "Don't 用颜色作为选择、连接、有效或只读状态的唯一信号。",
-      "Don't 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene。",
-      "Don't 隐藏或启用 Composer；禁用原因必须同时可见且可被辅助技术读取。",
-      "Don't 把 Agent 工作区做成聊天，或展示候选 Render Program、预览、对话、推理、工具日志与历史。",
-      "Don't 用 Agent 状态或验证结果暗示 Scene、Render Program 或任何项目文件已被写入。",
-      "Don't 引入霓虹 AI、玻璃拟态、渐变品牌面或大量圆角卡片，稀释暗房与接触印样的材料逻辑。"
+      "**Don't** 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。",
+      "**Don't** 让表格工作区以外的 Agent、Preview、Render Program、Composer 或桥接层获得 Scene 写入口；不要加入 Asset 删除/重命名/转码/裁切、TTS、Render 或 Legacy 项目入口。",
+      "**Don't** 用颜色作为选择、连接、有效或只读状态的唯一信号。",
+      "**Don't** 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene、历史、保存队列与会话草稿。",
+      "**Don't** 隐藏 Composer、禁用草稿输入或启用尚未接入的发送；会话保留范围与发送禁用原因必须同时可见且可被辅助技术读取。",
+      "**Don't** 把 Agent 工作区做成聊天，或展示候选 Render Program、预览、对话、推理、工具日志与历史。",
+      "**Don't** 用 Agent 状态或验证结果暗示 Scene、Render Program 或任何项目文件已被写入。",
+      "**Don't** 引入霓虹 AI、玻璃拟态、渐变品牌面或大量圆角卡片，稀释暗房与接触印样的材料逻辑。"
     ]
   }
 }
