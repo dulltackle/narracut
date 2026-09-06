@@ -1,3 +1,4 @@
+import { DependencyError } from '../../../src/server/project-dependencies';
 import { CandidateError, type CandidateRequest, type CandidateStatus } from "../../../src/server/project-candidate";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -100,6 +101,24 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  {
+    name: "coordinate_project_dependencies",
+    title: "协调候选精确依赖",
+    description: "唯一允许修改候选依赖声明、pnpm 锁图与项目离线依赖库的操作。提供精确版本和 SHA-512 摘要，传递依赖也必须由已有锁图或 packages 显式固定。只从固定公共 npm registry 下载并验证，不执行包代码或脚本；失败保留原候选和离线库。",
+    inputSchema: {
+      type: "object", required: ["projectDirectory", "projectId", "baseline", "dependencies", "packages"], additionalProperties: false,
+      properties: {
+        projectDirectory: { type: "string", minLength: 1 }, projectId: { type: "string", minLength: 1 }, baseline: { type: "string" },
+        dependencies: { type: "object", additionalProperties: { type: "string" } },
+        packages: { type: "array", maxItems: 256, items: {
+          type: "object", required: ["name", "version", "integrity"], additionalProperties: false,
+          properties: { name: { type: "string" }, version: { type: "string" }, integrity: { type: "string" } },
+        } },
+      },
+    },
+    outputSchema: { type: "object" },
+    annotations: { ...taskToolAnnotations, openWorldHint: true },
+  },
   {
     name: "manage_project_candidate",
     title: "管理唯一候选 Render Program",
@@ -667,7 +686,8 @@ class ProjectWorkspaceSession {
 
   async candidate(input: CandidateRequest & { projectDirectory: string; projectId: string }) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
-    this.#candidateStatus = await opened.candidate(input);
+    const { projectDirectory: _directory, projectId: _id, ...request } = input;
+    this.#candidateStatus = await opened.candidate(request);
     return this.#candidateStatus;
   }
 
@@ -1119,6 +1139,23 @@ async function callTool(
         return lifecycleFailure(error);
       }
       throw error;
+    }
+  }
+  if (name === "coordinate_project_dependencies") {
+    const input = argumentsValue as Record<string, unknown> | null;
+    if (!input || typeof input !== "object" || Array.isArray(input) ||
+        Object.keys(input).some(key => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) ||
+        typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
+      return { isError: true, structuredContent: { status: "dependency-failed", error: { code: "DEPENDENCY_SOURCE_UNSUPPORTED", message: "依赖协调参数无效；不接受自定义来源或凭据。" } }, content: [{ type: "text", text: "依赖协调参数无效；不接受自定义来源或凭据。" }] };
+    }
+    try {
+      const candidate = await workspace.candidate({ ...input, action: "dependencies" } as CandidateRequest & { projectDirectory: string; projectId: string });
+      return { structuredContent: { status: "candidate-state", candidate }, content: [{ type: "text", text: "候选精确依赖、锁图与离线依赖库已原子保存，尚未检查或接受。" }] };
+    } catch (error) {
+      const known = error instanceof DependencyError || error instanceof CandidateError || error instanceof ProjectLifecycleError;
+      const code = known ? error.code : "DEPENDENCY_UNAVAILABLE";
+      const message = known ? error.message : "依赖协调失败；原候选与离线库已保留，请检查网络后显式重试。";
+      return { isError: true, structuredContent: { status: "dependency-failed", error: { code, message } }, content: [{ type: "text", text: message }] };
     }
   }
   if (name === "manage_project_candidate") {

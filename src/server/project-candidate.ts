@@ -1,3 +1,4 @@
+import { coordinateDependencies, verifyPackageBytes, type DependencyUpdate, type OfflinePackages } from './project-dependencies';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
@@ -6,20 +7,21 @@ import { dirname, join } from 'node:path';
 export class CandidateError extends Error {
   constructor(readonly code: string, message: string) { super(message); }
 }
-export type CandidateRequest = {
-  action: 'read' | 'create' | 'apply' | 'discard';
+export type CandidateRequest = DependencyUpdate & {
+  action: 'read' | 'create' | 'apply' | 'discard' | 'dependencies';
   baseline?: string;
   confirmed?: boolean;
   changes?: Array<{ path: string; content: string | null }>;
 };
 type TreeRef = { path: string; identity: string };
-type State = { version: 1; sourceRevision: string; candidate: TreeRef; checkpoint: TreeRef | null };
+type State = { version: 1; sourceRevision: string; candidate: TreeRef | null; checkpoint: TreeRef | null; offline?: string; offlineIdentity?: string; offlineKeys?: string[] };
 export type CandidateStatus = {
   status: 'absent' | 'saved' | 'external-change' | 'integrity-failed';
   baseline: string;
   sourceRevision: string;
   candidate: TreeRef | null;
   checkpoint: TreeRef | null;
+  offline?: string;
   error?: { code: string; message: string };
 };
 type Tree = Map<string, Buffer | null>;
@@ -77,6 +79,33 @@ async function readTree(root: string): Promise<Tree> {
   }
   return tree;
 }
+async function readOffline(project: string, state: State) {
+  if (!state.offline) return undefined;
+  if (!Array.isArray(state.offlineKeys) || state.offlineKeys.some(key => !/^[0-9a-f]{128}$/.test(key)) ||
+      hash(JSON.stringify([...new Set(state.offlineKeys)].sort())) !== state.offlineIdentity) fail('DEPENDENCY_INTEGRITY_FAILED', '离线依赖索引无效。');
+  const root = join(project, state.offline);
+  await directory(dirname(root));
+  const store: OfflinePackages = new Map();
+  const rawStore: OfflinePackages = new Map();
+  const observed: Array<[string, string]> = [];
+  try { await directory(root); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { store, rawStore, intact: false, signature: hash('missing-directory') };
+    throw error;
+  }
+  for (const filename of (await readdir(root)).sort()) {
+    if (!/^[0-9a-f]{128}\.tgz$/.test(filename)) fail('DEPENDENCY_INTEGRITY_FAILED', '离线依赖库包含非法路径。');
+    const bytes = await regular(join(root, filename));
+    const key = filename.slice(0, -4);
+    observed.push([key, hash(bytes)]); rawStore.set(key, bytes);
+    try { verifyPackageBytes(key, bytes); store.set(key, bytes); }
+    catch { /* 损坏字节只用于基线；只有显式协调可以重新下载。 */ }
+  }
+  return { store, rawStore, intact: offlineIdentity(store) === state.offlineIdentity && store.size === observed.length,
+    signature: hash(JSON.stringify(observed)) };
+}
+const offlineIdentity = (store: OfflinePackages) => hash(JSON.stringify([...store.keys()].sort()));
+const offlineSignature = (store: OfflinePackages) => hash(JSON.stringify([...store].sort(([a], [b]) => a.localeCompare(b)).map(([key, bytes]) => [key, hash(bytes)])));
 function identity(tree: Tree) {
   return hash(JSON.stringify([...tree].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([path, bytes]) => [path, bytes === null ? 'directory' : hash(bytes)])));
@@ -115,11 +144,11 @@ export async function createCandidateManager(project: string, assertWritable: ()
     return value.revisionId as string;
   }
   async function pointerBytes() {
-    try { return await regular(pointer, 16384); }
+    try { return await regular(pointer, 4 * 1024 * 1024); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
   }
   const refValid = (ref: TreeRef) => ref && /^\.narracut\/candidate-[0-9a-f-]{36}\/(candidate|checkpoint)$/.test(ref.path) && /^sha256:[0-9a-f]{64}$/.test(ref.identity);
-  async function inspect(): Promise<{ view: CandidateStatus; state: State | null; tree?: Tree; raw: Buffer | null }> {
+  async function inspect(): Promise<{ view: CandidateStatus; state: State | null; tree?: Tree; offline?: Awaited<ReturnType<typeof readOffline>>; raw: Buffer | null }> {
     await assertCurrent();
     const sourceRevision = await currentRevision();
     let raw: Buffer | null = null;
@@ -128,9 +157,11 @@ export async function createCandidateManager(project: string, assertWritable: ()
       raw = await pointerBytes();
       if (raw === null) return { view: { status: 'absent', sourceRevision, baseline: hash('absent'), candidate: null, checkpoint: null }, state: null, raw };
       const parsed = JSON.parse(raw.toString()) as State;
-      if (parsed.version !== 1 || !/^[0-9a-f-]{36}$/i.test(parsed.sourceRevision) || !refValid(parsed.candidate) ||
-        !(parsed.checkpoint === null || (refValid(parsed.checkpoint) && dirname(parsed.checkpoint.path) === dirname(parsed.candidate.path) && parsed.checkpoint.path.endsWith('/checkpoint'))) || !parsed.candidate.path.endsWith('/candidate')) throw new Error('候选指针完整性无效');
+      if (parsed.version !== 1 || !/^[0-9a-f-]{36}$/i.test(parsed.sourceRevision) || !(parsed.candidate === null || refValid(parsed.candidate)) ||
+        !(parsed.checkpoint === null || (refValid(parsed.checkpoint) && dirname(parsed.checkpoint.path) === dirname(parsed.candidate?.path ?? '') && parsed.checkpoint.path.endsWith('/checkpoint'))) || (parsed.candidate !== null && !parsed.candidate.path.endsWith('/candidate')) || (parsed.candidate === null && parsed.checkpoint !== null) || (parsed.offline !== undefined && !/^\.narracut\/candidate-[0-9a-f-]{36}\/dependencies$/.test(parsed.offline))) throw new Error('候选指针完整性无效');
       state = parsed;
+      const offline = await readOffline(project, state);
+      if (!state.candidate) return { raw, state, offline, view: { status: 'absent', ...(offline && !offline.intact ? { error: { code: 'DEPENDENCY_INTEGRITY_FAILED', message: '保留离线库缺包或损坏；请先显式创建候选，再协调修复。' } } : {}), sourceRevision, baseline: hash(JSON.stringify([hash(raw), offline?.signature ?? null])), candidate: null, checkpoint: null, ...(state.offline ? { offline: state.offline } : {}) } };
       await directory(dirname(join(project, state.candidate.path)));
       const tree = await readTree(join(project, state.candidate.path));
       const treeId = identity(tree);
@@ -141,10 +172,12 @@ export async function createCandidateManager(project: string, assertWritable: ()
         if (checkpointId !== state.checkpoint.identity) throw new Error('恢复检查点字节发生变化');
       }
       const external = treeId !== state.candidate.identity;
-      return { raw, state, tree, view: {
-        status: external ? 'external-change' : 'saved', sourceRevision: state.sourceRevision,
-        baseline: hash(JSON.stringify([hash(raw), treeId, checkpointId])),
+      return { raw, state, tree, offline, view: {
+        status: external ? 'external-change' : offline && !offline.intact ? 'integrity-failed' : 'saved', sourceRevision: state.sourceRevision,
+        baseline: hash(JSON.stringify([hash(raw), treeId, checkpointId, offline?.signature ?? null])),
         candidate: { ...state.candidate, identity: treeId }, checkpoint: state.checkpoint,
+        ...(state.offline ? { offline: state.offline } : {}),
+        ...(!external && offline && !offline.intact ? { error: { code: 'DEPENDENCY_INTEGRITY_FAILED', message: '离线依赖库缺包或损坏；请显式协调修复，普通操作不会补包。' } } : {}),
         ...(external ? { error: { code: 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', message: '候选发生外部变化，外部字节已保留。需要重新检查；未提交修改不得覆盖。' } } : {}),
       } };
     } catch (error) {
@@ -164,20 +197,46 @@ export async function createCandidateManager(project: string, assertWritable: ()
       if (before.view.status === 'absent') return before.view;
       await assertCurrent();
       if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '候选指针已变化，未放弃。');
+      if (before.state?.offline) {
+        const tombstone = Buffer.from(JSON.stringify({ ...before.state, candidate: null, checkpoint: null }));
+        const temporary = join(internal, `discard-${randomUUID()}.json`);
+        try { await writeBytes(temporary, tombstone); await rename(temporary, pointer); }
+        finally { await rm(temporary, { force: true }); }
+        await syncDirectory(internal).catch(() => undefined);
+        for (const ref of [before.state.candidate, before.state.checkpoint]) if (ref) await rm(join(project, ref.path), { recursive: true, force: true }).catch(() => undefined);
+        return { status: 'absent', baseline: hash(JSON.stringify([hash(tombstone), before.offline?.signature ?? null])), sourceRevision: await currentRevision(), candidate: null, checkpoint: null, offline: before.state.offline };
+      }
       await rm(pointer);
-      if (before.state) await rm(dirname(join(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => undefined);
+      if (before.state?.candidate) await rm(dirname(join(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => undefined);
       return { status: 'absent', baseline: hash('absent'), sourceRevision: await currentRevision(), candidate: null, checkpoint: null };
     }
-    if (request.action !== 'create' && (before.view.status !== 'saved' || !before.tree)) {
+    if (request.action !== 'create' && ((before.view.status !== 'saved' && !(request.action === 'dependencies' && before.view.error?.code === 'DEPENDENCY_INTEGRITY_FAILED')) || !before.tree)) {
       fail(before.view.error?.code ?? 'CANDIDATE_MISSING', before.view.error?.message ?? '请先显式创建候选。');
     }
     const sourceRevision = await currentRevision();
     const currentRoot = join(internal, 'revisions', sourceRevision, 'render-program');
     let next: Tree;
+    let offline = request.action === 'create' ? before.offline?.rawStore : before.offline?.store;
     if (request.action === 'create') {
       await directory(join(internal, 'revisions'));
       await directory(dirname(currentRoot));
       next = await readTree(currentRoot);
+    } else if (request.action === 'dependencies') {
+      const retainedLocks: Buffer[] = [];
+      await directory(join(internal, 'revisions'));
+      for (const revision of await readdir(join(internal, 'revisions'))) {
+        if (!/^[0-9a-f-]{36}$/i.test(revision)) fail('DEPENDENCY_LOCK_INVALID', '保留修订目录身份无效。');
+        await directory(join(internal, 'revisions', revision));
+        const retained = await readTree(join(internal, 'revisions', revision, 'render-program'));
+        retainedLocks.push(retained.get('pnpm-lock.yaml')!);
+      }
+      if (before.state?.checkpoint) retainedLocks.push((await readTree(join(project, before.state.checkpoint.path))).get('pnpm-lock.yaml')!);
+      const update = await coordinateDependencies(before.tree!.get('package.json')!, before.tree!.get('pnpm-lock.yaml')!, offline ?? new Map(), request, retainedLocks, before.state?.offlineKeys);
+      if (before.state?.offlineKeys?.some(key => !update.store.has(key))) fail('DEPENDENCY_INTEGRITY_FAILED', '仍有保留离线包无法修复；请提供其精确版本和摘要。');
+      next = new Map(before.tree);
+      next.set('package.json', update.manifest);
+      next.set('pnpm-lock.yaml', update.lock);
+      offline = update.store;
     } else {
       next = new Map(before.tree);
       if (!Array.isArray(request.changes) || request.changes.length === 0 || request.changes.length > 256) fail('CANDIDATE_BATCH_INVALID', '修改批次必须包含 1–256 项。');
@@ -209,11 +268,17 @@ export async function createCandidateManager(project: string, assertWritable: ()
       await assertCurrent();
       await mkdir(root);
       await writeTree(join(root, 'candidate'), next);
+      if (offline) {
+        await mkdir(join(root, 'dependencies'));
+        for (const [key, bytes] of offline) await writeBytes(join(root, 'dependencies', `${key}.tgz`), bytes);
+        await syncDirectory(join(root, 'dependencies'));
+      }
       const treeId = identity(await readTree(join(root, 'candidate')));
       if (before.tree) await writeTree(join(root, 'checkpoint'), before.tree);
       const state: State = { version: 1, sourceRevision: before.state?.sourceRevision ?? sourceRevision,
         candidate: { path: `${generation}/candidate`, identity: treeId },
-        checkpoint: before.tree ? { path: `${generation}/checkpoint`, identity: identity(before.tree) } : null };
+        checkpoint: before.tree ? { path: `${generation}/checkpoint`, identity: identity(before.tree) } : null,
+        ...(offline ? { offline: `${generation}/dependencies`, offlineIdentity: request.action === 'create' && before.offline && !before.offline.intact ? before.state!.offlineIdentity : offlineIdentity(offline), offlineKeys: request.action === 'create' && before.offline && !before.offline.intact ? before.state!.offlineKeys : [...offline.keys()].sort() } : {}) };
       const bytes = Buffer.from(JSON.stringify(state));
       await writeBytes(join(root, 'state.json'), bytes);
       await syncDirectory(root);
@@ -225,10 +290,11 @@ export async function createCandidateManager(project: string, assertWritable: ()
       await rename(join(root, 'state.json'), pointer);
       committed = true;
       await syncDirectory(internal).catch(() => undefined);
-      if (before.state) await rm(dirname(join(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => undefined);
-      return { status: 'saved', sourceRevision: state.sourceRevision,
-        baseline: hash(JSON.stringify([hash(bytes), treeId, state.checkpoint?.identity ?? null])),
-        candidate: state.candidate, checkpoint: state.checkpoint };
+      if (before.state?.candidate || before.state?.offline) await rm(dirname(join(project, before.state.candidate?.path ?? before.state.offline!)), { recursive: true, force: true }).catch(() => undefined);
+      return { status: request.action === 'create' && before.offline && !before.offline.intact ? 'integrity-failed' : 'saved',
+        ...(request.action === 'create' && before.offline && !before.offline.intact ? { error: { code: 'DEPENDENCY_INTEGRITY_FAILED', message: '离线依赖库缺包或损坏；请显式协调修复，普通操作不会补包。' } } : {}), sourceRevision: state.sourceRevision,
+        baseline: hash(JSON.stringify([hash(bytes), treeId, state.checkpoint?.identity ?? null, offline ? offlineSignature(offline) : null])),
+        candidate: state.candidate, checkpoint: state.checkpoint, ...(state.offline ? { offline: state.offline } : {}) };
     } catch (error) {
       if (error instanceof CandidateError) throw error;
       return fail('CANDIDATE_SAVE_FAILED', `本批未保存，上一份候选与恢复检查点已保留。${(error as Error).message}`);

@@ -1,3 +1,4 @@
+import { RUNTIME_REMOTION_VERSION } from './project-dependencies';
 import { createCandidateManager, type CandidateRequest, type CandidateStatus } from "./project-candidate";
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, type Stats } from "node:fs";
@@ -40,7 +41,7 @@ import {
 } from "./project-speech-vnext";
 
 const STARTER_REACT_VERSION = "19.2.8";
-const STARTER_REMOTION_VERSION = "4.0.512";
+const STARTER_REMOTION_VERSION = RUNTIME_REMOTION_VERSION;
 
 export type ProjectLifecycleErrorCode =
   | "PROJECT_CREATE_TARGET_EXISTS"

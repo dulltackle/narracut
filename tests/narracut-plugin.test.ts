@@ -966,3 +966,20 @@ it('停止宿主活动保留唯一候选及检查点，仍读取同一完整树�
     expect(saved.structuredContent.candidate.checkpoint).not.toBeNull();
   } finally { await request.dispose(); }
 });
+
+it('唯一依赖协调工具拒绝非法来源，并且普通候选工具不能借 action 改依赖', async () => {
+  const projectDirectory = join(await mkdtemp(join(tmpdir(), 'dependency-tool-')), 'project');
+  const request = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+  let id = 1000;
+  const call = (name: string, args: Record<string, unknown>) => request({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } }) as Promise<any>;
+  try {
+    const created = await call('create_project', { projectDirectory });
+    const args = { projectDirectory, projectId: created.structuredContent.project.projectId };
+    const first = await call('manage_project_candidate', { ...args, action: 'create' });
+    const input = { ...args, baseline: first.structuredContent.candidate.baseline, dependencies: { example: '^1.0.0' }, packages: [] };
+    const result = await call('coordinate_project_dependencies', input);
+    expect(result.structuredContent.error.code).toBe('DEPENDENCY_SOURCE_UNSUPPORTED');
+    expect((await call('manage_project_candidate', { ...input, action: 'dependencies' })).isError).toBe(true);
+    expect((await call('manage_project_candidate', { ...args, action: 'read' })).structuredContent.candidate).toEqual(first.structuredContent.candidate);
+  } finally { await request.dispose(); }
+});
