@@ -76,6 +76,19 @@ export class ExecutionCapsule {
     if (!this.#toolchain) throw failure('CAPSULE_UNAVAILABLE');
     return this.#certification ??= this.#selfTest().catch(error => { this.#certification = undefined; throw error; });
   }
+  /** 显式压力诊断：会真实触发 cgroup OOM，桌面可能显示内存通知；不在日常认证中调用。 */
+  async diagnoseMemoryLimit(): Promise<void> {
+    await this.certify();
+    try {
+      await this.#execute('build', {
+        'program/main.mjs': Buffer.from('const held=[];setInterval(()=>held.push(Buffer.alloc(16*1024*1024,1)),5);'),
+      }, 'program/main.mjs', undefined, undefined, limits(128, 2, 1, 3000, 32));
+    } catch (error) {
+      if (error instanceof CapsuleError && error.code === 'CAPSULE_RESOURCE_EXCEEDED') return;
+      throw error;
+    }
+    throw failure('CAPSULE_SELF_TEST_FAILED');
+  }
   async #selfTest() {
     try {
       for (const stage of Object.keys(CAPSULE_POLICIES) as CapsuleStage[]) {
@@ -83,12 +96,12 @@ export class ExecutionCapsule {
         const proof = JSON.parse(files.get('proof.json')?.toString() ?? 'null');
         if (proof?.isolated !== true || proof.denied.length !== 5) throw failure('CAPSULE_SELF_TEST_FAILED');
       }
-      // 用同一后端实际触发限额；小型认证预算避免自检占满 Render 的生产预算。
+      // 日常自检不主动制造 OOM，避免桌面误报整机内存不足。
+      // 内存限额仍在每次执行前核验；内核 OOM 行为由显式 diagnoseMemoryLimit 诊断覆盖。
       const probeLimits: Limits = { memory: 128 * MiB, pids: 32, disk: 2 * MiB, output: MiB, logs: 4096, wallMs: 3000 };
       const probes: Array<[string, string | null]> = [
         ["import{spawn}from'node:child_process';import{writeFileSync}from'node:fs';let n=0;function next(){const p=spawn('/bin/sh',['-c','read value']);p.once('spawn',()=>{if(++n>40)process.exit(2);next()});p.once('error',e=>{if(e.code!=='EAGAIN')process.exit(2);writeFileSync('/output/proof','limited');process.exit(0)})}next();", null],
         ["import{openSync,writeSync,writeFileSync}from'node:fs';const fd=openSync('/tmp/fill','w');try{for(let i=0;i<4;i++)writeSync(fd,Buffer.alloc(1024*1024,1));process.exit(2)}catch(e){if(e.code!=='ENOSPC')process.exit(2);writeFileSync('/output/proof','limited')}", null],
-        ["const held=[];setInterval(()=>held.push(Buffer.alloc(16*1024*1024,1)),5);", 'CAPSULE_RESOURCE_EXCEEDED'],
         ["process.stdout.write('x'.repeat(8192));setInterval(()=>{},100);", 'CAPSULE_RESOURCE_EXCEEDED'],
         ["import{spawn}from'node:child_process';spawn('/bin/sh',['-c','while :; do :; done'],{detached:true});setInterval(()=>{},100);", 'CAPSULE_TIMEOUT'],
       ];

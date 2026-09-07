@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { ExecutionCapsule } from '../src/server/execution-capsule';
 import { readFile, readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { observeCapsuleServiceResults } from './helpers/capsule-service-results';
 
 // 从 OS 观察实际子孙，不依赖胶囊返回的自报状态或某个后端的内部 unit 名。
 async function liveMarkers(markers: string[]) {
@@ -30,7 +31,11 @@ it('没有认证工具链时，所有阶段稳定阻断且不执行输入代码'
 it('真实胶囊认证通过后，只发布经过校验的阶段输出', async () => {
   const capsule = await ExecutionCapsule.local();
   try {
-    expect(await capsule.certify()).toMatch(/^[0-9a-f]{64}$/);
+    const results = await observeCapsuleServiceResults(async () => {
+      expect(await capsule.certify()).toMatch(/^[0-9a-f]{64}$/);
+    });
+    expect(results).toContain('success');
+    expect(results).not.toContain('oom-kill');
     const result = await capsule.run({ stage: 'build', entry: 'program/main.mjs', inputs: {
       'program/main.mjs': Buffer.from("import {writeFile} from 'node:fs/promises'; await writeFile('/output/bundle.js', 'validated');"),
     } }, files => files.get('bundle.js')?.toString() === 'validated');

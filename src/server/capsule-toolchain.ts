@@ -10,8 +10,24 @@ import { fileURLToPath } from 'node:url';
 
 const exec = promisify(execFile);
 
+/** 进程被信号终止或崩溃时 exit 钩子不会触发；启动时回收属主已消失的快照，避免 /tmp 累积。 */
+async function reclaimOrphanSnapshots() {
+  const parent = tmpdir();
+  for (const name of await readdir(parent).catch(() => [] as string[])) {
+    if (!name.startsWith('narracut-toolchain-')) continue;
+    const directory = join(parent, name);
+    const owner = Number(await readFile(join(directory, 'owner.pid'), 'utf8').catch(() => ''));
+    // 读不到属主标记的目录（正在创建中，或属于其他用户）一律保留；只回收属主确已消失的快照。
+    if (!Number.isInteger(owner) || owner <= 0) continue;
+    try { process.kill(owner, 0); continue; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') continue; }
+    await rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 /** 只从应用安装工具链取文件；项目请求不能提供这些宿主路径。 */
 export async function snapshotCapsuleToolchain() {
+  await reclaimOrphanSnapshots();
   const root = await mkdtemp(join(tmpdir(), 'narracut-toolchain-'));
   const hashes = new Map<string, string>();
   const groups = new Map<string, Set<string>>();
@@ -40,6 +56,7 @@ export async function snapshotCapsuleToolchain() {
     }
   }
   try {
+    await writeFile(join(root, 'owner.pid'), String(process.pid), { mode: 0o444 });
     await add(process.execPath, '/runtime/node', true);
     await libraries(process.execPath);
     group = 'shell';
