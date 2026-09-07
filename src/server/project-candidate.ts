@@ -309,7 +309,7 @@ export async function createCandidateManager(project: string, assertWritable: ()
       const revision = await currentRevision();
       const tree = target === 'current' ? await readTree(join(internal, 'revisions', revision, 'render-program')) : snapshot.tree;
       if (!tree || (target === 'candidate' && snapshot.view.status !== 'saved')) fail('CANDIDATE_BASELINE_CONFLICT', '没有完整可播放程序。');
-      return { revision, identity: identity(tree!), manifest: Buffer.from(tree!.get('program.json') ?? ''), baseline: snapshot.view.baseline };
+      return { revision, identity: identity(tree!), manifest: Buffer.from(tree!.get('program.json') ?? ''), baseline: snapshot.view.baseline, program: new Map([...tree!].filter((entry): entry is [string, Buffer] => entry[1] !== null).map(([path, bytes]) => [path, Buffer.from(bytes)])), offline: new Map([...(snapshot.offline?.store ?? [])].map(([key, bytes]) => [key, Buffer.from(bytes)])) };
     },
     async build(request: Omit<ProgramBuildRequest, 'program' | 'offline'> & { baseline: string; target?: 'current' | 'candidate'; sourceIdentity?: string }) {
       const before = await inspect();

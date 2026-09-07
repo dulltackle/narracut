@@ -163,6 +163,10 @@ function createPreviewWorkbench(call, getProject) {
   }, 4000);
   return {
     pauseHidden,
+    navigateFrame(location) {
+      if (active?.instanceId !== location.instanceId) { sceneNotice = '此位置属于另一个 Preview 实例，请先显式切换对应版本。'; update(); return; }
+      seek(location.frame);
+    },
     selectScene(id) { deferredScene = id; sceneNotice = ''; locateScene(); update(); },
     mount(node) {
       const project = getProject();

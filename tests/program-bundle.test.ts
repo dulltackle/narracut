@@ -135,3 +135,16 @@ it('第三方包入口不能通过 main 逃逸到 Runtime 私有实现', async (
   request.offline.set(createHash('sha512').update(bytes).digest('hex'), bytes);
   await expect(buildProgramBundle(request)).rejects.toMatchObject({ code: 'STATIC_FORBIDDEN_CAPABILITY' });
 }, 60_000);
+it('类型失败后独立静态检查继续，返回具名事实而不制造 Bundle 级联错误', async () => {
+  const request = await fixture();
+  request.program.set('src/RenderProgram.tsx', Buffer.from('export function RenderProgram(){const value: number = "bad"; return Date.now() + value;}'));
+  await expect(buildProgramBundle(request)).rejects.toMatchObject({ diagnostics: [
+    { code: 'TYPECHECK_FAILED' }, { code: 'STATIC_NONDETERMINISTIC_API', path: 'src/RenderProgram.tsx' },
+  ] });
+}, 120000);
+it('超过100个静态问题保留完整有界事实，展示层可计算准确截断数', async () => {
+  const request = await fixture();
+  for (let index = 0; index < 105; index++) request.program.set(`src/check-${index}.ts`, Buffer.from('export const value = Date.now();'));
+  try { await buildProgramBundle(request); throw new Error('应阻断'); }
+  catch (error: any) { expect(error.diagnostics).toHaveLength(105); expect(error.diagnostics.every((item: any) => item.code === 'STATIC_NONDETERMINISTIC_API')).toBe(true); }
+}, 120000);

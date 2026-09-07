@@ -1,3 +1,4 @@
+import { ProjectChecks } from '../../../src/server/project-checks';
 import { ProjectPreview } from '../../../src/server/project-preview';
 import { DependencyError } from '../../../src/server/project-dependencies';
 import { CandidateError, type CandidateRequest, type CandidateStatus } from "../../../src/server/project-candidate";
@@ -102,6 +103,13 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  {
+    name: "project_checks", title: "检查候选与操作门禁",
+    description: "检查当前候选、读取具名批次或取消检查；不接受候选，不替换 Preview。",
+    inputSchema: { type: "object", required: ["projectDirectory", "projectId", "action"], additionalProperties: false,
+      properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["start", "status", "cancel"] }, batchId: { type: "string" } } },
+    outputSchema: { type: "object" }, annotations: readOnlyToolAnnotations, _meta: { ui: { visibility: ["app"] } },
+  },
   {
     name: "project_preview", title: "构建与检查只读成片 Preview",
     description: "只读构建当前或候选的不可变 Preview，或核对既有实例新鲜度。不接受候选、不写 Scene。",
@@ -533,18 +541,19 @@ function diagnosticSummary(diagnostics: readonly ProjectInspectionDiagnostic[]):
 }
 
 async function loadWorkbench(): Promise<string> {
-  const [html, script, paperTexture, filmTexture, displayFont, previewScript] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript] = await Promise.all([
     readFile(WORKBENCH_PATH, "utf8"),
     readFile(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile(PAPER_TEXTURE_PATH),
     readFile(FILM_TEXTURE_PATH),
     readFile(DISPLAY_FONT_PATH),
     readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8"),
+    readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html
     .replace("/*__NARRACUT_MATERIALS__*/", materialVariables)
-    .replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + script);
+    .replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + script);
 }
 
 async function inspectProject(argumentsValue: unknown): Promise<ToolResult> {
@@ -653,6 +662,14 @@ function credentialState(value: string | undefined): TtsCredentialState {
 
 class ProjectWorkspaceSession {
   preview = new ProjectPreview();
+  checks = new ProjectChecks(this.preview);
+  async checksOperation(input: any) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.action === "start") return this.checks.start(opened);
+    if (input.action === "status") return this.checks.status(opened);
+    if (input.action === "cancel" && typeof input.batchId === "string") return this.checks.cancel(input.batchId);
+    throw new Error("检查参数无效。");
+  }
   async previewOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     if (input.action === "status") return this.preview.status(opened, input.instanceId);
@@ -698,6 +715,7 @@ class ProjectWorkspaceSession {
       await next.release();
       throw error;
     }
+    this.checks.clear();
     this.preview.clear();
     this.#opened = next;
     this.#candidateStatus = await next.candidate({ action: "read" });
@@ -1046,6 +1064,7 @@ class ProjectWorkspaceSession {
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
     }
+    this.checks.clear();
     await this.preview.close();
     this.#credentials.clear();
     this.#speechJobs.clear();
@@ -1083,6 +1102,10 @@ async function callTool(
     throw new Error("tools/call 缺少参数。");
   }
   const { name, arguments: argumentsValue } = params as { name?: unknown; arguments?: unknown };
+  if (name === "project_checks") {
+    try { return { structuredContent: await workspace.checksOperation(argumentsValue), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { error: { code: "CHECK_OPERATION_FAILED", message: error instanceof Error ? error.message : "检查操作失败，请重试。" } }, content: [] }; }
+  }
   if (name === "project_preview") {
     try { return { structuredContent: await workspace.previewOperation(argumentsValue), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? "PREVIEW_FAILED", message: error instanceof Error ? error.message : "Preview 失败，请重试。" } }, content: [] }; }

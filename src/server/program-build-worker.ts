@@ -77,13 +77,19 @@ try {
       target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', jsx: 'react-jsx', strict: true,
       noEmit: true, skipLibCheck: true, types: [], lib: ['ES2022', 'DOM'],
     }, files: [...sourceFiles, '/tmp/work/runtime/entry-contract.ts'] }));
+    const diagnostics: Array<{ code: string; path?: string }> = [];
     try { await exec('/tmp/tools/tsc/tsc', ['--project', '/tmp/work/tsconfig.json'], { maxBuffer: 512 * 1024 }); }
-    catch { throw Object.assign(new Error('Render Program 未通过固定类型检查。'), { code: 'TYPECHECK_FAILED' }); }
+    catch { diagnostics.push({ code: 'TYPECHECK_FAILED' }); }
     const trusted = new Set(config.trustedFiles);
-    for (const file of sourceFiles) {
-      const result = await transform(await readFile(file, 'utf8'), { loader: file.endsWith('x') ? 'tsx' : 'ts', jsx: 'automatic', target: 'es2022' });
-      assertDeterministicModule(result.code);
+    for (const file of sourceFiles.sort()) {
+      try {
+        const result = await transform(await readFile(file, 'utf8'), { loader: file.endsWith('x') ? 'tsx' : 'ts', jsx: 'automatic', target: 'es2022' });
+        assertDeterministicModule(result.code);
+      } catch (error: any) {
+        diagnostics.push({ code: error.code ?? 'TYPECHECK_FAILED', path: file.slice('/tmp/work/program/'.length) });
+      }
     }
+    if (diagnostics.length) throw Object.assign(new Error('独立类型与静态检查未通过。'), { code: diagnostics[0].code, diagnostics });
     await build({ entryPoints: ['/tmp/work/runtime/entry.tsx'], outfile: '/output/bundle.js', bundle: true,
       platform: 'browser', format: 'iife', jsx: 'automatic', sourcemap: 'external', sourcesContent: true,
       define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent',
@@ -131,5 +137,5 @@ try {
   const { rm } = await import('node:fs/promises');
   for (const path of await readdir('/output')) await rm(join('/output', path), { recursive: true, force: true });
   const code = error?.code ?? error?.errors?.[0]?.detail?.code ?? (config.stage === 'install' ? 'DEPENDENCY_INSTALL_FAILED' : 'BUNDLE_FAILED');
-  await write('/output/failure.json', JSON.stringify({ code }));
+  await write('/output/failure.json', JSON.stringify({ code, ...(error.diagnostics ? { diagnostics: error.diagnostics.slice(0, 4097) } : {}) }));
 }

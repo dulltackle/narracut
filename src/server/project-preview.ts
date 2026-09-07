@@ -47,11 +47,13 @@ export class ProjectPreview {
     }
     return { state, input, speech, media };
   }
-  async capture(opened: OpenedProjectVNext, target: 'current' | 'candidate') {
+  async capture(opened: OpenedProjectVNext, target: 'current' | 'candidate', tolerateInvalidManifest = false) {
     const candidate = await opened.candidate({ action: 'read' });
     const source = await opened.readPreviewSource(target);
     const manifest = source.manifest;
-    const { state, input, speech, media } = await this.#observe(opened, checkProgramManifest(manifest).output);
+    let output: OutputFormat;
+    try { output = checkProgramManifest(manifest).output; } catch (error) { if (!tolerateInvalidManifest) throw error; output = { width: 1920, height: 1080, fps: 30 }; }
+    const { state, input, speech, media } = await this.#observe(opened, output);
     const signature = previewDigest(JSON.stringify([state.projectRevision, state.videoBriefRevision, target === 'candidate' ? candidate.baseline : source.revision, source.identity, manifest.toString(), [...media.keys()].sort(), input, speech]));
     return { input, speech, media, signature, brief: state.videoBriefRevision, projectInput: previewDigest(JSON.stringify([state.projectRevision, input, speech])), baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
   }

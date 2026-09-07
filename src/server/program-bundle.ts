@@ -2,7 +2,7 @@ import { parseStrictJson } from './strict-json';
 import type { OutputFormat } from '../runtime';
 
 export class ProgramBuildError extends Error {
-  constructor(readonly code: string, message: string) { super(message); }
+  constructor(readonly code: string, message: string, readonly diagnostics?: Array<{ code: string; path?: string }>) { super(message); }
 }
 export function checkProgramManifest(bytes: Uint8Array | undefined): { apiVersion: 1; output: OutputFormat; warnings: string[] } {
   let value: any;
@@ -109,9 +109,10 @@ export async function buildProgramBundle(request: ProgramBuildRequest): Promise<
   const roots = Object.fromEntries(Object.entries(dependencies.roots).map(([name, id]) => [name, index.get(id)!]));
   const failOutput = (files: ReadonlyMap<string, Buffer>) => {
     if (files.has('failure.json')) {
-      const { code } = JSON.parse(files.get('failure.json')!.toString());
+      const { code, diagnostics } = JSON.parse(files.get('failure.json')!.toString());
       const allowed = ['TYPECHECK_FAILED', 'BUNDLE_FAILED', 'DEPENDENCY_INSTALL_FAILED', 'STATIC_FORBIDDEN_CAPABILITY', 'STATIC_NONDETERMINISTIC_API'];
-      throw new ProgramBuildError(allowed.includes(code) ? code : 'BUNDLE_FAILED', '候选检查未通过；请修复源码或依赖后重试。');
+      const facts = Array.isArray(diagnostics) ? diagnostics.slice(0, 4097).filter(item => item && allowed.includes(item.code)).map(item => ({ code: item.code as string, ...(typeof item.path === 'string' && program.has(item.path) ? { path: item.path } : {}) })) : undefined;
+      throw new ProgramBuildError(allowed.includes(code) ? code : 'BUNDLE_FAILED', '候选检查未通过；请修复源码或依赖后重试。', facts);
     }
     return true;
   };
