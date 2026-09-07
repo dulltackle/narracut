@@ -636,7 +636,7 @@
     const disabled = state.candidateBusy || state.autosaveStopped || !state.result?.writable;
     return `<section class="candidate-panel" aria-labelledby="candidate-title"><header><h2 id="candidate-title">候选 Render Program</h2><span class="candidate-save" role="status"><span class="status-mark" data-status="${candidate?.status === "saved" ? "succeeded" : "unavailable"}" aria-hidden="true"></span>${candidateLabel()}</span></header>
       <p>${absent ? "从当前修订建立唯一可写候选。创建后尚未接受。" : "Agent、人工与受控工具共享这个候选。停止活动或切换工作区都会保留它。"}</p>
-      <dl><div><dt>检查</dt><dd>尚未检查 · 检查与 Preview 尚未接入</dd></div><div><dt>恢复检查点</dt><dd>${candidate?.checkpoint ? "上一份完整候选已保留" : "尚无恢复检查点"}</dd></div></dl>
+      <dl><div><dt>检查</dt><dd>构建与播放见上方成片 Preview；接受检查尚未接入</dd></div><div><dt>恢复检查点</dt><dd>${candidate?.checkpoint ? "上一份完整候选已保留" : "尚无恢复检查点"}</dd></div></dl>
       ${state.candidateError || candidate?.error ? `<p class="candidate-error" role="alert">${escapeHtml((state.candidateError ?? candidate.error).message)}</p>` : ""}
       <div class="candidate-actions">${absent ? `<button type="button" class="agent-action primary" data-candidate-action="create" ${disabled ? "disabled" : ""}>从当前修订创建候选</button>` : ""}<button type="button" class="agent-action" data-candidate-action="read" ${disabled ? "disabled" : ""}>重新检查完整性</button>${candidate && !absent ? `<button type="button" class="agent-action" data-candidate-discard ${disabled ? "disabled" : ""}>放弃候选</button>` : ""}</div>
       <details ${state.candidateDetails ? "open" : ""} data-candidate-details><summary>身份与完整性详情</summary><dl><div><dt>来源修订</dt><dd>${escapeHtml(candidate?.sourceRevision ?? "尚未读取")}</dd></div>${[ ["候选", candidate?.candidate], ["恢复检查点", candidate?.checkpoint] ].map(([label, ref]) => ref ? `<div><dt>${label}路径</dt><dd><code>${escapeHtml(ref.path)}</code></dd></div><div><dt>${label}完整树身份</dt><dd><code>${escapeHtml(ref.identity)}</code></dd></div>` : "").join("")}</dl><p>完整性检查核对目录、普通文件和完整树字节；不表示源码、类型或构建检查通过。恢复替换与损坏导出尚未接入。</p></details>
@@ -710,8 +710,10 @@
   });
   setInterval(() => { if (!document.hidden && state.candidate) candidateOperation("read", true); }, 4000);
 
+  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project);
+
   function valid(result) {
-    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><div data-candidate-region></div><section class="preview-context" aria-label="成片 Preview 与候选审核"><h2>成片 Preview</h2><dl><div><dt>播放 Scene</dt><dd>尚无播放位置 · Preview 尚未接入</dd></div><div><dt>候选新鲜度</dt><dd><span class="status-mark" data-status="unavailable" aria-hidden="true"></span>尚未检查 · 候选审核尚未接入</dd></div></dl><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
+    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><div data-agent-content></div><div data-candidate-region></div><section class="preview-context"><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
   }
 
   function invalid(result) {
@@ -747,6 +749,7 @@
     if (state.workspace === workspace) return;
     state.workspace = workspace;
     updateWorkspaceVisibility();
+    previewWorkbench.pauseHidden();
     // 不调用任务、保存或 Scene 写入口，也不由 Scene 选择驱动播放位置。
     updateRegion(document.querySelector("[data-agent-content]"), agent(state.result));
     updateRegion(document.querySelector("[data-inspector-region]"), inspector(state.result));
@@ -783,6 +786,7 @@
         updateRegion(document.getElementById("workspace-table"), table(result));
         updateRegion(document.querySelector("[data-agent-content]"), agent(result));
         updateCandidate();
+        previewWorkbench.mount(document.querySelector("[data-program-preview]"));
         updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
         updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}`);
       }

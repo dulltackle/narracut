@@ -1,3 +1,4 @@
+import { ProjectPreview } from '../../../src/server/project-preview';
 import { DependencyError } from '../../../src/server/project-dependencies';
 import { CandidateError, type CandidateRequest, type CandidateStatus } from "../../../src/server/project-candidate";
 import { randomUUID } from "node:crypto";
@@ -101,6 +102,13 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  {
+    name: "project_preview", title: "构建与检查只读成片 Preview",
+    description: "只读构建当前或候选的不可变 Preview，或核对既有实例新鲜度。不接受候选、不写 Scene。",
+    inputSchema: { type: "object", required: ["projectDirectory", "projectId", "action"], additionalProperties: false,
+      properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["build", "status", "release"] }, target: { enum: ["current", "candidate"] }, parentOrigin: { type: "string" }, instanceId: { type: "string" } } },
+    outputSchema: { type: "object" }, annotations: readOnlyToolAnnotations, _meta: { ui: { visibility: ["app"] } },
+  },
   {
     name: "coordinate_project_dependencies",
     title: "协调候选精确依赖",
@@ -525,17 +533,18 @@ function diagnosticSummary(diagnostics: readonly ProjectInspectionDiagnostic[]):
 }
 
 async function loadWorkbench(): Promise<string> {
-  const [html, script, paperTexture, filmTexture, displayFont] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont, previewScript] = await Promise.all([
     readFile(WORKBENCH_PATH, "utf8"),
     readFile(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile(PAPER_TEXTURE_PATH),
     readFile(FILM_TEXTURE_PATH),
     readFile(DISPLAY_FONT_PATH),
+    readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8"),
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html
     .replace("/*__NARRACUT_MATERIALS__*/", materialVariables)
-    .replace("/*__NARRACUT_WORKBENCH_JS__*/", script);
+    .replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + script);
 }
 
 async function inspectProject(argumentsValue: unknown): Promise<ToolResult> {
@@ -643,6 +652,16 @@ function credentialState(value: string | undefined): TtsCredentialState {
 }
 
 class ProjectWorkspaceSession {
+  preview = new ProjectPreview();
+  async previewOperation(input: any) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.action === "status") return this.preview.status(opened, input.instanceId);
+    if (input.action === "release") { this.preview.release(input.instanceId); return {}; }
+    if (input.action !== "build" || !["current", "candidate"].includes(input.target) || typeof input.parentOrigin !== "string") throw new Error("Preview 参数无效。");
+    const preview = await this.preview.build(opened, input.target, input.parentOrigin);
+    if (this.#opened !== opened) { this.preview.release(preview.instanceId); throw new Error("构建所属项目已关闭，结果已丢弃。"); }
+    return { preview };
+  }
   #opened: OpenedProjectVNext | null = null;
 
   readonly #credentials = new Map<string, string>();
@@ -679,6 +698,7 @@ class ProjectWorkspaceSession {
       await next.release();
       throw error;
     }
+    this.preview.clear();
     this.#opened = next;
     this.#candidateStatus = await next.candidate({ action: "read" });
     return next.inspection;
@@ -1026,6 +1046,7 @@ class ProjectWorkspaceSession {
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
     }
+    await this.preview.close();
     this.#credentials.clear();
     this.#speechJobs.clear();
     const opened = this.#opened;
@@ -1062,6 +1083,10 @@ async function callTool(
     throw new Error("tools/call 缺少参数。");
   }
   const { name, arguments: argumentsValue } = params as { name?: unknown; arguments?: unknown };
+  if (name === "project_preview") {
+    try { return { structuredContent: await workspace.previewOperation(argumentsValue), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? "PREVIEW_FAILED", message: error instanceof Error ? error.message : "Preview 失败，请重试。" } }, content: [] }; }
+  }
   if (name === "health_check") {
     return {
       structuredContent: { status: "connected", server: "narracut", readOnly: false },
@@ -1718,7 +1743,7 @@ export function createNarracutRequestHandler(
           _meta: {
             ui: {
               prefersBorder: false,
-              csp: { connectDomains: [], resourceDomains: [] },
+              csp: { connectDomains: [], resourceDomains: [], frameDomains: [await workspace.preview.source.origin()] },
             },
           },
         }],

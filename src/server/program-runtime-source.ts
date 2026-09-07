@@ -2,19 +2,23 @@
 export const PROGRAM_RUNTIME_SOURCE = `
 import React from 'react';
 import {createRoot} from 'react-dom/client';
-import {Composition, registerRoot, Sequence, Audio} from 'remotion';
+import {Composition, registerRoot, Sequence, Audio, useCurrentFrame} from 'remotion';
 import {Player} from '@remotion/player';
 import {RenderProgram} from '../program/src/RenderProgram';
 import {bindAssets} from './safe-jsx';
 function freeze(value) { if(value && typeof value==='object') {Object.values(value).forEach(freeze);Object.freeze(value);} return value; }
-let committed=false;
+let committed=false, player=null, bridge=null, frame=0, buffering=false, pending=null, frameSequence=0;
+function emit(type,extra={}) {if(bridge)parent.postMessage({version:1,instanceId:bridge.instanceId,token:bridge.token,type,...extra},bridge.parentOrigin);}
+function reportFrame(){const current=frame, seq=++frameSequence;queueMicrotask(()=>{if(seq!==frameSequence||buffering||!bridge)return;const requestId=pending?.frame===current?pending.id:undefined;if(requestId)pending=null;emit('FRAME',{frame:current,requestId});});}
+function FrameCommit(){const current=useCurrentFrame();React.useLayoutEffect(()=>{frame=current;reportFrame();},[current]);return null;}
+function attachPlayer(ref){player=ref;if(!ref)return;for(const [event,type] of [['play','PLAYING'],['pause','PAUSED'],['ended','PAUSED']])ref.addEventListener(event,()=>emit(type));ref.addEventListener('volumechange',e=>emit('VOLUME',{volume:e.detail.volume}));ref.addEventListener('mutechange',e=>emit('MUTE',{muted:e.detail.isMuted}));ref.addEventListener('waiting',()=>{buffering=true;emit('BUFFERING',{buffering:true});});ref.addEventListener('resume',()=>{buffering=false;emit('BUFFERING',{buffering:false});reportFrame();});}
 function Visual({input}) { const visual=RenderProgram(input); React.useLayoutEffect(()=>{committed=true;},[]); return visual; }
-function Video({input,speech}) { return <><Visual input={input}/>{speech.map(s=><Sequence key={s.sceneId} from={s.startFrame} durationInFrames={s.durationInFrames} layout="none"><Audio src={s.src}/></Sequence>)}</>; }
+function Video({input,speech}) { return <><Visual input={input}/><FrameCommit/>{speech.map(s=><Sequence key={s.sceneId} from={s.startFrame} durationInFrames={s.durationInFrames} layout="none"><Audio src={s.src}/></Sequence>)}</>; }
 let binding;
 function Root() { if(!binding || binding.input.scenes.length===0) return null; const {input,speech}=binding; return <Composition id="Narracut" component={Video} width={input.output.width} height={input.output.height} fps={input.output.fps} durationInFrames={input.durationInFrames} defaultProps={{input,speech}}/>; }
 registerRoot(Root);
-class Boundary extends React.Component { componentDidCatch(){window.__narracutCheck={code:'RUNTIME_FRAME_FAILED'};} render(){return this.props.children;} }
-Object.defineProperty(window,'__narracutBind',{value:(input,speech)=>{
+class Boundary extends React.Component { componentDidCatch(){window.__narracutCheck={code:'RUNTIME_FRAME_FAILED'};emit('ERROR',{code:'RUNTIME_FRAME_FAILED'});} render(){return this.props.children;} }
+Object.defineProperty(window,'__narracutBind',{configurable:true,value:(input,speech)=>{
   if(binding) throw new Error('Runtime 只允许绑定一次');
   if(typeof RenderProgram!=='function') throw new Error('RUNTIME_ENTRY_INVALID');
   binding=freeze(JSON.parse(JSON.stringify({input,speech})));
@@ -25,9 +29,39 @@ Object.defineProperty(window,'__narracutBind',{value:(input,speech)=>{
   const composition=Root();
   if(composition.type!==Composition || composition.props.durationInFrames!==frozen.durationInFrames)throw new Error('COMPOSITION_INVALID');
   const root=createRoot(document.getElementById('root'));
-  root.render(<Boundary><Player component={Video} inputProps={binding} compositionWidth={frozen.output.width} compositionHeight={frozen.output.height} fps={frozen.output.fps} durationInFrames={frozen.durationInFrames} controls={false} autoPlay={false} initialFrame={0} errorFallback={()=>{window.__narracutCheck={code:'RUNTIME_FRAME_FAILED'};return null;}}/></Boundary>);
+  root.render(<Boundary><Player ref={attachPlayer} style={{width:"100%",height:"100%"}} component={Video} inputProps={binding} compositionWidth={frozen.output.width} compositionHeight={frozen.output.height} fps={frozen.output.fps} durationInFrames={frozen.durationInFrames} controls={false} autoPlay={false} initialFrame={0} errorFallback={()=>{window.__narracutCheck={code:'RUNTIME_FRAME_FAILED'};emit('ERROR',{code:'RUNTIME_FRAME_FAILED'});return null;}}/></Boundary>);
   function ready(){if(window.__narracutCheck)return;if(committed)window.__narracutCheck={metadata,runtime:'passed'};else requestAnimationFrame(ready);}requestAnimationFrame(ready);
 }});
+window.addEventListener('narracut-preview-binding',event=>{
+  if(bridge||binding)return;
+  const prepared=freeze(event.detail);let initialized=false,closed=false;
+  function fail(code){emit('ERROR',{code});closed=true;player?.pause();document.getElementById('root').replaceChildren();}
+  bridge=prepared;
+  window.addEventListener('message',event=>{
+    const m=event.data;
+    if(closed||event.source!==parent||event.origin!==prepared.parentOrigin||!m||m.instanceId!==prepared.instanceId||m.token!==prepared.token)return;
+    if(m.version!==1){fail('BRIDGE_VERSION_UNSUPPORTED');return;}
+    if(m.type==='INIT'){
+      if(initialized){fail('BRIDGE_ALREADY_BOUND');return;}
+      if(JSON.stringify(m.identity)!==JSON.stringify(prepared.identity)){fail('BRIDGE_IDENTITY_MISMATCH');return;}
+      initialized=true;
+      try{window.__narracutBind(prepared.input,prepared.speech);delete window.__narracutBind;}catch{fail('BRIDGE_INIT_FAILED');return;}
+      function ready(){if(closed)return;if(window.__narracutCheck?.code){fail(window.__narracutCheck.code);return;}if(window.__narracutCheck){emit('READY',{identity:prepared.identity});if(prepared.input.scenes.length)reportFrame();}else requestAnimationFrame(ready);}requestAnimationFrame(ready);
+      return;
+    }
+    if(!initialized||!player)return;
+    if(m.type==='PLAY')player.play();
+    else if(m.type==='PAUSE')player.pause();
+    else if(m.type==='SEEK'&&Number.isSafeInteger(m.frame)&&m.frame>=0&&m.frame<prepared.input.durationInFrames&&typeof m.requestId==='string'){
+      player.pause();pending={frame:m.frame,id:m.requestId};player.seekTo(m.frame);if(frame===m.frame)reportFrame();
+    }else if(m.type==='VOLUME'&&Number.isFinite(m.volume)&&m.volume>=0&&m.volume<=1)player.setVolume(m.volume);
+    else if(m.type==='MUTE'&&typeof m.muted==='boolean')m.muted?player.mute():player.unmute();
+    else fail('BRIDGE_COMMAND_INVALID');
+  });
+  window.addEventListener('error',()=>fail('RUNTIME_FRAME_FAILED'));
+  emit('BOOT');
+},{once:true});
+
 `;
 export const PROGRAM_ENTRY_CONTRACT = `
 import type {ReactNode} from 'react';

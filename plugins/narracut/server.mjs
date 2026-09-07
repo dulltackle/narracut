@@ -8212,10 +8212,10 @@ var require_truncate = __commonJS({
   "node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/truncate.js"(exports, module) {
     "use strict";
     var parse2 = require_parse();
-    var constants2 = require_constants();
+    var constants3 = require_constants();
     var SemVer = require_semver();
     var truncate = (version, truncation, options) => {
-      if (!constants2.RELEASE_TYPES.includes(truncation)) {
+      if (!constants3.RELEASE_TYPES.includes(truncation)) {
         return null;
       }
       const clonedVersion = cloneInputVersion(version, options);
@@ -9264,7 +9264,7 @@ var require_semver2 = __commonJS({
   "node_modules/.pnpm/semver@7.8.5/node_modules/semver/index.js"(exports, module) {
     "use strict";
     var internalRe = require_re();
-    var constants2 = require_constants();
+    var constants3 = require_constants();
     var SemVer = require_semver();
     var identifiers = require_identifiers();
     var parse2 = require_parse();
@@ -9348,43 +9348,1552 @@ var require_semver2 = __commonJS({
       re: internalRe.re,
       src: internalRe.src,
       tokens: internalRe.t,
-      SEMVER_SPEC_VERSION: constants2.SEMVER_SPEC_VERSION,
-      RELEASE_TYPES: constants2.RELEASE_TYPES,
+      SEMVER_SPEC_VERSION: constants3.SEMVER_SPEC_VERSION,
+      RELEASE_TYPES: constants3.RELEASE_TYPES,
       compareIdentifiers: identifiers.compareIdentifiers,
       rcompareIdentifiers: identifiers.rcompareIdentifiers
     };
   }
 });
 
-// src/server/dependency-integrity.ts
-import { createHash } from "node:crypto";
-var DependencyError = class extends Error {
-  constructor(code, message) {
+// src/server/project-preview.ts
+import { constants } from "node:fs";
+import { randomBytes as randomBytes2 } from "node:crypto";
+import { lstat as lstat3, open as open3, realpath as realpath3 } from "node:fs/promises";
+import { join as join6, relative as relative2, isAbsolute as isAbsolute2 } from "node:path";
+
+// src/server/project-vnext-inspection.ts
+import { createHash as createHash2 } from "node:crypto";
+import { lstat as lstat2, open as open2, readdir, realpath } from "node:fs/promises";
+import { isAbsolute, join as join2, relative, resolve, sep } from "node:path";
+
+// src/server/strict-json.ts
+var StrictJsonFailure = class extends Error {
+  constructor(code, message, jsonPath, metric, actual, limit) {
     super(message);
     this.code = code;
+    this.jsonPath = jsonPath;
+    this.metric = metric;
+    this.actual = actual;
+    this.limit = limit;
+    this.name = "StrictJsonFailure";
   }
   code;
+  jsonPath;
+  metric;
+  actual;
+  limit;
 };
-var fail = (message) => {
-  throw new DependencyError("DEPENDENCY_SOURCE_UNSUPPORTED", message);
-};
-function integrityKey(integrity) {
-  if (typeof integrity !== "string" || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity)) return fail("\u4F9D\u8D56\u5FC5\u987B\u63D0\u4F9B\u89C4\u8303 SHA-512 \u5B8C\u6574\u6027\u6458\u8981\u3002");
-  const bytes = Buffer.from(integrity.slice(7), "base64");
-  if (bytes.toString("base64") !== integrity.slice(7)) return fail("\u4F9D\u8D56\u5B8C\u6574\u6027\u6458\u8981\u4E0D\u662F\u89C4\u8303 Base64\u3002");
-  return bytes.toString("hex");
+function childPath(parent, key) {
+  return /^[A-Za-z_$][\w$]*$/u.test(key) ? `${parent}.${key}` : `${parent}[${JSON.stringify(key)}]`;
 }
-function verifyPackageBytes(key, bytes) {
-  if (createHash("sha512").update(bytes).digest("hex") !== key) throw new DependencyError("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5305\u5B8C\u6574\u6027\u4E0D\u7B26\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\u3002");
+function utf8Length(codePoint) {
+  if (codePoint <= 127) return 1;
+  if (codePoint <= 2047) return 2;
+  if (codePoint <= 65535) return 3;
+  return 4;
+}
+function parseStrictJson(input, limits2) {
+  let cursor = 0;
+  let arrayItems = 0;
+  let objectFields = 0;
+  let nodes = 0;
+  const invalid = (message, path) => {
+    throw new StrictJsonFailure("PROJECT_CONTROL_FILE_INVALID_JSON", message, path);
+  };
+  const exceeded = (metric, actual, limit, path) => {
+    throw new StrictJsonFailure(
+      "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+      `JSON \u7684 ${metric} \u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7F29\u51CF\u8BE5\u5185\u5BB9\u540E\u91CD\u8BD5\u3002`,
+      path,
+      metric,
+      actual,
+      limit
+    );
+  };
+  const whitespace = () => {
+    while (cursor < input.length && /[\u0009\u000a\u000d\u0020]/u.test(input[cursor])) cursor += 1;
+  };
+  const accountNode = (path) => {
+    nodes += 1;
+    if (nodes > limits2.maxNodes) exceeded("nodes", nodes, limits2.maxNodes, path);
+  };
+  const accountString = (scalars, bytes, path) => {
+    if (scalars > limits2.maxStringScalars) {
+      exceeded("stringScalars", scalars, limits2.maxStringScalars, path);
+    }
+    if (bytes > limits2.maxStringBytes) {
+      exceeded("stringBytes", bytes, limits2.maxStringBytes, path);
+    }
+  };
+  const stringToken = (path, decode) => {
+    const start = cursor;
+    if (input[cursor] !== '"') invalid("JSON \u5B57\u7B26\u4E32\u7F3A\u5C11\u8D77\u59CB\u5F15\u53F7\u3002", path);
+    cursor += 1;
+    let scalars = 0;
+    let bytes = 0;
+    while (cursor < input.length) {
+      const codeUnit = input.charCodeAt(cursor);
+      if (codeUnit === 34) {
+        cursor += 1;
+        accountString(scalars, bytes, path);
+        return decode ? JSON.parse(input.slice(start, cursor)) : void 0;
+      }
+      if (codeUnit < 32) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u672A\u8F6C\u4E49\u63A7\u5236\u5B57\u7B26\u3002", path);
+      if (codeUnit === 92) {
+        const escape = input[cursor + 1];
+        if (escape === void 0) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u672A\u5B8C\u6210\u7684\u8F6C\u4E49\u3002", path);
+        if ('"\\/bfnrt'.includes(escape)) {
+          scalars += 1;
+          bytes += 1;
+          cursor += 2;
+          accountString(scalars, bytes, path);
+          continue;
+        }
+        if (escape !== "u") invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u975E\u6CD5\u8F6C\u4E49\u3002", path);
+        const firstHex = input.slice(cursor + 2, cursor + 6);
+        if (!/^[0-9a-fA-F]{4}$/u.test(firstHex)) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u975E\u6CD5 Unicode \u8F6C\u4E49\u3002", path);
+        const first = Number.parseInt(firstHex, 16);
+        let codePoint2 = first;
+        let width2 = 6;
+        if (first >= 55296 && first <= 56319) {
+          if (input.slice(cursor + 6, cursor + 8) !== "\\u") {
+            invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u9AD8\u4F4D\u4EE3\u7406\u9879\u3002", path);
+          }
+          const secondHex = input.slice(cursor + 8, cursor + 12);
+          if (!/^[0-9a-fA-F]{4}$/u.test(secondHex)) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u975E\u6CD5 Unicode \u8F6C\u4E49\u3002", path);
+          const second = Number.parseInt(secondHex, 16);
+          if (second < 56320 || second > 57343) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u9AD8\u4F4D\u4EE3\u7406\u9879\u3002", path);
+          codePoint2 = 65536 + (first - 55296 << 10) + second - 56320;
+          width2 = 12;
+        } else if (first >= 56320 && first <= 57343) {
+          invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u4F4E\u4F4D\u4EE3\u7406\u9879\u3002", path);
+        }
+        scalars += 1;
+        bytes += utf8Length(codePoint2);
+        cursor += width2;
+        accountString(scalars, bytes, path);
+        continue;
+      }
+      let codePoint = codeUnit;
+      let width = 1;
+      if (codeUnit >= 55296 && codeUnit <= 56319) {
+        const second = input.charCodeAt(cursor + 1);
+        if (!(second >= 56320 && second <= 57343)) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u9AD8\u4F4D\u4EE3\u7406\u9879\u3002", path);
+        codePoint = 65536 + (codeUnit - 55296 << 10) + second - 56320;
+        width = 2;
+      } else if (codeUnit >= 56320 && codeUnit <= 57343) {
+        invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u4F4E\u4F4D\u4EE3\u7406\u9879\u3002", path);
+      }
+      scalars += 1;
+      bytes += utf8Length(codePoint);
+      cursor += width;
+      accountString(scalars, bytes, path);
+    }
+    return invalid("JSON \u5B57\u7B26\u4E32\u7F3A\u5C11\u7ED3\u675F\u5F15\u53F7\u3002", path);
+  };
+  const parseValue = (depth, path) => {
+    if (depth > limits2.maxDepth) exceeded("depth", depth, limits2.maxDepth, path);
+    accountNode(path);
+    whitespace();
+    const current = input[cursor];
+    if (current === "{") {
+      cursor += 1;
+      whitespace();
+      const keys = /* @__PURE__ */ new Set();
+      if (input[cursor] === "}") {
+        cursor += 1;
+        return;
+      }
+      while (true) {
+        whitespace();
+        const key = stringToken(path, true);
+        const valuePath = childPath(path, key);
+        objectFields += 1;
+        if (objectFields > limits2.maxObjectFields) {
+          exceeded("objectFields", objectFields, limits2.maxObjectFields, valuePath);
+        }
+        if (keys.has(key)) {
+          throw new StrictJsonFailure(
+            "PROJECT_CONTROL_FILE_DUPLICATE_FIELD",
+            `JSON \u5B57\u6BB5 ${valuePath} \u91CD\u590D\uFF1B\u8BF7\u53EA\u4FDD\u7559\u4E00\u4E2A\u5B57\u6BB5\u3002`,
+            valuePath
+          );
+        }
+        keys.add(key);
+        whitespace();
+        if (input[cursor] !== ":") invalid("JSON \u5BF9\u8C61\u5B57\u6BB5\u540D\u540E\u7F3A\u5C11\u5192\u53F7\u3002", valuePath);
+        cursor += 1;
+        parseValue(depth + 1, valuePath);
+        whitespace();
+        if (input[cursor] === "}") {
+          cursor += 1;
+          return;
+        }
+        if (input[cursor] !== ",") invalid("JSON \u5BF9\u8C61\u5B57\u6BB5\u4E4B\u95F4\u7F3A\u5C11\u9017\u53F7\u3002", path);
+        cursor += 1;
+      }
+    }
+    if (current === "[") {
+      if (limits2.forbidArrays) exceeded("arrays", 1, 0, path);
+      cursor += 1;
+      whitespace();
+      if (input[cursor] === "]") {
+        cursor += 1;
+        return;
+      }
+      let index = 0;
+      while (true) {
+        arrayItems += 1;
+        if (arrayItems > limits2.maxArrayItems) {
+          exceeded("arrayItems", arrayItems, limits2.maxArrayItems, `${path}[${index}]`);
+        }
+        parseValue(depth + 1, `${path}[${index}]`);
+        index += 1;
+        whitespace();
+        if (input[cursor] === "]") {
+          cursor += 1;
+          return;
+        }
+        if (input[cursor] !== ",") invalid("JSON \u6570\u7EC4\u9879\u4E4B\u95F4\u7F3A\u5C11\u9017\u53F7\u3002", path);
+        cursor += 1;
+      }
+    }
+    if (current === '"') {
+      stringToken(path, false);
+      return;
+    }
+    for (const literal of ["true", "false", "null"]) {
+      if (input.startsWith(literal, cursor)) {
+        cursor += literal.length;
+        return;
+      }
+    }
+    const number = input.slice(cursor).match(/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/u)?.[0];
+    if (number !== void 0) {
+      if (number.length > limits2.maxNumberBytes) {
+        exceeded("numberBytes", number.length, limits2.maxNumberBytes, path);
+      }
+      cursor += number.length;
+      return;
+    }
+    invalid("JSON \u5305\u542B\u975E\u6CD5\u503C\u3002", path);
+  };
+  whitespace();
+  parseValue(1, "$");
+  whitespace();
+  if (cursor !== input.length) invalid("JSON \u6839\u503C\u540E\u5B58\u5728\u989D\u5916\u5185\u5BB9\u3002", "$");
+  return JSON.parse(input);
 }
 
+// src/server/project-speech-vnext.ts
+import { execFile } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { lstat, open, readFile, rename, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+var execFileAsync = promisify(execFile);
+var DRAFT_DURATION_MS = 5e3;
+var TTS_CAPABILITIES = {
+  provider: "tokendance",
+  models: [
+    { value: "minimax-speech-2.8-turbo", label: "MiniMax Speech 2.8 Turbo" }
+  ],
+  voices: [
+    { value: "Chinese (Mandarin)_News_Anchor", label: "\u666E\u901A\u8BDD \xB7 \u65B0\u95FB\u4E3B\u64AD" },
+    { value: "Chinese (Mandarin)_Reliable_Executive", label: "\u666E\u901A\u8BDD \xB7 \u6C89\u7A33\u4E3B\u7BA1" }
+  ],
+  ranges: {
+    speed: { min: 0.5, max: 2, step: 0.1 },
+    volume: { min: 0.1, max: 10, step: 0.1 },
+    pitch: { min: -12, max: 12, step: 1 }
+  },
+  audio: { format: "mp3", sampleRate: 32e3, bitrate: 128e3, channels: 1 }
+};
+var ProjectTtsConfigError = class extends Error {
+  constructor(message, path, options = {}) {
+    super(message, options);
+    this.path = path;
+    this.name = "ProjectTtsConfigError";
+  }
+  path;
+  code = "TTS_CONFIG_INVALID";
+};
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function inRange(value, range) {
+  return typeof value === "number" && Number.isFinite(value) && value >= range.min && value <= range.max;
+}
+function validateProjectTtsConfig(value) {
+  if (!isRecord(value)) throw new ProjectTtsConfigError("tts.json \u6839\u503C\u5FC5\u987B\u662F\u5BF9\u8C61\u3002", "tts.json");
+  const keys = Object.keys(value).sort();
+  const expected = ["model", "pitch", "provider", "speed", "voice", "volume"].sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    throw new ProjectTtsConfigError("tts.json \u53EA\u80FD\u5305\u542B provider\u3001model\u3001voice\u3001speed\u3001volume \u4E0E pitch\u3002", "tts.json");
+  }
+  if (value.provider !== TTS_CAPABILITIES.provider) {
+    throw new ProjectTtsConfigError("provider \u5FC5\u987B\u662F tokendance\u3002", "tts.json");
+  }
+  if (!TTS_CAPABILITIES.models.some((model) => model.value === value.model)) {
+    throw new ProjectTtsConfigError("model \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
+  }
+  if (!TTS_CAPABILITIES.voices.some((voice) => voice.value === value.voice)) {
+    throw new ProjectTtsConfigError("voice \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
+  }
+  if (!inRange(value.speed, TTS_CAPABILITIES.ranges.speed)) {
+    throw new ProjectTtsConfigError("speed \u5FC5\u987B\u5728 0.5\u20132.0 \u4E4B\u95F4\u3002", "tts.json");
+  }
+  if (!inRange(value.volume, TTS_CAPABILITIES.ranges.volume)) {
+    throw new ProjectTtsConfigError("volume \u5FC5\u987B\u5728 0.1\u201310.0 \u4E4B\u95F4\u3002", "tts.json");
+  }
+  if (!inRange(value.pitch, TTS_CAPABILITIES.ranges.pitch) || !Number.isInteger(value.pitch)) {
+    throw new ProjectTtsConfigError("pitch \u5FC5\u987B\u662F -12\u201312 \u4E4B\u95F4\u7684\u6574\u6570\u3002", "tts.json");
+  }
+  return value;
+}
+function ttsProfileId(config) {
+  const stable = JSON.stringify({
+    provider: config.provider,
+    model: config.model,
+    voice: config.voice,
+    speed: config.speed,
+    volume: config.volume,
+    pitch: config.pitch,
+    audio: TTS_CAPABILITIES.audio
+  });
+  return `sha256:${createHash("sha256").update(stable, "utf8").digest("hex")}`;
+}
+async function readProjectTtsConfig(projectDirectory) {
+  const path = join(projectDirectory, "tts.json");
+  let bytes;
+  try {
+    const facts = await lstat(path);
+    if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 16 * 1024) {
+      throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u5C0F\u4E8E 16 KiB \u7684\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002", path);
+    }
+    bytes = await readFile(path);
+  } catch (cause) {
+    if (cause instanceof ProjectTtsConfigError) throw cause;
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+      return { status: "unconfigured" };
+    }
+    throw new ProjectTtsConfigError("\u65E0\u6CD5\u5B89\u5168\u8BFB\u53D6 tts.json\u3002", path, { cause });
+  }
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (cause) {
+    throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u4E25\u683C UTF-8\u3002", path, { cause });
+  }
+  let parsed;
+  try {
+    parsed = parseStrictJson(text, {
+      maxDepth: 3,
+      maxArrayItems: 0,
+      maxObjectFields: 8,
+      maxNodes: 16,
+      maxStringScalars: 256,
+      maxStringBytes: 1024,
+      maxNumberBytes: 32,
+      forbidArrays: true
+    });
+  } catch (cause) {
+    throw new ProjectTtsConfigError("tts.json \u4E0D\u662F\u53D7\u652F\u6301\u7684\u4E25\u683C JSON\u3002", path, { cause });
+  }
+  const config = validateProjectTtsConfig(parsed);
+  return { status: "configured", config, profileId: ttsProfileId(config) };
+}
+async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
+  const config = validateProjectTtsConfig(input);
+  const path = join(projectDirectory, "tts.json");
+  const temporaryPath = join(projectDirectory, `.tts.json.${randomUUID()}.tmp`);
+  let committed = false;
+  try {
+    const handle = await open(temporaryPath, "wx", 384);
+    try {
+      await handle.writeFile(Buffer.from(JSON.stringify(config), "utf8"));
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertWritable();
+    await rename(temporaryPath, path);
+    committed = true;
+    try {
+      const directory2 = await open(dirname(path), "r");
+      try {
+        await directory2.sync();
+      } finally {
+        await directory2.close();
+      }
+    } catch {
+    }
+  } finally {
+    if (!committed) await rm(temporaryPath, { force: true }).catch(() => void 0);
+  }
+  return { status: "configured", config, profileId: ttsProfileId(config) };
+}
+function deriveSceneTimeWindows(scenes, fps) {
+  if (!Number.isFinite(fps) || fps <= 0) throw new Error("fps \u5FC5\u987B\u662F\u6B63\u6570\u3002");
+  let startFrame = 0;
+  let renderReady = scenes.length > 0;
+  const windows = scenes.map((scene) => {
+    const durationInFrames = Math.max(1, Math.ceil(scene.durationMs / 1e3 * fps));
+    const window = {
+      sceneId: scene.sceneId,
+      startFrame,
+      durationInFrames,
+      source: scene.source
+    };
+    startFrame += durationInFrames;
+    if (scene.source === "draft") renderReady = false;
+    return window;
+  });
+  return { durationInFrames: startFrame, renderReady, scenes: windows };
+}
+async function probeSpeechDurationMs(path) {
+  const { stdout } = await execFileAsync("ffprobe", [
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration:stream=codec_name",
+    "-of",
+    "json",
+    path
+  ], { encoding: "utf8", timeout: 3e4, maxBuffer: 256 * 1024 });
+  const payload = JSON.parse(stdout);
+  const duration = typeof payload.format?.duration === "string" ? Number(payload.format.duration) : Number.NaN;
+  if (!payload.streams?.some((stream) => stream.codec_name === "mp3") || !Number.isFinite(duration) || duration <= 0) {
+    throw new Error("Speech \u4E0D\u662F\u53EF\u89E3\u7801\u7684 MP3\u3002");
+  }
+  return Math.round(duration * 1e3);
+}
+async function speechContentHash(path) {
+  const handle = await open(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const hash2 = createHash("sha256");
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    let position = 0;
+    while (true) {
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
+      if (bytesRead === 0) break;
+      hash2.update(chunk.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+    return `sha256:${hash2.digest("hex")}`;
+  } finally {
+    await handle.close();
+  }
+}
+async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, options = {}) {
+  const probe = options.probeDurationMs ?? probeSpeechDurationMs;
+  const states = [];
+  const durations = [];
+  for (const scene of scenes) {
+    const speech = scene.speech;
+    if (speech === void 0) {
+      states.push({ sceneId: scene.id, status: "missing", reason: "\u5F53\u524D Scene \u7F3A\u5C11 Speech\u3002" });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    const currentSourceTextHash = `sha256:${createHash("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
+    if (speech.sourceTextHash !== currentSourceTextHash) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "changed",
+        reason: "Speech \u4E0E\u5F53\u524D Narration \u4E0D\u5339\u914D\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    if (currentProfileId === void 0 || speech.ttsProfileId !== currentProfileId) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "profile-mismatch",
+        reason: "Speech \u4E0E\u5F53\u524D TTS \u914D\u7F6E\u4E0D\u5339\u914D\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    const absolutePath = join(projectDirectory, speech.path);
+    let before;
+    try {
+      before = await lstat(absolutePath);
+      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) throw new Error("not ordinary");
+    } catch {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "unavailable",
+        reason: "Speech \u6587\u4EF6\u7F3A\u5931\u3001\u4E0D\u53EF\u8BFB\u6216\u4E0D\u662F\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    if (speech.audioContentHash === void 0) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "changed",
+        reason: "Speech \u7F3A\u5C11\u97F3\u9891\u5185\u5BB9\u6458\u8981\uFF0C\u65E0\u6CD5\u8BC1\u660E\u4ECD\u662F\u5DF2\u63D0\u4EA4\u7684\u97F3\u9891\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    let actualDurationMs;
+    let actualContentHash;
+    try {
+      [actualDurationMs, actualContentHash] = await Promise.all([
+        probe(absolutePath),
+        speechContentHash(absolutePath)
+      ]);
+    } catch {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "decode-failed",
+        reason: "Speech \u6587\u4EF6\u65E0\u6CD5\u89E3\u7801\u4E3A MP3\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    let after;
+    try {
+      after = await lstat(absolutePath);
+    } catch {
+      after = void 0;
+    }
+    const changedDuringProbe = after === void 0 || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs;
+    if (changedDuringProbe || actualDurationMs !== speech.durationMs || actualContentHash !== speech.audioContentHash) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "changed",
+        durationMs: actualDurationMs,
+        reason: changedDuringProbe ? "Speech \u6587\u4EF6\u5728\u68C0\u67E5\u671F\u95F4\u53D1\u751F\u539F\u4F4D\u53D8\u5316\u3002" : actualContentHash !== speech.audioContentHash ? "Speech \u97F3\u9891\u5185\u5BB9\u4E0E\u5DF2\u63D0\u4EA4\u6458\u8981\u4E0D\u4E00\u81F4\u3002" : `Speech \u5B9E\u9645\u65F6\u957F ${actualDurationMs} ms \u4E0E\u8BB0\u5F55\u7684 ${speech.durationMs} ms \u4E0D\u4E00\u81F4\u3002`
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    states.push({
+      sceneId: scene.id,
+      path: speech.path,
+      status: "available",
+      durationMs: actualDurationMs
+    });
+    durations.push({ sceneId: scene.id, durationMs: actualDurationMs, source: "speech" });
+  }
+  const timeline = deriveSceneTimeWindows(durations, options.fps ?? 30);
+  return {
+    states,
+    timeline: {
+      ...timeline,
+      renderReady: timeline.renderReady && scenes.every((scene) => scene.narration.text.trim() !== "")
+    }
+  };
+}
+
+// src/server/project-vnext-inspection.ts
+var ProjectInspectionError = class extends Error {
+  constructor(code, path, message, diagnostics = [], options) {
+    super(message, options);
+    this.code = code;
+    this.path = path;
+    this.diagnostics = diagnostics;
+    this.name = "ProjectInspectionError";
+  }
+  code;
+  path;
+  diagnostics;
+};
+function invalidControlFile(path, diagnostic, options) {
+  return new ProjectInspectionError(
+    "PROJECT_CONTENT_INVALID",
+    path,
+    diagnostic.message,
+    [diagnostic],
+    options
+  );
+}
+function invalidContent(path, diagnostics) {
+  const first = diagnostics[0];
+  return new ProjectInspectionError(
+    "PROJECT_CONTENT_INVALID",
+    path,
+    first?.message ?? "Project VNext \u5185\u5BB9\u65E0\u6548\uFF1B\u8BF7\u4FEE\u590D\u62A5\u544A\u7684\u95EE\u9898\u540E\u91CD\u8BD5\u3002",
+    diagnostics
+  );
+}
+var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+function compareStableText(left, right) {
+  return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
+}
+function jsonPropertyPath(parent, key) {
+  return /^[A-Za-z_$][\w$]*$/u.test(key) ? `${parent}.${key}` : `${parent}[${JSON.stringify(key)}]`;
+}
+function validateProjectManifest(manifest) {
+  const diagnostics = [];
+  for (const key of Object.keys(manifest)) {
+    if (!["kind", "formatVersion", "projectId"].includes(key)) {
+      diagnostics.push({
+        code: "PROJECT_MANIFEST_SCHEMA_INVALID",
+        component: "narracut.json",
+        jsonPath: jsonPropertyPath("$", key),
+        message: `narracut.json \u5305\u542B\u672A\u77E5\u5B57\u6BB5 ${key}\uFF1B\u8BF7\u5220\u9664\u8BE5\u5B57\u6BB5\u3002`
+      });
+    }
+  }
+  if (!Number.isInteger(manifest.formatVersion)) {
+    diagnostics.push({
+      code: "PROJECT_MANIFEST_SCHEMA_INVALID",
+      component: "narracut.json",
+      jsonPath: "$.formatVersion",
+      message: "formatVersion \u5FC5\u987B\u662F\u6574\u6570 1\uFF1B\u8BF7\u4FEE\u6B63\u9879\u76EE\u6E05\u5355\u3002"
+    });
+  }
+  if (typeof manifest.projectId !== "string" || !UUID_PATTERN.test(manifest.projectId)) {
+    diagnostics.push({
+      code: "PROJECT_MANIFEST_SCHEMA_INVALID",
+      component: "narracut.json",
+      jsonPath: "$.projectId",
+      message: "projectId \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\uFF1B\u8BF7\u4F7F\u7528\u6709\u6548\u9879\u76EE\u6E05\u5355\u3002"
+    });
+  }
+  return diagnostics.sort((left, right) => compareStableText(
+    `${left.jsonPath}${left.code}`,
+    `${right.jsonPath}${right.code}`
+  ));
+}
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function schemaDiagnostic(code, jsonPath, message) {
+  return { code, component: "project.json", jsonPath, message };
+}
+function unknownFields(value, allowed, jsonPath, diagnostics) {
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) {
+      diagnostics.push(schemaDiagnostic(
+        "PROJECT_DSL_SCHEMA_INVALID",
+        jsonPropertyPath(jsonPath, key),
+        `${jsonPath} \u5305\u542B\u672A\u77E5\u5B57\u6BB5 ${key}\uFF1B\u8BF7\u5220\u9664\u8BE5\u5B57\u6BB5\u3002`
+      ));
+    }
+  }
+}
+function isCanonicalResourcePath(value, root) {
+  if (value.length === 0 || value.startsWith("/") || value.includes("\\") || value.includes("\0") || [...value].length > 1024 || Buffer.byteLength(value, "utf8") > 1024) return false;
+  const parts = value.split("/");
+  return parts[0] === root && parts.length > 1 && parts.every((part) => part !== "" && part !== "." && part !== "..");
+}
+function boundedDiagnostics(diagnostics) {
+  const unique = /* @__PURE__ */ new Map();
+  for (const diagnostic of diagnostics) {
+    const identity2 = `${diagnostic.jsonPath ?? ""}${diagnostic.code}${diagnostic.message}`;
+    if (!unique.has(identity2)) unique.set(identity2, diagnostic);
+  }
+  const sorted = [...unique.values()].sort((left, right) => compareStableText(
+    `${left.jsonPath ?? ""}${left.code}`,
+    `${right.jsonPath ?? ""}${right.code}`
+  ));
+  if (sorted.length <= 100) return sorted;
+  return [
+    ...sorted.slice(0, 99),
+    {
+      code: "DIAGNOSTICS_TRUNCATED",
+      component: "project.json",
+      message: `\u9879\u76EE\u8FD8\u6709 ${sorted.length - 99} \u6761\u95EE\u9898\u672A\u5C55\u793A\uFF1B\u8BF7\u5148\u4FEE\u590D\u5DF2\u5217\u95EE\u9898\u540E\u91CD\u65B0\u68C0\u67E5\u3002`,
+      metric: "diagnostics",
+      actual: sorted.length,
+      limit: 100
+    }
+  ];
+}
+function validateProjectDsl(value) {
+  const diagnostics = [];
+  if (!isRecord2(value)) {
+    return {
+      diagnostics: [schemaDiagnostic(
+        "PROJECT_DSL_SCHEMA_INVALID",
+        "$",
+        "project.json \u6839\u503C\u5FC5\u987B\u662F\u5BF9\u8C61\uFF1B\u8BF7\u63D0\u4F9B assets \u4E0E scenes\u3002"
+      )]
+    };
+  }
+  unknownFields(value, ["assets", "scenes"], "$", diagnostics);
+  const assets = value.assets;
+  const scenes = value.scenes;
+  if (!Array.isArray(assets)) {
+    diagnostics.push(schemaDiagnostic(
+      "PROJECT_DSL_SCHEMA_INVALID",
+      "$.assets",
+      "assets \u5FC5\u987B\u662F\u6570\u7EC4\uFF1B\u8BF7\u4FEE\u6B63 Project DSL\u3002"
+    ));
+  }
+  if (!Array.isArray(scenes)) {
+    diagnostics.push(schemaDiagnostic(
+      "PROJECT_DSL_SCHEMA_INVALID",
+      "$.scenes",
+      "scenes \u5FC5\u987B\u662F\u6570\u7EC4\uFF1B\u8BF7\u4FEE\u6B63 Project DSL\u3002"
+    ));
+  }
+  if (!Array.isArray(assets) || !Array.isArray(scenes)) {
+    return { diagnostics: boundedDiagnostics(diagnostics) };
+  }
+  if (assets.length > 1e3) {
+    return { diagnostics: [{
+      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+      component: "project.json",
+      jsonPath: "$.assets[1000]",
+      message: `assets \u6709 ${assets.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 1000\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59 Asset\u3002`,
+      metric: "assets",
+      actual: assets.length,
+      limit: 1e3
+    }] };
+  }
+  if (scenes.length > 1e3) {
+    return { diagnostics: [{
+      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+      component: "project.json",
+      jsonPath: "$.scenes[1000]",
+      message: `scenes \u6709 ${scenes.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 1000\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59 Scene\u3002`,
+      metric: "scenes",
+      actual: scenes.length,
+      limit: 1e3
+    }] };
+  }
+  for (let index = 0; index < assets.length; index += 1) {
+    const asset = assets[index];
+    if (isRecord2(asset) && typeof asset.path === "string") {
+      const bytes = Buffer.byteLength(asset.path, "utf8");
+      const scalars = [...asset.path].length;
+      if (bytes > 1024) {
+        return { diagnostics: [{
+          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+          component: "project.json",
+          jsonPath: `$.assets[${index}].path`,
+          message: `Asset path \u4E3A ${bytes} UTF-8 \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
+          metric: "pathBytes",
+          actual: bytes,
+          limit: 1024
+        }] };
+      }
+      if (scalars > 1024) {
+        return { diagnostics: [{
+          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+          component: "project.json",
+          jsonPath: `$.assets[${index}].path`,
+          message: `Asset path \u6709 ${scalars} \u4E2A Unicode \u6807\u91CF\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
+          metric: "pathScalars",
+          actual: scalars,
+          limit: 1024
+        }] };
+      }
+    }
+  }
+  for (let index = 0; index < scenes.length; index += 1) {
+    const scene = scenes[index];
+    if (!isRecord2(scene)) continue;
+    if (Array.isArray(scene.assetIds) && scene.assetIds.length > 256) {
+      return { diagnostics: [{
+        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+        component: "project.json",
+        jsonPath: `$.scenes[${index}].assetIds[256]`,
+        message: `Scene \u7684 assetIds \u6709 ${scene.assetIds.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 256\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59\u5F15\u7528\u3002`,
+        metric: "sceneAssetIds",
+        actual: scene.assetIds.length,
+        limit: 256
+      }] };
+    }
+    if (isRecord2(scene.speech)) {
+      if (typeof scene.speech.path === "string") {
+        const bytes = Buffer.byteLength(scene.speech.path, "utf8");
+        const scalars = [...scene.speech.path].length;
+        if (bytes > 1024 || scalars > 1024) {
+          const metric = bytes > 1024 ? "pathBytes" : "pathScalars";
+          const actual = bytes > 1024 ? bytes : scalars;
+          return { diagnostics: [{
+            code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+            component: "project.json",
+            jsonPath: `$.scenes[${index}].speech.path`,
+            message: `Speech path \u7684 ${metric} \u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
+            metric,
+            actual,
+            limit: 1024
+          }] };
+        }
+      }
+      if (typeof scene.speech.ttsProfileId === "string" && [...scene.speech.ttsProfileId].length > 256) {
+        const actual = [...scene.speech.ttsProfileId].length;
+        return { diagnostics: [{
+          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+          component: "project.json",
+          jsonPath: `$.scenes[${index}].speech.ttsProfileId`,
+          message: `ttsProfileId \u6709 ${actual} \u4E2A Unicode \u6807\u91CF\uFF0C\u8D85\u8FC7\u4E0A\u9650 256\uFF1B\u8BF7\u7F29\u77ED\u8BE5\u6807\u8BC6\u3002`,
+          metric: "ttsProfileIdScalars",
+          actual,
+          limit: 256
+        }] };
+      }
+    }
+  }
+  const assetIds = /* @__PURE__ */ new Set();
+  const assetPaths = /* @__PURE__ */ new Set();
+  assets.forEach((asset, index) => {
+    const path = `$.assets[${index}]`;
+    if (!isRecord2(asset)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Asset \u5BF9\u8C61\u3002`));
+      return;
+    }
+    unknownFields(asset, ["id", "path"], path, diagnostics);
+    if (typeof asset.id !== "string" || !UUID_PATTERN.test(asset.id)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.id`, "Asset id \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
+    } else if (assetIds.has(asset.id)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_ID_DUPLICATE", `${path}.id`, `Asset id ${asset.id} \u91CD\u590D\uFF1B\u8BF7\u4E3A\u6BCF\u4E2A Asset \u4F7F\u7528\u552F\u4E00 ID\u3002`));
+    } else {
+      assetIds.add(asset.id);
+    }
+    if (typeof asset.path !== "string" || !isCanonicalResourcePath(asset.path, "assets")) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_INVALID", `${path}.path`, "Asset path \u5FC5\u987B\u662F assets/ \u4E0B\u7684\u89C4\u8303\u9879\u76EE\u76F8\u5BF9\u8DEF\u5F84\u3002"));
+    } else if (assetPaths.has(asset.path)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_DUPLICATE", `${path}.path`, `Asset path ${asset.path} \u91CD\u590D\uFF1B\u8BF7\u4F7F\u7528\u552F\u4E00\u8DEF\u5F84\u3002`));
+    } else {
+      assetPaths.add(asset.path);
+    }
+  });
+  const sceneIds = /* @__PURE__ */ new Set();
+  scenes.forEach((scene, index) => {
+    const path = `$.scenes[${index}]`;
+    if (!isRecord2(scene)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Scene \u5BF9\u8C61\u3002`));
+      return;
+    }
+    unknownFields(scene, ["id", "narration", "assetIds", "speech"], path, diagnostics);
+    if (typeof scene.id !== "string" || !UUID_PATTERN.test(scene.id)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.id`, "Scene id \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
+    } else if (sceneIds.has(scene.id)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_ID_DUPLICATE", `${path}.id`, `Scene id ${scene.id} \u91CD\u590D\uFF1B\u8BF7\u4E3A\u6BCF\u4E2A Scene \u4F7F\u7528\u552F\u4E00 ID\u3002`));
+    } else {
+      sceneIds.add(scene.id);
+    }
+    if (!isRecord2(scene.narration)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.narration`, "narration \u5FC5\u987B\u662F\u53EA\u542B text \u7684\u5BF9\u8C61\u3002"));
+    } else {
+      unknownFields(scene.narration, ["text"], `${path}.narration`, diagnostics);
+      if (typeof scene.narration.text !== "string") {
+        diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.narration.text`, "Narration text \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u3002"));
+      }
+    }
+    if (!Array.isArray(scene.assetIds)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.assetIds`, "assetIds \u5FC5\u987B\u662F UUID \u6570\u7EC4\u3002"));
+    } else {
+      const references = /* @__PURE__ */ new Set();
+      scene.assetIds.forEach((assetId, assetIndex) => {
+        const referencePath = `${path}.assetIds[${assetIndex}]`;
+        if (typeof assetId !== "string" || !UUID_PATTERN.test(assetId)) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", referencePath, "Asset \u5F15\u7528\u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
+        } else if (references.has(assetId)) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_REFERENCE_DUPLICATE", referencePath, `Scene \u91CD\u590D\u5F15\u7528 Asset ${assetId}\uFF1B\u8BF7\u79FB\u9664\u91CD\u590D\u9879\u3002`));
+        } else {
+          references.add(assetId);
+          if (!assetIds.has(assetId)) {
+            diagnostics.push(schemaDiagnostic("PROJECT_DSL_REFERENCE_INVALID", referencePath, `Asset \u5F15\u7528 ${assetId} \u672A\u5728 assets \u4E2D\u767B\u8BB0\uFF1B\u8BF7\u767B\u8BB0\u6216\u79FB\u9664\u8BE5\u5F15\u7528\u3002`));
+          }
+        }
+      });
+    }
+    if ("speech" in scene) {
+      if (!isRecord2(scene.speech)) {
+        diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech`, "speech \u7F3A\u7701\u65F6\u5FC5\u987B\u7701\u7565\u5B57\u6BB5\uFF0C\u5B58\u5728\u65F6\u5FC5\u987B\u662F\u5B8C\u6574\u5BF9\u8C61\u3002"));
+      } else {
+        unknownFields(scene.speech, ["path", "durationMs", "sourceTextHash", "ttsProfileId", "audioContentHash"], `${path}.speech`, diagnostics);
+        const expectedPath = typeof scene.id === "string" ? `speech/${scene.id}.mp3` : void 0;
+        if (typeof scene.speech.path !== "string" || !isCanonicalResourcePath(scene.speech.path, "speech") || scene.speech.path !== expectedPath) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_INVALID", `${path}.speech.path`, `Speech path \u5FC5\u987B\u7CBE\u786E\u4E3A ${expectedPath ?? "speech/<sceneId>.mp3"}\u3002`));
+        }
+        if (!Number.isSafeInteger(scene.speech.durationMs) || scene.speech.durationMs <= 0) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.durationMs`, "durationMs \u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002"));
+        }
+        const narrationText = isRecord2(scene.narration) && typeof scene.narration.text === "string" ? scene.narration.text : void 0;
+        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash2("sha256").update(narrationText, "utf8").digest("hex")}`;
+        if (typeof scene.speech.sourceTextHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.sourceTextHash) || expectedHash !== void 0 && scene.speech.sourceTextHash !== expectedHash) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SPEECH_MISMATCH", `${path}.speech.sourceTextHash`, "sourceTextHash \u5FC5\u987B\u5339\u914D\u5F53\u524D Narration \u7684\u539F\u59CB UTF-8 \u5B57\u8282\u3002"));
+        }
+        if (typeof scene.speech.ttsProfileId !== "string") {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.ttsProfileId`, "ttsProfileId \u5FC5\u987B\u662F\u4E0D\u8D85\u8FC7 256 \u4E2A Unicode \u6807\u91CF\u7684\u5B57\u7B26\u4E32\u3002"));
+        }
+        if ("audioContentHash" in scene.speech && (typeof scene.speech.audioContentHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.audioContentHash))) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.audioContentHash`, "audioContentHash \u5FC5\u987B\u662F\u89C4\u8303\u7684 SHA-256 \u6458\u8981\u3002"));
+        }
+      }
+    }
+  });
+  return {
+    ...diagnostics.length === 0 ? { project: value } : {},
+    diagnostics: boundedDiagnostics(diagnostics)
+  };
+}
+function validateProjectVNextForSave(value, projectPath = "project.json") {
+  let inputBytes;
+  try {
+    inputBytes = Buffer.from(JSON.stringify(value), "utf8");
+  } catch (cause) {
+    throw invalidControlFile(projectPath, {
+      code: "PROJECT_DSL_SCHEMA_INVALID",
+      component: "project.json",
+      jsonPath: "$",
+      message: "Project DSL \u5FC5\u987B\u662F\u53EF\u5E8F\u5217\u5316\u7684 JSON \u5BF9\u8C61\u3002"
+    }, { cause });
+  }
+  if (inputBytes.length > 10 * 1024 * 1024) {
+    throw invalidControlFile(projectPath, {
+      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+      component: "project.json",
+      message: `project.json \u4E3A ${inputBytes.length} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${10 * 1024 * 1024}\uFF1B\u8BF7\u7F29\u51CF\u5185\u5BB9\u540E\u91CD\u8BD5\u3002`,
+      metric: "bytes",
+      actual: inputBytes.length,
+      limit: 10 * 1024 * 1024
+    });
+  }
+  const parsed = parseControlJson(
+    inputBytes.toString("utf8"),
+    projectPath,
+    "project.json",
+    PROJECT_JSON_LIMITS
+  );
+  const validation = validateProjectDsl(parsed);
+  if (validation.project === void 0) {
+    throw invalidContent(projectPath, validation.diagnostics);
+  }
+  const project = validation.project;
+  const bytes = Buffer.from(JSON.stringify({
+    assets: project.assets.map((asset) => ({ id: asset.id, path: asset.path })),
+    scenes: project.scenes.map((scene) => ({
+      id: scene.id,
+      narration: { text: scene.narration.text },
+      assetIds: [...scene.assetIds],
+      ...scene.speech === void 0 ? {} : {
+        speech: {
+          path: scene.speech.path,
+          durationMs: scene.speech.durationMs,
+          sourceTextHash: scene.speech.sourceTextHash,
+          ttsProfileId: scene.speech.ttsProfileId,
+          ...scene.speech.audioContentHash === void 0 ? {} : { audioContentHash: scene.speech.audioContentHash }
+        }
+      }
+    }))
+  }), "utf8");
+  return { project, bytes };
+}
+function decodeUtf8(bytes, path, component, allowBom) {
+  if (!allowBom && bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) {
+    throw invalidControlFile(path, {
+      code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
+      component,
+      message: `${component} \u4E0D\u5F97\u5305\u542B UTF-8 BOM\uFF1B\u8BF7\u79FB\u9664 BOM \u540E\u91CD\u8BD5\u3002`
+    });
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: allowBom }).decode(bytes);
+  } catch (cause) {
+    throw invalidControlFile(path, {
+      code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
+      component,
+      message: `${component} \u4E0D\u662F\u4E25\u683C UTF-8\uFF1B\u8BF7\u4EE5 UTF-8 \u91CD\u65B0\u4FDD\u5B58\u540E\u91CD\u8BD5\u3002`
+    }, { cause });
+  }
+}
+var MANIFEST_JSON_LIMITS = {
+  maxDepth: 4,
+  maxArrayItems: 0,
+  maxObjectFields: 16,
+  maxNodes: 32,
+  maxStringScalars: 256,
+  maxStringBytes: 1024,
+  maxNumberBytes: 64,
+  forbidArrays: true
+};
+var PROJECT_JSON_LIMITS = {
+  maxDepth: 8,
+  maxArrayItems: 1e5,
+  maxObjectFields: 32e3,
+  maxNodes: 2e5,
+  maxStringScalars: 65536,
+  maxStringBytes: 256 * 1024,
+  maxNumberBytes: 64
+};
+function parseControlJson(input, path, component, limits2) {
+  try {
+    return parseStrictJson(input, limits2);
+  } catch (cause) {
+    if (!(cause instanceof StrictJsonFailure)) throw cause;
+    throw invalidControlFile(path, {
+      code: cause.code,
+      component,
+      message: cause.message,
+      jsonPath: cause.jsonPath,
+      ...cause.metric === void 0 ? {} : { metric: cause.metric },
+      ...cause.actual === void 0 ? {} : { actual: cause.actual },
+      ...cause.limit === void 0 ? {} : { limit: cause.limit }
+    }, { cause });
+  }
+}
+async function readBoundedControlFile(path, component, limit) {
+  const pathFacts = await lstat2(path);
+  if (!pathFacts.isFile() || pathFacts.isSymbolicLink() || pathFacts.nlink !== 1) {
+    throw invalidControlFile(path, {
+      code: "PROJECT_REQUIRED_CONTENT_INVALID",
+      component,
+      message: `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
+    });
+  }
+  const handle = await open2(path, "r");
+  try {
+    const facts = await handle.stat();
+    if (!facts.isFile() || facts.dev !== pathFacts.dev || facts.ino !== pathFacts.ino) {
+      throw invalidControlFile(path, {
+        code: "PROJECT_REQUIRED_CONTENT_INVALID",
+        component,
+        message: `${component} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
+      });
+    }
+    if (facts.size > limit) {
+      throw invalidControlFile(path, {
+        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+        component,
+        message: `${component} \u4E3A ${facts.size} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
+        metric: "bytes",
+        actual: facts.size,
+        limit
+      });
+    }
+    const bytes = Buffer.allocUnsafe(limit + 1);
+    let total = 0;
+    while (total < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, total, bytes.length - total, total);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+    }
+    if (total > limit) {
+      throw invalidControlFile(path, {
+        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+        component,
+        message: `${component} \u5728\u8BFB\u53D6\u671F\u95F4\u8D85\u8FC7 ${limit} \u5B57\u8282\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u5E76\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
+        metric: "bytes",
+        actual: total,
+        limit
+      });
+    }
+    return bytes.subarray(0, total);
+  } finally {
+    await handle.close();
+  }
+}
+async function readProjectVNextRevision(projectPath) {
+  const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
+  return `sha256:${createHash2("sha256").update(bytes).digest("hex")}`;
+}
+async function readVideoBriefVNext(videoBriefPath) {
+  const buffer = await readBoundedControlFile(videoBriefPath, "video.md", 2 * 1024 * 1024);
+  return {
+    content: decodeUtf8(buffer, videoBriefPath, "video.md", true),
+    revision: `sha256:${createHash2("sha256").update(buffer).digest("hex")}`,
+    bytes: buffer.length
+  };
+}
+async function requireDirectory(path) {
+  const facts = await lstat2(path);
+  if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
+}
+async function requireFile(path) {
+  const facts = await lstat2(path);
+  if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1) {
+    throw new Error(`\u5FC5\u9700\u6587\u4EF6\u65E0\u6548\uFF1A${path}`);
+  }
+}
+function isFileSystemError(error) {
+  return error instanceof Error && "code" in error;
+}
+function missingContent(path, component) {
+  return invalidContent(path, [{
+    code: "PROJECT_REQUIRED_CONTENT_MISSING",
+    component,
+    message: `\u7F3A\u5C11\u5FC5\u9700\u7684 ${component}\uFF1B\u8BF7\u6062\u590D\u5B8C\u6574 Project VNext \u5185\u5BB9\u540E\u91CD\u8BD5\u3002`
+  }]);
+}
+function invalidResource(path, component, message) {
+  return invalidContent(path, [{ code: "PROJECT_RESOURCE_INVALID", component, message }]);
+}
+async function validateOrdinaryResource(projectDirectory, relativePath, required) {
+  const parts = relativePath.split("/");
+  const directoryIdentities = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const component = parts.slice(0, index + 1).join("/");
+    const path = join2(projectDirectory, component);
+    let facts;
+    try {
+      facts = await lstat2(path);
+    } catch (cause) {
+      if (isFileSystemError(cause) && cause.code === "ENOENT" && !required) return;
+      if (isFileSystemError(cause) && cause.code === "ENOENT") {
+        throw missingContent(path, component);
+      }
+      throw new ProjectInspectionError(
+        "PROJECT_PATH_UNAVAILABLE",
+        path,
+        `\u65E0\u6CD5\u68C0\u67E5\u8D44\u6E90 ${path}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+        [],
+        { cause }
+      );
+    }
+    const isLeaf = index === parts.length - 1;
+    if (!isLeaf && (!facts.isDirectory() || facts.isSymbolicLink())) {
+      throw invalidResource(
+        path,
+        component,
+        `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u7684\u666E\u901A\u76EE\u5F55\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u3002`
+      );
+    }
+    if (!isLeaf) directoryIdentities.push({ path, dev: facts.dev, ino: facts.ino });
+    if (isLeaf && (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1)) {
+      throw invalidResource(
+        path,
+        relativePath,
+        `${relativePath} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`
+      );
+    }
+  }
+  const resourcePath = join2(projectDirectory, relativePath);
+  const allowedRoot = await realpath(join2(projectDirectory, parts[0]));
+  const resolvedResource = await realpath(resourcePath);
+  const relation = relative(allowedRoot, resolvedResource);
+  if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+    throw invalidResource(
+      resourcePath,
+      relativePath,
+      `${relativePath} \u89E3\u6790\u5230 ${allowedRoot} \u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002`
+    );
+  }
+  for (const identity2 of directoryIdentities) {
+    const current = await lstat2(identity2.path);
+    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity2.dev || current.ino !== identity2.ino) {
+      throw invalidResource(
+        identity2.path,
+        relative(projectDirectory, identity2.path),
+        `${relative(projectDirectory, identity2.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
+      );
+    }
+  }
+}
+async function validateProjectVNextResources(projectDirectory, project, options = {}) {
+  const assetStates = [];
+  for (const asset of project.assets) {
+    const path = join2(projectDirectory, asset.path);
+    await validateOrdinaryResource(projectDirectory, asset.path, false);
+    let facts;
+    try {
+      facts = await lstat2(path);
+    } catch (cause) {
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "unavailable",
+        reason: isFileSystemError(cause) && cause.code === "ENOENT" ? "\u6587\u4EF6\u7F3A\u5931\u6216\u5DF2\u88AB\u79FB\u52A8\u3002" : "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
+      });
+      continue;
+    }
+    try {
+      const handle = await open2(path, "r");
+      await handle.close();
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "available",
+        size: facts.size
+      });
+    } catch {
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "unavailable",
+        reason: "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
+      });
+    }
+  }
+  const speech = await inspectProjectSpeech(
+    projectDirectory,
+    project.scenes,
+    options.currentTtsProfileId,
+    { probeDurationMs: options.probeSpeechDurationMs }
+  );
+  const speechWarnings = speech.states.filter((state) => state.status !== "available" && state.status !== "missing").map((state, index) => {
+    const sceneIndex = project.scenes.findIndex((scene) => scene.id === state.sceneId);
+    const code = {
+      available: "",
+      missing: "PROJECT_SPEECH_MISSING",
+      unavailable: "PROJECT_SPEECH_UNAVAILABLE",
+      "decode-failed": "PROJECT_SPEECH_DECODE_FAILED",
+      changed: "PROJECT_SPEECH_CHANGED",
+      "profile-mismatch": "PROJECT_SPEECH_PROFILE_MISMATCH"
+    }[state.status];
+    return {
+      code: code ?? "PROJECT_SPEECH_UNAVAILABLE",
+      component: state.path ?? `Scene ${sceneIndex + 1}`,
+      jsonPath: `$.scenes[${sceneIndex < 0 ? index : sceneIndex}].speech`,
+      message: state.reason ?? "Speech \u5F53\u524D\u4E0D\u53EF\u7528\u4E8E\u6B63\u5F0F Render\u3002"
+    };
+  });
+  return {
+    assetStates,
+    speechStates: speech.states,
+    timeline: speech.timeline,
+    warnings: boundedDiagnostics([...assetStates.filter((asset) => asset.status === "unavailable").map((asset) => ({
+      code: "PROJECT_ASSET_UNAVAILABLE",
+      component: asset.path,
+      message: `${asset.path} \u4E0D\u53EF\u7528\uFF1A${asset.reason ?? "\u65E0\u6CD5\u8BFB\u53D6\u3002"}`
+    })), ...speechWarnings])
+  };
+}
+async function readStableDirectory(directory2) {
+  const entries = await readdir(directory2, { withFileTypes: true });
+  entries.sort((left, right) => compareStableText(left.name, right.name));
+  return entries;
+}
+var MAX_DIRECTORY_TREE_DEPTH = 32;
+var MAX_DIRECTORY_TREE_DIRECTORIES = 4096;
+function directoryTreeLimit(projectDirectory, path, metric, actual, limit) {
+  const component = relative(projectDirectory, path) || ".";
+  return invalidControlFile(path, {
+    code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+    component,
+    metric,
+    actual,
+    limit,
+    message: `${component} \u7684${metric === "directoryDepth" ? "\u76EE\u5F55\u6DF1\u5EA6" : "\u5DF2\u68C0\u67E5\u76EE\u5F55\u6570"}\u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7CBE\u7B80\u9879\u76EE\u5185\u90E8\u6811\u540E\u91CD\u8BD5\u3002`
+  });
+}
+async function discoverRenderProgramDirectories(projectDirectory) {
+  const excludedRoots = /* @__PURE__ */ new Set(["assets", "speech", "renders"]);
+  const stack = [{ directory: projectDirectory, depth: 0 }];
+  const programs = [];
+  let directoriesVisited = 0;
+  while (stack.length > 0) {
+    const { directory: directory2, depth } = stack.pop();
+    directoriesVisited += 1;
+    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
+      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+    }
+    let entries;
+    try {
+      entries = await readStableDirectory(directory2);
+    } catch (cause) {
+      throw new ProjectInspectionError(
+        "PROJECT_PATH_UNAVAILABLE",
+        directory2,
+        `\u65E0\u6CD5\u68C0\u67E5\u9879\u76EE\u5185\u5BB9\u76EE\u5F55 ${directory2}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+        [],
+        { cause }
+      );
+    }
+    for (const entry of [...entries].reverse()) {
+      if (directory2 === projectDirectory && excludedRoots.has(entry.name)) continue;
+      if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
+      const path = join2(directory2, entry.name);
+      const facts = await lstat2(path);
+      if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
+      const childDepth = depth + 1;
+      if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
+        throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
+      }
+      if (entry.name === "render-program") {
+        programs.push(path);
+      } else {
+        stack.push({ directory: path, depth: childDepth });
+      }
+    }
+  }
+  programs.sort(compareStableText);
+  return programs;
+}
+async function validateRenderProgramDirectory(projectDirectory, programDirectory) {
+  const projectRoot = await realpath(projectDirectory);
+  const resolvedProgram = await realpath(programDirectory);
+  const programRelation = relative(projectRoot, resolvedProgram);
+  if (programRelation === ".." || programRelation.startsWith(`..${sep}`) || isAbsolute(programRelation)) {
+    throw invalidResource(
+      programDirectory,
+      relative(projectDirectory, programDirectory),
+      "Render Program \u89E3\u6790\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u7236\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002"
+    );
+  }
+  const requiredEntries = [
+    ["program.json", "file"],
+    ["package.json", "file"],
+    ["pnpm-lock.yaml", "file"],
+    ["src", "directory"],
+    ["src/RenderProgram.tsx", "file"],
+    ["resources", "directory"]
+  ];
+  for (const [entry, kind] of requiredEntries) {
+    const path = join2(programDirectory, ...entry.split("/"));
+    let facts;
+    try {
+      facts = await lstat2(path);
+    } catch (cause) {
+      if (isFileSystemError(cause) && cause.code === "ENOENT") {
+        throw missingContent(path, relative(projectDirectory, path));
+      }
+      throw new ProjectInspectionError(
+        "PROJECT_PATH_UNAVAILABLE",
+        path,
+        `\u65E0\u6CD5\u68C0\u67E5 Render Program \u8DEF\u5F84 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+        [],
+        { cause }
+      );
+    }
+    const valid2 = kind === "directory" ? facts.isDirectory() && !facts.isSymbolicLink() : facts.isFile() && !facts.isSymbolicLink() && facts.nlink === 1;
+    if (!valid2) {
+      throw invalidResource(
+        path,
+        relative(projectDirectory, path),
+        `${relative(projectDirectory, path)} \u5FC5\u987B\u662F\u65E0\u94FE\u63A5\u7684\u666E\u901A${kind === "directory" ? "\u76EE\u5F55" : "\u6587\u4EF6"}\u3002`
+      );
+    }
+  }
+  const stack = [{ directory: programDirectory, depth: 0 }];
+  let directoriesVisited = 0;
+  while (stack.length > 0) {
+    const { directory: directory2, depth } = stack.pop();
+    directoriesVisited += 1;
+    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
+      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+    }
+    for (const entry of [...await readStableDirectory(directory2)].reverse()) {
+      const path = join2(directory2, entry.name);
+      const component = relative(projectDirectory, path);
+      if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
+        throw invalidResource(path, component, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
+      }
+      const facts = await lstat2(path);
+      if (facts.isSymbolicLink()) {
+        throw invalidResource(path, component, `${component} \u662F\u7B26\u53F7\u94FE\u63A5\uFF1BRender Program \u6811\u53EA\u5141\u8BB8\u666E\u901A\u6587\u4EF6\u548C\u76EE\u5F55\u3002`);
+      }
+      if (facts.isDirectory()) {
+        const childDepth = depth + 1;
+        if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
+          throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
+        }
+        stack.push({ directory: path, depth: childDepth });
+      } else if (!facts.isFile() || facts.nlink !== 1) {
+        throw invalidResource(path, component, `${component} \u4E0D\u662F\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`);
+      }
+    }
+  }
+  if (await realpath(programDirectory) !== resolvedProgram) {
+    throw invalidResource(
+      programDirectory,
+      relative(projectDirectory, programDirectory),
+      "Render Program \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002"
+    );
+  }
+}
+async function inspectProjectVNext(inputPath, options = {}) {
+  const projectDirectory = resolve(inputPath);
+  try {
+    await requireDirectory(projectDirectory);
+  } catch (cause) {
+    throw new ProjectInspectionError(
+      "PROJECT_PATH_UNAVAILABLE",
+      projectDirectory,
+      `\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55 ${projectDirectory}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+      [],
+      { cause }
+    );
+  }
+  const manifestPath = join2(projectDirectory, "narracut.json");
+  let manifestBuffer;
+  try {
+    manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
+  } catch (cause) {
+    if (cause instanceof ProjectInspectionError) throw cause;
+    if (isFileSystemError(cause) && cause.code === "ENOENT") {
+      throw new ProjectInspectionError(
+        "NOT_A_NARRACUT_PROJECT",
+        manifestPath,
+        `\u76EE\u5F55\u4E2D\u6CA1\u6709 narracut.json\uFF1B\u8BF7\u9009\u62E9 Project VNext \u9879\u76EE\u76EE\u5F55\u3002`,
+        [],
+        { cause }
+      );
+    }
+    throw new ProjectInspectionError(
+      "PROJECT_PATH_UNAVAILABLE",
+      manifestPath,
+      `\u65E0\u6CD5\u8BFB\u53D6 ${manifestPath}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+      [],
+      { cause }
+    );
+  }
+  const manifestBytes = decodeUtf8(manifestBuffer, manifestPath, "narracut.json", false);
+  const parsedManifest = parseControlJson(
+    manifestBytes,
+    manifestPath,
+    "narracut.json",
+    MANIFEST_JSON_LIMITS
+  );
+  if (typeof parsedManifest !== "object" || parsedManifest === null || Array.isArray(parsedManifest) || !("kind" in parsedManifest) || parsedManifest.kind !== "narracut-project") {
+    throw new ProjectInspectionError(
+      "NOT_A_NARRACUT_PROJECT",
+      manifestPath,
+      `\u8BE5\u76EE\u5F55\u6CA1\u6709\u6709\u6548\u7684 Project VNext \u6807\u8BC6\uFF1B\u8BF7\u9009\u62E9\u5305\u542B kind=narracut-project \u6E05\u5355\u7684\u9879\u76EE\u76EE\u5F55\u3002`
+    );
+  }
+  const manifest = parsedManifest;
+  if (Number.isInteger(manifest.formatVersion) && manifest.formatVersion !== 1) {
+    throw new ProjectInspectionError(
+      "PROJECT_FORMAT_UNSUPPORTED",
+      manifestPath,
+      `\u9879\u76EE\u683C\u5F0F\u7248\u672C ${String(manifest.formatVersion)} \u4E0D\u53D7\u652F\u6301\uFF1B\u8BF7\u4F7F\u7528\u652F\u6301\u8BE5\u683C\u5F0F\u7684 Narracut \u7248\u672C\u3002`
+    );
+  }
+  const manifestDiagnostics = validateProjectManifest(manifest);
+  if (manifestDiagnostics.length > 0) throw invalidContent(manifestPath, manifestDiagnostics);
+  const requiredEntries = [
+    [join2(projectDirectory, "assets"), "assets/", "directory"],
+    [join2(projectDirectory, "speech"), "speech/", "directory"],
+    [join2(projectDirectory, "renders"), "renders/", "directory"]
+  ];
+  for (const [path, component, kind] of requiredEntries) {
+    try {
+      if (kind === "directory") await requireDirectory(path);
+      else await requireFile(path);
+    } catch (cause) {
+      if (isFileSystemError(cause) && cause.code !== "ENOENT") {
+        throw new ProjectInspectionError(
+          "PROJECT_PATH_UNAVAILABLE",
+          path,
+          `\u65E0\u6CD5\u8BFB\u53D6 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+          [],
+          { cause }
+        );
+      }
+      throw missingContent(path, component);
+    }
+  }
+  const renderProgramDirectories = await discoverRenderProgramDirectories(projectDirectory);
+  if (renderProgramDirectories.length === 0) {
+    throw missingContent(
+      projectDirectory,
+      "\u81F3\u5C11\u4E00\u4EFD\u5019\u9009\u6216\u4FEE\u8BA2\u5185\u90E8\u7684 render-program/"
+    );
+  }
+  for (const programDirectory of renderProgramDirectories) {
+    await validateRenderProgramDirectory(projectDirectory, programDirectory);
+  }
+  let projectBuffer;
+  let videoBuffer;
+  try {
+    [projectBuffer, videoBuffer] = await Promise.all([
+      readBoundedControlFile(
+        join2(projectDirectory, "project.json"),
+        "project.json",
+        10 * 1024 * 1024
+      ),
+      readBoundedControlFile(
+        join2(projectDirectory, "video.md"),
+        "video.md",
+        2 * 1024 * 1024
+      )
+    ]);
+  } catch (cause) {
+    if (cause instanceof ProjectInspectionError) throw cause;
+    const path = isFileSystemError(cause) && typeof cause.path === "string" ? cause.path : projectDirectory;
+    const component = path.startsWith(`${projectDirectory}/`) ? path.slice(projectDirectory.length + 1) : path;
+    if (isFileSystemError(cause) && cause.code === "ENOENT") {
+      throw missingContent(path, component);
+    }
+    throw new ProjectInspectionError(
+      "PROJECT_PATH_UNAVAILABLE",
+      path,
+      `\u65E0\u6CD5\u8BFB\u53D6 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+      [],
+      { cause }
+    );
+  }
+  const projectBytes = decodeUtf8(
+    projectBuffer,
+    join2(projectDirectory, "project.json"),
+    "project.json",
+    false
+  );
+  const videoBytes = decodeUtf8(
+    videoBuffer,
+    join2(projectDirectory, "video.md"),
+    "video.md",
+    true
+  );
+  const projectPath = join2(projectDirectory, "project.json");
+  const parsedProject = parseControlJson(
+    projectBytes,
+    projectPath,
+    "project.json",
+    PROJECT_JSON_LIMITS
+  );
+  const projectValidation = validateProjectDsl(parsedProject);
+  if (projectValidation.project === void 0) {
+    throw invalidContent(projectPath, projectValidation.diagnostics);
+  }
+  let tts;
+  try {
+    tts = await readProjectTtsConfig(projectDirectory);
+  } catch (cause) {
+    if (cause instanceof ProjectTtsConfigError) {
+      throw invalidControlFile(cause.path, {
+        code: cause.code,
+        component: "tts.json",
+        jsonPath: "$",
+        message: cause.message
+      }, { cause });
+    }
+    throw cause;
+  }
+  const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
+    projectDirectory,
+    projectValidation.project,
+    {
+      ...tts.status === "configured" ? { currentTtsProfileId: tts.profileId } : {},
+      probeSpeechDurationMs: options.probeSpeechDurationMs
+    }
+  );
+  return {
+    projectDirectory,
+    manifest,
+    project: projectValidation.project,
+    projectRevision: `sha256:${createHash2("sha256").update(projectBuffer).digest("hex")}`,
+    videoBrief: videoBytes,
+    videoBriefRevision: `sha256:${createHash2("sha256").update(videoBuffer).digest("hex")}`,
+    renderPrograms: { directories: renderProgramDirectories },
+    assetStates,
+    tts,
+    speechStates,
+    timeline,
+    warnings
+  };
+}
+
+// src/server/program-bundle.ts
+import { createHash as createHash6 } from "node:crypto";
+
 // src/server/execution-capsule.ts
-import { execFile as execFile2, spawn } from "node:child_process";
-import { createHash as createHash3, randomUUID } from "node:crypto";
-import { mkdir as mkdir2, mkdtemp as mkdtemp2, rm as rm2, writeFile as writeFile2 } from "node:fs/promises";
+import { execFile as execFile3, spawn } from "node:child_process";
+import { createHash as createHash5, randomUUID as randomUUID2 } from "node:crypto";
+import { mkdir as mkdir2, mkdtemp as mkdtemp2, rm as rm3, writeFile as writeFile2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname2, join as join2 } from "node:path";
-import { promisify as promisify2 } from "node:util";
+import { dirname as dirname3, join as join4 } from "node:path";
+import { promisify as promisify3 } from "node:util";
 import { StringDecoder } from "node:string_decoder";
 
 // src/server/capsule-supervisor.ts
@@ -9469,30 +10978,30 @@ await writeFile('/output/proof.json', JSON.stringify({ denied, isolated: true })
 `;
 
 // src/server/capsule-toolchain.ts
-import { execFile } from "node:child_process";
-import { createHash as createHash2 } from "node:crypto";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { execFile as execFile2 } from "node:child_process";
+import { createHash as createHash3 } from "node:crypto";
+import { chmod, copyFile, mkdir, mkdtemp, readFile as readFile2, readdir as readdir2, realpath as realpath2, rm as rm2, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname as dirname2, join as join3, resolve as resolve2 } from "node:path";
 import { arch, release } from "node:os";
 import { rmSync } from "node:fs";
-import { promisify } from "node:util";
+import { promisify as promisify2 } from "node:util";
 import { fileURLToPath } from "node:url";
-var exec = promisify(execFile);
+var exec = promisify2(execFile2);
 async function snapshotCapsuleToolchain() {
-  const root = await mkdtemp(join(tmpdir(), "narracut-toolchain-"));
+  const root = await mkdtemp(join3(tmpdir(), "narracut-toolchain-"));
   const hashes = /* @__PURE__ */ new Map();
   const groups = /* @__PURE__ */ new Map();
   let group = "node";
   async function add(source, destination, executable = false) {
-    const target = join(root, destination);
+    const target = join3(root, destination);
     if (!groups.has(destination)) groups.set(destination, /* @__PURE__ */ new Set());
     groups.get(destination).add(group);
     if (hashes.has(destination)) return;
-    await mkdir(dirname(target), { recursive: true });
-    await copyFile(await realpath(source), target);
+    await mkdir(dirname2(target), { recursive: true });
+    await copyFile(await realpath2(source), target);
     await chmod(target, executable ? 365 : 292);
-    hashes.set(destination, createHash2("sha256").update(await readFile(target)).digest("hex"));
+    hashes.set(destination, createHash3("sha256").update(await readFile2(target)).digest("hex"));
   }
   async function libraries(binary) {
     const { stdout } = await exec("/usr/bin/ldd", [binary], { env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
@@ -9500,8 +11009,8 @@ async function snapshotCapsuleToolchain() {
     if (stdout.includes("not found")) throw new Error("\u5DE5\u5177\u94FE\u7F3A\u5C11\u52A8\u6001\u5E93");
   }
   async function tree(source, destination) {
-    for (const item of await readdir(source, { withFileTypes: true })) {
-      const from = join(source, item.name), to = join(destination, item.name);
+    for (const item of await readdir2(source, { withFileTypes: true })) {
+      const from = join3(source, item.name), to = join3(destination, item.name);
       if (item.isDirectory()) await tree(from, to);
       else if (item.isFile()) await add(from, to, !/\.(?:pak|dat|json|woff2|txt)$/.test(item.name));
       else throw new Error("\u5DE5\u5177\u94FE\u76EE\u5F55\u5305\u542B\u7279\u6B8A\u6587\u4EF6\u6216\u94FE\u63A5");
@@ -9512,37 +11021,59 @@ async function snapshotCapsuleToolchain() {
     await libraries(process.execPath);
     group = "shell";
     await add("/bin/sh", "/bin/sh", true);
-    await libraries(await realpath("/bin/sh"));
+    await libraries(await realpath2("/bin/sh"));
     group = "browser";
-    const applicationRoot2 = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-    const browser = join(applicationRoot2, "node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64");
+    const applicationRoot2 = resolve2(dirname2(fileURLToPath(import.meta.url)), "../..");
+    const browser = join3(applicationRoot2, "node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64");
     await tree(browser, "/runtime/browser");
-    await libraries(join(browser, "chrome-headless-shell"));
-    for (const name of ["libEGL.so", "libGLESv2.so", "libvk_swiftshader.so", "libvulkan.so.1"]) await libraries(join(browser, name));
-    await tree(join(applicationRoot2, "node_modules/@fontsource-variable/noto-sans-sc/files"), "/runtime/fonts");
+    await libraries(join3(browser, "chrome-headless-shell"));
+    for (const name of ["libEGL.so", "libGLESv2.so", "libvk_swiftshader.so", "libvulkan.so.1"]) await libraries(join3(browser, name));
+    await tree(join3(applicationRoot2, "node_modules/@fontsource-variable/noto-sans-sc/files"), "/runtime/fonts");
     await add("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/runtime/fonts/fallback.ttf");
-    for (const path of ["inputs", "output", "tmp", "proc", "dev/shm", "etc/fonts"]) await mkdir(join(root, path), { recursive: true });
-    await writeFile(join(root, "supervisor.mjs"), "", { mode: 292 });
+    for (const path of ["inputs", "output", "tmp", "proc", "dev/shm", "etc/fonts"]) await mkdir(join3(root, path), { recursive: true });
+    await writeFile(join3(root, "supervisor.mjs"), "", { mode: 292 });
     const fontConfig = '<!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><dir>/runtime/fonts</dir><cachedir>/tmp/font-cache</cachedir></fontconfig>';
-    await writeFile(join(root, "etc/fonts/fonts.conf"), fontConfig, { mode: 292 });
-    hashes.set("/etc/fonts/fonts.conf", createHash2("sha256").update(fontConfig).digest("hex"));
+    await writeFile(join3(root, "etc/fonts/fonts.conf"), fontConfig, { mode: 292 });
+    hashes.set("/etc/fonts/fonts.conf", createHash3("sha256").update(fontConfig).digest("hex"));
     groups.set("/etc/fonts/fonts.conf", /* @__PURE__ */ new Set(["browser"]));
-    for (const path of ["/usr/bin/bwrap", "/usr/bin/systemd-run", "/usr/bin/systemctl"]) hashes.set(path, createHash2("sha256").update(await readFile(path)).digest("hex"));
+    for (const path of ["/usr/bin/bwrap", "/usr/bin/systemd-run", "/usr/bin/systemctl"]) hashes.set(path, createHash3("sha256").update(await readFile2(path)).digest("hex"));
     const cleanup = () => rmSync(root, { recursive: true, force: true });
     process.once("exit", cleanup);
     return {
       root,
       files: [...groups].map(([path, roles2]) => ({ path, roles: [...roles2] })),
-      identity: createHash2("sha256").update(JSON.stringify({ files: [...hashes].sort(), groups: [...groups].map(([path, groups2]) => [path, [...groups2]]), kernel: release(), arch: arch() })).digest("hex"),
+      identity: createHash3("sha256").update(JSON.stringify({ files: [...hashes].sort(), groups: [...groups].map(([path, groups2]) => [path, [...groups2]]), kernel: release(), arch: arch() })).digest("hex"),
       dispose: async () => {
         process.removeListener("exit", cleanup);
-        await rm(root, { recursive: true, force: true });
+        await rm2(root, { recursive: true, force: true });
       }
     };
   } catch (error) {
-    await rm(root, { recursive: true, force: true });
+    await rm2(root, { recursive: true, force: true });
     throw error;
   }
+}
+
+// src/server/dependency-integrity.ts
+import { createHash as createHash4 } from "node:crypto";
+var DependencyError = class extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+  code;
+};
+var fail = (message) => {
+  throw new DependencyError("DEPENDENCY_SOURCE_UNSUPPORTED", message);
+};
+function integrityKey(integrity) {
+  if (typeof integrity !== "string" || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity)) return fail("\u4F9D\u8D56\u5FC5\u987B\u63D0\u4F9B\u89C4\u8303 SHA-512 \u5B8C\u6574\u6027\u6458\u8981\u3002");
+  const bytes = Buffer.from(integrity.slice(7), "base64");
+  if (bytes.toString("base64") !== integrity.slice(7)) return fail("\u4F9D\u8D56\u5B8C\u6574\u6027\u6458\u8981\u4E0D\u662F\u89C4\u8303 Base64\u3002");
+  return bytes.toString("hex");
+}
+function verifyPackageBytes(key, bytes) {
+  if (createHash4("sha512").update(bytes).digest("hex") !== key) throw new DependencyError("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5305\u5B8C\u6574\u6027\u4E0D\u7B26\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\u3002");
 }
 
 // src/server/capsule-registry.ts
@@ -9624,7 +11155,7 @@ var CAPSULE_BROWSER_ARGUMENTS = Object.freeze([
   "--remote-debugging-pipe"
 ]);
 var MiB = 1024 * 1024;
-var exec2 = promisify2(execFile2);
+var exec2 = promisify3(execFile3);
 var environment = Object.freeze({
   PWD: "/output",
   PATH: "/runtime:/bin",
@@ -9733,7 +11264,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
         if(!shot.data)throw new Error(JSON.stringify(shot));writeFileSync('/output/browser','fixed');process.exit(0);
       `) }, "bundle/main.mjs");
       if (browserProof.get("browser")?.toString() !== "fixed") throw failure("CAPSULE_SELF_TEST_FAILED");
-      return createHash3("sha256").update(JSON.stringify({ protocol: 1, toolchain: this.#toolchain.identity, environment, browserArguments: CAPSULE_BROWSER_ARGUMENTS, policies: CAPSULE_POLICIES, supervisor: CAPSULE_SUPERVISOR, probe: CAPSULE_PROBE, roles, backend: this.#execute.toString(), certification: this.#selfTest.toString() })).digest("hex");
+      return createHash5("sha256").update(JSON.stringify({ protocol: 1, toolchain: this.#toolchain.identity, environment, browserArguments: CAPSULE_BROWSER_ARGUMENTS, policies: CAPSULE_POLICIES, supervisor: CAPSULE_SUPERVISOR, probe: CAPSULE_PROBE, roles, backend: this.#execute.toString(), certification: this.#selfTest.toString() })).digest("hex");
     } catch (error) {
       if (error instanceof CapsuleError && error.code === "CAPSULE_UNAVAILABLE") throw error;
       throw failure("CAPSULE_SELF_TEST_FAILED");
@@ -9768,25 +11299,25 @@ var ExecutionCapsule = class _ExecutionCapsule {
     );
     const bytes = output.get("package.tgz");
     if (signal?.aborted) throw failure("CAPSULE_CANCELLED");
-    if (output.size !== 1 || !bytes || `sha512-${createHash3("sha512").update(bytes).digest("base64")}` !== pin.integrity) throw failure("CAPSULE_OUTPUT_INVALID");
+    if (output.size !== 1 || !bytes || `sha512-${createHash5("sha512").update(bytes).digest("base64")}` !== pin.integrity) throw failure("CAPSULE_OUTPUT_INVALID");
     return bytes;
   }
   async #execute(stage, inputs, entry, signal, download2, certificationLimits) {
     if (!this.#toolchain) throw failure("CAPSULE_UNAVAILABLE");
     const policy = certificationLimits ?? CAPSULE_POLICIES[stage];
-    const directory2 = await mkdtemp2(join2(tmpdir2(), "narracut-capsule-"));
-    const unit = `narracut-capsule-${randomUUID()}.service`;
+    const directory2 = await mkdtemp2(join4(tmpdir2(), "narracut-capsule-"));
+    const unit = `narracut-capsule-${randomUUID2()}.service`;
     const controlEnv = { PATH: "/usr/bin:/bin", LC_ALL: "C", XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`, DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus` };
     const control = (...args) => exec2("/usr/bin/systemctl", ["--user", ...args], { env: controlEnv, timeout: 5e3, maxBuffer: 64 * 1024 });
     try {
-      const inputRoot = join2(directory2, "inputs");
+      const inputRoot = join4(directory2, "inputs");
       await mkdir2(inputRoot);
       for (const [path, bytes2] of Object.entries(inputs)) {
-        const target = join2(inputRoot, path);
-        await mkdir2(dirname2(target), { recursive: true });
+        const target = join4(inputRoot, path);
+        await mkdir2(dirname3(target), { recursive: true });
         await writeFile2(target, bytes2, { mode: 292 });
       }
-      const supervisor = join2(directory2, "supervisor.mjs");
+      const supervisor = join4(directory2, "supervisor.mjs");
       await writeFile2(supervisor, CAPSULE_SUPERVISOR, { mode: 292 });
       const args = [
         "--user",
@@ -9829,7 +11360,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
         "narracut",
         "--tmpfs",
         "/",
-        ...this.#toolchain.files.filter((file) => file.roles.includes("node") || ["install", "build"].includes(stage) && file.roles.includes("shell") || ["metadata", "preview", "render"].includes(stage) && file.roles.includes("browser")).flatMap((file) => ["--ro-bind", join2(this.#toolchain.root, file.path), file.path]),
+        ...this.#toolchain.files.filter((file) => file.roles.includes("node") || ["install", "build"].includes(stage) && file.roles.includes("shell") || ["metadata", "preview", "render"].includes(stage) && file.roles.includes("browser")).flatMap((file) => ["--ro-bind", join4(this.#toolchain.root, file.path), file.path]),
         "--ro-bind",
         inputRoot,
         "/inputs",
@@ -9969,7 +11500,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
     } finally {
       await control("stop", unit).catch(() => void 0);
       await control("reset-failed", unit).catch(() => void 0);
-      await rm2(directory2, { recursive: true, force: true });
+      await rm3(directory2, { recursive: true, force: true });
     }
   }
 };
@@ -10195,245 +11726,23 @@ function readOfflineDependencyGraph(manifestBytes, lockBytes, store) {
   return { roots, graph };
 }
 
-// src/server/strict-json.ts
-var StrictJsonFailure = class extends Error {
-  constructor(code, message, jsonPath, metric, actual, limit) {
-    super(message);
-    this.code = code;
-    this.jsonPath = jsonPath;
-    this.metric = metric;
-    this.actual = actual;
-    this.limit = limit;
-    this.name = "StrictJsonFailure";
-  }
-  code;
-  jsonPath;
-  metric;
-  actual;
-  limit;
-};
-function childPath(parent, key) {
-  return /^[A-Za-z_$][\w$]*$/u.test(key) ? `${parent}.${key}` : `${parent}[${JSON.stringify(key)}]`;
-}
-function utf8Length(codePoint) {
-  if (codePoint <= 127) return 1;
-  if (codePoint <= 2047) return 2;
-  if (codePoint <= 65535) return 3;
-  return 4;
-}
-function parseStrictJson(input, limits2) {
-  let cursor = 0;
-  let arrayItems = 0;
-  let objectFields = 0;
-  let nodes = 0;
-  const invalid = (message, path) => {
-    throw new StrictJsonFailure("PROJECT_CONTROL_FILE_INVALID_JSON", message, path);
-  };
-  const exceeded = (metric, actual, limit, path) => {
-    throw new StrictJsonFailure(
-      "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-      `JSON \u7684 ${metric} \u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7F29\u51CF\u8BE5\u5185\u5BB9\u540E\u91CD\u8BD5\u3002`,
-      path,
-      metric,
-      actual,
-      limit
-    );
-  };
-  const whitespace = () => {
-    while (cursor < input.length && /[\u0009\u000a\u000d\u0020]/u.test(input[cursor])) cursor += 1;
-  };
-  const accountNode = (path) => {
-    nodes += 1;
-    if (nodes > limits2.maxNodes) exceeded("nodes", nodes, limits2.maxNodes, path);
-  };
-  const accountString = (scalars, bytes, path) => {
-    if (scalars > limits2.maxStringScalars) {
-      exceeded("stringScalars", scalars, limits2.maxStringScalars, path);
-    }
-    if (bytes > limits2.maxStringBytes) {
-      exceeded("stringBytes", bytes, limits2.maxStringBytes, path);
-    }
-  };
-  const stringToken = (path, decode) => {
-    const start = cursor;
-    if (input[cursor] !== '"') invalid("JSON \u5B57\u7B26\u4E32\u7F3A\u5C11\u8D77\u59CB\u5F15\u53F7\u3002", path);
-    cursor += 1;
-    let scalars = 0;
-    let bytes = 0;
-    while (cursor < input.length) {
-      const codeUnit = input.charCodeAt(cursor);
-      if (codeUnit === 34) {
-        cursor += 1;
-        accountString(scalars, bytes, path);
-        return decode ? JSON.parse(input.slice(start, cursor)) : void 0;
-      }
-      if (codeUnit < 32) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u672A\u8F6C\u4E49\u63A7\u5236\u5B57\u7B26\u3002", path);
-      if (codeUnit === 92) {
-        const escape = input[cursor + 1];
-        if (escape === void 0) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u672A\u5B8C\u6210\u7684\u8F6C\u4E49\u3002", path);
-        if ('"\\/bfnrt'.includes(escape)) {
-          scalars += 1;
-          bytes += 1;
-          cursor += 2;
-          accountString(scalars, bytes, path);
-          continue;
-        }
-        if (escape !== "u") invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u975E\u6CD5\u8F6C\u4E49\u3002", path);
-        const firstHex = input.slice(cursor + 2, cursor + 6);
-        if (!/^[0-9a-fA-F]{4}$/u.test(firstHex)) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u975E\u6CD5 Unicode \u8F6C\u4E49\u3002", path);
-        const first = Number.parseInt(firstHex, 16);
-        let codePoint2 = first;
-        let width2 = 6;
-        if (first >= 55296 && first <= 56319) {
-          if (input.slice(cursor + 6, cursor + 8) !== "\\u") {
-            invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u9AD8\u4F4D\u4EE3\u7406\u9879\u3002", path);
-          }
-          const secondHex = input.slice(cursor + 8, cursor + 12);
-          if (!/^[0-9a-fA-F]{4}$/u.test(secondHex)) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u975E\u6CD5 Unicode \u8F6C\u4E49\u3002", path);
-          const second = Number.parseInt(secondHex, 16);
-          if (second < 56320 || second > 57343) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u9AD8\u4F4D\u4EE3\u7406\u9879\u3002", path);
-          codePoint2 = 65536 + (first - 55296 << 10) + second - 56320;
-          width2 = 12;
-        } else if (first >= 56320 && first <= 57343) {
-          invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u4F4E\u4F4D\u4EE3\u7406\u9879\u3002", path);
-        }
-        scalars += 1;
-        bytes += utf8Length(codePoint2);
-        cursor += width2;
-        accountString(scalars, bytes, path);
-        continue;
-      }
-      let codePoint = codeUnit;
-      let width = 1;
-      if (codeUnit >= 55296 && codeUnit <= 56319) {
-        const second = input.charCodeAt(cursor + 1);
-        if (!(second >= 56320 && second <= 57343)) invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u9AD8\u4F4D\u4EE3\u7406\u9879\u3002", path);
-        codePoint = 65536 + (codeUnit - 55296 << 10) + second - 56320;
-        width = 2;
-      } else if (codeUnit >= 56320 && codeUnit <= 57343) {
-        invalid("JSON \u5B57\u7B26\u4E32\u5305\u542B\u5B64\u7ACB\u7684\u4F4E\u4F4D\u4EE3\u7406\u9879\u3002", path);
-      }
-      scalars += 1;
-      bytes += utf8Length(codePoint);
-      cursor += width;
-      accountString(scalars, bytes, path);
-    }
-    return invalid("JSON \u5B57\u7B26\u4E32\u7F3A\u5C11\u7ED3\u675F\u5F15\u53F7\u3002", path);
-  };
-  const parseValue = (depth, path) => {
-    if (depth > limits2.maxDepth) exceeded("depth", depth, limits2.maxDepth, path);
-    accountNode(path);
-    whitespace();
-    const current = input[cursor];
-    if (current === "{") {
-      cursor += 1;
-      whitespace();
-      const keys = /* @__PURE__ */ new Set();
-      if (input[cursor] === "}") {
-        cursor += 1;
-        return;
-      }
-      while (true) {
-        whitespace();
-        const key = stringToken(path, true);
-        const valuePath = childPath(path, key);
-        objectFields += 1;
-        if (objectFields > limits2.maxObjectFields) {
-          exceeded("objectFields", objectFields, limits2.maxObjectFields, valuePath);
-        }
-        if (keys.has(key)) {
-          throw new StrictJsonFailure(
-            "PROJECT_CONTROL_FILE_DUPLICATE_FIELD",
-            `JSON \u5B57\u6BB5 ${valuePath} \u91CD\u590D\uFF1B\u8BF7\u53EA\u4FDD\u7559\u4E00\u4E2A\u5B57\u6BB5\u3002`,
-            valuePath
-          );
-        }
-        keys.add(key);
-        whitespace();
-        if (input[cursor] !== ":") invalid("JSON \u5BF9\u8C61\u5B57\u6BB5\u540D\u540E\u7F3A\u5C11\u5192\u53F7\u3002", valuePath);
-        cursor += 1;
-        parseValue(depth + 1, valuePath);
-        whitespace();
-        if (input[cursor] === "}") {
-          cursor += 1;
-          return;
-        }
-        if (input[cursor] !== ",") invalid("JSON \u5BF9\u8C61\u5B57\u6BB5\u4E4B\u95F4\u7F3A\u5C11\u9017\u53F7\u3002", path);
-        cursor += 1;
-      }
-    }
-    if (current === "[") {
-      if (limits2.forbidArrays) exceeded("arrays", 1, 0, path);
-      cursor += 1;
-      whitespace();
-      if (input[cursor] === "]") {
-        cursor += 1;
-        return;
-      }
-      let index = 0;
-      while (true) {
-        arrayItems += 1;
-        if (arrayItems > limits2.maxArrayItems) {
-          exceeded("arrayItems", arrayItems, limits2.maxArrayItems, `${path}[${index}]`);
-        }
-        parseValue(depth + 1, `${path}[${index}]`);
-        index += 1;
-        whitespace();
-        if (input[cursor] === "]") {
-          cursor += 1;
-          return;
-        }
-        if (input[cursor] !== ",") invalid("JSON \u6570\u7EC4\u9879\u4E4B\u95F4\u7F3A\u5C11\u9017\u53F7\u3002", path);
-        cursor += 1;
-      }
-    }
-    if (current === '"') {
-      stringToken(path, false);
-      return;
-    }
-    for (const literal of ["true", "false", "null"]) {
-      if (input.startsWith(literal, cursor)) {
-        cursor += literal.length;
-        return;
-      }
-    }
-    const number = input.slice(cursor).match(/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/u)?.[0];
-    if (number !== void 0) {
-      if (number.length > limits2.maxNumberBytes) {
-        exceeded("numberBytes", number.length, limits2.maxNumberBytes, path);
-      }
-      cursor += number.length;
-      return;
-    }
-    invalid("JSON \u5305\u542B\u975E\u6CD5\u503C\u3002", path);
-  };
-  whitespace();
-  parseValue(1, "$");
-  whitespace();
-  if (cursor !== input.length) invalid("JSON \u6839\u503C\u540E\u5B58\u5728\u989D\u5916\u5185\u5BB9\u3002", "$");
-  return JSON.parse(input);
-}
-
-// src/server/program-bundle.ts
-import { createHash as createHash4 } from "node:crypto";
-
 // src/server/program-toolchain.ts
-import { readFile as readFile2, readdir as readdir2 } from "node:fs/promises";
+import { readFile as readFile3, readdir as readdir3 } from "node:fs/promises";
 import { createRequire as createToolchainRequire } from "node:module";
-import { dirname as dirname3, join as join3 } from "node:path";
+import { dirname as dirname4, join as join5 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var require2 = createToolchainRequire(import.meta.url);
-var applicationRoot = join3(dirname3(fileURLToPath2(import.meta.url)), "../..");
+var applicationRoot = join5(dirname4(fileURLToPath2(import.meta.url)), "../..");
 async function programToolchain() {
   const files = /* @__PURE__ */ Object.create(null);
   const packages = /* @__PURE__ */ new Map();
-  async function readTree2(root, prefix, collected, relative3 = "") {
-    for (const item of await readdir2(join3(root, relative3), { withFileTypes: true })) {
+  async function readTree2(root, prefix, collected, relative4 = "") {
+    for (const item of await readdir3(join5(root, relative4), { withFileTypes: true })) {
       if (item.name === "node_modules" || item.name.endsWith(".map")) continue;
-      const path = relative3 ? `${relative3}/${item.name}` : item.name;
+      const path = relative4 ? `${relative4}/${item.name}` : item.name;
       if (item.isDirectory()) await readTree2(root, prefix, collected, path);
       else if (item.isFile()) {
-        const bytes = await readFile2(join3(root, path));
+        const bytes = await readFile3(join5(root, path));
         files[`${prefix}/${path}`] = bytes;
         collected?.set(path, bytes);
       } else throw new Error("\u56FA\u5B9A\u5DE5\u5177\u94FE\u5185\u542B\u4E0D\u652F\u6301\u7684\u94FE\u63A5\u3002");
@@ -10441,17 +11750,17 @@ async function programToolchain() {
   }
   for (const name of ["react", "react-dom", "scheduler", "remotion", "@remotion/player", "@types/react", "@types/react-dom", "csstype"]) {
     const resolver = name === "scheduler" ? createToolchainRequire(require2.resolve("react-dom/package.json")) : name === "csstype" ? createToolchainRequire(require2.resolve("@types/react/package.json")) : require2;
-    const root = dirname3(resolver.resolve(`${name}/package.json`));
+    const root = dirname4(resolver.resolve(`${name}/package.json`));
     const collected = /* @__PURE__ */ new Map();
     await readTree2(root, `modules/${name}`, collected);
     packages.set(name, { version: JSON.parse(collected.get("package.json").toString()).version, files: collected });
   }
   const esbuildRequire = createToolchainRequire(require2.resolve("esbuild/package.json"));
-  files["toolchain/esbuild"] = await readFile2(esbuildRequire.resolve(`@esbuild/${process.platform}-${process.arch}/bin/esbuild`));
+  files["toolchain/esbuild"] = await readFile3(esbuildRequire.resolve(`@esbuild/${process.platform}-${process.arch}/bin/esbuild`));
   const tsRequire = createToolchainRequire(require2.resolve("typescript/package.json"));
-  const tsRoot = dirname3(tsRequire.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`));
-  await readTree2(join3(tsRoot, "lib"), "toolchain/tsc");
-  files["modules/@narracut/runtime/index.ts"] = await readFile2(join3(applicationRoot, "src/runtime/index.ts"));
+  const tsRoot = dirname4(tsRequire.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`));
+  await readTree2(join5(tsRoot, "lib"), "toolchain/tsc");
+  files["modules/@narracut/runtime/index.ts"] = await readFile3(join5(applicationRoot, "src/runtime/index.ts"));
   files["modules/@narracut/runtime/package.json"] = Buffer.from(JSON.stringify({ name: "@narracut/runtime", version: "4.0.512", main: "index.ts", types: "index.ts" }));
   files["worker.mjs"] = await bundleApplicationWorker("build");
   return { files, packages };
@@ -10459,7 +11768,7 @@ async function programToolchain() {
 async function bundleApplicationWorker(stage) {
   const { build } = require2("esbuild");
   const worker = await build({
-    entryPoints: [join3(applicationRoot, `src/server/program-${stage}-worker.ts`)],
+    entryPoints: [join5(applicationRoot, `src/server/program-${stage}-worker.ts`)],
     absWorkingDir: applicationRoot,
     bundle: true,
     platform: "node",
@@ -10474,19 +11783,23 @@ async function bundleApplicationWorker(stage) {
 var PROGRAM_RUNTIME_SOURCE = `
 import React from 'react';
 import {createRoot} from 'react-dom/client';
-import {Composition, registerRoot, Sequence, Audio} from 'remotion';
+import {Composition, registerRoot, Sequence, Audio, useCurrentFrame} from 'remotion';
 import {Player} from '@remotion/player';
 import {RenderProgram} from '../program/src/RenderProgram';
 import {bindAssets} from './safe-jsx';
 function freeze(value) { if(value && typeof value==='object') {Object.values(value).forEach(freeze);Object.freeze(value);} return value; }
-let committed=false;
+let committed=false, player=null, bridge=null, frame=0, buffering=false, pending=null, frameSequence=0;
+function emit(type,extra={}) {if(bridge)parent.postMessage({version:1,instanceId:bridge.instanceId,token:bridge.token,type,...extra},bridge.parentOrigin);}
+function reportFrame(){const current=frame, seq=++frameSequence;queueMicrotask(()=>{if(seq!==frameSequence||buffering||!bridge)return;const requestId=pending?.frame===current?pending.id:undefined;if(requestId)pending=null;emit('FRAME',{frame:current,requestId});});}
+function FrameCommit(){const current=useCurrentFrame();React.useLayoutEffect(()=>{frame=current;reportFrame();},[current]);return null;}
+function attachPlayer(ref){player=ref;if(!ref)return;for(const [event,type] of [['play','PLAYING'],['pause','PAUSED'],['ended','PAUSED']])ref.addEventListener(event,()=>emit(type));ref.addEventListener('volumechange',e=>emit('VOLUME',{volume:e.detail.volume}));ref.addEventListener('mutechange',e=>emit('MUTE',{muted:e.detail.isMuted}));ref.addEventListener('waiting',()=>{buffering=true;emit('BUFFERING',{buffering:true});});ref.addEventListener('resume',()=>{buffering=false;emit('BUFFERING',{buffering:false});reportFrame();});}
 function Visual({input}) { const visual=RenderProgram(input); React.useLayoutEffect(()=>{committed=true;},[]); return visual; }
-function Video({input,speech}) { return <><Visual input={input}/>{speech.map(s=><Sequence key={s.sceneId} from={s.startFrame} durationInFrames={s.durationInFrames} layout="none"><Audio src={s.src}/></Sequence>)}</>; }
+function Video({input,speech}) { return <><Visual input={input}/><FrameCommit/>{speech.map(s=><Sequence key={s.sceneId} from={s.startFrame} durationInFrames={s.durationInFrames} layout="none"><Audio src={s.src}/></Sequence>)}</>; }
 let binding;
 function Root() { if(!binding || binding.input.scenes.length===0) return null; const {input,speech}=binding; return <Composition id="Narracut" component={Video} width={input.output.width} height={input.output.height} fps={input.output.fps} durationInFrames={input.durationInFrames} defaultProps={{input,speech}}/>; }
 registerRoot(Root);
-class Boundary extends React.Component { componentDidCatch(){window.__narracutCheck={code:'RUNTIME_FRAME_FAILED'};} render(){return this.props.children;} }
-Object.defineProperty(window,'__narracutBind',{value:(input,speech)=>{
+class Boundary extends React.Component { componentDidCatch(){window.__narracutCheck={code:'RUNTIME_FRAME_FAILED'};emit('ERROR',{code:'RUNTIME_FRAME_FAILED'});} render(){return this.props.children;} }
+Object.defineProperty(window,'__narracutBind',{configurable:true,value:(input,speech)=>{
   if(binding) throw new Error('Runtime \u53EA\u5141\u8BB8\u7ED1\u5B9A\u4E00\u6B21');
   if(typeof RenderProgram!=='function') throw new Error('RUNTIME_ENTRY_INVALID');
   binding=freeze(JSON.parse(JSON.stringify({input,speech})));
@@ -10497,9 +11810,39 @@ Object.defineProperty(window,'__narracutBind',{value:(input,speech)=>{
   const composition=Root();
   if(composition.type!==Composition || composition.props.durationInFrames!==frozen.durationInFrames)throw new Error('COMPOSITION_INVALID');
   const root=createRoot(document.getElementById('root'));
-  root.render(<Boundary><Player component={Video} inputProps={binding} compositionWidth={frozen.output.width} compositionHeight={frozen.output.height} fps={frozen.output.fps} durationInFrames={frozen.durationInFrames} controls={false} autoPlay={false} initialFrame={0} errorFallback={()=>{window.__narracutCheck={code:'RUNTIME_FRAME_FAILED'};return null;}}/></Boundary>);
+  root.render(<Boundary><Player ref={attachPlayer} style={{width:"100%",height:"100%"}} component={Video} inputProps={binding} compositionWidth={frozen.output.width} compositionHeight={frozen.output.height} fps={frozen.output.fps} durationInFrames={frozen.durationInFrames} controls={false} autoPlay={false} initialFrame={0} errorFallback={()=>{window.__narracutCheck={code:'RUNTIME_FRAME_FAILED'};emit('ERROR',{code:'RUNTIME_FRAME_FAILED'});return null;}}/></Boundary>);
   function ready(){if(window.__narracutCheck)return;if(committed)window.__narracutCheck={metadata,runtime:'passed'};else requestAnimationFrame(ready);}requestAnimationFrame(ready);
 }});
+window.addEventListener('narracut-preview-binding',event=>{
+  if(bridge||binding)return;
+  const prepared=freeze(event.detail);let initialized=false,closed=false;
+  function fail(code){emit('ERROR',{code});closed=true;player?.pause();document.getElementById('root').replaceChildren();}
+  bridge=prepared;
+  window.addEventListener('message',event=>{
+    const m=event.data;
+    if(closed||event.source!==parent||event.origin!==prepared.parentOrigin||!m||m.instanceId!==prepared.instanceId||m.token!==prepared.token)return;
+    if(m.version!==1){fail('BRIDGE_VERSION_UNSUPPORTED');return;}
+    if(m.type==='INIT'){
+      if(initialized){fail('BRIDGE_ALREADY_BOUND');return;}
+      if(JSON.stringify(m.identity)!==JSON.stringify(prepared.identity)){fail('BRIDGE_IDENTITY_MISMATCH');return;}
+      initialized=true;
+      try{window.__narracutBind(prepared.input,prepared.speech);delete window.__narracutBind;}catch{fail('BRIDGE_INIT_FAILED');return;}
+      function ready(){if(closed)return;if(window.__narracutCheck?.code){fail(window.__narracutCheck.code);return;}if(window.__narracutCheck){emit('READY',{identity:prepared.identity});if(prepared.input.scenes.length)reportFrame();}else requestAnimationFrame(ready);}requestAnimationFrame(ready);
+      return;
+    }
+    if(!initialized||!player)return;
+    if(m.type==='PLAY')player.play();
+    else if(m.type==='PAUSE')player.pause();
+    else if(m.type==='SEEK'&&Number.isSafeInteger(m.frame)&&m.frame>=0&&m.frame<prepared.input.durationInFrames&&typeof m.requestId==='string'){
+      player.pause();pending={frame:m.frame,id:m.requestId};player.seekTo(m.frame);if(frame===m.frame)reportFrame();
+    }else if(m.type==='VOLUME'&&Number.isFinite(m.volume)&&m.volume>=0&&m.volume<=1)player.setVolume(m.volume);
+    else if(m.type==='MUTE'&&typeof m.muted==='boolean')m.muted?player.mute():player.unmute();
+    else fail('BRIDGE_COMMAND_INVALID');
+  });
+  window.addEventListener('error',()=>fail('RUNTIME_FRAME_FAILED'));
+  emit('BOOT');
+},{once:true});
+
 `;
 var PROGRAM_ENTRY_CONTRACT = `
 import type {ReactNode} from 'react';
@@ -10576,7 +11919,7 @@ function checkProgramManifest(bytes) {
   };
 }
 function fingerprint(files) {
-  const hash2 = createHash4("sha256");
+  const hash2 = createHash6("sha256");
   for (const [path, bytes] of [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     hash2.update(JSON.stringify([path, bytes.byteLength]) + "\n");
     hash2.update(bytes);
@@ -10661,9 +12004,9 @@ async function buildProgramBundle(request) {
     if (item.pin.version !== fixed.version) throw new ProgramBuildError("DEPENDENCY_LOCK_INVALID", "\u6838\u5FC3\u4F9D\u8D56\u5FC5\u987B\u4E0E\u56FA\u5B9A\u5DE5\u5177\u94FE\u7248\u672C\u4E00\u81F4\u3002");
     const actual = [...installed].filter(([path]) => path.startsWith(`packages/${i}/`));
     for (const [path, bytes] of actual) {
-      const relative3 = path.slice(`packages/${i}/`.length);
-      if (relative3.endsWith(".map")) continue;
-      if (!fixed.files.get(relative3)?.equals(bytes)) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u5B57\u8282\u4E0E\u56FA\u5B9A Runtime \u4E0D\u4E00\u81F4\u3002");
+      const relative4 = path.slice(`packages/${i}/`.length);
+      if (relative4.endsWith(".map")) continue;
+      if (!fixed.files.get(relative4)?.equals(bytes)) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u5B57\u8282\u4E0E\u56FA\u5B9A Runtime \u4E0D\u4E00\u81F4\u3002");
       trustedFiles.push(`/tmp/work/${path}`);
     }
     if ([...fixed.files.keys()].some((path) => !installed.has(`packages/${i}/${path}`))) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u7F3A\u5C11\u56FA\u5B9A Runtime \u6587\u4EF6\u3002");
@@ -10703,11 +12046,243 @@ async function buildProgramBundle(request) {
   );
 }
 
+// src/server/render-program-input.ts
+function deepFreeze(value) {
+  if (value !== null && typeof value === "object") {
+    Object.values(value).forEach(deepFreeze);
+    Object.freeze(value);
+  }
+  return value;
+}
+function createRenderProgramInput(state, output, assetSources) {
+  if (![output.width, output.height, output.fps].every((value) => Number.isSafeInteger(value) && value > 0)) {
+    throw new Error("Output Format \u7684 width\u3001height \u4E0E fps \u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002");
+  }
+  const speechStates = new Map(state.speechStates.map((speech) => [speech.sceneId, speech]));
+  const timeline = deriveSceneTimeWindows(state.project.scenes.map((scene) => {
+    const speech = speechStates.get(scene.id);
+    if (speech?.status === "available") {
+      const durationMs = speech.durationMs;
+      if (durationMs === void 0 || !Number.isFinite(durationMs) || durationMs <= 0) {
+        throw new Error(`Scene ${scene.id} \u7684\u53EF\u7528 Speech \u7F3A\u5C11\u6709\u6548\u5B9E\u9645\u65F6\u957F\u3002`);
+      }
+      return { sceneId: scene.id, durationMs, source: "speech" };
+    }
+    return { sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" };
+  }), output.fps);
+  if (!Number.isSafeInteger(timeline.durationInFrames)) {
+    throw new Error("\u9879\u76EE\u603B\u5E27\u6570\u8D85\u8FC7\u53EF\u7CBE\u786E\u8868\u793A\u7684\u6574\u6570\u8303\u56F4\u3002");
+  }
+  const referenced = new Set(state.project.scenes.flatMap((scene) => scene.assetIds));
+  const assetStates = new Map(state.assetStates.map((asset) => [asset.id, asset]));
+  return deepFreeze({
+    apiVersion: 1,
+    videoBrief: state.videoBrief,
+    output: { width: output.width, height: output.height, fps: output.fps },
+    durationInFrames: timeline.durationInFrames,
+    scenes: state.project.scenes.map((scene, index) => {
+      const time = timeline.scenes[index];
+      return {
+        id: scene.id,
+        narration: scene.narration.text,
+        assetIds: [...scene.assetIds],
+        time: { startFrame: time.startFrame, durationInFrames: time.durationInFrames, source: time.source }
+      };
+    }),
+    assets: state.project.assets.filter((asset) => referenced.has(asset.id)).map((asset) => {
+      if (assetStates.get(asset.id)?.status !== "available") {
+        return { id: asset.id, path: asset.path, availability: "unavailable" };
+      }
+      const src = assetSources.get(asset.id);
+      if (!src) throw new Error(`\u53EF\u7528 Asset ${asset.id} \u7F3A\u5C11 Runtime \u8BFB\u53D6\u5730\u5740\u3002`);
+      return { id: asset.id, path: asset.path, availability: "available", src };
+    })
+  });
+}
+
+// src/server/preview-origin.ts
+import { createServer } from "node:http";
+import { createHash as createHash7, randomBytes, randomUUID as randomUUID3 } from "node:crypto";
+var previewDigest = (value) => `sha256:${createHash7("sha256").update(value).digest("hex")}`;
+var CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
+var PreviewOrigin = class {
+  #server;
+  #starting;
+  #origin = "";
+  #instances = /* @__PURE__ */ new Map();
+  origin() {
+    return this.#starting ??= new Promise((resolve4, reject) => {
+      this.#server = createServer((req, res) => {
+        res.setHeader("Content-Security-Policy", CSP);
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Referrer-Policy", "no-referrer");
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+        if (req.headers.host !== new URL(this.#origin).host) {
+          res.writeHead(403).end();
+          return;
+        }
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          res.writeHead(405).end();
+          return;
+        }
+        const path = (req.url ?? "").split("?")[0];
+        const match = /^\/([a-f0-9]{48})\/(index.html|bundle.js|bootstrap.js|media\/[a-f0-9]{64})$/.exec(path);
+        const bytes = match && this.#instances.get(match[1])?.get(match[2]);
+        if (!bytes) {
+          res.writeHead(404).end();
+          return;
+        }
+        const type = match[2].endsWith(".html") ? "text/html; charset=utf-8" : match[2].endsWith(".js") ? "text/javascript; charset=utf-8" : "application/octet-stream";
+        res.setHeader("Content-Type", type);
+        const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? "");
+        let start = 0, end = bytes.length - 1;
+        if (range) {
+          start = Number(range[1]);
+          end = range[2] ? Number(range[2]) : end;
+          if (start > end || end >= bytes.length) {
+            res.writeHead(416).end();
+            return;
+          }
+          res.statusCode = 206;
+          res.setHeader("Content-Range", `bytes ${start}-${end}/${bytes.length}`);
+        }
+        res.setHeader("Accept-Ranges", "bytes");
+        res.setHeader("Content-Length", end - start + 1);
+        res.end(req.method === "HEAD" ? void 0 : bytes.subarray(start, end + 1));
+      });
+      this.#server.once("error", reject);
+      this.#server.listen(0, "127.0.0.1", () => {
+        this.#origin = `http://127.0.0.1:${this.#server.address().port}`;
+        this.#server.unref();
+        resolve4(this.#origin);
+      });
+    });
+  }
+  async publish(args) {
+    const origin = await this.origin();
+    if (!/^https?:\/\//.test(args.parentOrigin) || new URL(args.parentOrigin).origin !== args.parentOrigin || args.parentOrigin === origin) throw new Error("Preview \u9700\u8981\u53EF\u9A8C\u8BC1\u7684\u8DE8 origin \u5BBF\u4E3B\u3002");
+    const bindingBytes = Buffer.from(JSON.stringify({ input: args.input, speech: args.speech }));
+    const boundIdentity = previewDigest(Buffer.concat([Buffer.from(JSON.stringify(["binding", bindingBytes.length]) + "\n"), bindingBytes]));
+    if (boundIdentity !== args.bundle.inputIdentity) throw new Error("Preview \u8F93\u5165\u4E0E Bundle \u6784\u5EFA\u7ED1\u5B9A\u4E0D\u4E00\u81F4\u3002");
+    const identity2 = { bundle: args.bundle.identity, input: args.bundle.inputIdentity, media: previewDigest(JSON.stringify([...args.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())), environment: args.bundle.environmentIdentity };
+    const instanceId = randomUUID3(), token = randomBytes(32).toString("hex");
+    if (!/^[a-f0-9]{48}$/.test(args.key) || this.#instances.has(args.key)) throw new Error("Preview \u5B9E\u4F8B\u4E0D\u80FD\u91CD\u590D\u7ED1\u5B9A\u3002");
+    const files = /* @__PURE__ */ new Map([["bundle.js", args.bundle.files().get("bundle.js")]]);
+    for (const [path, bytes] of args.media) {
+      if (!/^media\/[a-f0-9]{64}$/.test(path) || path !== `media/${previewDigest(bytes).slice(7)}`) throw new Error("\u5A92\u4F53\u8DEF\u5F84\u65E0\u6548\u3002");
+      files.set(path, Buffer.from(bytes));
+    }
+    for (const src of [...args.input.assets.filter((asset) => asset.availability === "available").map((asset) => asset.src), ...args.speech.map((track) => track.src)]) {
+      if (!src || !files.has(src)) throw new Error("Preview \u7F3A\u5C11\u7ED1\u5B9A\u7684\u4E0D\u53EF\u53D8\u5A92\u4F53\u3002");
+    }
+    const binding = { instanceId, token, identity: identity2, parentOrigin: args.parentOrigin, input: args.input, speech: args.speech };
+    files.set("bootstrap.js", Buffer.from(`window.dispatchEvent(new CustomEvent('narracut-preview-binding',{detail:${JSON.stringify(binding)}}));`));
+    files.set("index.html", Buffer.from('<!doctype html><meta charset="utf-8"><style>html,body,#root{margin:0;width:100%;height:100%;overflow:hidden;background:#050707}#root{display:flex;align-items:center;justify-content:center}</style><div id="root"></div><script src="bundle.js"></script><script src="bootstrap.js"></script>'));
+    this.#instances.set(args.key, files);
+    return { version: 1, instanceId, token, identity: identity2, input: args.input, target: args.target, baseline: args.baseline, label: args.label, origin, url: `${origin}/${args.key}/index.html` };
+  }
+  release(url) {
+    const key = new URL(url).pathname.split("/")[1];
+    this.#instances.delete(key);
+  }
+  async close() {
+    this.#instances.clear();
+    if (this.#server) {
+      this.#server.closeAllConnections();
+      await new Promise((resolve4) => this.#server.close(() => resolve4()));
+    }
+  }
+};
+
+// src/server/project-preview.ts
+async function snapshotFile(root, path, limit) {
+  const full = join6(root, path), resolved = await realpath3(full), rel = relative2(await realpath3(root), resolved);
+  if (rel.startsWith("..") || isAbsolute2(rel) || (await lstat3(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
+  const expected = await lstat3(resolved);
+  const file = await open3(full, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = await file.stat();
+    if (!before.isFile() || before.nlink !== 1 || before.dev !== expected.dev || before.ino !== expected.ino || await realpath3(full) !== resolved || before.size > limit) throw new Error("Preview \u6587\u4EF6\u4E0D\u53EF\u7528\u6216\u8D85\u8FC7\u5185\u5B58\u4E0A\u9650\u3002");
+    const bytes = await file.readFile();
+    const after = await file.stat();
+    if (await realpath3(full) !== resolved || bytes.length > limit || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("Preview \u8BFB\u53D6\u671F\u95F4\u5A92\u4F53\u53D1\u751F\u53D8\u5316\u3002");
+    return bytes;
+  } finally {
+    await file.close();
+  }
+}
+var ProjectPreview = class {
+  source = new PreviewOrigin();
+  #active = /* @__PURE__ */ new Map();
+  async capture(opened, target) {
+    const root = opened.inspection.projectDirectory;
+    const state = await inspectProjectVNext(root);
+    if (state.manifest.projectId !== opened.inspection.manifest.projectId) throw new Error("\u9879\u76EE\u8EAB\u4EFD\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+    const candidate = await opened.candidate({ action: "read" });
+    const source = await opened.readPreviewSource(target);
+    const manifest = source.manifest;
+    const output = checkProgramManifest(manifest).output;
+    const media = /* @__PURE__ */ new Map(), assetSources = /* @__PURE__ */ new Map();
+    let total = 0;
+    async function add(path) {
+      const bytes = await snapshotFile(root, path, 256 * 1024 * 1024);
+      total += bytes.length;
+      if (total > 512 * 1024 * 1024) throw new Error("Preview \u5A92\u4F53\u8D85\u8FC7 512 MiB\uFF0C\u8BF7\u7F29\u5C0F\u7D20\u6750\u540E\u91CD\u8BD5\u3002");
+      const key = `media/${previewDigest(bytes).slice(7)}`;
+      media.set(key, bytes);
+      return key;
+    }
+    const referenced = new Set(state.project.scenes.flatMap((scene) => scene.assetIds));
+    for (const asset of state.assetStates) if (referenced.has(asset.id) && asset.status === "available") assetSources.set(asset.id, await add(asset.path));
+    const input = createRenderProgramInput(state, output, assetSources);
+    const speech = [];
+    for (const scene of input.scenes) if (scene.time.source === "speech") {
+      const source2 = state.project.scenes.find((item) => item.id === scene.id).speech;
+      speech.push({ sceneId: scene.id, startFrame: scene.time.startFrame, durationInFrames: scene.time.durationInFrames, src: await add(source2.path) });
+    }
+    const signature = previewDigest(JSON.stringify([state.projectRevision, state.videoBriefRevision, target === "candidate" ? candidate.baseline : source.revision, source.identity, manifest.toString(), [...media.keys()].sort(), input, speech]));
+    return { input, speech, media, signature, baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
+  }
+  async build(opened, target, parentOrigin) {
+    if (this.#active.size >= 4) throw new Error("Preview \u5B9E\u4F8B\u5DF2\u8FBE\u4E0A\u9650\uFF0C\u8BF7\u5173\u95ED\u9690\u85CF\u5B9E\u4F8B\u540E\u91CD\u8BD5\u3002");
+    const before = await this.capture(opened, target);
+    const bundle = await opened.buildCandidateBundle({ input: before.input, speech: before.speech, baseline: before.baseline, sourceIdentity: before.sourceIdentity, target });
+    const after = await this.capture(opened, target);
+    if (before.signature !== after.signature) throw new Error("\u6784\u5EFA\u671F\u95F4\u8F93\u5165\u6216\u5A92\u4F53\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u8BD5\u3002");
+    const descriptor = await this.source.publish({ ...before, bundle, target, parentOrigin, key: randomBytes2(24).toString("hex"), label: target === "candidate" ? `\u5019\u9009 \xB7 ${before.candidate.candidate.identity.slice(7, 15)}` : `\u5F53\u524D \xB7 ${before.revision.slice(0, 8)}` });
+    this.#active.set(descriptor.instanceId, { descriptor, signature: before.signature });
+    return descriptor;
+  }
+  async status(opened, instanceId) {
+    const entry = this.#active.get(instanceId);
+    if (!entry) return { stale: true };
+    try {
+      return { stale: (await this.capture(opened, entry.descriptor.target)).signature !== entry.signature };
+    } catch {
+      return { stale: true };
+    }
+  }
+  release(instanceId) {
+    const entry = this.#active.get(instanceId);
+    if (entry) this.source.release(entry.descriptor.url);
+    this.#active.delete(instanceId);
+  }
+  clear() {
+    for (const entry of this.#active.values()) this.source.release(entry.descriptor.url);
+    this.#active.clear();
+  }
+  async close() {
+    this.clear();
+    await this.source.close();
+  }
+};
+
 // src/server/project-candidate.ts
-import { createHash as createHash5, randomUUID as randomUUID2 } from "node:crypto";
-import { constants } from "node:fs";
-import { lstat, mkdir as mkdir3, open, readdir as readdir3, rename, rm as rm3 } from "node:fs/promises";
-import { dirname as dirname4, join as join4 } from "node:path";
+import { createHash as createHash8, randomUUID as randomUUID4 } from "node:crypto";
+import { constants as constants2 } from "node:fs";
+import { lstat as lstat4, mkdir as mkdir3, open as open4, readdir as readdir4, rename as rename2, rm as rm4 } from "node:fs/promises";
+import { dirname as dirname5, join as join7 } from "node:path";
 var CandidateError = class extends Error {
   constructor(code, message) {
     super(message);
@@ -10715,16 +12290,16 @@ var CandidateError = class extends Error {
   }
   code;
 };
-var hash = (bytes) => `sha256:${createHash5("sha256").update(bytes).digest("hex")}`;
+var hash = (bytes) => `sha256:${createHash8("sha256").update(bytes).digest("hex")}`;
 var fail4 = (code, message) => {
   throw new CandidateError(code, message);
 };
 var MAX_BYTES = 32 * 1024 * 1024;
 var safePath2 = (path) => path.length <= 1024 && !path.includes("\\") && !path.includes("\0") && path.split("/").every((p) => p && p !== "." && p !== ".." && !["node_modules", "bundle", ".cache"].includes(p));
 async function regular(path, max = MAX_BYTES) {
-  const facts = await lstat(path);
+  const facts = await lstat4(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > max) throw new Error("\u6587\u4EF6\u7C7B\u578B\u6216\u5927\u5C0F\u65E0\u6548");
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const handle = await open4(path, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > max) throw new Error("\u6587\u4EF6\u7C7B\u578B\u6216\u5927\u5C0F\u65E0\u6548");
@@ -10734,7 +12309,7 @@ async function regular(path, max = MAX_BYTES) {
   }
 }
 async function directory(path) {
-  const stat = await lstat(path);
+  const stat = await lstat4(path);
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("\u76EE\u5F55\u5B8C\u6574\u6027\u65E0\u6548");
   return `${stat.dev}:${stat.ino}`;
 }
@@ -10744,19 +12319,19 @@ async function readTree(root) {
   async function walk(path, prefix, depth) {
     if (depth > 24) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 24 \u5C42");
     const identity2 = await directory(path);
-    for (const name of (await readdir3(path)).sort()) {
-      const relative3 = prefix ? `${prefix}/${name}` : name;
-      if (!safePath2(relative3) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
-      const full = join4(path, name);
-      const stat = await lstat(full);
+    for (const name of (await readdir4(path)).sort()) {
+      const relative4 = prefix ? `${prefix}/${name}` : name;
+      if (!safePath2(relative4) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
+      const full = join7(path, name);
+      const stat = await lstat4(full);
       if (stat.isDirectory() && !stat.isSymbolicLink()) {
-        tree.set(relative3, null);
-        await walk(full, relative3, depth + 1);
+        tree.set(relative4, null);
+        await walk(full, relative4, depth + 1);
       } else {
         const content = await regular(full);
         bytes += content.length;
         if (bytes > MAX_BYTES) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 32 MiB");
-        tree.set(relative3, content);
+        tree.set(relative4, content);
       }
     }
     if (await directory(path) !== identity2) throw new Error("\u8BFB\u53D6\u671F\u95F4\u76EE\u5F55\u88AB\u66FF\u6362");
@@ -10774,8 +12349,8 @@ async function readTree(root) {
 async function readOffline(project, state) {
   if (!state.offline) return void 0;
   if (!Array.isArray(state.offlineKeys) || state.offlineKeys.some((key) => !/^[0-9a-f]{128}$/.test(key)) || hash(JSON.stringify([...new Set(state.offlineKeys)].sort())) !== state.offlineIdentity) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u7D22\u5F15\u65E0\u6548\u3002");
-  const root = join4(project, state.offline);
-  await directory(dirname4(root));
+  const root = join7(project, state.offline);
+  await directory(dirname5(root));
   const store = /* @__PURE__ */ new Map();
   const rawStore = /* @__PURE__ */ new Map();
   const observed = [];
@@ -10785,9 +12360,9 @@ async function readOffline(project, state) {
     if (error.code === "ENOENT") return { store, rawStore, intact: false, signature: hash("missing-directory") };
     throw error;
   }
-  for (const filename of (await readdir3(root)).sort()) {
+  for (const filename of (await readdir4(root)).sort()) {
     if (!/^[0-9a-f]{128}\.tgz$/.test(filename)) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5E93\u5305\u542B\u975E\u6CD5\u8DEF\u5F84\u3002");
-    const bytes = await regular(join4(root, filename));
+    const bytes = await regular(join7(root, filename));
     const key = filename.slice(0, -4);
     observed.push([key, hash(bytes)]);
     rawStore.set(key, bytes);
@@ -10810,7 +12385,7 @@ function identity(tree) {
   return hash(JSON.stringify([...tree].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => [path, bytes === null ? "directory" : hash(bytes)])));
 }
 async function writeBytes(path, bytes) {
-  const handle = await open(path, "wx", 384);
+  const handle = await open4(path, "wx", 384);
   try {
     await handle.writeFile(bytes);
     await handle.sync();
@@ -10821,14 +12396,14 @@ async function writeBytes(path, bytes) {
 async function writeTree(root, tree) {
   await mkdir3(root);
   for (const [path, bytes] of [...tree].sort(([a], [b]) => a.length - b.length)) {
-    if (bytes === null) await mkdir3(join4(root, path));
-    else await writeBytes(join4(root, path), bytes);
+    if (bytes === null) await mkdir3(join7(root, path));
+    else await writeBytes(join7(root, path), bytes);
   }
-  for (const [path, bytes] of [...tree].reverse()) if (bytes === null) await syncDirectory(join4(root, path));
+  for (const [path, bytes] of [...tree].reverse()) if (bytes === null) await syncDirectory(join7(root, path));
   await syncDirectory(root);
 }
 async function syncDirectory(path) {
-  const handle = await open(path, "r");
+  const handle = await open4(path, "r");
   try {
     await handle.sync();
   } finally {
@@ -10836,15 +12411,15 @@ async function syncDirectory(path) {
   }
 }
 async function createCandidateManager(project, assertWritable) {
-  const internal = join4(project, ".narracut");
+  const internal = join7(project, ".narracut");
   const internalIdentity = await directory(internal);
-  const pointer = join4(internal, "candidate.json");
+  const pointer = join7(internal, "candidate.json");
   const assertCurrent = async () => {
     await assertWritable();
     if (await directory(internal) !== internalIdentity) fail4("PROJECT_IDENTITY_LOST", "\u9879\u76EE\u5185\u90E8\u76EE\u5F55\u8EAB\u4EFD\u53D8\u5316\uFF1B\u5DF2\u505C\u6B62\u5019\u9009\u5199\u5165\u3002");
   };
   async function currentRevision() {
-    const value = JSON.parse((await regular(join4(internal, "current.json"), 4096)).toString());
+    const value = JSON.parse((await regular(join7(internal, "current.json"), 4096)).toString());
     if (!/^[0-9a-f-]{36}$/i.test(value.revisionId)) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u8EAB\u4EFD\u65E0\u6548");
     return value.revisionId;
   }
@@ -10866,17 +12441,17 @@ async function createCandidateManager(project, assertWritable) {
       raw = await pointerBytes();
       if (raw === null) return { view: { status: "absent", sourceRevision, baseline: hash("absent"), candidate: null, checkpoint: null }, state: null, raw };
       const parsed = JSON.parse(raw.toString());
-      if (parsed.version !== 1 || !/^[0-9a-f-]{36}$/i.test(parsed.sourceRevision) || !(parsed.candidate === null || refValid(parsed.candidate)) || !(parsed.checkpoint === null || refValid(parsed.checkpoint) && dirname4(parsed.checkpoint.path) === dirname4(parsed.candidate?.path ?? "") && parsed.checkpoint.path.endsWith("/checkpoint")) || parsed.candidate !== null && !parsed.candidate.path.endsWith("/candidate") || parsed.candidate === null && parsed.checkpoint !== null || parsed.offline !== void 0 && !/^\.narracut\/candidate-[0-9a-f-]{36}\/dependencies$/.test(parsed.offline)) throw new Error("\u5019\u9009\u6307\u9488\u5B8C\u6574\u6027\u65E0\u6548");
+      if (parsed.version !== 1 || !/^[0-9a-f-]{36}$/i.test(parsed.sourceRevision) || !(parsed.candidate === null || refValid(parsed.candidate)) || !(parsed.checkpoint === null || refValid(parsed.checkpoint) && dirname5(parsed.checkpoint.path) === dirname5(parsed.candidate?.path ?? "") && parsed.checkpoint.path.endsWith("/checkpoint")) || parsed.candidate !== null && !parsed.candidate.path.endsWith("/candidate") || parsed.candidate === null && parsed.checkpoint !== null || parsed.offline !== void 0 && !/^\.narracut\/candidate-[0-9a-f-]{36}\/dependencies$/.test(parsed.offline)) throw new Error("\u5019\u9009\u6307\u9488\u5B8C\u6574\u6027\u65E0\u6548");
       state = parsed;
       const offline = await readOffline(project, state);
       if (!state.candidate) return { raw, state, offline, view: { status: "absent", ...offline && !offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u4FDD\u7559\u79BB\u7EBF\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\uFF0C\u518D\u534F\u8C03\u4FEE\u590D\u3002" } } : {}, sourceRevision, baseline: hash(JSON.stringify([hash(raw), offline?.signature ?? null])), candidate: null, checkpoint: null, ...state.offline ? { offline: state.offline } : {} } };
-      await directory(dirname4(join4(project, state.candidate.path)));
-      const tree = await readTree(join4(project, state.candidate.path));
+      await directory(dirname5(join7(project, state.candidate.path)));
+      const tree = await readTree(join7(project, state.candidate.path));
       const treeId = identity(tree);
       let checkpointId = null;
       if (state.checkpoint) {
-        await directory(dirname4(join4(project, state.checkpoint.path)));
-        checkpointId = identity(await readTree(join4(project, state.checkpoint.path)));
+        await directory(dirname5(join7(project, state.checkpoint.path)));
+        checkpointId = identity(await readTree(join7(project, state.checkpoint.path)));
         if (checkpointId !== state.checkpoint.identity) throw new Error("\u6062\u590D\u68C0\u67E5\u70B9\u5B57\u8282\u53D1\u751F\u53D8\u5316");
       }
       const external = treeId !== state.candidate.identity;
@@ -10913,42 +12488,42 @@ async function createCandidateManager(project, assertWritable) {
       if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u6307\u9488\u5DF2\u53D8\u5316\uFF0C\u672A\u653E\u5F03\u3002");
       if (before.state?.offline) {
         const tombstone = Buffer.from(JSON.stringify({ ...before.state, candidate: null, checkpoint: null }));
-        const temporary = join4(internal, `discard-${randomUUID2()}.json`);
+        const temporary = join7(internal, `discard-${randomUUID4()}.json`);
         try {
           await writeBytes(temporary, tombstone);
-          await rename(temporary, pointer);
+          await rename2(temporary, pointer);
         } finally {
-          await rm3(temporary, { force: true });
+          await rm4(temporary, { force: true });
         }
         await syncDirectory(internal).catch(() => void 0);
-        for (const ref of [before.state.candidate, before.state.checkpoint]) if (ref) await rm3(join4(project, ref.path), { recursive: true, force: true }).catch(() => void 0);
+        for (const ref of [before.state.candidate, before.state.checkpoint]) if (ref) await rm4(join7(project, ref.path), { recursive: true, force: true }).catch(() => void 0);
         return { status: "absent", baseline: hash(JSON.stringify([hash(tombstone), before.offline?.signature ?? null])), sourceRevision: await currentRevision(), candidate: null, checkpoint: null, offline: before.state.offline };
       }
-      await rm3(pointer);
-      if (before.state?.candidate) await rm3(dirname4(join4(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => void 0);
+      await rm4(pointer);
+      if (before.state?.candidate) await rm4(dirname5(join7(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => void 0);
       return { status: "absent", baseline: hash("absent"), sourceRevision: await currentRevision(), candidate: null, checkpoint: null };
     }
     if (request.action !== "create" && (before.view.status !== "saved" && !(request.action === "dependencies" && before.view.error?.code === "DEPENDENCY_INTEGRITY_FAILED") || !before.tree)) {
       fail4(before.view.error?.code ?? "CANDIDATE_MISSING", before.view.error?.message ?? "\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\u3002");
     }
     const sourceRevision = await currentRevision();
-    const currentRoot = join4(internal, "revisions", sourceRevision, "render-program");
+    const currentRoot = join7(internal, "revisions", sourceRevision, "render-program");
     let next;
     let offline = request.action === "create" ? before.offline?.rawStore : before.offline?.store;
     if (request.action === "create") {
-      await directory(join4(internal, "revisions"));
-      await directory(dirname4(currentRoot));
+      await directory(join7(internal, "revisions"));
+      await directory(dirname5(currentRoot));
       next = await readTree(currentRoot);
     } else if (request.action === "dependencies") {
       const retainedLocks = [];
-      await directory(join4(internal, "revisions"));
-      for (const revision of await readdir3(join4(internal, "revisions"))) {
+      await directory(join7(internal, "revisions"));
+      for (const revision of await readdir4(join7(internal, "revisions"))) {
         if (!/^[0-9a-f-]{36}$/i.test(revision)) fail4("DEPENDENCY_LOCK_INVALID", "\u4FDD\u7559\u4FEE\u8BA2\u76EE\u5F55\u8EAB\u4EFD\u65E0\u6548\u3002");
-        await directory(join4(internal, "revisions", revision));
-        const retained = await readTree(join4(internal, "revisions", revision, "render-program"));
+        await directory(join7(internal, "revisions", revision));
+        const retained = await readTree(join7(internal, "revisions", revision, "render-program"));
         retainedLocks.push(retained.get("pnpm-lock.yaml"));
       }
-      if (before.state?.checkpoint) retainedLocks.push((await readTree(join4(project, before.state.checkpoint.path))).get("pnpm-lock.yaml"));
+      if (before.state?.checkpoint) retainedLocks.push((await readTree(join7(project, before.state.checkpoint.path))).get("pnpm-lock.yaml"));
       const update = await coordinateDependencies(before.tree.get("package.json"), before.tree.get("pnpm-lock.yaml"), offline ?? /* @__PURE__ */ new Map(), request, retainedLocks, before.state?.offlineKeys);
       if (before.state?.offlineKeys?.some((key) => !update.store.has(key))) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u4ECD\u6709\u4FDD\u7559\u79BB\u7EBF\u5305\u65E0\u6CD5\u4FEE\u590D\uFF1B\u8BF7\u63D0\u4F9B\u5176\u7CBE\u786E\u7248\u672C\u548C\u6458\u8981\u3002");
       next = new Map(before.tree);
@@ -10977,20 +12552,20 @@ async function createCandidateManager(project, assertWritable) {
         }
       }
     }
-    const generation = `.narracut/candidate-${randomUUID2()}`;
-    const root = join4(project, generation);
+    const generation = `.narracut/candidate-${randomUUID4()}`;
+    const root = join7(project, generation);
     let committed = false;
     try {
       await assertCurrent();
       await mkdir3(root);
-      await writeTree(join4(root, "candidate"), next);
+      await writeTree(join7(root, "candidate"), next);
       if (offline) {
-        await mkdir3(join4(root, "dependencies"));
-        for (const [key, bytes2] of offline) await writeBytes(join4(root, "dependencies", `${key}.tgz`), bytes2);
-        await syncDirectory(join4(root, "dependencies"));
+        await mkdir3(join7(root, "dependencies"));
+        for (const [key, bytes2] of offline) await writeBytes(join7(root, "dependencies", `${key}.tgz`), bytes2);
+        await syncDirectory(join7(root, "dependencies"));
       }
-      const treeId = identity(await readTree(join4(root, "candidate")));
-      if (before.tree) await writeTree(join4(root, "checkpoint"), before.tree);
+      const treeId = identity(await readTree(join7(root, "candidate")));
+      if (before.tree) await writeTree(join7(root, "checkpoint"), before.tree);
       const state = {
         version: 1,
         sourceRevision: before.state?.sourceRevision ?? sourceRevision,
@@ -10999,15 +12574,15 @@ async function createCandidateManager(project, assertWritable) {
         ...offline ? { offline: `${generation}/dependencies`, offlineIdentity: request.action === "create" && before.offline && !before.offline.intact ? before.state.offlineIdentity : offlineIdentity(offline), offlineKeys: request.action === "create" && before.offline && !before.offline.intact ? before.state.offlineKeys : [...offline.keys()].sort() } : {}
       };
       const bytes = Buffer.from(JSON.stringify(state));
-      await writeBytes(join4(root, "state.json"), bytes);
+      await writeBytes(join7(root, "state.json"), bytes);
       await syncDirectory(root);
       await assertCurrent();
       const latest = await inspect();
       if (latest.view.baseline !== before.view.baseline || latest.view.status !== before.view.status || await currentRevision() !== sourceRevision || request.action === "create" && identity(await readTree(currentRoot)) !== treeId) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u5DF2\u4FDD\u7559\u3002");
-      await rename(join4(root, "state.json"), pointer);
+      await rename2(join7(root, "state.json"), pointer);
       committed = true;
       await syncDirectory(internal).catch(() => void 0);
-      if (before.state?.candidate || before.state?.offline) await rm3(dirname4(join4(project, before.state.candidate?.path ?? before.state.offline)), { recursive: true, force: true }).catch(() => void 0);
+      if (before.state?.candidate || before.state?.offline) await rm4(dirname5(join7(project, before.state.candidate?.path ?? before.state.offline)), { recursive: true, force: true }).catch(() => void 0);
       return {
         status: request.action === "create" && before.offline && !before.offline.intact ? "integrity-failed" : "saved",
         ...request.action === "create" && before.offline && !before.offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u79BB\u7EBF\u4F9D\u8D56\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\uFF0C\u666E\u901A\u64CD\u4F5C\u4E0D\u4F1A\u8865\u5305\u3002" } } : {},
@@ -11021,19 +12596,29 @@ async function createCandidateManager(project, assertWritable) {
       if (error instanceof CandidateError) throw error;
       return fail4("CANDIDATE_SAVE_FAILED", `\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u4E0E\u6062\u590D\u68C0\u67E5\u70B9\u5DF2\u4FDD\u7559\u3002${error.message}`);
     } finally {
-      if (!committed) await rm3(root, { recursive: true, force: true }).catch(() => void 0);
+      if (!committed) await rm4(root, { recursive: true, force: true }).catch(() => void 0);
     }
   };
   return Object.assign(operate, {
+    async previewSource(target) {
+      const snapshot = await inspect();
+      const revision = await currentRevision();
+      const tree = target === "current" ? await readTree(join7(internal, "revisions", revision, "render-program")) : snapshot.tree;
+      if (!tree || target === "candidate" && snapshot.view.status !== "saved") fail4("CANDIDATE_BASELINE_CONFLICT", "\u6CA1\u6709\u5B8C\u6574\u53EF\u64AD\u653E\u7A0B\u5E8F\u3002");
+      return { revision, identity: identity(tree), manifest: Buffer.from(tree.get("program.json") ?? ""), baseline: snapshot.view.baseline };
+    },
     async build(request) {
       const before = await inspect();
-      if (before.view.status !== "saved" || !before.tree || before.view.baseline !== request.baseline) {
+      if (request.target !== "current" && (before.view.status !== "saved" || !before.tree) || before.view.baseline !== request.baseline) {
         throw new CandidateError("CANDIDATE_BASELINE_CONFLICT", "\u5019\u9009\u4E0D\u5B8C\u6574\u6216\u5DF2\u53D8\u5316\uFF1B\u8BF7\u91CD\u65B0\u8BFB\u53D6\u540E\u6784\u5EFA\u3002");
       }
-      const program = new Map([...before.tree].filter((entry) => entry[1] !== null));
+      const revision = await currentRevision();
+      const tree = request.target === "current" ? await readTree(join7(internal, "revisions", revision, "render-program")) : before.tree;
+      if (request.sourceIdentity && request.sourceIdentity !== identity(tree)) fail4("CANDIDATE_BASELINE_CONFLICT", "\u7A0B\u5E8F\u5728\u6784\u5EFA\u524D\u5DF2\u53D8\u5316\u3002");
+      const program = new Map([...tree].filter((entry) => entry[1] !== null));
       const bundle = await buildProgramBundle({ ...request, program, offline: before.offline?.store ?? /* @__PURE__ */ new Map() });
       const after = await inspect();
-      if (after.view.status !== "saved" || after.view.baseline !== before.view.baseline) {
+      if (request.target !== "current" && after.view.status !== "saved" || after.view.baseline !== before.view.baseline || request.target === "current" && (await currentRevision() !== revision || identity(await readTree(join7(internal, "revisions", revision, "render-program"))) !== identity(tree))) {
         throw new CandidateError("CANDIDATE_BASELINE_CONFLICT", "\u6784\u5EFA\u671F\u95F4\u5019\u9009\u6216\u79BB\u7EBF\u5E93\u5DF2\u53D8\u5316\uFF1B\u7ED3\u679C\u5DF2\u4E22\u5F03\u3002");
       }
       return bundle;
@@ -11042,9 +12627,9 @@ async function createCandidateManager(project, assertWritable) {
 }
 
 // plugins/narracut/src/server.ts
-import { randomUUID as randomUUID6 } from "node:crypto";
+import { randomUUID as randomUUID7 } from "node:crypto";
 import { readFile as readFile6 } from "node:fs/promises";
-import { basename as basename3, isAbsolute as isAbsolute3 } from "node:path";
+import { basename as basename3, isAbsolute as isAbsolute4 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -11052,7 +12637,7 @@ import { spawn as spawn2 } from "node:child_process";
 import { createInterface } from "node:readline";
 
 // plugins/narracut/src/codex-host.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
+import { randomUUID as randomUUID5 } from "node:crypto";
 var CodexThreadUnavailableError = class extends Error {
   threadId;
   constructor(threadId) {
@@ -11117,7 +12702,7 @@ var AgentHostValidationService = class {
   #unsubscribe;
   constructor(host, options = {}) {
     this.#host = host;
-    this.#idFactory = options.idFactory ?? randomUUID3;
+    this.#idFactory = options.idFactory ?? randomUUID5;
     this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
   }
   async start(request) {
@@ -11610,1328 +13195,25 @@ var CodexAppServerHost = class {
   }
 };
 
-// src/server/project-vnext-inspection.ts
-import { createHash as createHash7 } from "node:crypto";
-import { lstat as lstat3, open as open3, readdir as readdir4, realpath as realpath2 } from "node:fs/promises";
-import { isAbsolute, join as join6, relative, resolve as resolve2, sep } from "node:path";
-
-// src/server/project-speech-vnext.ts
-import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash6, randomUUID as randomUUID4 } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
-import { lstat as lstat2, open as open2, readFile as readFile4, rename as rename2, rm as rm4 } from "node:fs/promises";
-import { dirname as dirname5, join as join5 } from "node:path";
-import { promisify as promisify3 } from "node:util";
-var execFileAsync = promisify3(execFile3);
-var DRAFT_DURATION_MS = 5e3;
-var TTS_CAPABILITIES = {
-  provider: "tokendance",
-  models: [
-    { value: "minimax-speech-2.8-turbo", label: "MiniMax Speech 2.8 Turbo" }
-  ],
-  voices: [
-    { value: "Chinese (Mandarin)_News_Anchor", label: "\u666E\u901A\u8BDD \xB7 \u65B0\u95FB\u4E3B\u64AD" },
-    { value: "Chinese (Mandarin)_Reliable_Executive", label: "\u666E\u901A\u8BDD \xB7 \u6C89\u7A33\u4E3B\u7BA1" }
-  ],
-  ranges: {
-    speed: { min: 0.5, max: 2, step: 0.1 },
-    volume: { min: 0.1, max: 10, step: 0.1 },
-    pitch: { min: -12, max: 12, step: 1 }
-  },
-  audio: { format: "mp3", sampleRate: 32e3, bitrate: 128e3, channels: 1 }
-};
-var ProjectTtsConfigError = class extends Error {
-  constructor(message, path, options = {}) {
-    super(message, options);
-    this.path = path;
-    this.name = "ProjectTtsConfigError";
-  }
-  path;
-  code = "TTS_CONFIG_INVALID";
-};
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function inRange(value, range) {
-  return typeof value === "number" && Number.isFinite(value) && value >= range.min && value <= range.max;
-}
-function validateProjectTtsConfig(value) {
-  if (!isRecord(value)) throw new ProjectTtsConfigError("tts.json \u6839\u503C\u5FC5\u987B\u662F\u5BF9\u8C61\u3002", "tts.json");
-  const keys = Object.keys(value).sort();
-  const expected = ["model", "pitch", "provider", "speed", "voice", "volume"].sort();
-  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
-    throw new ProjectTtsConfigError("tts.json \u53EA\u80FD\u5305\u542B provider\u3001model\u3001voice\u3001speed\u3001volume \u4E0E pitch\u3002", "tts.json");
-  }
-  if (value.provider !== TTS_CAPABILITIES.provider) {
-    throw new ProjectTtsConfigError("provider \u5FC5\u987B\u662F tokendance\u3002", "tts.json");
-  }
-  if (!TTS_CAPABILITIES.models.some((model) => model.value === value.model)) {
-    throw new ProjectTtsConfigError("model \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
-  }
-  if (!TTS_CAPABILITIES.voices.some((voice) => voice.value === value.voice)) {
-    throw new ProjectTtsConfigError("voice \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
-  }
-  if (!inRange(value.speed, TTS_CAPABILITIES.ranges.speed)) {
-    throw new ProjectTtsConfigError("speed \u5FC5\u987B\u5728 0.5\u20132.0 \u4E4B\u95F4\u3002", "tts.json");
-  }
-  if (!inRange(value.volume, TTS_CAPABILITIES.ranges.volume)) {
-    throw new ProjectTtsConfigError("volume \u5FC5\u987B\u5728 0.1\u201310.0 \u4E4B\u95F4\u3002", "tts.json");
-  }
-  if (!inRange(value.pitch, TTS_CAPABILITIES.ranges.pitch) || !Number.isInteger(value.pitch)) {
-    throw new ProjectTtsConfigError("pitch \u5FC5\u987B\u662F -12\u201312 \u4E4B\u95F4\u7684\u6574\u6570\u3002", "tts.json");
-  }
-  return value;
-}
-function ttsProfileId(config) {
-  const stable = JSON.stringify({
-    provider: config.provider,
-    model: config.model,
-    voice: config.voice,
-    speed: config.speed,
-    volume: config.volume,
-    pitch: config.pitch,
-    audio: TTS_CAPABILITIES.audio
-  });
-  return `sha256:${createHash6("sha256").update(stable, "utf8").digest("hex")}`;
-}
-async function readProjectTtsConfig(projectDirectory) {
-  const path = join5(projectDirectory, "tts.json");
-  let bytes;
-  try {
-    const facts = await lstat2(path);
-    if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 16 * 1024) {
-      throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u5C0F\u4E8E 16 KiB \u7684\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002", path);
-    }
-    bytes = await readFile4(path);
-  } catch (cause) {
-    if (cause instanceof ProjectTtsConfigError) throw cause;
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
-      return { status: "unconfigured" };
-    }
-    throw new ProjectTtsConfigError("\u65E0\u6CD5\u5B89\u5168\u8BFB\u53D6 tts.json\u3002", path, { cause });
-  }
-  let text;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch (cause) {
-    throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u4E25\u683C UTF-8\u3002", path, { cause });
-  }
-  let parsed;
-  try {
-    parsed = parseStrictJson(text, {
-      maxDepth: 3,
-      maxArrayItems: 0,
-      maxObjectFields: 8,
-      maxNodes: 16,
-      maxStringScalars: 256,
-      maxStringBytes: 1024,
-      maxNumberBytes: 32,
-      forbidArrays: true
-    });
-  } catch (cause) {
-    throw new ProjectTtsConfigError("tts.json \u4E0D\u662F\u53D7\u652F\u6301\u7684\u4E25\u683C JSON\u3002", path, { cause });
-  }
-  const config = validateProjectTtsConfig(parsed);
-  return { status: "configured", config, profileId: ttsProfileId(config) };
-}
-async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
-  const config = validateProjectTtsConfig(input);
-  const path = join5(projectDirectory, "tts.json");
-  const temporaryPath = join5(projectDirectory, `.tts.json.${randomUUID4()}.tmp`);
-  let committed = false;
-  try {
-    const handle = await open2(temporaryPath, "wx", 384);
-    try {
-      await handle.writeFile(Buffer.from(JSON.stringify(config), "utf8"));
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await assertWritable();
-    await rename2(temporaryPath, path);
-    committed = true;
-    try {
-      const directory2 = await open2(dirname5(path), "r");
-      try {
-        await directory2.sync();
-      } finally {
-        await directory2.close();
-      }
-    } catch {
-    }
-  } finally {
-    if (!committed) await rm4(temporaryPath, { force: true }).catch(() => void 0);
-  }
-  return { status: "configured", config, profileId: ttsProfileId(config) };
-}
-function deriveSceneTimeWindows(scenes, fps) {
-  if (!Number.isFinite(fps) || fps <= 0) throw new Error("fps \u5FC5\u987B\u662F\u6B63\u6570\u3002");
-  let startFrame = 0;
-  let renderReady = scenes.length > 0;
-  const windows = scenes.map((scene) => {
-    const durationInFrames = Math.max(1, Math.ceil(scene.durationMs / 1e3 * fps));
-    const window = {
-      sceneId: scene.sceneId,
-      startFrame,
-      durationInFrames,
-      source: scene.source
-    };
-    startFrame += durationInFrames;
-    if (scene.source === "draft") renderReady = false;
-    return window;
-  });
-  return { durationInFrames: startFrame, renderReady, scenes: windows };
-}
-async function probeSpeechDurationMs(path) {
-  const { stdout } = await execFileAsync("ffprobe", [
-    "-v",
-    "error",
-    "-show_entries",
-    "format=duration:stream=codec_name",
-    "-of",
-    "json",
-    path
-  ], { encoding: "utf8", timeout: 3e4, maxBuffer: 256 * 1024 });
-  const payload = JSON.parse(stdout);
-  const duration = typeof payload.format?.duration === "string" ? Number(payload.format.duration) : Number.NaN;
-  if (!payload.streams?.some((stream) => stream.codec_name === "mp3") || !Number.isFinite(duration) || duration <= 0) {
-    throw new Error("Speech \u4E0D\u662F\u53EF\u89E3\u7801\u7684 MP3\u3002");
-  }
-  return Math.round(duration * 1e3);
-}
-async function speechContentHash(path) {
-  const handle = await open2(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-  try {
-    const hash2 = createHash6("sha256");
-    const chunk = Buffer.allocUnsafe(64 * 1024);
-    let position = 0;
-    while (true) {
-      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
-      if (bytesRead === 0) break;
-      hash2.update(chunk.subarray(0, bytesRead));
-      position += bytesRead;
-    }
-    return `sha256:${hash2.digest("hex")}`;
-  } finally {
-    await handle.close();
-  }
-}
-async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, options = {}) {
-  const probe = options.probeDurationMs ?? probeSpeechDurationMs;
-  const states = [];
-  const durations = [];
-  for (const scene of scenes) {
-    const speech = scene.speech;
-    if (speech === void 0) {
-      states.push({ sceneId: scene.id, status: "missing", reason: "\u5F53\u524D Scene \u7F3A\u5C11 Speech\u3002" });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    const currentSourceTextHash = `sha256:${createHash6("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
-    if (speech.sourceTextHash !== currentSourceTextHash) {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "changed",
-        reason: "Speech \u4E0E\u5F53\u524D Narration \u4E0D\u5339\u914D\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    if (currentProfileId === void 0 || speech.ttsProfileId !== currentProfileId) {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "profile-mismatch",
-        reason: "Speech \u4E0E\u5F53\u524D TTS \u914D\u7F6E\u4E0D\u5339\u914D\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    const absolutePath = join5(projectDirectory, speech.path);
-    let before;
-    try {
-      before = await lstat2(absolutePath);
-      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) throw new Error("not ordinary");
-    } catch {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "unavailable",
-        reason: "Speech \u6587\u4EF6\u7F3A\u5931\u3001\u4E0D\u53EF\u8BFB\u6216\u4E0D\u662F\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    if (speech.audioContentHash === void 0) {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "changed",
-        reason: "Speech \u7F3A\u5C11\u97F3\u9891\u5185\u5BB9\u6458\u8981\uFF0C\u65E0\u6CD5\u8BC1\u660E\u4ECD\u662F\u5DF2\u63D0\u4EA4\u7684\u97F3\u9891\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    let actualDurationMs;
-    let actualContentHash;
-    try {
-      [actualDurationMs, actualContentHash] = await Promise.all([
-        probe(absolutePath),
-        speechContentHash(absolutePath)
-      ]);
-    } catch {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "decode-failed",
-        reason: "Speech \u6587\u4EF6\u65E0\u6CD5\u89E3\u7801\u4E3A MP3\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    let after;
-    try {
-      after = await lstat2(absolutePath);
-    } catch {
-      after = void 0;
-    }
-    const changedDuringProbe = after === void 0 || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs;
-    if (changedDuringProbe || actualDurationMs !== speech.durationMs || actualContentHash !== speech.audioContentHash) {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "changed",
-        durationMs: actualDurationMs,
-        reason: changedDuringProbe ? "Speech \u6587\u4EF6\u5728\u68C0\u67E5\u671F\u95F4\u53D1\u751F\u539F\u4F4D\u53D8\u5316\u3002" : actualContentHash !== speech.audioContentHash ? "Speech \u97F3\u9891\u5185\u5BB9\u4E0E\u5DF2\u63D0\u4EA4\u6458\u8981\u4E0D\u4E00\u81F4\u3002" : `Speech \u5B9E\u9645\u65F6\u957F ${actualDurationMs} ms \u4E0E\u8BB0\u5F55\u7684 ${speech.durationMs} ms \u4E0D\u4E00\u81F4\u3002`
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    states.push({
-      sceneId: scene.id,
-      path: speech.path,
-      status: "available",
-      durationMs: actualDurationMs
-    });
-    durations.push({ sceneId: scene.id, durationMs: actualDurationMs, source: "speech" });
-  }
-  const timeline = deriveSceneTimeWindows(durations, options.fps ?? 30);
-  return {
-    states,
-    timeline: {
-      ...timeline,
-      renderReady: timeline.renderReady && scenes.every((scene) => scene.narration.text.trim() !== "")
-    }
-  };
-}
-
-// src/server/project-vnext-inspection.ts
-var ProjectInspectionError = class extends Error {
-  constructor(code, path, message, diagnostics = [], options) {
-    super(message, options);
-    this.code = code;
-    this.path = path;
-    this.diagnostics = diagnostics;
-    this.name = "ProjectInspectionError";
-  }
-  code;
-  path;
-  diagnostics;
-};
-function invalidControlFile(path, diagnostic, options) {
-  return new ProjectInspectionError(
-    "PROJECT_CONTENT_INVALID",
-    path,
-    diagnostic.message,
-    [diagnostic],
-    options
-  );
-}
-function invalidContent(path, diagnostics) {
-  const first = diagnostics[0];
-  return new ProjectInspectionError(
-    "PROJECT_CONTENT_INVALID",
-    path,
-    first?.message ?? "Project VNext \u5185\u5BB9\u65E0\u6548\uFF1B\u8BF7\u4FEE\u590D\u62A5\u544A\u7684\u95EE\u9898\u540E\u91CD\u8BD5\u3002",
-    diagnostics
-  );
-}
-var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-function compareStableText(left, right) {
-  return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
-}
-function jsonPropertyPath(parent, key) {
-  return /^[A-Za-z_$][\w$]*$/u.test(key) ? `${parent}.${key}` : `${parent}[${JSON.stringify(key)}]`;
-}
-function validateProjectManifest(manifest) {
-  const diagnostics = [];
-  for (const key of Object.keys(manifest)) {
-    if (!["kind", "formatVersion", "projectId"].includes(key)) {
-      diagnostics.push({
-        code: "PROJECT_MANIFEST_SCHEMA_INVALID",
-        component: "narracut.json",
-        jsonPath: jsonPropertyPath("$", key),
-        message: `narracut.json \u5305\u542B\u672A\u77E5\u5B57\u6BB5 ${key}\uFF1B\u8BF7\u5220\u9664\u8BE5\u5B57\u6BB5\u3002`
-      });
-    }
-  }
-  if (!Number.isInteger(manifest.formatVersion)) {
-    diagnostics.push({
-      code: "PROJECT_MANIFEST_SCHEMA_INVALID",
-      component: "narracut.json",
-      jsonPath: "$.formatVersion",
-      message: "formatVersion \u5FC5\u987B\u662F\u6574\u6570 1\uFF1B\u8BF7\u4FEE\u6B63\u9879\u76EE\u6E05\u5355\u3002"
-    });
-  }
-  if (typeof manifest.projectId !== "string" || !UUID_PATTERN.test(manifest.projectId)) {
-    diagnostics.push({
-      code: "PROJECT_MANIFEST_SCHEMA_INVALID",
-      component: "narracut.json",
-      jsonPath: "$.projectId",
-      message: "projectId \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\uFF1B\u8BF7\u4F7F\u7528\u6709\u6548\u9879\u76EE\u6E05\u5355\u3002"
-    });
-  }
-  return diagnostics.sort((left, right) => compareStableText(
-    `${left.jsonPath}${left.code}`,
-    `${right.jsonPath}${right.code}`
-  ));
-}
-function isRecord2(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function schemaDiagnostic(code, jsonPath, message) {
-  return { code, component: "project.json", jsonPath, message };
-}
-function unknownFields(value, allowed, jsonPath, diagnostics) {
-  for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) {
-      diagnostics.push(schemaDiagnostic(
-        "PROJECT_DSL_SCHEMA_INVALID",
-        jsonPropertyPath(jsonPath, key),
-        `${jsonPath} \u5305\u542B\u672A\u77E5\u5B57\u6BB5 ${key}\uFF1B\u8BF7\u5220\u9664\u8BE5\u5B57\u6BB5\u3002`
-      ));
-    }
-  }
-}
-function isCanonicalResourcePath(value, root) {
-  if (value.length === 0 || value.startsWith("/") || value.includes("\\") || value.includes("\0") || [...value].length > 1024 || Buffer.byteLength(value, "utf8") > 1024) return false;
-  const parts = value.split("/");
-  return parts[0] === root && parts.length > 1 && parts.every((part) => part !== "" && part !== "." && part !== "..");
-}
-function boundedDiagnostics(diagnostics) {
-  const unique = /* @__PURE__ */ new Map();
-  for (const diagnostic of diagnostics) {
-    const identity2 = `${diagnostic.jsonPath ?? ""}${diagnostic.code}${diagnostic.message}`;
-    if (!unique.has(identity2)) unique.set(identity2, diagnostic);
-  }
-  const sorted = [...unique.values()].sort((left, right) => compareStableText(
-    `${left.jsonPath ?? ""}${left.code}`,
-    `${right.jsonPath ?? ""}${right.code}`
-  ));
-  if (sorted.length <= 100) return sorted;
-  return [
-    ...sorted.slice(0, 99),
-    {
-      code: "DIAGNOSTICS_TRUNCATED",
-      component: "project.json",
-      message: `\u9879\u76EE\u8FD8\u6709 ${sorted.length - 99} \u6761\u95EE\u9898\u672A\u5C55\u793A\uFF1B\u8BF7\u5148\u4FEE\u590D\u5DF2\u5217\u95EE\u9898\u540E\u91CD\u65B0\u68C0\u67E5\u3002`,
-      metric: "diagnostics",
-      actual: sorted.length,
-      limit: 100
-    }
-  ];
-}
-function validateProjectDsl(value) {
-  const diagnostics = [];
-  if (!isRecord2(value)) {
-    return {
-      diagnostics: [schemaDiagnostic(
-        "PROJECT_DSL_SCHEMA_INVALID",
-        "$",
-        "project.json \u6839\u503C\u5FC5\u987B\u662F\u5BF9\u8C61\uFF1B\u8BF7\u63D0\u4F9B assets \u4E0E scenes\u3002"
-      )]
-    };
-  }
-  unknownFields(value, ["assets", "scenes"], "$", diagnostics);
-  const assets = value.assets;
-  const scenes = value.scenes;
-  if (!Array.isArray(assets)) {
-    diagnostics.push(schemaDiagnostic(
-      "PROJECT_DSL_SCHEMA_INVALID",
-      "$.assets",
-      "assets \u5FC5\u987B\u662F\u6570\u7EC4\uFF1B\u8BF7\u4FEE\u6B63 Project DSL\u3002"
-    ));
-  }
-  if (!Array.isArray(scenes)) {
-    diagnostics.push(schemaDiagnostic(
-      "PROJECT_DSL_SCHEMA_INVALID",
-      "$.scenes",
-      "scenes \u5FC5\u987B\u662F\u6570\u7EC4\uFF1B\u8BF7\u4FEE\u6B63 Project DSL\u3002"
-    ));
-  }
-  if (!Array.isArray(assets) || !Array.isArray(scenes)) {
-    return { diagnostics: boundedDiagnostics(diagnostics) };
-  }
-  if (assets.length > 1e3) {
-    return { diagnostics: [{
-      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-      component: "project.json",
-      jsonPath: "$.assets[1000]",
-      message: `assets \u6709 ${assets.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 1000\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59 Asset\u3002`,
-      metric: "assets",
-      actual: assets.length,
-      limit: 1e3
-    }] };
-  }
-  if (scenes.length > 1e3) {
-    return { diagnostics: [{
-      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-      component: "project.json",
-      jsonPath: "$.scenes[1000]",
-      message: `scenes \u6709 ${scenes.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 1000\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59 Scene\u3002`,
-      metric: "scenes",
-      actual: scenes.length,
-      limit: 1e3
-    }] };
-  }
-  for (let index = 0; index < assets.length; index += 1) {
-    const asset = assets[index];
-    if (isRecord2(asset) && typeof asset.path === "string") {
-      const bytes = Buffer.byteLength(asset.path, "utf8");
-      const scalars = [...asset.path].length;
-      if (bytes > 1024) {
-        return { diagnostics: [{
-          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-          component: "project.json",
-          jsonPath: `$.assets[${index}].path`,
-          message: `Asset path \u4E3A ${bytes} UTF-8 \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
-          metric: "pathBytes",
-          actual: bytes,
-          limit: 1024
-        }] };
-      }
-      if (scalars > 1024) {
-        return { diagnostics: [{
-          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-          component: "project.json",
-          jsonPath: `$.assets[${index}].path`,
-          message: `Asset path \u6709 ${scalars} \u4E2A Unicode \u6807\u91CF\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
-          metric: "pathScalars",
-          actual: scalars,
-          limit: 1024
-        }] };
-      }
-    }
-  }
-  for (let index = 0; index < scenes.length; index += 1) {
-    const scene = scenes[index];
-    if (!isRecord2(scene)) continue;
-    if (Array.isArray(scene.assetIds) && scene.assetIds.length > 256) {
-      return { diagnostics: [{
-        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-        component: "project.json",
-        jsonPath: `$.scenes[${index}].assetIds[256]`,
-        message: `Scene \u7684 assetIds \u6709 ${scene.assetIds.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 256\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59\u5F15\u7528\u3002`,
-        metric: "sceneAssetIds",
-        actual: scene.assetIds.length,
-        limit: 256
-      }] };
-    }
-    if (isRecord2(scene.speech)) {
-      if (typeof scene.speech.path === "string") {
-        const bytes = Buffer.byteLength(scene.speech.path, "utf8");
-        const scalars = [...scene.speech.path].length;
-        if (bytes > 1024 || scalars > 1024) {
-          const metric = bytes > 1024 ? "pathBytes" : "pathScalars";
-          const actual = bytes > 1024 ? bytes : scalars;
-          return { diagnostics: [{
-            code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-            component: "project.json",
-            jsonPath: `$.scenes[${index}].speech.path`,
-            message: `Speech path \u7684 ${metric} \u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
-            metric,
-            actual,
-            limit: 1024
-          }] };
-        }
-      }
-      if (typeof scene.speech.ttsProfileId === "string" && [...scene.speech.ttsProfileId].length > 256) {
-        const actual = [...scene.speech.ttsProfileId].length;
-        return { diagnostics: [{
-          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-          component: "project.json",
-          jsonPath: `$.scenes[${index}].speech.ttsProfileId`,
-          message: `ttsProfileId \u6709 ${actual} \u4E2A Unicode \u6807\u91CF\uFF0C\u8D85\u8FC7\u4E0A\u9650 256\uFF1B\u8BF7\u7F29\u77ED\u8BE5\u6807\u8BC6\u3002`,
-          metric: "ttsProfileIdScalars",
-          actual,
-          limit: 256
-        }] };
-      }
-    }
-  }
-  const assetIds = /* @__PURE__ */ new Set();
-  const assetPaths = /* @__PURE__ */ new Set();
-  assets.forEach((asset, index) => {
-    const path = `$.assets[${index}]`;
-    if (!isRecord2(asset)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Asset \u5BF9\u8C61\u3002`));
-      return;
-    }
-    unknownFields(asset, ["id", "path"], path, diagnostics);
-    if (typeof asset.id !== "string" || !UUID_PATTERN.test(asset.id)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.id`, "Asset id \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
-    } else if (assetIds.has(asset.id)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_ID_DUPLICATE", `${path}.id`, `Asset id ${asset.id} \u91CD\u590D\uFF1B\u8BF7\u4E3A\u6BCF\u4E2A Asset \u4F7F\u7528\u552F\u4E00 ID\u3002`));
-    } else {
-      assetIds.add(asset.id);
-    }
-    if (typeof asset.path !== "string" || !isCanonicalResourcePath(asset.path, "assets")) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_INVALID", `${path}.path`, "Asset path \u5FC5\u987B\u662F assets/ \u4E0B\u7684\u89C4\u8303\u9879\u76EE\u76F8\u5BF9\u8DEF\u5F84\u3002"));
-    } else if (assetPaths.has(asset.path)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_DUPLICATE", `${path}.path`, `Asset path ${asset.path} \u91CD\u590D\uFF1B\u8BF7\u4F7F\u7528\u552F\u4E00\u8DEF\u5F84\u3002`));
-    } else {
-      assetPaths.add(asset.path);
-    }
-  });
-  const sceneIds = /* @__PURE__ */ new Set();
-  scenes.forEach((scene, index) => {
-    const path = `$.scenes[${index}]`;
-    if (!isRecord2(scene)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Scene \u5BF9\u8C61\u3002`));
-      return;
-    }
-    unknownFields(scene, ["id", "narration", "assetIds", "speech"], path, diagnostics);
-    if (typeof scene.id !== "string" || !UUID_PATTERN.test(scene.id)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.id`, "Scene id \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
-    } else if (sceneIds.has(scene.id)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_ID_DUPLICATE", `${path}.id`, `Scene id ${scene.id} \u91CD\u590D\uFF1B\u8BF7\u4E3A\u6BCF\u4E2A Scene \u4F7F\u7528\u552F\u4E00 ID\u3002`));
-    } else {
-      sceneIds.add(scene.id);
-    }
-    if (!isRecord2(scene.narration)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.narration`, "narration \u5FC5\u987B\u662F\u53EA\u542B text \u7684\u5BF9\u8C61\u3002"));
-    } else {
-      unknownFields(scene.narration, ["text"], `${path}.narration`, diagnostics);
-      if (typeof scene.narration.text !== "string") {
-        diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.narration.text`, "Narration text \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u3002"));
-      }
-    }
-    if (!Array.isArray(scene.assetIds)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.assetIds`, "assetIds \u5FC5\u987B\u662F UUID \u6570\u7EC4\u3002"));
-    } else {
-      const references = /* @__PURE__ */ new Set();
-      scene.assetIds.forEach((assetId, assetIndex) => {
-        const referencePath = `${path}.assetIds[${assetIndex}]`;
-        if (typeof assetId !== "string" || !UUID_PATTERN.test(assetId)) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", referencePath, "Asset \u5F15\u7528\u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
-        } else if (references.has(assetId)) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_REFERENCE_DUPLICATE", referencePath, `Scene \u91CD\u590D\u5F15\u7528 Asset ${assetId}\uFF1B\u8BF7\u79FB\u9664\u91CD\u590D\u9879\u3002`));
-        } else {
-          references.add(assetId);
-          if (!assetIds.has(assetId)) {
-            diagnostics.push(schemaDiagnostic("PROJECT_DSL_REFERENCE_INVALID", referencePath, `Asset \u5F15\u7528 ${assetId} \u672A\u5728 assets \u4E2D\u767B\u8BB0\uFF1B\u8BF7\u767B\u8BB0\u6216\u79FB\u9664\u8BE5\u5F15\u7528\u3002`));
-          }
-        }
-      });
-    }
-    if ("speech" in scene) {
-      if (!isRecord2(scene.speech)) {
-        diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech`, "speech \u7F3A\u7701\u65F6\u5FC5\u987B\u7701\u7565\u5B57\u6BB5\uFF0C\u5B58\u5728\u65F6\u5FC5\u987B\u662F\u5B8C\u6574\u5BF9\u8C61\u3002"));
-      } else {
-        unknownFields(scene.speech, ["path", "durationMs", "sourceTextHash", "ttsProfileId", "audioContentHash"], `${path}.speech`, diagnostics);
-        const expectedPath = typeof scene.id === "string" ? `speech/${scene.id}.mp3` : void 0;
-        if (typeof scene.speech.path !== "string" || !isCanonicalResourcePath(scene.speech.path, "speech") || scene.speech.path !== expectedPath) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_INVALID", `${path}.speech.path`, `Speech path \u5FC5\u987B\u7CBE\u786E\u4E3A ${expectedPath ?? "speech/<sceneId>.mp3"}\u3002`));
-        }
-        if (!Number.isSafeInteger(scene.speech.durationMs) || scene.speech.durationMs <= 0) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.durationMs`, "durationMs \u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002"));
-        }
-        const narrationText = isRecord2(scene.narration) && typeof scene.narration.text === "string" ? scene.narration.text : void 0;
-        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash7("sha256").update(narrationText, "utf8").digest("hex")}`;
-        if (typeof scene.speech.sourceTextHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.sourceTextHash) || expectedHash !== void 0 && scene.speech.sourceTextHash !== expectedHash) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SPEECH_MISMATCH", `${path}.speech.sourceTextHash`, "sourceTextHash \u5FC5\u987B\u5339\u914D\u5F53\u524D Narration \u7684\u539F\u59CB UTF-8 \u5B57\u8282\u3002"));
-        }
-        if (typeof scene.speech.ttsProfileId !== "string") {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.ttsProfileId`, "ttsProfileId \u5FC5\u987B\u662F\u4E0D\u8D85\u8FC7 256 \u4E2A Unicode \u6807\u91CF\u7684\u5B57\u7B26\u4E32\u3002"));
-        }
-        if ("audioContentHash" in scene.speech && (typeof scene.speech.audioContentHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.audioContentHash))) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.audioContentHash`, "audioContentHash \u5FC5\u987B\u662F\u89C4\u8303\u7684 SHA-256 \u6458\u8981\u3002"));
-        }
-      }
-    }
-  });
-  return {
-    ...diagnostics.length === 0 ? { project: value } : {},
-    diagnostics: boundedDiagnostics(diagnostics)
-  };
-}
-function validateProjectVNextForSave(value, projectPath = "project.json") {
-  let inputBytes;
-  try {
-    inputBytes = Buffer.from(JSON.stringify(value), "utf8");
-  } catch (cause) {
-    throw invalidControlFile(projectPath, {
-      code: "PROJECT_DSL_SCHEMA_INVALID",
-      component: "project.json",
-      jsonPath: "$",
-      message: "Project DSL \u5FC5\u987B\u662F\u53EF\u5E8F\u5217\u5316\u7684 JSON \u5BF9\u8C61\u3002"
-    }, { cause });
-  }
-  if (inputBytes.length > 10 * 1024 * 1024) {
-    throw invalidControlFile(projectPath, {
-      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-      component: "project.json",
-      message: `project.json \u4E3A ${inputBytes.length} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${10 * 1024 * 1024}\uFF1B\u8BF7\u7F29\u51CF\u5185\u5BB9\u540E\u91CD\u8BD5\u3002`,
-      metric: "bytes",
-      actual: inputBytes.length,
-      limit: 10 * 1024 * 1024
-    });
-  }
-  const parsed = parseControlJson(
-    inputBytes.toString("utf8"),
-    projectPath,
-    "project.json",
-    PROJECT_JSON_LIMITS
-  );
-  const validation = validateProjectDsl(parsed);
-  if (validation.project === void 0) {
-    throw invalidContent(projectPath, validation.diagnostics);
-  }
-  const project = validation.project;
-  const bytes = Buffer.from(JSON.stringify({
-    assets: project.assets.map((asset) => ({ id: asset.id, path: asset.path })),
-    scenes: project.scenes.map((scene) => ({
-      id: scene.id,
-      narration: { text: scene.narration.text },
-      assetIds: [...scene.assetIds],
-      ...scene.speech === void 0 ? {} : {
-        speech: {
-          path: scene.speech.path,
-          durationMs: scene.speech.durationMs,
-          sourceTextHash: scene.speech.sourceTextHash,
-          ttsProfileId: scene.speech.ttsProfileId,
-          ...scene.speech.audioContentHash === void 0 ? {} : { audioContentHash: scene.speech.audioContentHash }
-        }
-      }
-    }))
-  }), "utf8");
-  return { project, bytes };
-}
-function decodeUtf8(bytes, path, component, allowBom) {
-  if (!allowBom && bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) {
-    throw invalidControlFile(path, {
-      code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
-      component,
-      message: `${component} \u4E0D\u5F97\u5305\u542B UTF-8 BOM\uFF1B\u8BF7\u79FB\u9664 BOM \u540E\u91CD\u8BD5\u3002`
-    });
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: allowBom }).decode(bytes);
-  } catch (cause) {
-    throw invalidControlFile(path, {
-      code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
-      component,
-      message: `${component} \u4E0D\u662F\u4E25\u683C UTF-8\uFF1B\u8BF7\u4EE5 UTF-8 \u91CD\u65B0\u4FDD\u5B58\u540E\u91CD\u8BD5\u3002`
-    }, { cause });
-  }
-}
-var MANIFEST_JSON_LIMITS = {
-  maxDepth: 4,
-  maxArrayItems: 0,
-  maxObjectFields: 16,
-  maxNodes: 32,
-  maxStringScalars: 256,
-  maxStringBytes: 1024,
-  maxNumberBytes: 64,
-  forbidArrays: true
-};
-var PROJECT_JSON_LIMITS = {
-  maxDepth: 8,
-  maxArrayItems: 1e5,
-  maxObjectFields: 32e3,
-  maxNodes: 2e5,
-  maxStringScalars: 65536,
-  maxStringBytes: 256 * 1024,
-  maxNumberBytes: 64
-};
-function parseControlJson(input, path, component, limits2) {
-  try {
-    return parseStrictJson(input, limits2);
-  } catch (cause) {
-    if (!(cause instanceof StrictJsonFailure)) throw cause;
-    throw invalidControlFile(path, {
-      code: cause.code,
-      component,
-      message: cause.message,
-      jsonPath: cause.jsonPath,
-      ...cause.metric === void 0 ? {} : { metric: cause.metric },
-      ...cause.actual === void 0 ? {} : { actual: cause.actual },
-      ...cause.limit === void 0 ? {} : { limit: cause.limit }
-    }, { cause });
-  }
-}
-async function readBoundedControlFile(path, component, limit) {
-  const pathFacts = await lstat3(path);
-  if (!pathFacts.isFile() || pathFacts.isSymbolicLink() || pathFacts.nlink !== 1) {
-    throw invalidControlFile(path, {
-      code: "PROJECT_REQUIRED_CONTENT_INVALID",
-      component,
-      message: `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
-    });
-  }
-  const handle = await open3(path, "r");
-  try {
-    const facts = await handle.stat();
-    if (!facts.isFile() || facts.dev !== pathFacts.dev || facts.ino !== pathFacts.ino) {
-      throw invalidControlFile(path, {
-        code: "PROJECT_REQUIRED_CONTENT_INVALID",
-        component,
-        message: `${component} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
-      });
-    }
-    if (facts.size > limit) {
-      throw invalidControlFile(path, {
-        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-        component,
-        message: `${component} \u4E3A ${facts.size} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
-        metric: "bytes",
-        actual: facts.size,
-        limit
-      });
-    }
-    const bytes = Buffer.allocUnsafe(limit + 1);
-    let total = 0;
-    while (total < bytes.length) {
-      const { bytesRead } = await handle.read(bytes, total, bytes.length - total, total);
-      if (bytesRead === 0) break;
-      total += bytesRead;
-    }
-    if (total > limit) {
-      throw invalidControlFile(path, {
-        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-        component,
-        message: `${component} \u5728\u8BFB\u53D6\u671F\u95F4\u8D85\u8FC7 ${limit} \u5B57\u8282\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u5E76\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
-        metric: "bytes",
-        actual: total,
-        limit
-      });
-    }
-    return bytes.subarray(0, total);
-  } finally {
-    await handle.close();
-  }
-}
-async function readProjectVNextRevision(projectPath) {
-  const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
-  return `sha256:${createHash7("sha256").update(bytes).digest("hex")}`;
-}
-async function readVideoBriefVNext(videoBriefPath) {
-  const buffer = await readBoundedControlFile(videoBriefPath, "video.md", 2 * 1024 * 1024);
-  return {
-    content: decodeUtf8(buffer, videoBriefPath, "video.md", true),
-    revision: `sha256:${createHash7("sha256").update(buffer).digest("hex")}`,
-    bytes: buffer.length
-  };
-}
-async function requireDirectory(path) {
-  const facts = await lstat3(path);
-  if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
-}
-async function requireFile(path) {
-  const facts = await lstat3(path);
-  if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1) {
-    throw new Error(`\u5FC5\u9700\u6587\u4EF6\u65E0\u6548\uFF1A${path}`);
-  }
-}
-function isFileSystemError(error) {
-  return error instanceof Error && "code" in error;
-}
-function missingContent(path, component) {
-  return invalidContent(path, [{
-    code: "PROJECT_REQUIRED_CONTENT_MISSING",
-    component,
-    message: `\u7F3A\u5C11\u5FC5\u9700\u7684 ${component}\uFF1B\u8BF7\u6062\u590D\u5B8C\u6574 Project VNext \u5185\u5BB9\u540E\u91CD\u8BD5\u3002`
-  }]);
-}
-function invalidResource(path, component, message) {
-  return invalidContent(path, [{ code: "PROJECT_RESOURCE_INVALID", component, message }]);
-}
-async function validateOrdinaryResource(projectDirectory, relativePath, required) {
-  const parts = relativePath.split("/");
-  const directoryIdentities = [];
-  for (let index = 0; index < parts.length; index += 1) {
-    const component = parts.slice(0, index + 1).join("/");
-    const path = join6(projectDirectory, component);
-    let facts;
-    try {
-      facts = await lstat3(path);
-    } catch (cause) {
-      if (isFileSystemError(cause) && cause.code === "ENOENT" && !required) return;
-      if (isFileSystemError(cause) && cause.code === "ENOENT") {
-        throw missingContent(path, component);
-      }
-      throw new ProjectInspectionError(
-        "PROJECT_PATH_UNAVAILABLE",
-        path,
-        `\u65E0\u6CD5\u68C0\u67E5\u8D44\u6E90 ${path}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-        [],
-        { cause }
-      );
-    }
-    const isLeaf = index === parts.length - 1;
-    if (!isLeaf && (!facts.isDirectory() || facts.isSymbolicLink())) {
-      throw invalidResource(
-        path,
-        component,
-        `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u7684\u666E\u901A\u76EE\u5F55\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u3002`
-      );
-    }
-    if (!isLeaf) directoryIdentities.push({ path, dev: facts.dev, ino: facts.ino });
-    if (isLeaf && (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1)) {
-      throw invalidResource(
-        path,
-        relativePath,
-        `${relativePath} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`
-      );
-    }
-  }
-  const resourcePath = join6(projectDirectory, relativePath);
-  const allowedRoot = await realpath2(join6(projectDirectory, parts[0]));
-  const resolvedResource = await realpath2(resourcePath);
-  const relation = relative(allowedRoot, resolvedResource);
-  if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
-    throw invalidResource(
-      resourcePath,
-      relativePath,
-      `${relativePath} \u89E3\u6790\u5230 ${allowedRoot} \u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002`
-    );
-  }
-  for (const identity2 of directoryIdentities) {
-    const current = await lstat3(identity2.path);
-    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity2.dev || current.ino !== identity2.ino) {
-      throw invalidResource(
-        identity2.path,
-        relative(projectDirectory, identity2.path),
-        `${relative(projectDirectory, identity2.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
-      );
-    }
-  }
-}
-async function validateProjectVNextResources(projectDirectory, project, options = {}) {
-  const assetStates = [];
-  for (const asset of project.assets) {
-    const path = join6(projectDirectory, asset.path);
-    await validateOrdinaryResource(projectDirectory, asset.path, false);
-    let facts;
-    try {
-      facts = await lstat3(path);
-    } catch (cause) {
-      assetStates.push({
-        id: asset.id,
-        path: asset.path,
-        status: "unavailable",
-        reason: isFileSystemError(cause) && cause.code === "ENOENT" ? "\u6587\u4EF6\u7F3A\u5931\u6216\u5DF2\u88AB\u79FB\u52A8\u3002" : "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
-      });
-      continue;
-    }
-    try {
-      const handle = await open3(path, "r");
-      await handle.close();
-      assetStates.push({
-        id: asset.id,
-        path: asset.path,
-        status: "available",
-        size: facts.size
-      });
-    } catch {
-      assetStates.push({
-        id: asset.id,
-        path: asset.path,
-        status: "unavailable",
-        reason: "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
-      });
-    }
-  }
-  const speech = await inspectProjectSpeech(
-    projectDirectory,
-    project.scenes,
-    options.currentTtsProfileId,
-    { probeDurationMs: options.probeSpeechDurationMs }
-  );
-  const speechWarnings = speech.states.filter((state) => state.status !== "available" && state.status !== "missing").map((state, index) => {
-    const sceneIndex = project.scenes.findIndex((scene) => scene.id === state.sceneId);
-    const code = {
-      available: "",
-      missing: "PROJECT_SPEECH_MISSING",
-      unavailable: "PROJECT_SPEECH_UNAVAILABLE",
-      "decode-failed": "PROJECT_SPEECH_DECODE_FAILED",
-      changed: "PROJECT_SPEECH_CHANGED",
-      "profile-mismatch": "PROJECT_SPEECH_PROFILE_MISMATCH"
-    }[state.status];
-    return {
-      code: code ?? "PROJECT_SPEECH_UNAVAILABLE",
-      component: state.path ?? `Scene ${sceneIndex + 1}`,
-      jsonPath: `$.scenes[${sceneIndex < 0 ? index : sceneIndex}].speech`,
-      message: state.reason ?? "Speech \u5F53\u524D\u4E0D\u53EF\u7528\u4E8E\u6B63\u5F0F Render\u3002"
-    };
-  });
-  return {
-    assetStates,
-    speechStates: speech.states,
-    timeline: speech.timeline,
-    warnings: boundedDiagnostics([...assetStates.filter((asset) => asset.status === "unavailable").map((asset) => ({
-      code: "PROJECT_ASSET_UNAVAILABLE",
-      component: asset.path,
-      message: `${asset.path} \u4E0D\u53EF\u7528\uFF1A${asset.reason ?? "\u65E0\u6CD5\u8BFB\u53D6\u3002"}`
-    })), ...speechWarnings])
-  };
-}
-async function readStableDirectory(directory2) {
-  const entries = await readdir4(directory2, { withFileTypes: true });
-  entries.sort((left, right) => compareStableText(left.name, right.name));
-  return entries;
-}
-var MAX_DIRECTORY_TREE_DEPTH = 32;
-var MAX_DIRECTORY_TREE_DIRECTORIES = 4096;
-function directoryTreeLimit(projectDirectory, path, metric, actual, limit) {
-  const component = relative(projectDirectory, path) || ".";
-  return invalidControlFile(path, {
-    code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-    component,
-    metric,
-    actual,
-    limit,
-    message: `${component} \u7684${metric === "directoryDepth" ? "\u76EE\u5F55\u6DF1\u5EA6" : "\u5DF2\u68C0\u67E5\u76EE\u5F55\u6570"}\u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7CBE\u7B80\u9879\u76EE\u5185\u90E8\u6811\u540E\u91CD\u8BD5\u3002`
-  });
-}
-async function discoverRenderProgramDirectories(projectDirectory) {
-  const excludedRoots = /* @__PURE__ */ new Set(["assets", "speech", "renders"]);
-  const stack = [{ directory: projectDirectory, depth: 0 }];
-  const programs = [];
-  let directoriesVisited = 0;
-  while (stack.length > 0) {
-    const { directory: directory2, depth } = stack.pop();
-    directoriesVisited += 1;
-    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
-      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
-    }
-    let entries;
-    try {
-      entries = await readStableDirectory(directory2);
-    } catch (cause) {
-      throw new ProjectInspectionError(
-        "PROJECT_PATH_UNAVAILABLE",
-        directory2,
-        `\u65E0\u6CD5\u68C0\u67E5\u9879\u76EE\u5185\u5BB9\u76EE\u5F55 ${directory2}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-        [],
-        { cause }
-      );
-    }
-    for (const entry of [...entries].reverse()) {
-      if (directory2 === projectDirectory && excludedRoots.has(entry.name)) continue;
-      if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
-      const path = join6(directory2, entry.name);
-      const facts = await lstat3(path);
-      if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
-      const childDepth = depth + 1;
-      if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
-        throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
-      }
-      if (entry.name === "render-program") {
-        programs.push(path);
-      } else {
-        stack.push({ directory: path, depth: childDepth });
-      }
-    }
-  }
-  programs.sort(compareStableText);
-  return programs;
-}
-async function validateRenderProgramDirectory(projectDirectory, programDirectory) {
-  const projectRoot = await realpath2(projectDirectory);
-  const resolvedProgram = await realpath2(programDirectory);
-  const programRelation = relative(projectRoot, resolvedProgram);
-  if (programRelation === ".." || programRelation.startsWith(`..${sep}`) || isAbsolute(programRelation)) {
-    throw invalidResource(
-      programDirectory,
-      relative(projectDirectory, programDirectory),
-      "Render Program \u89E3\u6790\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u7236\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002"
-    );
-  }
-  const requiredEntries = [
-    ["program.json", "file"],
-    ["package.json", "file"],
-    ["pnpm-lock.yaml", "file"],
-    ["src", "directory"],
-    ["src/RenderProgram.tsx", "file"],
-    ["resources", "directory"]
-  ];
-  for (const [entry, kind] of requiredEntries) {
-    const path = join6(programDirectory, ...entry.split("/"));
-    let facts;
-    try {
-      facts = await lstat3(path);
-    } catch (cause) {
-      if (isFileSystemError(cause) && cause.code === "ENOENT") {
-        throw missingContent(path, relative(projectDirectory, path));
-      }
-      throw new ProjectInspectionError(
-        "PROJECT_PATH_UNAVAILABLE",
-        path,
-        `\u65E0\u6CD5\u68C0\u67E5 Render Program \u8DEF\u5F84 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-        [],
-        { cause }
-      );
-    }
-    const valid2 = kind === "directory" ? facts.isDirectory() && !facts.isSymbolicLink() : facts.isFile() && !facts.isSymbolicLink() && facts.nlink === 1;
-    if (!valid2) {
-      throw invalidResource(
-        path,
-        relative(projectDirectory, path),
-        `${relative(projectDirectory, path)} \u5FC5\u987B\u662F\u65E0\u94FE\u63A5\u7684\u666E\u901A${kind === "directory" ? "\u76EE\u5F55" : "\u6587\u4EF6"}\u3002`
-      );
-    }
-  }
-  const stack = [{ directory: programDirectory, depth: 0 }];
-  let directoriesVisited = 0;
-  while (stack.length > 0) {
-    const { directory: directory2, depth } = stack.pop();
-    directoriesVisited += 1;
-    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
-      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
-    }
-    for (const entry of [...await readStableDirectory(directory2)].reverse()) {
-      const path = join6(directory2, entry.name);
-      const component = relative(projectDirectory, path);
-      if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
-        throw invalidResource(path, component, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
-      }
-      const facts = await lstat3(path);
-      if (facts.isSymbolicLink()) {
-        throw invalidResource(path, component, `${component} \u662F\u7B26\u53F7\u94FE\u63A5\uFF1BRender Program \u6811\u53EA\u5141\u8BB8\u666E\u901A\u6587\u4EF6\u548C\u76EE\u5F55\u3002`);
-      }
-      if (facts.isDirectory()) {
-        const childDepth = depth + 1;
-        if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
-          throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
-        }
-        stack.push({ directory: path, depth: childDepth });
-      } else if (!facts.isFile() || facts.nlink !== 1) {
-        throw invalidResource(path, component, `${component} \u4E0D\u662F\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`);
-      }
-    }
-  }
-  if (await realpath2(programDirectory) !== resolvedProgram) {
-    throw invalidResource(
-      programDirectory,
-      relative(projectDirectory, programDirectory),
-      "Render Program \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002"
-    );
-  }
-}
-async function inspectProjectVNext(inputPath, options = {}) {
-  const projectDirectory = resolve2(inputPath);
-  try {
-    await requireDirectory(projectDirectory);
-  } catch (cause) {
-    throw new ProjectInspectionError(
-      "PROJECT_PATH_UNAVAILABLE",
-      projectDirectory,
-      `\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55 ${projectDirectory}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-      [],
-      { cause }
-    );
-  }
-  const manifestPath = join6(projectDirectory, "narracut.json");
-  let manifestBuffer;
-  try {
-    manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
-  } catch (cause) {
-    if (cause instanceof ProjectInspectionError) throw cause;
-    if (isFileSystemError(cause) && cause.code === "ENOENT") {
-      throw new ProjectInspectionError(
-        "NOT_A_NARRACUT_PROJECT",
-        manifestPath,
-        `\u76EE\u5F55\u4E2D\u6CA1\u6709 narracut.json\uFF1B\u8BF7\u9009\u62E9 Project VNext \u9879\u76EE\u76EE\u5F55\u3002`,
-        [],
-        { cause }
-      );
-    }
-    throw new ProjectInspectionError(
-      "PROJECT_PATH_UNAVAILABLE",
-      manifestPath,
-      `\u65E0\u6CD5\u8BFB\u53D6 ${manifestPath}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-      [],
-      { cause }
-    );
-  }
-  const manifestBytes = decodeUtf8(manifestBuffer, manifestPath, "narracut.json", false);
-  const parsedManifest = parseControlJson(
-    manifestBytes,
-    manifestPath,
-    "narracut.json",
-    MANIFEST_JSON_LIMITS
-  );
-  if (typeof parsedManifest !== "object" || parsedManifest === null || Array.isArray(parsedManifest) || !("kind" in parsedManifest) || parsedManifest.kind !== "narracut-project") {
-    throw new ProjectInspectionError(
-      "NOT_A_NARRACUT_PROJECT",
-      manifestPath,
-      `\u8BE5\u76EE\u5F55\u6CA1\u6709\u6709\u6548\u7684 Project VNext \u6807\u8BC6\uFF1B\u8BF7\u9009\u62E9\u5305\u542B kind=narracut-project \u6E05\u5355\u7684\u9879\u76EE\u76EE\u5F55\u3002`
-    );
-  }
-  const manifest = parsedManifest;
-  if (Number.isInteger(manifest.formatVersion) && manifest.formatVersion !== 1) {
-    throw new ProjectInspectionError(
-      "PROJECT_FORMAT_UNSUPPORTED",
-      manifestPath,
-      `\u9879\u76EE\u683C\u5F0F\u7248\u672C ${String(manifest.formatVersion)} \u4E0D\u53D7\u652F\u6301\uFF1B\u8BF7\u4F7F\u7528\u652F\u6301\u8BE5\u683C\u5F0F\u7684 Narracut \u7248\u672C\u3002`
-    );
-  }
-  const manifestDiagnostics = validateProjectManifest(manifest);
-  if (manifestDiagnostics.length > 0) throw invalidContent(manifestPath, manifestDiagnostics);
-  const requiredEntries = [
-    [join6(projectDirectory, "assets"), "assets/", "directory"],
-    [join6(projectDirectory, "speech"), "speech/", "directory"],
-    [join6(projectDirectory, "renders"), "renders/", "directory"]
-  ];
-  for (const [path, component, kind] of requiredEntries) {
-    try {
-      if (kind === "directory") await requireDirectory(path);
-      else await requireFile(path);
-    } catch (cause) {
-      if (isFileSystemError(cause) && cause.code !== "ENOENT") {
-        throw new ProjectInspectionError(
-          "PROJECT_PATH_UNAVAILABLE",
-          path,
-          `\u65E0\u6CD5\u8BFB\u53D6 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-          [],
-          { cause }
-        );
-      }
-      throw missingContent(path, component);
-    }
-  }
-  const renderProgramDirectories = await discoverRenderProgramDirectories(projectDirectory);
-  if (renderProgramDirectories.length === 0) {
-    throw missingContent(
-      projectDirectory,
-      "\u81F3\u5C11\u4E00\u4EFD\u5019\u9009\u6216\u4FEE\u8BA2\u5185\u90E8\u7684 render-program/"
-    );
-  }
-  for (const programDirectory of renderProgramDirectories) {
-    await validateRenderProgramDirectory(projectDirectory, programDirectory);
-  }
-  let projectBuffer;
-  let videoBuffer;
-  try {
-    [projectBuffer, videoBuffer] = await Promise.all([
-      readBoundedControlFile(
-        join6(projectDirectory, "project.json"),
-        "project.json",
-        10 * 1024 * 1024
-      ),
-      readBoundedControlFile(
-        join6(projectDirectory, "video.md"),
-        "video.md",
-        2 * 1024 * 1024
-      )
-    ]);
-  } catch (cause) {
-    if (cause instanceof ProjectInspectionError) throw cause;
-    const path = isFileSystemError(cause) && typeof cause.path === "string" ? cause.path : projectDirectory;
-    const component = path.startsWith(`${projectDirectory}/`) ? path.slice(projectDirectory.length + 1) : path;
-    if (isFileSystemError(cause) && cause.code === "ENOENT") {
-      throw missingContent(path, component);
-    }
-    throw new ProjectInspectionError(
-      "PROJECT_PATH_UNAVAILABLE",
-      path,
-      `\u65E0\u6CD5\u8BFB\u53D6 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-      [],
-      { cause }
-    );
-  }
-  const projectBytes = decodeUtf8(
-    projectBuffer,
-    join6(projectDirectory, "project.json"),
-    "project.json",
-    false
-  );
-  const videoBytes = decodeUtf8(
-    videoBuffer,
-    join6(projectDirectory, "video.md"),
-    "video.md",
-    true
-  );
-  const projectPath = join6(projectDirectory, "project.json");
-  const parsedProject = parseControlJson(
-    projectBytes,
-    projectPath,
-    "project.json",
-    PROJECT_JSON_LIMITS
-  );
-  const projectValidation = validateProjectDsl(parsedProject);
-  if (projectValidation.project === void 0) {
-    throw invalidContent(projectPath, projectValidation.diagnostics);
-  }
-  let tts;
-  try {
-    tts = await readProjectTtsConfig(projectDirectory);
-  } catch (cause) {
-    if (cause instanceof ProjectTtsConfigError) {
-      throw invalidControlFile(cause.path, {
-        code: cause.code,
-        component: "tts.json",
-        jsonPath: "$",
-        message: cause.message
-      }, { cause });
-    }
-    throw cause;
-  }
-  const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
-    projectDirectory,
-    projectValidation.project,
-    {
-      ...tts.status === "configured" ? { currentTtsProfileId: tts.profileId } : {},
-      probeSpeechDurationMs: options.probeSpeechDurationMs
-    }
-  );
-  return {
-    projectDirectory,
-    manifest,
-    project: projectValidation.project,
-    projectRevision: `sha256:${createHash7("sha256").update(projectBuffer).digest("hex")}`,
-    videoBrief: videoBytes,
-    videoBriefRevision: `sha256:${createHash7("sha256").update(videoBuffer).digest("hex")}`,
-    renderPrograms: { directories: renderProgramDirectories },
-    assetStates,
-    tts,
-    speechStates,
-    timeline,
-    warnings
-  };
-}
-
 // src/server/project-lifecycle.ts
-import { createHash as createHash8, randomUUID as randomUUID5 } from "node:crypto";
+import { createHash as createHash9, randomUUID as randomUUID6 } from "node:crypto";
 import { constants as fsConstants2 } from "node:fs";
 import {
   access,
   link,
-  lstat as lstat4,
+  lstat as lstat5,
   mkdir as mkdir4,
   open as openFile,
   readFile as readFile5,
   readdir as readdir5,
-  realpath as realpath3,
+  realpath as realpath4,
   rename as rename3,
   rmdir,
   rm as rm5,
   unlink,
   writeFile as writeFile3
 } from "node:fs/promises";
-import { basename, dirname as dirname6, isAbsolute as isAbsolute2, join as join7, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
+import { basename, dirname as dirname6, isAbsolute as isAbsolute3, join as join8, relative as relative3, resolve as resolve3, sep as sep2 } from "node:path";
 var STARTER_REACT_VERSION = "19.2.8";
 var STARTER_REMOTION_VERSION = RUNTIME_REMOTION_VERSION;
 var ProjectLifecycleError = class extends Error {
@@ -12962,7 +13244,7 @@ function isCreateOperationMarker(value, projectDirectory, operationToken) {
 }
 async function pathExists(path) {
   try {
-    await lstat4(path);
+    await lstat5(path);
     return true;
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
@@ -12970,7 +13252,7 @@ async function pathExists(path) {
   }
 }
 async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory, confirmed) {
-  const facts = await lstat4(temporaryDirectory);
+  const facts = await lstat5(temporaryDirectory);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -12978,10 +13260,10 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u8DEF\u5F84\u4E0D\u662F\u53EF\u786E\u8BA4\u5F52\u5C5E\u7684\u666E\u901A\u76EE\u5F55\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  const markerPath = join7(temporaryDirectory, OPERATION_MARKER);
+  const markerPath = join8(temporaryDirectory, OPERATION_MARKER);
   let marker;
   try {
-    const markerFacts = await lstat4(markerPath);
+    const markerFacts = await lstat5(markerPath);
     if (!markerFacts.isFile() || markerFacts.isSymbolicLink() || markerFacts.nlink !== 1 || markerFacts.size > 4096) {
       throw new Error("invalid marker");
     }
@@ -13007,7 +13289,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u53D1\u73B0\u4E0E\u672C\u6B21\u76EE\u6807\u5339\u914D\u7684\u521B\u5EFA\u6B8B\u7559\uFF1A${temporaryDirectory}\u3002\u8BF7\u786E\u8BA4\u6E05\u7406\u540E\u4ECE\u5934\u91CD\u8BD5\u3002`
     );
   }
-  const currentFacts = await lstat4(temporaryDirectory);
+  const currentFacts = await lstat5(temporaryDirectory);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino || !currentFacts.isDirectory()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -13107,7 +13389,7 @@ function starterSource() {
   return 'import { AbsoluteFill } from "remotion";\n\ntype RenderProgramInputV1 = Readonly<{ apiVersion: 1 }>;\n\nexport function RenderProgram(input: RenderProgramInputV1) {\n  void input;\n  return <AbsoluteFill style={{ backgroundColor: "#090d0e" }} />;\n}\n';
 }
 async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join7(
+  const renderProgramDirectory = join8(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -13115,29 +13397,29 @@ async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
     "render-program"
   );
   await Promise.all([
-    mkdir4(join7(temporaryDirectory, "assets"), { recursive: true }),
-    mkdir4(join7(temporaryDirectory, "speech"), { recursive: true }),
-    mkdir4(join7(temporaryDirectory, "renders"), { recursive: true }),
-    mkdir4(join7(renderProgramDirectory, "src"), { recursive: true }),
-    mkdir4(join7(renderProgramDirectory, "resources"), { recursive: true })
+    mkdir4(join8(temporaryDirectory, "assets"), { recursive: true }),
+    mkdir4(join8(temporaryDirectory, "speech"), { recursive: true }),
+    mkdir4(join8(temporaryDirectory, "renders"), { recursive: true }),
+    mkdir4(join8(renderProgramDirectory, "src"), { recursive: true }),
+    mkdir4(join8(renderProgramDirectory, "resources"), { recursive: true })
   ]);
   await Promise.all([
-    writeFile3(join7(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
-    writeFile3(join7(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
-    writeFile3(join7(temporaryDirectory, "video.md"), ""),
-    writeFile3(join7(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
+    writeFile3(join8(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
+    writeFile3(join8(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
+    writeFile3(join8(temporaryDirectory, "video.md"), ""),
+    writeFile3(join8(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
     writeFile3(
-      join7(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
+      join8(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
       starterRevision(revisionId)
     ),
-    writeFile3(join7(renderProgramDirectory, "program.json"), starterProgramManifest()),
-    writeFile3(join7(renderProgramDirectory, "package.json"), starterPackageManifest()),
-    writeFile3(join7(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
-    writeFile3(join7(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
+    writeFile3(join8(renderProgramDirectory, "program.json"), starterProgramManifest()),
+    writeFile3(join8(renderProgramDirectory, "package.json"), starterPackageManifest()),
+    writeFile3(join8(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
+    writeFile3(join8(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
   ]);
 }
 async function validateStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join7(
+  const renderProgramDirectory = join8(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -13157,15 +13439,15 @@ async function validateStarterProject(temporaryDirectory, projectId, revisionId)
     source
   ] = await Promise.all([
     inspectProjectVNext(temporaryDirectory),
-    readFile5(join7(temporaryDirectory, "narracut.json"), "utf8"),
-    readFile5(join7(temporaryDirectory, "project.json"), "utf8"),
-    readFile5(join7(temporaryDirectory, "video.md"), "utf8"),
-    readFile5(join7(temporaryDirectory, ".narracut", "current.json"), "utf8"),
-    readFile5(join7(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
-    readFile5(join7(renderProgramDirectory, "program.json"), "utf8"),
-    readFile5(join7(renderProgramDirectory, "package.json"), "utf8"),
-    readFile5(join7(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
-    readFile5(join7(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
+    readFile5(join8(temporaryDirectory, "narracut.json"), "utf8"),
+    readFile5(join8(temporaryDirectory, "project.json"), "utf8"),
+    readFile5(join8(temporaryDirectory, "video.md"), "utf8"),
+    readFile5(join8(temporaryDirectory, ".narracut", "current.json"), "utf8"),
+    readFile5(join8(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
+    readFile5(join8(renderProgramDirectory, "program.json"), "utf8"),
+    readFile5(join8(renderProgramDirectory, "package.json"), "utf8"),
+    readFile5(join8(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
+    readFile5(join8(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
   ]);
   if (inspection.manifest.projectId !== projectId || inspection.project.assets.length !== 0 || inspection.project.scenes.length !== 0 || inspection.videoBrief !== "" || manifest !== starterManifest(projectId) || projectDsl !== '{"assets":[],"scenes":[]}' || videoBrief !== "" || current !== starterCurrent(revisionId) || revision !== starterRevision(revisionId) || programManifest !== starterProgramManifest() || packageManifest2 !== starterPackageManifest() || lockfile !== starterLockfile() || source !== starterSource()) {
     throw new Error("starter \u9879\u76EE\u590D\u6838\u7ED3\u679C\u4E0E\u521B\u5EFA\u8F93\u5165\u4E0D\u4E00\u81F4\u3002");
@@ -13185,7 +13467,7 @@ function isPlainRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 async function readRegularUtf8(path, maxBytes) {
-  const facts = await lstat4(path);
+  const facts = await lstat5(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > maxBytes) {
     throw new Error(`\u4E0D\u662F\u53D7\u652F\u6301\u7684\u666E\u901A\u6587\u4EF6\uFF1A${path}`);
   }
@@ -13193,7 +13475,7 @@ async function readRegularUtf8(path, maxBytes) {
 }
 async function validateCurrentProjectState(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const currentPath = join7(projectDirectory, ".narracut", "current.json");
+  const currentPath = join8(projectDirectory, ".narracut", "current.json");
   let briefRevision = null;
   try {
     const current = parseStrictJson(
@@ -13204,17 +13486,17 @@ async function validateCurrentProjectState(inspection) {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6307\u9488\u65E0\u6548\u3002");
     }
     const revisionId = current.revisionId;
-    const revisionDirectory = join7(projectDirectory, ".narracut", "revisions", revisionId);
-    const renderProgramDirectory = join7(revisionDirectory, "render-program");
+    const revisionDirectory = join8(projectDirectory, ".narracut", "revisions", revisionId);
+    const renderProgramDirectory = join8(revisionDirectory, "render-program");
     if (!inspection.renderPrograms.directories.includes(renderProgramDirectory)) {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6CA1\u6709\u53EF\u68C0\u67E5\u7684 Render Program\u3002");
     }
     const [revision, program, packageJson, lockfile, source] = await Promise.all([
-      readRegularUtf8(join7(revisionDirectory, "revision.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join7(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join7(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join7(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
-      readRegularUtf8(join7(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
+      readRegularUtf8(join8(revisionDirectory, "revision.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join8(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join8(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join8(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
+      readRegularUtf8(join8(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
     ]);
     if (!isPlainRecord(revision) || Object.keys(revision).some(
       (key) => !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary"].includes(key)
@@ -13253,7 +13535,7 @@ async function validateCurrentProjectState(inspection) {
   return briefRevision;
 }
 async function captureDirectoryIdentity(path) {
-  const facts = await lstat4(path);
+  const facts = await lstat5(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new Error(`\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u76EE\u5F55\uFF1A${path}`);
   }
@@ -13265,7 +13547,7 @@ function hasIdentity(facts, identity2) {
 async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, markerWritten, projectDirectory, operationToken) {
   let facts;
   try {
-    facts = await lstat4(temporaryDirectory);
+    facts = await lstat5(temporaryDirectory);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
@@ -13275,7 +13557,7 @@ async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, mar
   }
   if (markerWritten) {
     const marker = JSON.parse(await readRegularUtf8(
-      join7(temporaryDirectory, OPERATION_MARKER),
+      join8(temporaryDirectory, OPERATION_MARKER),
       4096
     ));
     if (!isCreateOperationMarker(marker, projectDirectory, operationToken)) {
@@ -13287,7 +13569,7 @@ async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, mar
 async function cleanupTargetReservation(projectDirectory, identity2) {
   let facts;
   try {
-    facts = await lstat4(projectDirectory);
+    facts = await lstat5(projectDirectory);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
@@ -13310,11 +13592,11 @@ async function createProjectVNext(inputPath, options = {}) {
       "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
     );
   }
-  const temporaryDirectory = join7(dirname6(projectDirectory), `.${projectName}.narracut-tmp`);
-  const createId = options.createId ?? randomUUID5;
+  const temporaryDirectory = join8(dirname6(projectDirectory), `.${projectName}.narracut-tmp`);
+  const createId = options.createId ?? randomUUID6;
   const projectId = createId();
   const revisionId = createId();
-  const operationToken = randomUUID5();
+  const operationToken = randomUUID6();
   let temporaryIdentity = null;
   let markerWritten = false;
   let targetReservationIdentity = null;
@@ -13335,7 +13617,7 @@ async function createProjectVNext(inputPath, options = {}) {
     }
     await mkdir4(temporaryDirectory);
     temporaryIdentity = await captureDirectoryIdentity(temporaryDirectory);
-    await writeFile3(join7(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
+    await writeFile3(join8(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
       kind: "narracut-operation",
       version: 1,
       operation: "create",
@@ -13367,10 +13649,10 @@ async function createProjectVNext(inputPath, options = {}) {
         `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`
       );
     }
-    await unlink(join7(temporaryDirectory, OPERATION_MARKER));
+    await unlink(join8(temporaryDirectory, OPERATION_MARKER));
     markerWritten = false;
     if (targetReservationIdentity !== null) {
-      const currentReservation = await lstat4(projectDirectory);
+      const currentReservation = await lstat5(projectDirectory);
       if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir5(projectDirectory)).length !== 0) {
         throw new ProjectLifecycleError(
           "PROJECT_CREATE_TARGET_EXISTS",
@@ -13446,21 +13728,21 @@ async function clearStaleLease(leasePath) {
   let facts;
   let marker;
   try {
-    facts = await lstat4(leasePath);
+    facts = await lstat5(leasePath);
     if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 4096) return false;
     marker = JSON.parse(await readFile5(leasePath, "utf8"));
   } catch {
     return false;
   }
   if (!isLeaseMarker(marker) || await leaseHolderIsAlive(marker)) return false;
-  const currentFacts = await lstat4(leasePath);
+  const currentFacts = await lstat5(leasePath);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino) return false;
   await unlink(leasePath);
   return true;
 }
 async function acquireProjectLease(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const leasePath = join7(projectDirectory, ".narracut", "workspace.lease");
+  const leasePath = join8(projectDirectory, ".narracut", "workspace.lease");
   if (activeLeasePaths.has(leasePath)) {
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -13475,7 +13757,7 @@ async function acquireProjectLease(inspection) {
     projectId: inspection.manifest.projectId,
     pid: process.pid,
     processIdentity: await readProcessIdentity(process.pid),
-    token: randomUUID5()
+    token: randomUUID6()
   };
   let handle;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -13565,7 +13847,7 @@ async function acquireProjectLease(inspection) {
   return { assertCurrent, release: release2 };
 }
 function revisionOf(bytes) {
-  return `sha256:${createHash8("sha256").update(bytes).digest("hex")}`;
+  return `sha256:${createHash9("sha256").update(bytes).digest("hex")}`;
 }
 async function currentProjectRevision(projectFile, message) {
   try {
@@ -13651,19 +13933,19 @@ async function uniqueAssetPath(assetsDirectory, sourcePath) {
     const candidate = suffixedAssetFilename(filename, suffix);
     const relativePath = `assets/${candidate}`;
     try {
-      await access(join7(assetsDirectory, candidate));
+      await access(join8(assetsDirectory, candidate));
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return relativePath;
       throw error;
     }
   }
-  return `assets/${randomUUID5()}`;
+  return `assets/${randomUUID6()}`;
 }
 async function isProjectControlFile(projectDirectory, sourcePath, sourceFacts) {
   for (const name of ["narracut.json", "project.json", "video.md"]) {
-    const controlPath = join7(projectDirectory, name);
+    const controlPath = join8(projectDirectory, name);
     if (resolve3(sourcePath) === controlPath) return true;
-    const controlFacts = await lstat4(controlPath);
+    const controlFacts = await lstat5(controlPath);
     if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
   }
   return false;
@@ -13695,7 +13977,7 @@ async function copyStableFile(source, opened, temporaryPath, assertDestinationCu
   }
 }
 async function replaceProjectFile(projectFile, bytes, assertWritable) {
-  const temporaryFile = join7(dirname6(projectFile), `.${basename(projectFile)}.${randomUUID5()}.tmp`);
+  const temporaryFile = join8(dirname6(projectFile), `.${basename(projectFile)}.${randomUUID6()}.tmp`);
   let committed = false;
   try {
     const handle = await openFile(temporaryFile, "wx", 384);
@@ -13722,7 +14004,7 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
   }
 }
 async function openProjectVNext(inputPath, options = {}) {
-  const projectDirectory = await realpath3(resolve3(inputPath)).catch(() => resolve3(inputPath));
+  const projectDirectory = await realpath4(resolve3(inputPath)).catch(() => resolve3(inputPath));
   try {
     const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
@@ -13745,7 +14027,7 @@ async function openProjectVNext(inputPath, options = {}) {
           `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
         );
       }
-      const assetsDirectory = join7(projectDirectory, "assets");
+      const assetsDirectory = join8(projectDirectory, "assets");
       const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
       assetsDirectoryHandle = await openFile(assetsDirectory, "r");
       const openedAssetsDirectory = await assetsDirectoryHandle.stat();
@@ -13757,7 +14039,7 @@ async function openProjectVNext(inputPath, options = {}) {
         );
       }
       const anchoredAssetsDirectory = process.platform === "win32" ? assetsDirectory : `/dev/fd/${assetsDirectoryHandle.fd}`;
-      const speechDirectory = join7(projectDirectory, "speech");
+      const speechDirectory = join8(projectDirectory, "speech");
       const speechDirectoryIdentity = await captureDirectoryIdentity(speechDirectory);
       speechDirectoryHandle = await openFile(speechDirectory, "r");
       const openedSpeechDirectory = await speechDirectoryHandle.stat();
@@ -13777,7 +14059,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await lease.assertCurrent();
         let facts;
         try {
-          facts = await lstat4(projectDirectory);
+          facts = await lstat5(projectDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -13794,8 +14076,8 @@ async function openProjectVNext(inputPath, options = {}) {
           );
         }
         try {
-          const manifestPath = join7(projectDirectory, "narracut.json");
-          const manifestFacts = await lstat4(manifestPath);
+          const manifestPath = join8(projectDirectory, "narracut.json");
+          const manifestFacts = await lstat5(manifestPath);
           if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
             throw new Error("\u9879\u76EE\u6E05\u5355\u6587\u4EF6\u8EAB\u4EFD\u65E0\u6548");
           }
@@ -13824,7 +14106,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await assertWritable();
         let facts;
         try {
-          facts = await lstat4(assetsDirectory);
+          facts = await lstat5(assetsDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -13845,7 +14127,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await assertWritable();
         let facts;
         try {
-          facts = await lstat4(speechDirectory);
+          facts = await lstat5(speechDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -13871,7 +14153,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join7(projectDirectory, "project.json");
+          const projectFile = join8(projectDirectory, "project.json");
           try {
             await assertWritable();
             if (await currentProjectRevision(
@@ -13944,7 +14226,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const videoBriefPath = join7(projectDirectory, "video.md");
+          const videoBriefPath = join8(projectDirectory, "video.md");
           try {
             await assertWritable();
             const bytes = Buffer.from(content, "utf8");
@@ -14018,7 +14300,7 @@ async function openProjectVNext(inputPath, options = {}) {
             "Video Brief LOCAL \u5FC5\u987B\u662F\u6700\u591A 2 MiB \u7684\u4E25\u683C UTF-8\uFF1BNarracut \u62D2\u7EDD\u5BFC\u51FA\u3002"
           );
         }
-        const destinationDirectory = await realpath3(resolve3(targetDirectory)).catch((cause) => {
+        const destinationDirectory = await realpath4(resolve3(targetDirectory)).catch((cause) => {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
             resolve3(targetDirectory),
@@ -14026,15 +14308,15 @@ async function openProjectVNext(inputPath, options = {}) {
             { cause }
           );
         });
-        const relation = relative2(projectDirectory, destinationDirectory);
-        if (relation === "" || !relation.startsWith(`..${sep2}`) && relation !== ".." && !isAbsolute2(relation)) {
+        const relation = relative3(projectDirectory, destinationDirectory);
+        if (relation === "" || !relation.startsWith(`..${sep2}`) && relation !== ".." && !isAbsolute3(relation)) {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
             destinationDirectory,
             "Video Brief LOCAL \u53EA\u80FD\u5BFC\u51FA\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002"
           );
         }
-        const facts = await lstat4(destinationDirectory);
+        const facts = await lstat5(destinationDirectory);
         if (!facts.isDirectory() || facts.isSymbolicLink()) {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
@@ -14044,7 +14326,7 @@ async function openProjectVNext(inputPath, options = {}) {
         }
         for (let suffix = 1; suffix <= 1e4; suffix += 1) {
           const filename = suffix === 1 ? "video-brief-local.md" : `video-brief-local-${suffix}.md`;
-          const path = join7(destinationDirectory, filename);
+          const path = join8(destinationDirectory, filename);
           let handle = null;
           try {
             handle = await openFile(path, "wx", 384);
@@ -14055,7 +14337,7 @@ async function openProjectVNext(inputPath, options = {}) {
             if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") continue;
             if (handle !== null) {
               const openedFacts = await handle.stat().catch(() => null);
-              const currentFacts = await lstat4(path).catch(() => null);
+              const currentFacts = await lstat5(path).catch(() => null);
               if (openedFacts !== null && currentFacts !== null && openedFacts.dev === currentFacts.dev && openedFacts.ino === currentFacts.ino) await unlink(path).catch(() => void 0);
             }
             throw new ProjectLifecycleError(
@@ -14083,7 +14365,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join7(projectDirectory, "project.json");
+          const projectFile = join8(projectDirectory, "project.json");
           const sourcePath = resolve3(input.sourcePath);
           await assertWritable();
           if (await currentProjectRevision(
@@ -14098,7 +14380,7 @@ async function openProjectVNext(inputPath, options = {}) {
           }
           let pathFacts;
           try {
-            pathFacts = await lstat4(sourcePath);
+            pathFacts = await lstat5(sourcePath);
           } catch (cause) {
             return {
               status: "failed",
@@ -14159,11 +14441,11 @@ async function openProjectVNext(inputPath, options = {}) {
             }
             await assertAssetsDirectoryCurrent();
             const asset = {
-              id: randomUUID5(),
+              id: randomUUID6(),
               path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath)
             };
-            const temporaryPath = join7(anchoredAssetsDirectory, `.import-${randomUUID5()}.tmp`);
-            let finalPath = join7(anchoredAssetsDirectory, basename(asset.path));
+            const temporaryPath = join8(anchoredAssetsDirectory, `.import-${randomUUID6()}.tmp`);
+            let finalPath = join8(anchoredAssetsDirectory, basename(asset.path));
             let published = false;
             try {
               await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
@@ -14176,7 +14458,7 @@ async function openProjectVNext(inputPath, options = {}) {
                 } catch (cause) {
                   if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
                   asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
-                  finalPath = join7(anchoredAssetsDirectory, basename(asset.path));
+                  finalPath = join8(anchoredAssetsDirectory, basename(asset.path));
                 }
               }
               if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
@@ -14254,7 +14536,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join7(projectDirectory, "project.json");
+          const projectFile = join8(projectDirectory, "project.json");
           await assertWritable();
           if (await currentProjectRevision(
             projectFile,
@@ -14353,7 +14635,7 @@ async function openProjectVNext(inputPath, options = {}) {
             if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
             throw new ProjectLifecycleError(
               "PROJECT_SAVE_FAILED",
-              join7(projectDirectory, "tts.json"),
+              join8(projectDirectory, "tts.json"),
               "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1BNarracut \u5DF2\u4FDD\u7559\u539F\u914D\u7F6E\u4E0E Scene \u5185\u5BB9\u3002",
               { cause }
             );
@@ -14364,8 +14646,8 @@ async function openProjectVNext(inputPath, options = {}) {
       };
       const probeSpeechAudio = async (input) => {
         await assertSpeechDirectoryCurrent();
-        const probeFile = join7(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
-        const decoderPath = process.platform === "linux" ? join7(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join7(speechDirectory, `.probe-${input.jobId}.mp3`);
+        const probeFile = join8(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
+        const decoderPath = process.platform === "linux" ? join8(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join8(speechDirectory, `.probe-${input.jobId}.mp3`);
         let created = false;
         try {
           const handle = await openFile(probeFile, "wx", 384);
@@ -14431,9 +14713,9 @@ async function openProjectVNext(inputPath, options = {}) {
               inspection: currentInspection
             };
           }
-          const finalFile = join7(anchoredSpeechDirectory, `${scene.id}.mp3`);
-          const temporaryFile = join7(anchoredSpeechDirectory, `.speech-${randomUUID5()}.tmp`);
-          const backupFile = join7(anchoredSpeechDirectory, `.speech-${randomUUID5()}.previous`);
+          const finalFile = join8(anchoredSpeechDirectory, `${scene.id}.mp3`);
+          const temporaryFile = join8(anchoredSpeechDirectory, `.speech-${randomUUID6()}.tmp`);
+          const backupFile = join8(anchoredSpeechDirectory, `.speech-${randomUUID6()}.previous`);
           let previousFile = false;
           let published = false;
           try {
@@ -14445,7 +14727,7 @@ async function openProjectVNext(inputPath, options = {}) {
               await handle.close();
             }
             try {
-              const finalFacts = await lstat4(finalFile);
+              const finalFacts = await lstat5(finalFile);
               if (!finalFacts.isFile() || finalFacts.isSymbolicLink()) {
                 throw new ProjectLifecycleError(
                   "PROJECT_IDENTITY_LOST",
@@ -14454,7 +14736,7 @@ async function openProjectVNext(inputPath, options = {}) {
                 );
               }
               await link(finalFile, backupFile);
-              const backupFacts = await lstat4(backupFile);
+              const backupFacts = await lstat5(backupFile);
               if (!backupFacts.isFile() || backupFacts.isSymbolicLink() || !hasIdentity(backupFacts, finalFacts)) {
                 throw new ProjectLifecycleError(
                   "PROJECT_IDENTITY_LOST",
@@ -14475,11 +14757,11 @@ async function openProjectVNext(inputPath, options = {}) {
             target.speech = {
               path: `speech/${scene.id}.mp3`,
               durationMs: input.durationMs,
-              sourceTextHash: `sha256:${createHash8("sha256").update(input.narrationText, "utf8").digest("hex")}`,
+              sourceTextHash: `sha256:${createHash9("sha256").update(input.narrationText, "utf8").digest("hex")}`,
               ttsProfileId: input.ttsProfileId,
-              audioContentHash: `sha256:${createHash8("sha256").update(input.audio).digest("hex")}`
+              audioContentHash: `sha256:${createHash9("sha256").update(input.audio).digest("hex")}`
             };
-            const projectFile = join7(projectDirectory, "project.json");
+            const projectFile = join8(projectDirectory, "project.json");
             const baselineRevision = currentInspection.projectRevision;
             const validated = validateProjectVNextForSave(project, projectFile);
             const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
@@ -14575,6 +14857,10 @@ async function openProjectVNext(inputPath, options = {}) {
       };
       return {
         candidate,
+        readPreviewSource: async (target) => {
+          await saveQueue;
+          return candidateManager.previewSource(target);
+        },
         buildCandidateBundle: async (request) => {
           await saveQueue;
           return candidateManager.build(request);
@@ -14613,8 +14899,8 @@ async function openProjectVNext(inputPath, options = {}) {
 
 // src/server/project-asset-preview.ts
 import { constants as fsConstants3 } from "node:fs";
-import { lstat as lstat5, open as openFile2 } from "node:fs/promises";
-import { basename as basename2, join as join8 } from "node:path";
+import { lstat as lstat6, open as openFile2 } from "node:fs/promises";
+import { basename as basename2, join as join9 } from "node:path";
 var MAX_INLINE_PREVIEW_BYTES = 32 * 1024 * 1024;
 function startsWith(bytes, signature) {
   return signature.every((byte, index) => bytes[index] === byte);
@@ -14653,7 +14939,7 @@ async function readProjectAssetPreview(inspection, assetId) {
   if (asset === void 0) {
     return { status: "dangling", id: assetId, reason: "\u672A\u627E\u5230\u767B\u8BB0\u7684 Asset\u3002" };
   }
-  const absolutePath = join8(inspection.projectDirectory, asset.path);
+  const absolutePath = join9(inspection.projectDirectory, asset.path);
   try {
     const { assetStates: [runtime] } = await validateProjectVNextResources(
       inspection.projectDirectory,
@@ -14667,7 +14953,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         reason: runtime?.reason ?? "Asset \u6587\u4EF6\u4E0D\u53EF\u7528\u3002"
       };
     }
-    const before = await lstat5(absolutePath);
+    const before = await lstat6(absolutePath);
     const handle = await openFile2(absolutePath, fsConstants3.O_RDONLY | (fsConstants3.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
@@ -14746,6 +15032,20 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  {
+    name: "project_preview",
+    title: "\u6784\u5EFA\u4E0E\u68C0\u67E5\u53EA\u8BFB\u6210\u7247 Preview",
+    description: "\u53EA\u8BFB\u6784\u5EFA\u5F53\u524D\u6216\u5019\u9009\u7684\u4E0D\u53EF\u53D8 Preview\uFF0C\u6216\u6838\u5BF9\u65E2\u6709\u5B9E\u4F8B\u65B0\u9C9C\u5EA6\u3002\u4E0D\u63A5\u53D7\u5019\u9009\u3001\u4E0D\u5199 Scene\u3002",
+    inputSchema: {
+      type: "object",
+      required: ["projectDirectory", "projectId", "action"],
+      additionalProperties: false,
+      properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["build", "status", "release"] }, target: { enum: ["current", "candidate"] }, parentOrigin: { type: "string" }, instanceId: { type: "string" } }
+    },
+    outputSchema: { type: "object" },
+    annotations: readOnlyToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
   {
     name: "coordinate_project_dependencies",
     title: "\u534F\u8C03\u5019\u9009\u7CBE\u786E\u4F9D\u8D56",
@@ -15163,15 +15463,16 @@ function diagnosticSummary(diagnostics) {
   }));
 }
 async function loadWorkbench() {
-  const [html, script, paperTexture, filmTexture, displayFont] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont, previewScript] = await Promise.all([
     readFile6(WORKBENCH_PATH, "utf8"),
     readFile6(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile6(PAPER_TEXTURE_PATH),
     readFile6(FILM_TEXTURE_PATH),
-    readFile6(DISPLAY_FONT_PATH)
+    readFile6(DISPLAY_FONT_PATH),
+    readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8")
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
-  return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", script);
+  return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + script);
 }
 async function inspectProject(argumentsValue) {
   if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue) || typeof argumentsValue.projectDirectory !== "string") {
@@ -15186,7 +15487,7 @@ async function inspectProject(argumentsValue) {
     };
   }
   const projectDirectory = argumentsValue.projectDirectory;
-  if (!isAbsolute3(projectDirectory)) {
+  if (!isAbsolute4(projectDirectory)) {
     return {
       isError: true,
       structuredContent: {
@@ -15269,6 +15570,22 @@ function credentialState(value) {
   return { status: "available", storage: "session", masked: `\u2022\u2022\u2022\u2022${value.slice(-4)}` };
 }
 var ProjectWorkspaceSession = class {
+  preview = new ProjectPreview();
+  async previewOperation(input) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.action === "status") return this.preview.status(opened, input.instanceId);
+    if (input.action === "release") {
+      this.preview.release(input.instanceId);
+      return {};
+    }
+    if (input.action !== "build" || !["current", "candidate"].includes(input.target) || typeof input.parentOrigin !== "string") throw new Error("Preview \u53C2\u6570\u65E0\u6548\u3002");
+    const preview = await this.preview.build(opened, input.target, input.parentOrigin);
+    if (this.#opened !== opened) {
+      this.preview.release(preview.instanceId);
+      throw new Error("\u6784\u5EFA\u6240\u5C5E\u9879\u76EE\u5DF2\u5173\u95ED\uFF0C\u7ED3\u679C\u5DF2\u4E22\u5F03\u3002");
+    }
+    return { preview };
+  }
   #opened = null;
   #credentials = /* @__PURE__ */ new Map();
   #speechJobs = /* @__PURE__ */ new Map();
@@ -15296,6 +15613,7 @@ var ProjectWorkspaceSession = class {
       await next.release();
       throw error;
     }
+    this.preview.clear();
     this.#opened = next;
     this.#candidateStatus = await next.candidate({ action: "read" });
     return next.inspection;
@@ -15403,7 +15721,7 @@ var ProjectWorkspaceSession = class {
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const job = {
-      id: randomUUID6(),
+      id: randomUUID7(),
       sceneId: scene.id,
       status: "queued",
       stage: "\u6392\u961F",
@@ -15561,6 +15879,7 @@ var ProjectWorkspaceSession = class {
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
     }
+    await this.preview.close();
     this.#credentials.clear();
     this.#speechJobs.clear();
     const opened = this.#opened;
@@ -15589,6 +15908,13 @@ async function callTool(params, hostValidation, workspace) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
   const { name, arguments: argumentsValue } = params;
+  if (name === "project_preview") {
+    try {
+      return { structuredContent: await workspace.previewOperation(argumentsValue), content: [] };
+    } catch (error) {
+      return { isError: true, structuredContent: { error: { code: error.code ?? "PREVIEW_FAILED", message: error instanceof Error ? error.message : "Preview \u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002" } }, content: [] };
+    }
+  }
   if (name === "health_check") {
     return {
       structuredContent: { status: "connected", server: "narracut", readOnly: false },
@@ -15603,7 +15929,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "create_project" || name === "open_project") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute3(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute4(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {
@@ -15663,7 +15989,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "coordinate_project_dependencies") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
       return { isError: true, structuredContent: { status: "dependency-failed", error: { code: "DEPENDENCY_SOURCE_UNSUPPORTED", message: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" } }, content: [{ type: "text", text: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" }] };
     }
     try {
@@ -15678,7 +16004,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "manage_project_candidate") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
       return { isError: true, structuredContent: { status: "candidate-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" } }, content: [{ type: "text", text: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" }] };
     }
     try {
@@ -15703,7 +16029,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
       return {
         isError: true,
         structuredContent: {
@@ -15752,7 +16078,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -15805,7 +16131,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute3(input.targetDirectory) || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute4(input.targetDirectory) || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -15849,7 +16175,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute3(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute4(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -15900,7 +16226,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
       return {
         isError: true,
         structuredContent: { assetPreview: { status: "dangling", id: "", reason: "\u9879\u76EE\u8EAB\u4EFD\u6216 Asset ID \u65E0\u6548\u3002" } },
@@ -15943,7 +16269,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
       return {
         isError: true,
         structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u914D\u7F6E\u6216\u51ED\u636E\u64CD\u4F5C\u65E0\u6548\u3002" } },
@@ -16000,7 +16326,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute3(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
       return {
         isError: true,
         structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u6216 Scene ID \u65E0\u6548\u3002" } },
@@ -16064,7 +16390,7 @@ async function callTool(params, hostValidation, workspace) {
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute3(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute4(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {
@@ -16158,7 +16484,7 @@ function createNarracutRequestHandler(options = {}) {
             _meta: {
               ui: {
                 prefersBorder: false,
-                csp: { connectDomains: [], resourceDomains: [] }
+                csp: { connectDomains: [], resourceDomains: [], frameDomains: [await workspace.preview.source.origin()] }
               }
             }
           }]

@@ -304,15 +304,25 @@ export async function createCandidateManager(project: string, assertWritable: ()
     }
   };
   return Object.assign(operate, {
-    async build(request: Omit<ProgramBuildRequest, 'program' | 'offline'> & { baseline: string }) {
+    async previewSource(target: 'current' | 'candidate') {
+      const snapshot = await inspect();
+      const revision = await currentRevision();
+      const tree = target === 'current' ? await readTree(join(internal, 'revisions', revision, 'render-program')) : snapshot.tree;
+      if (!tree || (target === 'candidate' && snapshot.view.status !== 'saved')) fail('CANDIDATE_BASELINE_CONFLICT', '没有完整可播放程序。');
+      return { revision, identity: identity(tree!), manifest: Buffer.from(tree!.get('program.json') ?? ''), baseline: snapshot.view.baseline };
+    },
+    async build(request: Omit<ProgramBuildRequest, 'program' | 'offline'> & { baseline: string; target?: 'current' | 'candidate'; sourceIdentity?: string }) {
       const before = await inspect();
-      if (before.view.status !== 'saved' || !before.tree || before.view.baseline !== request.baseline) {
+      if ((request.target !== 'current' && (before.view.status !== 'saved' || !before.tree)) || before.view.baseline !== request.baseline) {
         throw new CandidateError('CANDIDATE_BASELINE_CONFLICT', '候选不完整或已变化；请重新读取后构建。');
       }
-      const program = new Map([...before.tree].filter((entry): entry is [string, Buffer] => entry[1] !== null));
+      const revision = await currentRevision();
+      const tree = request.target === 'current' ? await readTree(join(internal, 'revisions', revision, 'render-program')) : before.tree!;
+      if (request.sourceIdentity && request.sourceIdentity !== identity(tree)) fail('CANDIDATE_BASELINE_CONFLICT', '程序在构建前已变化。');
+      const program = new Map([...tree].filter((entry): entry is [string, Buffer] => entry[1] !== null));
       const bundle = await buildProgramBundle({ ...request, program, offline: before.offline?.store ?? new Map() });
       const after = await inspect();
-      if (after.view.status !== 'saved' || after.view.baseline !== before.view.baseline) {
+      if ((request.target !== 'current' && after.view.status !== 'saved') || after.view.baseline !== before.view.baseline || (request.target === 'current' && (await currentRevision() !== revision || identity(await readTree(join(internal, 'revisions', revision, 'render-program'))) !== identity(tree)))) {
         throw new CandidateError('CANDIDATE_BASELINE_CONFLICT', '构建期间候选或离线库已变化；结果已丢弃。');
       }
       return bundle;

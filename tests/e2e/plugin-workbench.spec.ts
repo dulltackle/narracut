@@ -1524,7 +1524,7 @@ test("工作区标签支持手动键盘激活，零 Scene 与长草稿在窄屏�
   await agent.press("Enter");
   await expect(page.getByRole("tabpanel", { name: "Agent 工作区" })).toBeVisible();
   await expect(page.getByText("当前项目没有 Scene", { exact: true })).toBeVisible();
-  await expect(page.getByText("尚未检查 · 候选审核尚未接入", { exact: true })).toBeVisible();
+  await expect(page.getByText("尚无预览 · 构建当前版本或候选后检查成片", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "开始验证" }).scrollIntoViewIfNeeded();
   await expect(page.getByRole("button", { name: "开始验证" })).toBeInViewport();
   expect(await page.locator("#workspace-agent .stage").evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true);

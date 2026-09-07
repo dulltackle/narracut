@@ -669,6 +669,7 @@ export async function createProjectVNext(
 
 export type OpenedProjectVNext = {
   candidate: (request: CandidateRequest) => Promise<CandidateStatus>;
+  readPreviewSource: Awaited<ReturnType<typeof createCandidateManager>>["previewSource"];
   buildCandidateBundle: Awaited<ReturnType<typeof createCandidateManager>>["build"];
   inspection: ProjectVNextInspection;
   saveProject: (
@@ -1989,6 +1990,7 @@ export async function openProjectVNext(
       };
       return {
         candidate,
+        readPreviewSource: async (target) => { await saveQueue; return candidateManager.previewSource(target); },
         buildCandidateBundle: async (request) => {
           await saveQueue;
           return candidateManager.build(request);
