@@ -30,6 +30,15 @@
         ],
         "createdAt": "2026-09-04T07:00:36.332Z",
         "reason": "Agent: DESIGN.md 明确要求用蓝色三角形作为 Scene 选中位置标记；该声明绘制三角几何，不是卡片侧边条。"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "fixed",
+        "createdAt": "2026-09-07T08:05:23.639Z",
+        "reason": "Codex 判定：仅用于 execution-capsule.ts 中的隔离浏览器认证夹具，绑定项目已有 Noto Sans SC 字节，不是产品字体变更。",
+        "files": [
+          "src/server/execution-capsule.ts"
+        ]
       }
     ]
   }

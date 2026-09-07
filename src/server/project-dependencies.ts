@@ -1,14 +1,12 @@
+import { DependencyError, integrityKey, verifyPackageBytes } from './dependency-integrity';
+export { DependencyError, integrityKey, verifyPackageBytes } from './dependency-integrity';
+import { localExecutionCapsule } from './execution-capsule';
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { parse, stringify } from 'yaml';
 import { valid, validRange, satisfies, rcompare } from 'semver';
 
 export const RUNTIME_REMOTION_VERSION = '4.0.512';
-const REGISTRY = 'https://registry.npmjs.org';
-const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
-export class DependencyError extends Error {
-  constructor(readonly code: string, message: string) { super(message); }
-}
 export type DependencyPin = { name: string; version: string; integrity: string };
 export type DependencyUpdate = { dependencies?: Record<string, string>; packages?: DependencyPin[] };
 export type OfflinePackages = Map<string, Buffer>;
@@ -16,60 +14,14 @@ const fail = (message: string): never => { throw new DependencyError('DEPENDENCY
 const nameValid = (name: unknown): name is string => typeof name === 'string' && /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(name) && name.length <= 214;
 const versionValid = (version: unknown): version is string => typeof version === 'string' && valid(version) === version;
 const record = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value);
-export function integrityKey(integrity: string) {
-  if (typeof integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity)) return fail('依赖必须提供规范 SHA-512 完整性摘要。');
-  const bytes = Buffer.from(integrity.slice(7), 'base64');
-  if (bytes.toString('base64') !== integrity.slice(7)) return fail('依赖完整性摘要不是规范 Base64。');
-  return bytes.toString('hex');
-}
-export function verifyPackageBytes(key: string, bytes: Buffer) {
-  if (createHash('sha512').update(bytes).digest('hex') !== key) throw new DependencyError('DEPENDENCY_INTEGRITY_FAILED', '离线依赖包完整性不符；请显式协调修复。');
-}
 function validatePin(pin: DependencyPin) {
   if (!record(pin) || Object.keys(pin).some(k => !['name', 'version', 'integrity'].includes(k)) ||
       !nameValid(pin.name) || !versionValid(pin.version)) fail('只允许公共 npm 包名、精确版本和完整性摘要；不接受来源或凭据字段。');
   integrityKey(pin.integrity);
   if ((pin.name === 'remotion' || pin.name.startsWith('@remotion/') || pin.name === '@narracut/runtime') && pin.version !== RUNTIME_REMOTION_VERSION) { throw new DependencyError('REMOTION_VERSION_MISMATCH', `全部 Remotion 包必须与 Runtime 精确同版 ${RUNTIME_REMOTION_VERSION}。`); }
 }
-function registryURL(raw: string) {
-  let url: URL;
-  try { url = new URL(raw); } catch { return fail('依赖 URL 无效。'); }
-  if (url.origin !== REGISTRY || url.username || url.password || url.search || url.hash) fail('依赖与重定向只能来自固定公共 npm registry，且不得携带凭据。');
-  return url.href;
-}
-/** 唯一联网入口：不调用包管理器、不读取 npm 配置，也不执行项目代码。 */
 async function download(pin: DependencyPin) {
-  const basename = pin.name.split('/').at(-1)!;
-  let url = registryURL(`${REGISTRY}/${pin.name}/-/${basename}-${pin.version}.tgz`);
-  const signal = AbortSignal.timeout(30_000);
-  for (let redirects = 0; redirects <= 4; redirects++) {
-    let response: Response;
-    try { response = await fetch(url, { redirect: 'manual', credentials: 'omit', headers: { accept: 'application/octet-stream' }, signal }); }
-    catch { throw new DependencyError('DEPENDENCY_UNAVAILABLE', `依赖下载中断：${pin.name}@${pin.version}；请显式重试。`); }
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      await response.body?.cancel();
-      const location = response.headers.get('location');
-      if (!location) fail('registry 重定向缺少目标。');
-      url = registryURL(new URL(location!, url).href);
-      continue;
-    }
-    if (!response.ok || !response.body) { await response.body?.cancel(); throw new DependencyError('DEPENDENCY_UNAVAILABLE', `公共 npm 包下载失败：${pin.name}@${pin.version}。`); }
-    if (response.url) registryURL(response.url);
-    const reader = response.body.getReader();
-    const chunks: Buffer[] = []; let size = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read(); if (done) break;
-        size += value.length;
-        if (size > MAX_PACKAGE_BYTES) fail('依赖下载输出超过阶段上限 32 MiB。');
-        chunks.push(Buffer.from(value));
-      }
-    } finally { await reader.cancel(); }
-    const bytes = Buffer.concat(chunks);
-    verifyPackageBytes(integrityKey(pin.integrity), bytes);
-    return bytes;
-  }
-  return fail('依赖重定向次数超限。');
+  return (await localExecutionCapsule()).downloadPackage(pin);
 }
 /** 只解析 tar 数据，不落盘解包；链接、特殊文件与路径逃逸在安装前拒绝。 */
 function packageManifest(bytes: Buffer, pin: DependencyPin): Record<string, any> {

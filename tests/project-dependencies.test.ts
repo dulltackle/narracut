@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { expect, it, vi, afterEach } from 'vitest';
 import { createProjectVNext, openProjectVNext } from '../src/server/project-lifecycle';
 
+// 依赖下载包含真实 OS 胶囊认证，首次调用需要完成资源与浏览器验收。
+vi.setConfig({ testTimeout: 30_000 });
 afterEach(() => vi.unstubAllGlobals());
 it('依赖协调拒绝非精确声明与非公共来源，失败不改变候选且不联网', async () => {
   const directory = join(await mkdtemp(join(tmpdir(), 'dependencies-')), 'project');
