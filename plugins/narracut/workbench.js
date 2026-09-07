@@ -1881,16 +1881,19 @@
       row.addEventListener("click", (event) => {
         if (event.target.closest("button,textarea,input")) return;
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         state.toast = null;
         render();
       }, { signal: bindings.signal });
       row.querySelector(".scene-select")?.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         state.toast = null;
         render();
       }, { signal: bindings.signal });
       row.querySelector("[data-edit-narration]")?.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         state.editing = row.dataset.sceneId;
         state.editGroupOpen = false;
         state.focusTarget = "[data-narration-editor]";
@@ -1898,6 +1901,7 @@
       }, { signal: bindings.signal });
       row.querySelector("[data-open-scene-assets]")?.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         state.inspectorMode = "scene-assets";
         state.inspectionOpen = true;
         state.assetSearch = "";
@@ -2154,6 +2158,7 @@
     if (state.result?.status === "valid" && !state.result.writable) {
       document.querySelectorAll("[data-scene-id]").forEach((row) => row.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         render();
       }, { signal: bindings.signal }));
       bindSceneScroll();

@@ -76,6 +76,18 @@ function checkBinding(input: RenderProgramInputV1, speech: readonly RuntimeSpeec
   if (!Number.isSafeInteger(frame) || frame !== input.durationInFrames || speech.some(track => !ids.has(track.sceneId))) invalid();
 }
 
+/** Preview 状态检查和构建共享完全相同的环境身份算法。 */
+async function programEnvironment(capsuleIdentity: string, toolchain: Awaited<ReturnType<typeof programToolchain>>) {
+  const runtimeFiles = { ...toolchain.files, 'source/entry.tsx': Buffer.from(PROGRAM_RUNTIME_SOURCE), 'source/entry-contract.ts': Buffer.from(PROGRAM_ENTRY_CONTRACT), 'source/safe-jsx.ts': Buffer.from(PROGRAM_SAFE_JSX), 'source/safe-remotion.ts': Buffer.from(PROGRAM_SAFE_REMOTION), 'launch.mjs': Buffer.from("process.env.ESBUILD_BINARY_PATH='/tmp/tools/esbuild';await import('./worker.mjs');") };
+  const metadataDriver = await bundleApplicationWorker('metadata');
+  const identity = fingerprint(new Map([...Object.entries(runtimeFiles), ['capsule', Buffer.from(capsuleIdentity)], ['metadata-worker', metadataDriver]]));
+  return { runtimeFiles, metadataDriver, identity };
+}
+export async function programEnvironmentIdentity() {
+  const capsule = await localExecutionCapsule();
+  return (await programEnvironment(await capsule.certify(), await programToolchain())).identity;
+}
+
 /** 从不可变候选字节构建；返回前不发布任何 Bundle，调用方可保留上一成功对象。 */
 export async function buildProgramBundle(request: ProgramBuildRequest): Promise<ProgramBundle> {
   // 在首个 await 前拍下全部输入，调用者后续编辑不能混入本次构建。
@@ -124,9 +136,9 @@ export async function buildProgramBundle(request: ProgramBuildRequest): Promise<
     if ([...fixed.files.keys()].some(path => !installed.has(`packages/${i}/${path}`))) throw new ProgramBuildError('DEPENDENCY_INTEGRITY_FAILED', '核心依赖缺少固定 Runtime 文件。');
   }
   const config = Buffer.from(JSON.stringify({ stage: 'build', packages, roots, trustedFiles }));
-  const runtimeFiles = { ...toolchain.files, 'config.json': config, 'source/entry.tsx': Buffer.from(PROGRAM_RUNTIME_SOURCE), 'source/entry-contract.ts': Buffer.from(PROGRAM_ENTRY_CONTRACT), 'source/safe-jsx.ts': Buffer.from(PROGRAM_SAFE_JSX), 'source/safe-remotion.ts': Buffer.from(PROGRAM_SAFE_REMOTION), 'launch.mjs': Buffer.from("process.env.ESBUILD_BINARY_PATH='/tmp/tools/esbuild';await import('./worker.mjs');") };
-  const metadataDriver = await bundleApplicationWorker('metadata');
-  const environmentIdentity = fingerprint(new Map([...Object.entries(runtimeFiles).filter(([path]) => path !== 'config.json'), ['capsule', Buffer.from(capsuleIdentity)], ['metadata-worker', metadataDriver]]));
+  const environment = await programEnvironment(capsuleIdentity, toolchain);
+  const runtimeFiles = { ...environment.runtimeFiles, 'config.json': config };
+  const { metadataDriver, identity: environmentIdentity } = environment;
   const bundle = await capsule.run({ stage: 'build', entry: 'runtime/launch.mjs', signal: request.signal, inputs: {
     ...Object.fromEntries([...program].map(([path, bytes]) => [`program/${path}`, bytes])),
     ...Object.fromEntries([...installed].map(([path, bytes]) => [`dependencies/${path}`, bytes])),

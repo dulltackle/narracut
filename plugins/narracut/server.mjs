@@ -11967,6 +11967,16 @@ function checkBinding(input, speech, output) {
   }
   if (!Number.isSafeInteger(frame) || frame !== input.durationInFrames || speech.some((track) => !ids.has(track.sceneId))) invalid();
 }
+async function programEnvironment(capsuleIdentity, toolchain) {
+  const runtimeFiles = { ...toolchain.files, "source/entry.tsx": Buffer.from(PROGRAM_RUNTIME_SOURCE), "source/entry-contract.ts": Buffer.from(PROGRAM_ENTRY_CONTRACT), "source/safe-jsx.ts": Buffer.from(PROGRAM_SAFE_JSX), "source/safe-remotion.ts": Buffer.from(PROGRAM_SAFE_REMOTION), "launch.mjs": Buffer.from("process.env.ESBUILD_BINARY_PATH='/tmp/tools/esbuild';await import('./worker.mjs');") };
+  const metadataDriver = await bundleApplicationWorker("metadata");
+  const identity2 = fingerprint(new Map([...Object.entries(runtimeFiles), ["capsule", Buffer.from(capsuleIdentity)], ["metadata-worker", metadataDriver]]));
+  return { runtimeFiles, metadataDriver, identity: identity2 };
+}
+async function programEnvironmentIdentity() {
+  const capsule = await localExecutionCapsule();
+  return (await programEnvironment(await capsule.certify(), await programToolchain())).identity;
+}
 async function buildProgramBundle(request) {
   const program = new Map([...request.program].map(([path, bytes]) => [path, Buffer.from(bytes)]));
   const offline = new Map([...request.offline].map(([key, bytes]) => [key, Buffer.from(bytes)]));
@@ -12012,9 +12022,9 @@ async function buildProgramBundle(request) {
     if ([...fixed.files.keys()].some((path) => !installed.has(`packages/${i}/${path}`))) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u7F3A\u5C11\u56FA\u5B9A Runtime \u6587\u4EF6\u3002");
   }
   const config = Buffer.from(JSON.stringify({ stage: "build", packages, roots, trustedFiles }));
-  const runtimeFiles = { ...toolchain.files, "config.json": config, "source/entry.tsx": Buffer.from(PROGRAM_RUNTIME_SOURCE), "source/entry-contract.ts": Buffer.from(PROGRAM_ENTRY_CONTRACT), "source/safe-jsx.ts": Buffer.from(PROGRAM_SAFE_JSX), "source/safe-remotion.ts": Buffer.from(PROGRAM_SAFE_REMOTION), "launch.mjs": Buffer.from("process.env.ESBUILD_BINARY_PATH='/tmp/tools/esbuild';await import('./worker.mjs');") };
-  const metadataDriver = await bundleApplicationWorker("metadata");
-  const environmentIdentity = fingerprint(new Map([...Object.entries(runtimeFiles).filter(([path]) => path !== "config.json"), ["capsule", Buffer.from(capsuleIdentity)], ["metadata-worker", metadataDriver]]));
+  const environment2 = await programEnvironment(capsuleIdentity, toolchain);
+  const runtimeFiles = { ...environment2.runtimeFiles, "config.json": config };
+  const { metadataDriver, identity: environmentIdentity } = environment2;
   const bundle = await capsule.run({ stage: "build", entry: "runtime/launch.mjs", signal: request.signal, inputs: {
     ...Object.fromEntries([...program].map(([path, bytes]) => [`program/${path}`, bytes])),
     ...Object.fromEntries([...installed].map(([path, bytes]) => [`dependencies/${path}`, bytes])),
@@ -12215,14 +12225,10 @@ async function snapshotFile(root, path, limit) {
 var ProjectPreview = class {
   source = new PreviewOrigin();
   #active = /* @__PURE__ */ new Map();
-  async capture(opened, target) {
+  async #observe(opened, output) {
     const root = opened.inspection.projectDirectory;
     const state = await inspectProjectVNext(root);
     if (state.manifest.projectId !== opened.inspection.manifest.projectId) throw new Error("\u9879\u76EE\u8EAB\u4EFD\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-    const candidate = await opened.candidate({ action: "read" });
-    const source = await opened.readPreviewSource(target);
-    const manifest = source.manifest;
-    const output = checkProgramManifest(manifest).output;
     const media = /* @__PURE__ */ new Map(), assetSources = /* @__PURE__ */ new Map();
     let total = 0;
     async function add(path) {
@@ -12238,11 +12244,18 @@ var ProjectPreview = class {
     const input = createRenderProgramInput(state, output, assetSources);
     const speech = [];
     for (const scene of input.scenes) if (scene.time.source === "speech") {
-      const source2 = state.project.scenes.find((item) => item.id === scene.id).speech;
-      speech.push({ sceneId: scene.id, startFrame: scene.time.startFrame, durationInFrames: scene.time.durationInFrames, src: await add(source2.path) });
+      const source = state.project.scenes.find((item) => item.id === scene.id).speech;
+      speech.push({ sceneId: scene.id, startFrame: scene.time.startFrame, durationInFrames: scene.time.durationInFrames, src: await add(source.path) });
     }
+    return { state, input, speech, media };
+  }
+  async capture(opened, target) {
+    const candidate = await opened.candidate({ action: "read" });
+    const source = await opened.readPreviewSource(target);
+    const manifest = source.manifest;
+    const { state, input, speech, media } = await this.#observe(opened, checkProgramManifest(manifest).output);
     const signature = previewDigest(JSON.stringify([state.projectRevision, state.videoBriefRevision, target === "candidate" ? candidate.baseline : source.revision, source.identity, manifest.toString(), [...media.keys()].sort(), input, speech]));
-    return { input, speech, media, signature, baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
+    return { input, speech, media, signature, brief: state.videoBriefRevision, projectInput: previewDigest(JSON.stringify([state.projectRevision, input, speech])), baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
   }
   async build(opened, target, parentOrigin) {
     if (this.#active.size >= 4) throw new Error("Preview \u5B9E\u4F8B\u5DF2\u8FBE\u4E0A\u9650\uFF0C\u8BF7\u5173\u95ED\u9690\u85CF\u5B9E\u4F8B\u540E\u91CD\u8BD5\u3002");
@@ -12251,17 +12264,40 @@ var ProjectPreview = class {
     const after = await this.capture(opened, target);
     if (before.signature !== after.signature) throw new Error("\u6784\u5EFA\u671F\u95F4\u8F93\u5165\u6216\u5A92\u4F53\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u8BD5\u3002");
     const descriptor = await this.source.publish({ ...before, bundle, target, parentOrigin, key: randomBytes2(24).toString("hex"), label: target === "candidate" ? `\u5019\u9009 \xB7 ${before.candidate.candidate.identity.slice(7, 15)}` : `\u5F53\u524D \xB7 ${before.revision.slice(0, 8)}` });
-    this.#active.set(descriptor.instanceId, { descriptor, signature: before.signature });
+    this.#active.set(descriptor.instanceId, { descriptor, brief: before.brief, input: before.projectInput, revision: before.revision, sourceIdentity: before.sourceIdentity });
+    descriptor.freshness = (await this.status(opened, descriptor.instanceId)).freshness;
     return descriptor;
   }
   async status(opened, instanceId) {
+    const unknown = () => ({ brief: { status: "unknown", review: "unknown" }, input: { status: "unknown" }, media: { status: "unknown" }, environment: { status: "unknown" } });
     const entry = this.#active.get(instanceId);
-    if (!entry) return { stale: true };
+    if (!entry) return { stale: true, freshness: unknown() };
+    const freshness = unknown();
+    const compare = (captured, latest) => ({ status: captured === latest ? "latest" : "stale", captured, latest });
+    let sourceStale = true;
     try {
-      return { stale: (await this.capture(opened, entry.descriptor.target)).signature !== entry.signature };
+      const { state, media, input, speech } = await this.#observe(opened, entry.descriptor.input.output);
+      if (state.manifest.projectId !== opened.inspection.manifest.projectId) throw new Error("\u9879\u76EE\u8EAB\u4EFD\u5931\u6548");
+      freshness.brief = { ...compare(entry.brief, state.videoBriefRevision), review: "unknown" };
+      freshness.input = compare(entry.input, previewDigest(JSON.stringify([state.projectRevision, input, speech])));
+      const mediaIdentity = previewDigest(JSON.stringify([...media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort()));
+      freshness.media = compare(entry.descriptor.identity.media, mediaIdentity);
+      const metadata = JSON.parse((await snapshotFile(state.projectDirectory, `.narracut/revisions/${entry.revision}/revision.json`, 16384)).toString());
+      const reviewed = metadata.revisionId === entry.revision && /^sha256:[0-9a-f]{64}$/.test(metadata.briefFingerprint) ? metadata.briefFingerprint : void 0;
+      freshness.brief.review = entry.descriptor.target === "candidate" ? "pending" : reviewed ? reviewed === state.videoBriefRevision && entry.brief === reviewed ? "reviewed" : "pending" : "unknown";
+      freshness.brief.reviewed = reviewed;
     } catch {
-      return { stale: true };
     }
+    try {
+      const source = await opened.readPreviewSource(entry.descriptor.target);
+      sourceStale = source.identity !== entry.sourceIdentity || (entry.descriptor.target === "current" ? source.revision !== entry.revision : source.baseline !== entry.descriptor.baseline);
+    } catch {
+    }
+    try {
+      freshness.environment = compare(entry.descriptor.identity.environment, await programEnvironmentIdentity());
+    } catch {
+    }
+    return { stale: sourceStale || Object.values(freshness).some((item) => item.status !== "latest"), freshness };
   }
   release(instanceId) {
     const entry = this.#active.get(instanceId);

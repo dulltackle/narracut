@@ -4,9 +4,16 @@ import type { ProgramBundle, RuntimeSpeech } from './program-bundle';
 import type { RenderProgramInputV1 } from '../runtime';
 
 export const previewDigest = (value: Uint8Array | string) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+export type PreviewFreshness = {
+  brief: { status: 'latest' | 'stale' | 'unknown'; review: 'reviewed' | 'pending' | 'unknown'; captured?: string; latest?: string; reviewed?: string };
+  input: { status: 'latest' | 'stale' | 'unknown'; captured?: string; latest?: string };
+  media: { status: 'latest' | 'stale' | 'unknown'; captured?: string; latest?: string };
+  environment: { status: 'latest' | 'stale' | 'unknown'; captured?: string; latest?: string };
+};
 export type PreviewDescriptor = {
   version: 1; instanceId: string; token: string; url: string; origin: string;
   identity: { bundle: string; input: string; media: string; environment: string };
+  freshness?: PreviewFreshness;
   input: RenderProgramInputV1; label: string; target: 'current' | 'candidate'; baseline: string;
 };
 const CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
