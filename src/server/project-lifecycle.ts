@@ -669,6 +669,7 @@ export async function createProjectVNext(
 
 export type OpenedProjectVNext = {
   candidate: (request: CandidateRequest) => Promise<CandidateStatus>;
+  buildCandidateBundle: Awaited<ReturnType<typeof createCandidateManager>>["build"];
   inspection: ProjectVNextInspection;
   saveProject: (
     project: unknown,
@@ -1988,6 +1989,10 @@ export async function openProjectVNext(
       };
       return {
         candidate,
+        buildCandidateBundle: async (request) => {
+          await saveQueue;
+          return candidateManager.build(request);
+        },
         inspection,
         saveProject,
         saveVideoBrief,

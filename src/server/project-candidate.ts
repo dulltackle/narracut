@@ -1,3 +1,4 @@
+import { buildProgramBundle, type ProgramBuildRequest } from './program-bundle';
 import { coordinateDependencies, verifyPackageBytes, type DependencyUpdate, type OfflinePackages } from './project-dependencies';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
@@ -187,7 +188,7 @@ export async function createCandidateManager(project: string, assertWritable: ()
       } };
     }
   }
-  return async (request: CandidateRequest): Promise<CandidateStatus> => {
+  const operate = async (request: CandidateRequest): Promise<CandidateStatus> => {
     const before = await inspect();
     if (request.action === 'read') return before.view;
     if (request.action === 'create' && before.view.status !== 'absent') fail('CANDIDATE_ALREADY_EXISTS', '项目已经存在唯一候选；请继续使用或明确放弃。');
@@ -302,4 +303,20 @@ export async function createCandidateManager(project: string, assertWritable: ()
       if (!committed) await rm(root, { recursive: true, force: true }).catch(() => undefined);
     }
   };
+  return Object.assign(operate, {
+    async build(request: Omit<ProgramBuildRequest, 'program' | 'offline'> & { baseline: string }) {
+      const before = await inspect();
+      if (before.view.status !== 'saved' || !before.tree || before.view.baseline !== request.baseline) {
+        throw new CandidateError('CANDIDATE_BASELINE_CONFLICT', '候选不完整或已变化；请重新读取后构建。');
+      }
+      const program = new Map([...before.tree].filter((entry): entry is [string, Buffer] => entry[1] !== null));
+      const bundle = await buildProgramBundle({ ...request, program, offline: before.offline?.store ?? new Map() });
+      const after = await inspect();
+      if (after.view.status !== 'saved' || after.view.baseline !== before.view.baseline) {
+        throw new CandidateError('CANDIDATE_BASELINE_CONFLICT', '构建期间候选或离线库已变化；结果已丢弃。');
+      }
+      return bundle;
+    },
+  });
+
 }

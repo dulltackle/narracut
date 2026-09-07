@@ -24,7 +24,7 @@ async function download(pin: DependencyPin) {
   return (await localExecutionCapsule()).downloadPackage(pin);
 }
 /** 只解析 tar 数据，不落盘解包；链接、特殊文件与路径逃逸在安装前拒绝。 */
-function packageManifest(bytes: Buffer, pin: DependencyPin): Record<string, any> {
+function packageManifest(bytes: Buffer, pin: DependencyPin, files?: Map<string, Buffer>): Record<string, any> {
   let tar: Buffer;
   try { tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 }); }
   catch { return fail('依赖必须是有效且未超限的 gzip tar 包。'); }
@@ -49,6 +49,7 @@ function packageManifest(bytes: Buffer, pin: DependencyPin): Record<string, any>
         path.includes('\\') || path.split('/').some(p => !p || p === '.' || p === '..' || p === 'node_modules') || paths.has(path) ||
         (type === 53 && size !== 0) || offset + 512 + size > tar.length) fail('依赖 tar 含不安全路径、链接、特殊文件或损坏条目。');
     paths.add(path);
+    if (type !== 53 && path.startsWith("package/")) files?.set(path.slice(8), Buffer.from(tar.subarray(offset + 512, offset + 512 + size)));
     if (path === 'package/package.json') {
       if (type === 53 || size > 1024 * 1024) fail('依赖包声明无效。');
       try { manifest = JSON.parse(tar.subarray(offset + 512, offset + 512 + size).toString('utf8')); }
@@ -149,4 +150,61 @@ export async function coordinateDependencies(manifestBytes: Buffer, lockBytes: B
     lock: Buffer.from(stringify({ lockfileVersion: '9.0', settings: { autoInstallPeers: true, excludeLinksFromLockfile: false }, importers: { '.': { dependencies: Object.fromEntries(Object.entries(dependencies).map(([name, version]) => [name, { specifier: version, version }])) } }, packages, snapshots })),
     store: nextStore,
   };
+}
+
+/** 安装器仅解包已校验字节，不执行包内代码。 */
+export function unpackOfflinePackage(bytes: Buffer, pin: DependencyPin) {
+  validatePin(pin);
+  verifyPackageBytes(integrityKey(pin.integrity), bytes);
+  const files = new Map<string, Buffer>();
+  const manifest = packageManifest(bytes, pin, files);
+  return { files, manifest };
+}
+
+/** 构建只消费现有精确锁图和离线包；不会协调、补包或联网。 */
+export function readOfflineDependencyGraph(manifestBytes: Buffer, lockBytes: Buffer, store: ReadonlyMap<string, Buffer>) {
+  const invalid = (message: string): never => { throw new DependencyError('DEPENDENCY_LOCK_INVALID', message); };
+  let manifest: any, lock: any;
+  try { manifest = JSON.parse(manifestBytes.toString()); lock = parse(lockBytes.toString(), { maxAliasCount: 0 }); }
+  catch { return invalid('依赖声明或锁文件不可解析。'); }
+  if (!record(manifest?.dependencies) || !record(lock?.packages) || !record(lock?.snapshots) || !record(lock?.importers?.['.']?.dependencies) || String(lock.lockfileVersion) !== '9.0') return invalid('依赖声明和完整锁图缺失。');
+  if (Object.keys(manifest).some(k => !['private', 'dependencies'].includes(k)) || Object.keys(lock.importers).some(k => k !== '.')) return invalid('不支持项目安装脚本、自定义配置或多工作区锁图。');
+  const pins = new Map<string, DependencyPin>();
+  for (const [id, item] of Object.entries(lock.packages) as [string, any][]) {
+    const split = id.lastIndexOf('@');
+    const pin = { name: id.slice(0, split), version: id.slice(split + 1), integrity: item?.resolution?.integrity };
+    validatePin(pin);
+    if (!record(item?.resolution) || Object.keys(item.resolution).some(k => k !== 'integrity')) return invalid('锁图来源必须仅由公共包身份和完整性摘要决定。');
+    pins.set(id, pin);
+  }
+  const roots: Record<string, string> = Object.create(null);
+  for (const [name, version] of Object.entries(manifest.dependencies)) {
+    const entry = lock.importers['.'].dependencies[name];
+    if (!nameValid(name) || !versionValid(version) || entry?.specifier !== version || entry.version !== version || !pins.has(`${name}@${version}`)) return invalid('依赖声明与根锁图不一致。');
+    roots[name] = `${name}@${version}`;
+  }
+  if (Object.keys(lock.importers['.'].dependencies).length !== Object.keys(roots).length) return invalid('根锁图包含未声明依赖。');
+  const graph = new Map<string, { pin: DependencyPin; bytes: Buffer; dependencies: Record<string, string> }>();
+  function visit(id: string) {
+    if (graph.has(id)) return;
+    const pin = pins.get(id), snapshot = lock.snapshots[id];
+    if (!pin || !record(snapshot) || Object.keys(snapshot).some(k => k !== 'dependencies') || (snapshot.dependencies !== undefined && !record(snapshot.dependencies))) return invalid('传递锁图不完整。');
+    const bytes = store.get(integrityKey(pin.integrity));
+    if (!bytes) throw new DependencyError('DEPENDENCY_UNAVAILABLE', `离线库缺少 ${id}；请显式协调依赖。`);
+    const { manifest: meta } = unpackOfflinePackage(bytes, pin);
+    const edges: Record<string, string> = Object.create(null);
+    const required = { ...meta.dependencies, ...meta.optionalDependencies, ...meta.peerDependencies };
+    for (const [name, range] of Object.entries(required)) {
+      const version = snapshot.dependencies?.[name];
+      if (version === undefined && meta.peerDependenciesMeta?.[name]?.optional === true && !meta.dependencies?.[name] && !meta.optionalDependencies?.[name]) continue;
+      if (!nameValid(name) || !versionValid(version) || typeof range !== 'string' || !validRange(range) || !satisfies(version, range)) return invalid('传递依赖与包声明不一致。');
+      edges[name] = `${name}@${version}`;
+    }
+    if (Object.keys(snapshot.dependencies ?? {}).some(name => !Object.hasOwn(edges, name))) return invalid('传递锁图含包未声明的依赖。');
+    graph.set(id, { pin, bytes: Buffer.from(bytes), dependencies: edges });
+    for (const target of Object.values(edges)) visit(target);
+  }
+  Object.values(roots).forEach(visit);
+  if (graph.size !== pins.size || Object.keys(lock.snapshots).length !== graph.size) return invalid('锁图包含未引用包或多余快照。');
+  return { roots, graph };
 }
