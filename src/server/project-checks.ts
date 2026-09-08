@@ -99,8 +99,8 @@ export class ProjectChecks {
   }
   #view(latest: CheckIdentity | null) {
     const batches = this.#batches.map(batch => batch.view());
-    // 交付证据单独提供；接受记录与最终 Render 保持独立且未启用。
-    return { batches, gates: gateOperations(batches.at(-1) ?? null, latest, this.evidence?.(latest, batches.at(-1))) };
+    // 接受仍需用户明确整体确认；最终 Render 独立判定。
+    return { batches, gates: gateOperations(batches.at(-1) ?? null, latest, this.evidence?.(latest, batches.at(-1)), undefined, { preview: true, delivery: true, accept: true }) };
   }
   clear() { this.#generation++; for (const batch of this.#batches) batch.cancel(); this.#batches = []; }
 }

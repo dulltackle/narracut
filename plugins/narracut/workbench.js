@@ -712,6 +712,18 @@
 
   const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project, instanceId => deliveryWorkbench.candidateReady(instanceId));
   const deliveryWorkbench = createDeliveryWorkbench((action, args) => callHostTool(action === "displayed" ? "project_delivery_display" : "project_delivery", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, ...(action === "displayed" ? {} : { action }), ...args }), () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate } : undefined, previewWorkbench, id => { if (state.result?.scenes.some(scene => scene.id === id)) { state.selected = id; switchWorkspace("table"); render(); } });
+  const acceptanceWorkbench = createAcceptanceWorkbench(
+    (action, args) => callHostTool('project_acceptance', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
+    () => state.result?.project,
+    () => state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict,
+    deliveryWorkbench, previewWorkbench,
+    async (result) => {
+      if (result?.status === 'accepted' && result.revision.valid !== false && result.revision.current !== false) {
+        state.result.currentRenderProgram = { briefRevision: result.revision.briefFingerprint, briefReviewPending: result.revision.briefFingerprint !== state.brief.baselineRevision, previewPreserved: true };
+      }
+      await candidateOperation('read'); await deliveryWorkbench.refresh(); render();
+    }
+  );
   const checksWorkbench = createChecksWorkbench((action, args) => callHostTool("project_checks", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project, location => {
     if (location.kind === "scene" && state.result?.scenes.some(scene => scene.id === location.sceneId)) { state.selected = location.sceneId; previewWorkbench.selectScene(location.sceneId); render(); }
     if (location.kind === "frame") previewWorkbench.navigateFrame(location);
@@ -793,6 +805,7 @@
         updateCandidate();
         previewWorkbench.mount(document.querySelector("[data-program-preview]"));
         deliveryWorkbench.mount(document.querySelector("[data-program-delivery]"));
+        acceptanceWorkbench.mount(document.querySelector("[data-program-acceptance]"));
         checksWorkbench.mount(document.querySelector("[data-program-checks]"));
         updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
         updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}`);

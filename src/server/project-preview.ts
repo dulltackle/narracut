@@ -82,7 +82,7 @@ export class ProjectPreview {
       freshness.input = compare(entry.input, previewDigest(JSON.stringify([state.projectRevision, input, speech])));
       const mediaIdentity = previewDigest(JSON.stringify([...media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort()));
       freshness.media = compare(entry.descriptor.identity.media, mediaIdentity);
-      const metadata = JSON.parse((await snapshotFile(state.projectDirectory, `.narracut/revisions/${entry.revision}/revision.json`, 16384)).toString());
+      const metadata = JSON.parse((await snapshotFile(state.projectDirectory, `.narracut/revisions/${entry.revision}/revision.json`, 1048576)).toString());
       const reviewed = metadata.revisionId === entry.revision && /^sha256:[0-9a-f]{64}$/.test(metadata.briefFingerprint) ? metadata.briefFingerprint : undefined;
       // 候选没有接受证据；当前修订的 Brief 复核只认对应修订的持久指纹。
       freshness.brief.review = entry.descriptor.target === 'candidate' ? 'pending' : reviewed ? (reviewed === state.videoBriefRevision && entry.brief === reviewed ? 'reviewed' : 'pending') : 'unknown';
@@ -101,6 +101,12 @@ export class ProjectPreview {
     const entry = this.#active.get(instanceId);
     if (!entry || entry.descriptor.target !== 'candidate') throw new Error('需要仍可用的候选 Preview 实例。');
     return { descriptor: structuredClone(entry.descriptor), binding: { instanceId, bundle: entry.descriptor.identity.bundle, identity: structuredClone(entry.identity) }, stale: entry.stale };
+  }
+  accept(instanceId: string, revision: string) {
+    const entry = this.#active.get(instanceId);
+    if (!entry) return;
+    entry.descriptor.target = 'current'; entry.descriptor.label = `当前 · ${revision.slice(0, 8)}`;
+    entry.revision = revision;
   }
   latestCandidate() { return [...this.#active.values()].filter(entry => entry.descriptor.target === 'candidate').at(-1)?.descriptor.instanceId; }
   release(instanceId: string) { const entry = this.#active.get(instanceId); if (entry) this.source.release(entry.descriptor.url); this.#active.delete(instanceId); }

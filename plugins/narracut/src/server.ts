@@ -1,3 +1,4 @@
+import { ProjectAcceptance } from '../../../src/server/project-acceptance';
 import { ProjectDelivery } from '../../../src/server/project-delivery';
 import { ProjectChecks } from '../../../src/server/project-checks';
 import { ProjectPreview } from '../../../src/server/project-preview';
@@ -104,6 +105,12 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  {
+    name: "project_acceptance", title: "接受完整候选与查看修订历史",
+    description: "仅供用户工作台：审阅、明确接受完整候选、核对提交结果、重试清理和从有效历史创建候选；不直接回退当前指针。",
+    inputSchema: { type: "object", required: ["projectDirectory", "projectId", "action"], additionalProperties: false, properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["review", "accept", "result", "cleanup", "history", "from-history"] }, key: { type: "string" }, baseline: { type: "string" }, currentRevision: { type: "string" }, requestId: { type: "string" }, confirmed: { type: "boolean" }, revisionId: { type: "string" } } },
+    outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } },
+  },
   {
     name: "project_delivery_display", title: "确认交付警告已完整展示",
     description: "仅供工作台在完整展开当前报告及检查批次警告后确认展示，不表示用户观看或接受。",
@@ -559,7 +566,7 @@ function diagnosticSummary(diagnostics: readonly ProjectInspectionDiagnostic[]):
 }
 
 async function loadWorkbench(): Promise<string> {
-  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript, acceptanceScript] = await Promise.all([
     readFile(WORKBENCH_PATH, "utf8"),
     readFile(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile(PAPER_TEXTURE_PATH),
@@ -568,11 +575,12 @@ async function loadWorkbench(): Promise<string> {
     readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8"),
     readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
     readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-delivery.js" : "../workbench-delivery.js", import.meta.url), "utf8"),
+    readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-acceptance.js" : "../workbench-acceptance.js", import.meta.url), "utf8"),
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html
     .replace("/*__NARRACUT_MATERIALS__*/", materialVariables)
-    .replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + script);
+    .replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + acceptanceScript + "\n" + script);
 }
 
 async function inspectProject(argumentsValue: unknown): Promise<ToolResult> {
@@ -683,6 +691,13 @@ class ProjectWorkspaceSession {
   preview = new ProjectPreview();
   checks = new ProjectChecks(this.preview);
   delivery = new ProjectDelivery(this.preview, this.checks);
+  acceptance = new ProjectAcceptance(this.delivery, this.preview);
+  async acceptanceOperation(input: any) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    const result = await this.acceptance.operate(opened, input);
+    this.#candidateStatus = await opened.candidate({ action: 'read' });
+    return result;
+  }
   async deliveryOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     return this.delivery.operate(opened, input);
@@ -1128,6 +1143,10 @@ async function callTool(
     throw new Error("tools/call 缺少参数。");
   }
   const { name, arguments: argumentsValue } = params as { name?: unknown; arguments?: unknown };
+  if (name === "project_acceptance") {
+    try { return { structuredContent: await workspace.acceptanceOperation(argumentsValue), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? "ACCEPTANCE_FAILED", message: (error as Error).message } }, content: [] }; }
+  }
   if (name === "project_delivery" || name === "project_delivery_display") {
     try {
       if (!argumentsValue || typeof argumentsValue !== 'object') throw new Error('交付参数无效。');

@@ -1,3 +1,4 @@
+import { readCurrentPointer, verifyRevision } from './project-revisions';
 import { RUNTIME_REMOTION_VERSION } from './project-dependencies';
 import { createCandidateManager, type CandidateRequest, type CandidateStatus } from "./project-candidate";
 import { createHash, randomUUID } from "node:crypto";
@@ -392,18 +393,8 @@ async function validateCurrentProjectState(
   const currentPath = join(projectDirectory, ".narracut", "current.json");
   let briefRevision: string | null = null;
   try {
-    const current = parseStrictJson(
-      await readRegularUtf8(currentPath, 4096),
-      INTERNAL_JSON_LIMITS,
-    );
-    if (
-      !isPlainRecord(current) ||
-      Object.keys(current).length !== 1 ||
-      typeof current.revisionId !== "string" ||
-      !UUID_PATTERN.test(current.revisionId)
-    ) {
-      throw new Error("当前修订指针无效。");
-    }
+    const current = await readCurrentPointer(projectDirectory);
+    await verifyRevision(projectDirectory, current.revisionId);
     const revisionId = current.revisionId;
     const revisionDirectory = join(projectDirectory, ".narracut", "revisions", revisionId);
     const renderProgramDirectory = join(revisionDirectory, "render-program");
@@ -411,8 +402,8 @@ async function validateCurrentProjectState(
       throw new Error("当前修订没有可检查的 Render Program。");
     }
     const [revision, program, packageJson, lockfile, source] = await Promise.all([
-      readRegularUtf8(join(revisionDirectory, "revision.json"), 16_384)
-        .then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join(revisionDirectory, "revision.json"), 1_048_576)
+        .then((value) => JSON.parse(value)),
       readRegularUtf8(join(renderProgramDirectory, "program.json"), 16_384)
         .then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
       readRegularUtf8(join(renderProgramDirectory, "package.json"), 65_536)
@@ -423,7 +414,7 @@ async function validateCurrentProjectState(
     if (
       !isPlainRecord(revision) ||
       Object.keys(revision).some((key) =>
-        !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary"].includes(key)
+        !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary", "programFingerprint", "acceptedAt", "inputFingerprint", "sourceRevision", "acceptance", "requestId"].includes(key)
       ) ||
       revision.revisionId !== revisionId ||
       !(revision.previousRevisionId === null ||
@@ -668,6 +659,7 @@ export async function createProjectVNext(
 }
 
 export type OpenedProjectVNext = {
+  programTransaction: <T>(run: (manager: Awaited<ReturnType<typeof createCandidateManager>>) => Promise<T>) => Promise<T>;
   candidate: (request: CandidateRequest) => Promise<CandidateStatus>;
   readPreviewSource: Awaited<ReturnType<typeof createCandidateManager>>["previewSource"];
   buildCandidateBundle: Awaited<ReturnType<typeof createCandidateManager>>["build"];
@@ -1990,6 +1982,21 @@ export async function openProjectVNext(
       };
       return {
         candidate,
+        programTransaction: (run) => {
+          if (closing) return Promise.reject(new Error('项目正在关闭。'));
+          const operation = saveQueue.then(async () => {
+            await assertWritable();
+            const result = await run(candidateManager);
+            const accepted = result as { status?: string; revision?: { briefFingerprint?: string; current?: boolean; valid?: boolean } } | null;
+            if (accepted?.status === 'accepted' && accepted.revision?.briefFingerprint && accepted.revision.current !== false && accepted.revision.valid !== false) {
+              const currentRenderProgram = { briefRevision: accepted.revision.briefFingerprint, briefReviewPending: accepted.revision.briefFingerprint !== currentInspection.videoBriefRevision, previewPreserved: true as const };
+              currentInspection = { ...currentInspection, currentRenderProgram }; inspection.currentRenderProgram = currentRenderProgram;
+            }
+            return result;
+          });
+          saveQueue = operation.then(() => undefined, () => undefined);
+          return operation;
+        },
         readPreviewSource: async (target) => { await saveQueue; return candidateManager.previewSource(target); },
         buildCandidateBundle: async (request) => {
           await saveQueue;

@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { mkdtemp, readFile, writeFile, rm, cp } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectVNext, openProjectVNext } from '../src/server/project-lifecycle';
@@ -22,11 +22,9 @@ test('当前 Preview 捕获跟随真实指针及完整源码身份，候选基�
     const current = JSON.parse(await readFile(join(path, '.narracut/current.json'), 'utf8')).revisionId;
     await writeFile(join(path, '.narracut/revisions', current, 'render-program/src/RenderProgram.tsx'), 'export function RenderProgram(){return null;}');
     const edited = await preview.capture(opened, 'current'); expect(edited.signature).not.toBe(first.signature);
-    await opened.candidate({ action: 'create' });
-    const next = '10000000-0000-4000-8000-000000000002';
-    await cp(join(path, '.narracut/revisions', current), join(path, '.narracut/revisions', next), { recursive: true });
-    await writeFile(join(path, '.narracut/current.json'), JSON.stringify({ revisionId: next }));
-    const moved = await preview.capture(opened, 'current'); expect(moved.revision).toBe(next); expect(moved.signature).not.toBe(edited.signature);
+    const candidate = await opened.candidate({ action: 'create' });
+    const accepted = await opened.programTransaction(manager => manager.accept({ baseline: candidate.baseline, summary: '接受完整程序', source: 'candidate', acceptance: {} }, async () => {}));
+    const moved = await preview.capture(opened, 'current'); expect(moved.revision).toBe(accepted.revision.revisionId); expect(moved.signature).not.toBe(edited.signature);
   } finally { await preview.close(); await opened.release(); await rm(root, { recursive: true, force: true }); }
 });
 

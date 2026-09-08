@@ -21,7 +21,7 @@ test('真实候选同时报告 Manifest 与离线依赖错误，独立环境检�
     expect(result.batches[0].diagnostics.find(item => item.code === 'MANIFEST_INVALID')).toMatchObject({ location: { kind: 'file', path: 'program.json' }, identity: { program: broken.candidate?.identity } });
     await opened.candidate({ action: 'apply', baseline: broken.baseline, changes: [{ path: 'program.json', content: '{"apiVersion":1,"output":{"width":320,"height":180,"fps":30}}' }] });
     result = await checks.status(opened); expect(result.batches[0].stale).toBe(true);
-    expect(result.gates.map(item => item.status)).toEqual(['blocked','blocked','disabled','disabled']);
+    expect(result.gates.map(item => item.status)).toEqual(['blocked','blocked','blocked','disabled']);
     await checks.start(opened); result = await checks.status(opened);
     expect(result.batches).toHaveLength(2); expect(result.batches[0].stale).toBe(true);
     expect(result.batches[1].diagnostics.some(item => item.code === 'MANIFEST_INVALID')).toBe(false);

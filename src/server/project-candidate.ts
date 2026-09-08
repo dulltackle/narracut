@@ -1,3 +1,4 @@
+import { createRevisionStore, readCurrentPointer } from './project-revisions';
 import { buildProgramBundle, type ProgramBuildRequest } from './program-bundle';
 import { coordinateDependencies, verifyPackageBytes, type DependencyUpdate, type OfflinePackages } from './project-dependencies';
 import { createHash, randomUUID } from 'node:crypto';
@@ -11,6 +12,7 @@ export class CandidateError extends Error {
 export type CandidateRequest = DependencyUpdate & {
   action: 'read' | 'create' | 'apply' | 'discard' | 'dependencies';
   baseline?: string;
+  sourceRevision?: string;
   confirmed?: boolean;
   changes?: Array<{ path: string; content: string | null }>;
 };
@@ -31,7 +33,7 @@ const fail = (code: string, message: string): never => { throw new CandidateErro
 const MAX_BYTES = 32 * 1024 * 1024;
 const safePath = (path: string) => path.length <= 1024 && !path.includes('\\') && !path.includes('\0') &&
   path.split('/').every(p => p && p !== '.' && p !== '..' && !['node_modules', 'bundle', '.cache'].includes(p));
-async function regular(path: string, max = MAX_BYTES) {
+export async function regular(path: string, max = MAX_BYTES) {
   const facts = await lstat(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > max) throw new Error('文件类型或大小无效');
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -41,12 +43,12 @@ async function regular(path: string, max = MAX_BYTES) {
     return await handle.readFile();
   } finally { await handle.close(); }
 }
-async function directory(path: string) {
+export async function directory(path: string) {
   const stat = await lstat(path);
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('目录完整性无效');
   return `${stat.dev}:${stat.ino}`;
 }
-async function readTree(root: string): Promise<Tree> {
+export async function readTree(root: string): Promise<Tree> {
   const tree: Tree = new Map();
   let bytes = 0;
   async function walk(path: string, prefix: string, depth: number) {
@@ -107,15 +109,15 @@ async function readOffline(project: string, state: State) {
 }
 const offlineIdentity = (store: OfflinePackages) => hash(JSON.stringify([...store.keys()].sort()));
 const offlineSignature = (store: OfflinePackages) => hash(JSON.stringify([...store].sort(([a], [b]) => a.localeCompare(b)).map(([key, bytes]) => [key, hash(bytes)])));
-function identity(tree: Tree) {
+export function identity(tree: Tree) {
   return hash(JSON.stringify([...tree].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([path, bytes]) => [path, bytes === null ? 'directory' : hash(bytes)])));
 }
-async function writeBytes(path: string, bytes: Buffer) {
+export async function writeBytes(path: string, bytes: Buffer) {
   const handle = await open(path, 'wx', 0o600);
   try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
 }
-async function writeTree(root: string, tree: Tree) {
+export async function writeTree(root: string, tree: Tree) {
   await mkdir(root);
   for (const [path, bytes] of [...tree].sort(([a], [b]) => a.length - b.length)) {
     if (bytes === null) await mkdir(join(root, path));
@@ -125,7 +127,7 @@ async function writeTree(root: string, tree: Tree) {
   for (const [path, bytes] of [...tree].reverse()) if (bytes === null) await syncDirectory(join(root, path));
   await syncDirectory(root);
 }
-async function syncDirectory(path: string) {
+export async function syncDirectory(path: string) {
   const handle = await open(path, 'r');
   try { await handle.sync(); } finally { await handle.close(); }
 }
@@ -140,10 +142,11 @@ export async function createCandidateManager(project: string, assertWritable: ()
     if (await directory(internal) !== internalIdentity) fail('PROJECT_IDENTITY_LOST', '项目内部目录身份变化；已停止候选写入。');
   };
   async function currentRevision() {
-    const value = JSON.parse((await regular(join(internal, 'current.json'), 4096)).toString());
+    const value = await readCurrentPointer(project);
     if (!/^[0-9a-f-]{36}$/i.test(value.revisionId)) throw new Error('当前修订身份无效');
     return value.revisionId as string;
   }
+  const revisions = createRevisionStore(project, assertCurrent);
   async function pointerBytes() {
     try { return await regular(pointer, 4 * 1024 * 1024); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
@@ -160,6 +163,8 @@ export async function createCandidateManager(project: string, assertWritable: ()
       const parsed = JSON.parse(raw.toString()) as State;
       if (parsed.version !== 1 || !/^[0-9a-f-]{36}$/i.test(parsed.sourceRevision) || !(parsed.candidate === null || refValid(parsed.candidate)) ||
         !(parsed.checkpoint === null || (refValid(parsed.checkpoint) && dirname(parsed.checkpoint.path) === dirname(parsed.candidate?.path ?? '') && parsed.checkpoint.path.endsWith('/checkpoint'))) || (parsed.candidate !== null && !parsed.candidate.path.endsWith('/candidate')) || (parsed.candidate === null && parsed.checkpoint !== null) || (parsed.offline !== undefined && !/^\.narracut\/candidate-[0-9a-f-]{36}\/dependencies$/.test(parsed.offline))) throw new Error('候选指针完整性无效');
+      const accepted = await readCurrentPointer(project);
+      if (accepted.consumed?.pointer === hash(raw)) { parsed.candidate = null; parsed.checkpoint = null; }
       state = parsed;
       const offline = await readOffline(project, state);
       if (!state.candidate) return { raw, state, offline, view: { status: 'absent', ...(offline && !offline.intact ? { error: { code: 'DEPENDENCY_INTEGRITY_FAILED', message: '保留离线库缺包或损坏；请先显式创建候选，再协调修复。' } } : {}), sourceRevision, baseline: hash(JSON.stringify([hash(raw), offline?.signature ?? null])), candidate: null, checkpoint: null, ...(state.offline ? { offline: state.offline } : {}) } };
@@ -189,6 +194,7 @@ export async function createCandidateManager(project: string, assertWritable: ()
     }
   }
   const operate = async (request: CandidateRequest): Promise<CandidateStatus> => {
+    if (request.action !== 'read') await revisions.cleanup();
     const before = await inspect();
     if (request.action === 'read') return before.view;
     if (request.action === 'create' && before.view.status !== 'absent') fail('CANDIDATE_ALREADY_EXISTS', '项目已经存在唯一候选；请继续使用或明确放弃。');
@@ -215,7 +221,9 @@ export async function createCandidateManager(project: string, assertWritable: ()
       fail(before.view.error?.code ?? 'CANDIDATE_MISSING', before.view.error?.message ?? '请先显式创建候选。');
     }
     const sourceRevision = await currentRevision();
-    const currentRoot = join(internal, 'revisions', sourceRevision, 'render-program');
+    const creationRevision = request.action === 'create' && request.sourceRevision ? request.sourceRevision : sourceRevision;
+    if (request.action === 'create') await revisions.verify(creationRevision);
+    const currentRoot = join(internal, 'revisions', creationRevision, 'render-program');
     let next: Tree;
     let offline = request.action === 'create' ? before.offline?.rawStore : before.offline?.store;
     if (request.action === 'create') {
@@ -276,7 +284,7 @@ export async function createCandidateManager(project: string, assertWritable: ()
       }
       const treeId = identity(await readTree(join(root, 'candidate')));
       if (before.tree) await writeTree(join(root, 'checkpoint'), before.tree);
-      const state: State = { version: 1, sourceRevision: before.state?.sourceRevision ?? sourceRevision,
+      const state: State = { version: 1, sourceRevision: request.action === 'create' ? creationRevision : before.state?.sourceRevision ?? sourceRevision,
         candidate: { path: `${generation}/candidate`, identity: treeId },
         checkpoint: before.tree ? { path: `${generation}/checkpoint`, identity: identity(before.tree) } : null,
         ...(offline ? { offline: `${generation}/dependencies`, offlineIdentity: request.action === 'create' && before.offline && !before.offline.intact ? before.state!.offlineIdentity : offlineIdentity(offline), offlineKeys: request.action === 'create' && before.offline && !before.offline.intact ? before.state!.offlineKeys : [...offline.keys()].sort() } : {}) };
@@ -304,9 +312,21 @@ export async function createCandidateManager(project: string, assertWritable: ()
     }
   };
   return Object.assign(operate, {
+    history: revisions.history,
+    cleanupAcceptance: revisions.cleanup,
+    async accept(request: { baseline: string; summary: string; source: string; acceptance: Record<string, unknown>; requestId?: string }, validate: () => Promise<void>) {
+      const before = await inspect();
+      if (before.view.status !== 'saved' || !before.tree || !before.raw || before.view.baseline !== request.baseline) fail('ACCEPTANCE_STALE', '候选已变化或不完整，请重新审阅。');
+      return revisions.accept(request, before.tree!, before.raw!, before.state!, async () => {
+        await validate();
+        const latest = await inspect();
+        if (latest.view.status !== 'saved' || latest.view.baseline !== before.view.baseline) fail('ACCEPTANCE_STALE', '提交前候选已变化，请重新审阅。');
+      });
+    },
     async previewSource(target: 'current' | 'candidate') {
       const snapshot = await inspect();
       const revision = await currentRevision();
+      if (target === 'current') await revisions.verify(revision);
       const tree = target === 'current' ? await readTree(join(internal, 'revisions', revision, 'render-program')) : snapshot.tree;
       if (!tree || (target === 'candidate' && snapshot.view.status !== 'saved')) fail('CANDIDATE_BASELINE_CONFLICT', '没有完整可播放程序。');
       return { revision, identity: identity(tree!), manifest: Buffer.from(tree!.get('program.json') ?? ''), baseline: snapshot.view.baseline, program: new Map([...tree!].filter((entry): entry is [string, Buffer] => entry[1] !== null).map(([path, bytes]) => [path, Buffer.from(bytes)])), offline: new Map([...(snapshot.offline?.store ?? [])].map(([key, bytes]) => [key, Buffer.from(bytes)])) };

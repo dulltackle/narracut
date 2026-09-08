@@ -101,5 +101,6 @@ export class ProjectDelivery {
     const eligible = checks.gates.find(gate => gate.operation === 'delivery')?.status === 'available';
     return { delivery, checks, warningsKey: batch ? warningKey(batch) : null, output: this.#output, collecting: this.#busy, status: delivery?.stale ? 'stale' : delivery?.complete && eligible ? 'ready' : 'incomplete' };
   }
+  consume(instanceId: string) { if (this.#current?.binding.instanceId === instanceId) this.clear(); }
   clear() { this.#generation++; this.#controller?.abort(); this.#current = undefined; this.#images.clear(); this.#read.clear(); this.#displayedKey = undefined; this.#output = undefined; this.#busy = false; }
 }

@@ -1,3 +1,4 @@
+import { readCurrentPointer } from './project-revisions';
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
@@ -1141,7 +1142,11 @@ export async function inspectProjectVNext(
       "至少一份候选或修订内部的 render-program/",
     );
   }
+  let currentRevision: string | undefined;
+  try { currentRevision = (await readCurrentPointer(projectDirectory)).revisionId; } catch { /* 当前完整性由打开入口复核。 */ }
   for (const programDirectory of renderProgramDirectories) {
+    const retained = relative(projectDirectory, programDirectory).match(/^\.narracut\/revisions\/([0-9a-f-]{36})\/render-program$/);
+    if (currentRevision && retained && retained[1] !== currentRevision) continue;
     await validateRenderProgramDirectory(projectDirectory, programDirectory);
   }
 

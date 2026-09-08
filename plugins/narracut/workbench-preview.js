@@ -163,6 +163,12 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
     } finally { polling = false; }
   }, 4000);
   return {
+    accepted(instanceId, revisionId) {
+      for (const previous of slots.values()) if (previous.target === 'current' && previous.instanceId !== instanceId) { previous.label = previous.label.replace(/^当前/, '历史修订'); previous.buildStale = true; }
+      const slot = slots.get(instanceId); if (!slot) { update(); return; }
+      slot.target = 'current'; slot.label = `当前 · ${revisionId.slice(0, 8)}`;
+      slot.iframe.title = slot.label; update();
+    },
     pauseHidden,
     candidateInstance() { return versionFor('candidate')?.instanceId; },
     showCandidate() { switchTo(versionFor('candidate')); },

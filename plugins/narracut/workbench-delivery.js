@@ -110,12 +110,14 @@ function createDeliveryWorkbench(call, getProject, preview, navigateScene) {
   }
   setInterval(()=>{if(visible() && (current() || preview.candidateInstance() || getProject()?.hasCandidate))void operation('status',{},true);},2000);
   return {
+    refresh() { return operation('status'); },
+    view() { return data; },
     candidateReady(instanceId){if(busy)queuedInstance=instanceId;else void operation('prepare',{instanceId});},
     mount(node){
       const project=getProject(),key=project?`${project.projectId}:${project.directory}`:undefined;
       if(key!==projectKey){projectKey=key;queuedInstance=undefined;data={};busy=polling=false;error=receipt='';page=0;pictures.clear();pictureGeneration++;}
       if(region===node){update();return;}region=node;if(!region)return;
-      region.innerHTML='<header><h2>候选交付</h2><strong data-delivery-state role="status" aria-live="polite">尚未齐备</strong></header><div data-delivery-summary></div><ul data-delivery-missing></ul><div class="delivery-actions"><button data-delivery-preview>查看候选 Preview</button><button data-delivery-prepare>准备候选证据</button><button data-delivery-retry hidden>重试失败项</button><button data-delivery-checks>查看检查详情</button></div><p data-delivery-progress></p><p data-delivery-build-proof hidden></p><div class="delivery-report"><section data-delivery-warnings></section><section data-delivery-suggestions></section></div><details data-evidence-details><summary>展开代表帧证据</summary><div data-delivery-frames></div></details><details><summary>完整覆盖计划与身份</summary><div data-full-plan></div></details><p class="delivery-footnote">代表帧检查不记录用户观看范围，也不自动判定审美质量。接受候选与最终 Render 尚未启用。</p>';
+      region.innerHTML='<header><h2>候选交付</h2><strong data-delivery-state role="status" aria-live="polite">尚未齐备</strong></header><div data-delivery-summary></div><ul data-delivery-missing></ul><div class="delivery-actions"><button data-delivery-preview>查看候选 Preview</button><button data-delivery-prepare>准备候选证据</button><button data-delivery-retry hidden>重试失败项</button><button data-delivery-checks>查看检查详情</button></div><p data-delivery-progress></p><p data-delivery-build-proof hidden></p><div class="delivery-report"><section data-delivery-warnings></section><section data-delivery-suggestions></section></div><details data-evidence-details><summary>展开代表帧证据</summary><div data-delivery-frames></div></details><details><summary>完整覆盖计划与身份</summary><div data-full-plan></div></details><div data-program-acceptance></div><p class="delivery-footnote">代表帧检查不记录用户观看范围，也不自动判定审美质量。接受不代表最终 Render 已完成。</p>';
       region.addEventListener('click',event=>{
         const button=event.target.closest('button');if(!button||button.disabled)return;
         if(button.hasAttribute('data-delivery-preview')){preview.showCandidate();focusRegion('[data-preview-state]');}

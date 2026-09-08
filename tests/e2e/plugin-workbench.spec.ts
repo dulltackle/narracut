@@ -86,7 +86,11 @@ async function installAppToolBridge(
   page: Page,
   handler: (name: string, args: Record<string, any>) => unknown,
 ): Promise<void> {
-  await page.exposeFunction("handleNarracutAppTool", handler);
+  await page.exposeFunction("handleNarracutAppTool", (name: string, args: Record<string, any>) => {
+    // 修订历史是新增只读查询；本文件的编辑计数只记录被测的写操作。
+    if (name === 'project_acceptance' && args.action === 'history') return { structuredContent: { revisions: [] } };
+    return handler(name, args);
+  });
   await page.evaluate(() => {
     (window as unknown as { openai: unknown }).openai = {
       callTool: (name: string, args: Record<string, unknown>) =>
