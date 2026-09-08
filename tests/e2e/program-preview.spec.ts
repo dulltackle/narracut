@@ -153,3 +153,41 @@ test('零 Scene 显示明确空状态并隐藏播放控制', async ({ page }) =>
   await expect(page.locator('.preview-controls')).toBeHidden();
   await expect(page.locator('[data-frame-output]')).toHaveText('尚无已提交帧');
 });
+
+test('代表帧采集不抢占当前版本；显式证据定位切换准确实例并等待帧确认', async ({ page }) => {
+  const { CandidateDelivery } = await import('../../src/shared/candidate-delivery');
+  const identity = { project:'p',program:'program',baseline:next.baseline,brief:'brief',input:'input',media:'media',environment:'environment' };
+  const delivery = new CandidateDelivery('proof', { instanceId:next.instanceId,bundle:next.identity.bundle,identity }, next.input);
+  let prepared = false;
+  await page.goto(origin);
+  await installAppToolBridge(page, (name,args) => {
+    if(name==='project_preview') {
+      if(args.action==='build')return {structuredContent:{preview:args.target==='current'?first:next}};
+      return {structuredContent:{stale:false,freshness:{brief:{status:'latest',review:'pending'},input:{status:'latest'},media:{status:'latest'},environment:{status:'latest'}}}};
+    }
+    if(name==='project_delivery') {
+      if(args.action==='prepare')prepared=true;
+      return {structuredContent:{delivery:prepared?delivery.view():null,collecting:prepared,status:'incomplete',checks:{batches:[],gates:[]},output:next.input.output}};
+    }
+    return {structuredContent:{}};
+  });
+  await page.evaluate(result=>window.postMessage({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:{structuredContent:result}},'*'),validResult());
+  await page.getByRole('tab',{name:'Agent 工作区'}).click();
+  await page.locator('[data-build-preview="current"]').click();
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 0');
+  await page.getByLabel('帧号',{exact:true}).fill('90');await page.locator('[data-jump]').click();
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 90');
+  await page.locator('[data-build-preview="candidate"]').click();
+  await expect(page.locator('[data-delivery-progress]')).toContainText('已采集 0 / 6');
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 90');
+  await expect(page.locator('[data-preview-title]')).toContainText('当前');
+  const selected = await page.locator('.scene-select[aria-pressed="true"]').getAttribute('aria-label');
+  await page.getByText('展开代表帧证据',{exact:true}).click();
+  await page.locator('[data-evidence-seek="149"]').first().click();
+  await expect(page.locator('[data-preview-state]')).toBeFocused();
+  await expect(page.locator('[data-preview-state]')).toBeInViewport();
+  await expect(page.locator('[data-preview-title]')).toContainText('候选');
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 149');
+  await expect(page.locator('[data-play]')).toHaveText('播放');
+  expect(await page.locator('.scene-select[aria-pressed="true"]').getAttribute('aria-label')).toBe(selected);
+});

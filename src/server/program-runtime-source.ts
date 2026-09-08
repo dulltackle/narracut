@@ -30,7 +30,7 @@ Object.defineProperty(window,'__narracutBind',{configurable:true,value:(input,sp
   if(composition.type!==Composition || composition.props.durationInFrames!==frozen.durationInFrames)throw new Error('COMPOSITION_INVALID');
   const root=createRoot(document.getElementById('root'));
   root.render(<Boundary><Player ref={attachPlayer} style={{width:"100%",height:"100%"}} component={Video} inputProps={binding} compositionWidth={frozen.output.width} compositionHeight={frozen.output.height} fps={frozen.output.fps} durationInFrames={frozen.durationInFrames} controls={false} autoPlay={false} initialFrame={0} errorFallback={()=>{window.__narracutCheck={code:'RUNTIME_FRAME_FAILED'};emit('ERROR',{code:'RUNTIME_FRAME_FAILED'});return null;}}/></Boundary>);
-  function ready(){if(window.__narracutCheck)return;if(committed)window.__narracutCheck={metadata,runtime:'passed'};else requestAnimationFrame(ready);}requestAnimationFrame(ready);
+  function ready(){if(window.__narracutCheck)return;if(committed)window.__narracutCheck={metadata,runtime:'passed'};else setTimeout(ready,10);}setTimeout(ready,10);
 }});
 window.addEventListener('narracut-preview-binding',event=>{
   if(bridge||binding)return;
@@ -46,7 +46,7 @@ window.addEventListener('narracut-preview-binding',event=>{
       if(JSON.stringify(m.identity)!==JSON.stringify(prepared.identity)){fail('BRIDGE_IDENTITY_MISMATCH');return;}
       initialized=true;
       try{window.__narracutBind(prepared.input,prepared.speech);delete window.__narracutBind;}catch{fail('BRIDGE_INIT_FAILED');return;}
-      function ready(){if(closed)return;if(window.__narracutCheck?.code){fail(window.__narracutCheck.code);return;}if(window.__narracutCheck){emit('READY',{identity:prepared.identity});if(prepared.input.scenes.length)reportFrame();}else requestAnimationFrame(ready);}requestAnimationFrame(ready);
+      function ready(){if(closed)return;if(window.__narracutCheck?.code){fail(window.__narracutCheck.code);return;}if(window.__narracutCheck){emit('READY',{identity:prepared.identity});if(prepared.input.scenes.length)reportFrame();}else setTimeout(ready,10);}setTimeout(ready,10);
       return;
     }
     if(!initialized||!player)return;

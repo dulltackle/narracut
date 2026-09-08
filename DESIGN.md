@@ -392,6 +392,14 @@ Agent 工作区的宿主验证区域是单任务状态台，不是聊天界面�
 
 实现依据为 `plugins/narracut/workbench-checks.js`、`plugins/narracut/workbench.html`、`plugins/narracut/workbench.js` 与 `src/shared/program-checks.ts` 的公开状态。#78 视觉证据位于 `.impeccable/review/issue-78/`：`desktop.png`、`desktop-problems.png`、`mobile.png`、`mobile-problems.png`；独立只读审查的交付结论由本票审查记录承载。
 
+### 候选交付与代表帧证据
+
+候选交付位于 Agent 工作区的 Preview 之前，沿用暗房面板、结构线和现有状态色，先展示目标、变更摘要、候选身份、输入新鲜度、检查结果与具体缺项。非阻断警告和仅供复制或前往表格处理的 Scene 修改建议默认展开；“可交付”仍明确等待用户判断，不表示接受候选或最终 Render 已启用。
+
+代表帧图片与完整覆盖计划默认折叠，采集和检查进度分别可见，读取图像不等于检查完成。展开后每页展示四个 Scene，按开始、中间、结束前组织画面，相邻 Scene 的边界前后帧成对显示；Agent 补点跟随所属 Scene 页并注明来源与理由。图片完整保留比例，显式放大后跨满所在网格，再次点击可收起，按钮文字与 `aria-expanded` 同步。翻页把焦点移到新页首个 Scene 标题；“在对应 Preview 定位”把焦点移到 Preview 状态反馈。证据过期时禁用图片放大与定位，并明确引导重新准备。
+
+桌面摘要采用标签与值两列，警告与建议并排；`700px` 以下两者改为单列，普通代表帧纵排，边界配对仍并排。按钮与详情入口保持至少 `44px` 的操作高度及可见蓝色焦点，长身份自然换行。实现依据为 `plugins/narracut/workbench-delivery.js` 与 `plugins/narracut/workbench.html`；#79 视觉证据为 `.impeccable/review/delivery-{desktop,mobile,mobile-frames,mobile-enlarged,desktop-enlarged}.png`，最终复核的 `ship` 结论仅覆盖本次三项修复范围。
+
 ### Agent Status Ledger
 
 状态台以紧凑分隔行展示任务状态、线程连接、当前 Scene、Task ID 与 Thread。每个可变状态同时提供简短文字和符合“蓝圆运行、绿圆连接/成功、琥珀方形停止/不可用”的形状。状态刷新应先比对有界状态，无变化时不重绘；变化时仅更新 Agent 任务区域，保留 Scene 编辑器、Composer 输入节点与只读媒体宿主；独立隐藏的 `role="status"` / `aria-live="polite"` 区域只播报简短状态与细节，不复读整个面板。

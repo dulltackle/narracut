@@ -1,3 +1,4 @@
+import { ProjectDelivery } from '../../../src/server/project-delivery';
 import { ProjectChecks } from '../../../src/server/project-checks';
 import { ProjectPreview } from '../../../src/server/project-preview';
 import { DependencyError } from '../../../src/server/project-dependencies';
@@ -56,7 +57,7 @@ type JsonRpcRequest = {
 };
 
 type ToolResult = {
-  content: Array<{ type: "text"; text: string }>;
+  content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: "image/png" }>;
   structuredContent: Record<string, unknown>;
   isError?: boolean;
 };
@@ -103,6 +104,23 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  {
+    name: "project_delivery_display", title: "确认交付警告已完整展示",
+    description: "仅供工作台在完整展开当前报告及检查批次警告后确认展示，不表示用户观看或接受。",
+    inputSchema: { type: "object", required: ["projectDirectory","projectId","deliveryId","reportRevision","batchId","warningsKey"], additionalProperties: false, properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, deliveryId: { type: "string" }, reportRevision: { type: "integer" }, batchId: { type: "string" }, warningsKey: { type: "string" } } },
+    outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } },
+  },
+  {
+    name: "project_delivery", title: "采集代表帧并交付候选",
+    description: "基于准确候选 Preview 采集完整计划；image 读取图像，review 单独提交该帧摘要与观察，describe 提交目标、摘要、全部警告与不可执行 Scene 建议。prepare 支持 Transition/运动补点；状态刷新与重试不操作用户播放器。不提供审美评分，不接受候选。",
+    inputSchema: { type: "object", required: ["projectDirectory", "projectId", "action"], additionalProperties: false, properties: {
+      projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["prepare","status","retry","image","review","describe"] },
+      instanceId: { type: "string" }, deliveryId: { type: "string" }, frame: { type: "integer", minimum: 0 }, batchId: { type: "string" }, reportRevision: { type: "integer" },
+      supplements: { type: "array", maxItems: 1000, items: { type: "object", required: ["frame","source","reason"], properties: { frame: { type: "integer", minimum: 0 }, source: { enum: ["transition","motion"] }, reason: { type: "string" } } } },
+      reviews: { type: "array", maxItems: 12, items: { type: "object", required: ["frame","digest","observation"], properties: { frame: { type: "integer" }, digest: { type: "string" }, observation: { type: "string" } } } },
+      report: { type: "object", required: ["goal","summary","warnings","suggestions"], properties: { goal: { type: "string" }, summary: { type: "string" }, warnings: { type: "array", items: { type: "string" } }, suggestions: { type: "array", items: { type: "object", required: ["sceneId","observation","action","content","reason"], properties: { sceneId: { type: "string" }, observation: { type: "string" }, action: { type: "string" }, content: { type: "string" }, reason: { type: "string" } } } } } },
+    } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations,
+  },
   {
     name: "project_checks", title: "检查候选与操作门禁",
     description: "检查当前候选、读取具名批次或取消检查；不接受候选，不替换 Preview。",
@@ -541,7 +559,7 @@ function diagnosticSummary(diagnostics: readonly ProjectInspectionDiagnostic[]):
 }
 
 async function loadWorkbench(): Promise<string> {
-  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript] = await Promise.all([
     readFile(WORKBENCH_PATH, "utf8"),
     readFile(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile(PAPER_TEXTURE_PATH),
@@ -549,11 +567,12 @@ async function loadWorkbench(): Promise<string> {
     readFile(DISPLAY_FONT_PATH),
     readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8"),
     readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
+    readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-delivery.js" : "../workbench-delivery.js", import.meta.url), "utf8"),
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html
     .replace("/*__NARRACUT_MATERIALS__*/", materialVariables)
-    .replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + script);
+    .replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + script);
 }
 
 async function inspectProject(argumentsValue: unknown): Promise<ToolResult> {
@@ -663,6 +682,11 @@ function credentialState(value: string | undefined): TtsCredentialState {
 class ProjectWorkspaceSession {
   preview = new ProjectPreview();
   checks = new ProjectChecks(this.preview);
+  delivery = new ProjectDelivery(this.preview, this.checks);
+  async deliveryOperation(input: any) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    return this.delivery.operate(opened, input);
+  }
   async checksOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     if (input.action === "start") return this.checks.start(opened);
@@ -715,6 +739,7 @@ class ProjectWorkspaceSession {
       await next.release();
       throw error;
     }
+    this.delivery.clear();
     this.checks.clear();
     this.preview.clear();
     this.#opened = next;
@@ -1064,6 +1089,7 @@ class ProjectWorkspaceSession {
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
     }
+    this.delivery.clear();
     this.checks.clear();
     await this.preview.close();
     this.#credentials.clear();
@@ -1102,6 +1128,19 @@ async function callTool(
     throw new Error("tools/call 缺少参数。");
   }
   const { name, arguments: argumentsValue } = params as { name?: unknown; arguments?: unknown };
+  if (name === "project_delivery" || name === "project_delivery_display") {
+    try {
+      if (!argumentsValue || typeof argumentsValue !== 'object') throw new Error('交付参数无效。');
+      const args = argumentsValue as Record<string, unknown>;
+      if (name === 'project_delivery' && args.action === 'displayed') throw new Error('警告展示确认仅供工作台使用。');
+      const result = await workspace.deliveryOperation(name === 'project_delivery_display' ? { ...args, action: 'displayed' } : args);
+      if ('image' in result && typeof result.image === 'string') {
+        const { image, ...metadata } = result;
+        return { structuredContent: metadata, content: [{ type: "image", data: image, mimeType: "image/png" }] };
+      }
+      return { structuredContent: result, content: [] };
+    } catch (error) { return { isError: true, structuredContent: { error: { code: "DELIVERY_FAILED", message: error instanceof Error ? error.message : "交付操作失败，请重试。" } }, content: [] }; }
+  }
   if (name === "project_checks") {
     try { return { structuredContent: await workspace.checksOperation(argumentsValue), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: "CHECK_OPERATION_FAILED", message: error instanceof Error ? error.message : "检查操作失败，请重试。" } }, content: [] }; }

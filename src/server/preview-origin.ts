@@ -11,7 +11,7 @@ export type PreviewFreshness = {
   environment: { status: 'latest' | 'stale' | 'unknown'; captured?: string; latest?: string };
 };
 export type PreviewDescriptor = {
-  version: 1; instanceId: string; token: string; url: string; origin: string;
+  version: 1; parentOrigin?: string; instanceId: string; token: string; url: string; origin: string;
   identity: { bundle: string; input: string; media: string; environment: string };
   freshness?: PreviewFreshness;
   input: RenderProgramInputV1; label: string; target: 'current' | 'candidate'; baseline: string;
@@ -79,7 +79,12 @@ export class PreviewOrigin {
     files.set('bootstrap.js', Buffer.from(`window.dispatchEvent(new CustomEvent('narracut-preview-binding',{detail:${JSON.stringify(binding)}}));`));
     files.set('index.html', Buffer.from('<!doctype html><meta charset="utf-8"><style>html,body,#root{margin:0;width:100%;height:100%;overflow:hidden;background:#050707}#root{display:flex;align-items:center;justify-content:center}</style><div id="root"></div><script src="bundle.js"></script><script src="bootstrap.js"></script>'));
     this.#instances.set(args.key, files);
-    return { version: 1, instanceId, token, identity, input: args.input, target: args.target, baseline: args.baseline, label: args.label, origin, url: `${origin}/${args.key}/index.html` };
+    return { version: 1, parentOrigin: args.parentOrigin, instanceId, token, identity, input: args.input, target: args.target, baseline: args.baseline, label: args.label, origin, url: `${origin}/${args.key}/index.html` };
+  }
+  snapshot(url: string) {
+    const files = this.#instances.get(new URL(url).pathname.split('/')[1]);
+    if (!files) throw new Error('Preview 实例已释放。');
+    return new Map([...files].map(([path, bytes]) => [path, Buffer.from(bytes)]));
   }
   release(url: string) { const key = new URL(url).pathname.split('/')[1]; this.#instances.delete(key); }
   async close() { this.#instances.clear(); if (this.#server) { this.#server.closeAllConnections(); await new Promise<void>(resolve => this.#server!.close(() => resolve())); } }

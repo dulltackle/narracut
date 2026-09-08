@@ -1,3 +1,4 @@
+import type { CheckIdentity } from '../shared/program-checks';
 import type { OutputFormat } from '../runtime';
 import { constants } from 'node:fs';
 import { randomBytes } from 'node:crypto';
@@ -25,7 +26,7 @@ async function snapshotFile(root: string, path: string, limit: number) {
 }
 export class ProjectPreview {
   readonly source = new PreviewOrigin();
-  #active = new Map<string, { descriptor: PreviewDescriptor; brief: string; input: string; revision: string; sourceIdentity: string }>();
+  #active = new Map<string, { descriptor: PreviewDescriptor; brief: string; input: string; revision: string; sourceIdentity: string; identity: CheckIdentity; stale: boolean }>();
   async #observe(opened: OpenedProjectVNext, output: OutputFormat) {
     const root = opened.inspection.projectDirectory;
     const state = await inspectProjectVNext(root);
@@ -64,7 +65,7 @@ export class ProjectPreview {
     const after = await this.capture(opened, target);
     if (before.signature !== after.signature) throw new Error('构建期间输入或媒体已变化，请重试。');
     const descriptor = await this.source.publish({ ...before, bundle, target, parentOrigin, key: randomBytes(24).toString('hex'), label: target === 'candidate' ? `候选 · ${before.candidate.candidate!.identity.slice(7, 15)}` : `当前 · ${before.revision.slice(0, 8)}` });
-    this.#active.set(descriptor.instanceId, { descriptor, brief: before.brief, input: before.projectInput, revision: before.revision, sourceIdentity: before.sourceIdentity });
+    this.#active.set(descriptor.instanceId, { descriptor, brief: before.brief, input: before.projectInput, revision: before.revision, sourceIdentity: before.sourceIdentity, stale: false, identity: { project: opened.inspection.manifest.projectId, program: before.sourceIdentity, baseline: before.baseline, brief: before.brief, input: before.projectInput, media: descriptor.identity.media, environment: descriptor.identity.environment } });
     descriptor.freshness = (await this.status(opened, descriptor.instanceId)).freshness;
     return descriptor;
   }
@@ -93,8 +94,15 @@ export class ProjectPreview {
     } catch { /* 源码不完整时保留旧画面，不能冒充最新成功结果。 */ }
     try { freshness.environment = compare(entry.descriptor.identity.environment, await programEnvironmentIdentity()); }
     catch { /* 执行环境无法认证时不声称最新。 */ }
-    return { stale: sourceStale || Object.values(freshness).some(item => item.status !== 'latest'), freshness };
+    entry.stale ||= sourceStale || Object.values(freshness).some(item => item.status !== 'latest');
+    return { stale: entry.stale, freshness };
   }
+  evidenceSnapshot(instanceId: string) {
+    const entry = this.#active.get(instanceId);
+    if (!entry || entry.descriptor.target !== 'candidate') throw new Error('需要仍可用的候选 Preview 实例。');
+    return { descriptor: structuredClone(entry.descriptor), binding: { instanceId, bundle: entry.descriptor.identity.bundle, identity: structuredClone(entry.identity) }, stale: entry.stale };
+  }
+  latestCandidate() { return [...this.#active.values()].filter(entry => entry.descriptor.target === 'candidate').at(-1)?.descriptor.instanceId; }
   release(instanceId: string) { const entry = this.#active.get(instanceId); if (entry) this.source.release(entry.descriptor.url); this.#active.delete(instanceId); }
   clear() { for (const entry of this.#active.values()) this.source.release(entry.descriptor.url); this.#active.clear(); }
   async close() { this.clear(); await this.source.close(); }

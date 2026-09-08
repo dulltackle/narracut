@@ -80,7 +80,8 @@ function checkBinding(input: RenderProgramInputV1, speech: readonly RuntimeSpeec
 async function programEnvironment(capsuleIdentity: string, toolchain: Awaited<ReturnType<typeof programToolchain>>) {
   const runtimeFiles = { ...toolchain.files, 'source/entry.tsx': Buffer.from(PROGRAM_RUNTIME_SOURCE), 'source/entry-contract.ts': Buffer.from(PROGRAM_ENTRY_CONTRACT), 'source/safe-jsx.ts': Buffer.from(PROGRAM_SAFE_JSX), 'source/safe-remotion.ts': Buffer.from(PROGRAM_SAFE_REMOTION), 'launch.mjs': Buffer.from("process.env.ESBUILD_BINARY_PATH='/tmp/tools/esbuild';await import('./worker.mjs');") };
   const metadataDriver = await bundleApplicationWorker('metadata');
-  const identity = fingerprint(new Map([...Object.entries(runtimeFiles), ['capsule', Buffer.from(capsuleIdentity)], ['metadata-worker', metadataDriver]]));
+  const evidenceDriver = await bundleApplicationWorker('evidence');
+  const identity = fingerprint(new Map([...Object.entries(runtimeFiles), ['capsule', Buffer.from(capsuleIdentity)], ['metadata-worker', metadataDriver], ['evidence-worker', evidenceDriver]]));
   return { runtimeFiles, metadataDriver, identity };
 }
 export async function programEnvironmentIdentity() {

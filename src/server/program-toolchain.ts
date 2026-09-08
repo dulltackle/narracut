@@ -37,7 +37,7 @@ export async function programToolchain() {
 }
 
 /** Node API 从固定应用包加载，避免插件单文件打包破坏 esbuild 的二进制寻址。 */
-export async function bundleApplicationWorker(stage: 'build' | 'metadata') {
+export async function bundleApplicationWorker(stage: 'build' | 'metadata' | 'evidence') {
   const { build } = require('esbuild') as typeof import('esbuild');
   const worker = await build({ entryPoints: [join(applicationRoot, `src/server/program-${stage}-worker.ts`)],
     absWorkingDir: applicationRoot, bundle: true, platform: 'node', format: 'esm', write: false,

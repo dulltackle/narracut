@@ -1,5 +1,5 @@
 /** 成片 Preview 宿主仅消费版本化消息；不读取 iframe DOM、Player 或 Bundle 全局对象。 */
-function createPreviewWorkbench(call, getProject) {
+function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
   let region, projectKey, active, pending, busy = false, failure = '', requested = null, serial = 0;
   const slots = new Map();
   const buildStates = { current: '', candidate: '' };
@@ -131,6 +131,7 @@ function createPreviewWorkbench(call, getProject) {
     if (m.type === 'READY') {
       if (JSON.stringify(m.identity) !== JSON.stringify(slot.identity)) { markFailed(slot, '预览身份不匹配'); return; }
       clearTimeout(slot.timeout); slot.ready = true; buildStates[slot.target] = 'Preview 已就绪';
+      if (slot.target === 'candidate') candidateReady(slot.instanceId);
       command(slot, 'PAUSE');
       command(slot, 'VOLUME', { volume: Number(region.querySelector('[data-volume]').value) });
       command(slot, 'MUTE', { muted: region.querySelector('[data-mute]').getAttribute('aria-pressed') === 'true' });
@@ -163,6 +164,13 @@ function createPreviewWorkbench(call, getProject) {
   }, 4000);
   return {
     pauseHidden,
+    candidateInstance() { return versionFor('candidate')?.instanceId; },
+    showCandidate() { switchTo(versionFor('candidate')); },
+    locateEvidence(location) {
+      const slot = slots.get(location.instanceId);
+      if (!slot?.ready || slot.failed) { sceneNotice = '对应 Preview 实例已不可用，请重新准备证据。'; update(); return; }
+      deferredScene = null; switchTo(slot); seek(location.frame);
+    },
     navigateFrame(location) {
       if (active?.instanceId !== location.instanceId) { sceneNotice = '此位置属于另一个 Preview 实例，请先显式切换对应版本。'; update(); return; }
       seek(location.frame);

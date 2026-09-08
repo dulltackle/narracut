@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { CheckBatch, diagnostic, diagnosticCatalog, gateOperations, type CheckIdentity, type Diagnostic, type StageCheck } from '../shared/program-checks';
+import { CheckBatch, diagnostic, diagnosticCatalog, gateOperations, type BatchView, type GateEvidence, type CheckIdentity, type Diagnostic, type StageCheck } from '../shared/program-checks';
 import type { OpenedProjectVNext } from './project-lifecycle';
 import { checkProgramManifest, programEnvironmentIdentity } from './program-bundle';
 import { readOfflineDependencyGraph } from './project-dependencies';
@@ -8,6 +8,7 @@ import { previewDigest } from './preview-origin';
 
 /** 仅驻留当前工作台会话；保留最近两批具名结果，不持久化第二份检查历史。 */
 export class ProjectChecks {
+  evidence?: (latest: CheckIdentity | null, batch?: BatchView) => GateEvidence | undefined;
   #batches: CheckBatch[] = []; #starting = false; #generation = 0;
   constructor(private preview: ProjectPreview) {}
   async #capture(opened: OpenedProjectVNext) {
@@ -98,8 +99,8 @@ export class ProjectChecks {
   }
   #view(latest: CheckIdentity | null) {
     const batches = this.#batches.map(batch => batch.view());
-    // 代表帧审核、接受记录与最终 Render 尚未接入，不从 Preview READY 推断其证据。
-    return { batches, gates: gateOperations(batches.at(-1) ?? null, latest) };
+    // 交付证据单独提供；接受记录与最终 Render 保持独立且未启用。
+    return { batches, gates: gateOperations(batches.at(-1) ?? null, latest, this.evidence?.(latest, batches.at(-1))) };
   }
   clear() { this.#generation++; for (const batch of this.#batches) batch.cancel(); this.#batches = []; }
 }

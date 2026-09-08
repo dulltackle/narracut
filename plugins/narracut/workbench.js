@@ -710,14 +710,15 @@
   });
   setInterval(() => { if (!document.hidden && state.candidate) candidateOperation("read", true); }, 4000);
 
-  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project);
+  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project, instanceId => deliveryWorkbench.candidateReady(instanceId));
+  const deliveryWorkbench = createDeliveryWorkbench((action, args) => callHostTool(action === "displayed" ? "project_delivery_display" : "project_delivery", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, ...(action === "displayed" ? {} : { action }), ...args }), () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate } : undefined, previewWorkbench, id => { if (state.result?.scenes.some(scene => scene.id === id)) { state.selected = id; switchWorkspace("table"); render(); } });
   const checksWorkbench = createChecksWorkbench((action, args) => callHostTool("project_checks", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project, location => {
     if (location.kind === "scene" && state.result?.scenes.some(scene => scene.id === location.sceneId)) { state.selected = location.sceneId; previewWorkbench.selectScene(location.sceneId); render(); }
     if (location.kind === "frame") previewWorkbench.navigateFrame(location);
   });
 
   function valid(result) {
-    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><div data-agent-content></div><div data-candidate-region></div><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section><section class="preview-context"><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
+    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><section class="delivery-panel" data-program-delivery aria-label="候选交付"></section><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><div data-agent-content></div><div data-candidate-region></div><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section><section class="preview-context"><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
   }
 
   function invalid(result) {
@@ -791,6 +792,7 @@
         updateRegion(document.querySelector("[data-agent-content]"), agent(result));
         updateCandidate();
         previewWorkbench.mount(document.querySelector("[data-program-preview]"));
+        deliveryWorkbench.mount(document.querySelector("[data-program-delivery]"));
         checksWorkbench.mount(document.querySelector("[data-program-checks]"));
         updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
         updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}`);
