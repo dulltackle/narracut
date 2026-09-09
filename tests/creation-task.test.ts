@@ -897,3 +897,40 @@ test('终结后转移工作台并重开不会重新生成旧任务检查点', as
     await expect(readFile(join(app.projectDirectory, '.narracut/agent-task.json'))).rejects.toMatchObject({ code: 'ENOENT' });
   } finally { await other.dispose(); await app.close(); }
 });
+
+test('正式复制安全停止运行任务，副本换任务 ID 且不会自动开启新 Turn', async () => {
+  const app = await setup();
+  try {
+    const started = await app.call('start_creation_task', { instruction: '以新方向保留候选' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    const target = join(app.root, 'independent');
+    let result = (await app.call('copy_project', { action: 'start', targetDirectory: target })).structuredContent;
+    await expect.poll(async () => {
+      result = (await app.call('copy_project', { action: 'status', operationId: result.operationId })).structuredContent;
+      return result.status;
+    }).toBe('opened');
+    expect(result.workspace.creationTask).toMatchObject({ status: 'stopped', threadPointer: null, instruction: '以新方向保留候选' });
+    expect(result.workspace.creationTask.taskId).not.toBe(started.structuredContent.creationTask.taskId);
+    expect(app.host.turns).toHaveLength(1);
+    const source = JSON.parse(await readFile(join(app.projectDirectory, '.narracut/agent-task.json'), 'utf8'));
+    expect(source.status).toBe('stopped');
+    expect(source.taskId).toBe(started.structuredContent.creationTask.taskId);
+  } finally { await app.close(); }
+});
+
+test('复制等待工具审批的任务后清除失效待办，用户仍能明确继续', async () => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '保留审批前候选' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    const turn = app.host.turns[0]!;
+    for (const listener of app.host.listeners) listener({ type: 'approval-required', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'copy-approval', summary: '读取候选' });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('TOOL_APPROVAL_REQUIRED');
+    let copy = (await app.call('copy_project', { action: 'start', targetDirectory: join(app.root, 'approval-copy') })).structuredContent;
+    await expect.poll(async () => { copy = (await app.call('copy_project', { action: 'status', operationId: copy.operationId })).structuredContent; return copy.status; }).toBe('opened');
+    expect(copy.workspace.creationTask.waitingReason).toBe(null);
+    const continued = await app.call('respond_creation_task', { action: 'continue', projectDirectory: copy.workspace.project.directory, projectId: copy.workspace.project.projectId });
+    expect(continued.isError).not.toBe(true);
+    await expect.poll(() => app.host.turns.length).toBe(2);
+  } finally { await app.close(); }
+});

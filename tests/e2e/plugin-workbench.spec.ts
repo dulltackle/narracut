@@ -833,7 +833,7 @@ test("编辑、复制、移动、删除与 Undo/Redo 保持 Scene 身份和保�
   await page.getByRole("button", { name: "Redo" }).click();
   await expect(page.locator(`[data-scene-id="${secondId}"] .narration-view`)).toHaveText("改写完成");
 
-  await page.getByRole("button", { name: "复制" }).click();
+  await page.getByRole("button", { name: "复制", exact: true }).click();
   const selected = page.locator('[data-scene-row][data-selected="true"]');
   await expect(selected).toContainText("改写完成");
   const copiedId = await selected.getAttribute("data-scene-id");
@@ -1840,4 +1840,112 @@ test('放弃确认默认取消，回执不明先核对且不重复删除', async
   await expect(page.locator('.creation-state')).toContainText('已终结');
   await expect(page.locator('[data-candidate-region]')).toContainText('尚无候选');
   expect(submits).toBe(1);
+});
+
+for (const width of [1440, 390]) test(`项目复制确认保留完整路径与安全停止说明 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await loadWorkbench(page);
+  await sendResult(page, validResult(2));
+  if (width === 390) await page.locator('[data-open-inspection]').click();
+  await page.screenshot({ path: `/tmp/issue88-before-${width}.png`, fullPage: true });
+  await page.getByRole('button', { name: '复制项目…', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '复制项目' })).toBeVisible();
+  await expect(page.getByText('保留候选，来源工作区将关闭。')).toBeVisible();
+  await expect(page.getByRole('button', { name: '复制并打开副本', exact: true })).toBeDisabled();
+  await page.screenshot({ path: `.impeccable/review/copy-${width}.png`, fullPage: true });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '复制项目' })).not.toBeVisible();
+});
+
+for (const width of [1440, 390]) test(`选择目标后复制并打开独立副本 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await loadWorkbench(page);
+  const calls: string[] = [];
+  let started = false;
+  const result = validResult(2);
+  await page.exposeFunction('copyHost', async (name: string, args: any) => {
+    calls.push(name);
+    if (name === 'copy_project' && args.action === 'start') { started = true; return { structuredContent: { status: 'running', phase: 'copying', operationId: 'copy-1', sourceClosed: true } }; }
+    if (name === 'copy_project') return { structuredContent: { status: 'opened', workspace: { ...result, project: { ...result.project, folderName: '独立副本', directory: '/work/copies/独立副本', projectId: '10000000-0000-4000-8000-000000000002' } } } };
+    return { structuredContent: {} };
+  });
+  await page.evaluate(() => { (window as any).openai = { selectDirectory: async () => '/work/copies', callTool: (name: string, args: unknown) => (window as any).copyHost(name, args) }; });
+  await sendResult(page, result);
+  if (width === 390) await page.locator('[data-open-inspection]').click();
+  await page.locator('[data-copy-project]').click();
+  await page.locator('[data-copy-parent]').click();
+  await page.locator('[data-copy-name]').fill('独立副本');
+  await expect(page.locator('[data-copy-path]')).toHaveText('/work/copies/独立副本');
+  await page.locator('[data-copy-submit]').click();
+  await expect(page.getByRole('dialog', { name: '复制项目' })).not.toBeVisible();
+  await expect(page.locator('.folder')).toContainText('独立副本');
+  expect(started).toBe(true);
+  await expect(page.locator('.copy-result')).toContainText('/work/copies/独立副本');
+  await page.screenshot({ path: `.impeccable/review/copy-result-${width}.png`, fullPage: true });
+});
+
+test('复制状态轮询保留展开详情和取消按钮焦点', async ({ page }) => {
+  await loadWorkbench(page);
+  await page.exposeFunction('runningCopyHost', async () => ({ structuredContent: { status: 'running', phase: 'copying', operationId: 'copy-focus', sourceClosed: true } }));
+  await page.evaluate(() => { (window as any).openai = { selectDirectory: async () => '/work/copies', callTool: () => (window as any).runningCopyHost() }; });
+  await sendResult(page, validResult(1));
+  await page.locator('[data-copy-project]').click();
+  await page.locator('[data-copy-parent]').click();
+  await page.locator('[data-copy-submit]').click();
+  await expect(page.locator('.copy-progress')).toContainText('正在复制');
+  await page.locator('#project-copy-dialog summary').click();
+  await page.locator('[data-copy-cancel]').focus();
+  await page.waitForTimeout(800);
+  await expect(page.locator('#project-copy-dialog details')).toHaveAttribute('open', '');
+  await expect(page.locator('[data-copy-cancel]')).toBeFocused();
+});
+
+for (const failure of ['save', 'brief']) test(`复制前阻止未解决的 ${failure} 保存问题并保留来源`, async ({ page }) => {
+  await loadWorkbench(page);
+  const called: string[] = [];
+  await installAppToolBridge(page, name => {
+    called.push(name);
+    return name === 'save_project_video_brief'
+      ? { structuredContent: { status: 'brief-conflict', disk: { content: '# 磁盘版本', revision: `sha256:${'d'.repeat(64)}` } } }
+      : { isError: true, structuredContent: { status: 'save-failed', error: { code: 'PROJECT_SAVE_FAILED', message: '磁盘写入失败' } } };
+  });
+  await page.evaluate(() => { Object.assign((window as any).openai, { selectDirectory: async () => '/work/copies' }); });
+  await sendResult(page, validResult(1));
+  if (failure === 'save') {
+    await page.getByRole('button', { name: '编辑 Narration', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Scene 01 Narration' }).fill('尚未保存的新内容');
+    await page.getByRole('textbox', { name: 'Scene 01 Narration' }).blur();
+    await expect(page.getByText('保存失败', { exact: true })).toBeVisible();
+  } else {
+    await page.getByRole('button', { name: /Video Brief.*已保存/ }).click();
+    await page.getByRole('textbox', { name: 'Video Brief 原始 Markdown' }).fill('# 本地版本');
+    await expect(page.getByRole('heading', { name: '外部冲突' })).toBeVisible();
+    await page.getByRole('button', { name: '关闭 Video Brief 编辑器' }).click();
+  }
+  await page.locator('[data-copy-project]').click();
+  await page.locator('[data-copy-parent]').click();
+  await page.locator('[data-copy-submit]').click();
+  await expect(page.locator('#project-copy-dialog [role="alert"]')).toContainText(failure === 'save' ? 'Scene 保存失败' : 'Video Brief 尚未保存');
+  expect(called).not.toContain('copy_project');
+  await page.locator('[data-copy-close]').click();
+  await expect(page.locator('.folder')).toContainText('product-demo');
+});
+
+test('同 ID 冲突完整列出四个选择，转换前明确确认受影响路径', async ({ page }) => {
+  await loadWorkbench(page);
+  const calls: any[] = [];
+  await installAppToolBridge(page, (name, args) => { calls.push({ name, args }); return { structuredContent: validResult(1) }; });
+  await sendResult(page, validResult(1));
+  await sendResult(page, { status: 'identity-conflict', currentDirectory: '/work/current', selectedDirectory: '/work/manual-copy', projectId: 'same-id' });
+  const dialog = page.getByRole('dialog', { name: '两个路径具有相同 Project ID' });
+  await expect(dialog).toContainText('/work/current');
+  await expect(dialog).toContainText('/work/manual-copy');
+  await expect(dialog.getByRole('button')).toHaveCount(4);
+  await expect(dialog.getByRole('button', { name: '取消本次打开' })).toBeFocused();
+  await dialog.getByRole('button', { name: '将所选副本转换为独立项目（生成新 ID）' }).click();
+  expect(calls).toHaveLength(0);
+  await expect(dialog.getByRole('status')).toContainText('/work/manual-copy');
+  await dialog.getByRole('button', { name: '确认转换所选路径并生成新 ID' }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(calls).toEqual([{ name: 'open_project', args: { projectDirectory: '/work/manual-copy', identityChoice: 'convert' } }]);
 });

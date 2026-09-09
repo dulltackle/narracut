@@ -301,9 +301,9 @@
     const speechReady = speech?.status === "available";
     return `<aside class="inspection" aria-label="项目检查" data-open="${state.inspectionOpen}">
       <button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button>
-      <h2>项目检查</h2><div class="rule"></div><div class="checks">${checks(result)}</div>
+      <h2>项目检查</h2>${result.copyReceipt ? `<section class="copy-result" role="status"><strong>独立副本已打开</strong><p>${escapeHtml(result.project.folderName)}<br>${escapeHtml(result.project.directory)}</p><p>项目身份独立，候选保持停止；明确继续后才运行。</p>${result.copyReceipt.warning ? `<p>${escapeHtml(result.copyReceipt.warning.message)}<br>${escapeHtml(result.copyReceipt.warning.path)}</p>` : ""}</section>` : ""}<div class="rule"></div><div class="checks">${checks(result)}</div>
       ${scene ? `<section class="selected"><div class="rule"></div><h3>Scene ${pad(currentScenes().indexOf(scene) + 1)}</h3><p class="selected-copy" data-testid="scene-narration-detail">${escapeHtml(scene.narration.text)}</p><dl class="facts"><div class="fact"><dt>Scene ID</dt><dd>${escapeHtml(scene.id)}</dd></div><div class="fact"><dt>Asset</dt><dd>${scene.assetIds.length}</dd></div><div class="fact"><dt>Speech</dt><dd>${speechReady ? `已生成 · ${seconds(speech.durationMs)}` : "Draft Duration"}</dd></div>${time ? `<div class="fact"><dt>Time Window</dt><dd>帧 ${time.startFrame}–${time.startFrame + time.durationInFrames}（不含 ${time.startFrame + time.durationInFrames}）</dd></div>` : ""}</dl><p class="render-readiness" data-ready="${speechReady}">${speechReady ? "可用于最终 Render" : "仅供草稿 Preview · 阻断最终 Render"}</p></section>` : ""}
-      <div class="inspection-actions"><button class="inspection-action brief-entry" type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}" ${state.result?.writable ? "" : "disabled"}><span class="brief-entry-copy"><strong>Video Brief</strong><small>原始 Markdown · video.md</small></span><span data-brief-entry-state>${briefEntryStatusLabel()}</span></button>${writable ? `<button class="inspection-action" type="button" data-open-tts>TTS 配置 <span>${result.tts?.status === "configured" ? "已配置" : "待配置"}</span></button><button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
+      <div class="inspection-actions">${writable ? `<button class="inspection-action" type="button" data-copy-project>复制项目…</button>` : ""}<button class="inspection-action brief-entry" type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}" ${state.result?.writable ? "" : "disabled"}><span class="brief-entry-copy"><strong>Video Brief</strong><small>原始 Markdown · video.md</small></span><span data-brief-entry-state>${briefEntryStatusLabel()}</span></button>${writable ? `<button class="inspection-action" type="button" data-open-tts>TTS 配置 <span>${result.tts?.status === "configured" ? "已配置" : "待配置"}</span></button><button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
       <section class="readonly"><strong data-writable="${writable}">${writable ? "内容写入边界" : "只读"}</strong><p>${writable ? "表格工作区可以修改 Scene、Narration 与 Asset 引用；预览只检查 Asset 本体，不改变 Scene 或 Player。" : "当前项目只提供检查。Scene、Narration、Asset 和 Speech 不会在这里被修改。"}</p></section>
     </aside>`;
   }
@@ -2317,7 +2317,129 @@
     document.querySelector("[data-export-brief-local]")?.addEventListener("click", exportBriefLocal, { signal: bindings.signal });
   }
 
+  let projectCopy = null;
+  let identityConflict = null;
+  const copyPhases = { preparing: '正在保存 Scene 与 Video Brief', stopping: '正在安全停止 Agent，保留候选', waiting: '正在等待 Render、Speech 与目录写任务结束', closing: '正在关闭来源工作区', copying: '正在复制完整持久内容', validating: '正在校验副本与来源一致性', publishing: '正在完成原子发布', opening: '副本已创建，正在打开', reconciling: '连接中断，正在等待核对复制结果；来源编辑保持锁定' };
+  function copyTarget() { return projectCopy?.parent ? `${projectCopy.parent.replace(/[\\/]$/, '')}/${projectCopy.name}` : ''; }
+  function copyDialog() {
+    let dialog = document.getElementById('project-copy-dialog');
+    if (!dialog) { dialog = document.createElement('dialog'); dialog.id = 'project-copy-dialog'; dialog.className = 'project-copy-dialog'; document.body.append(dialog); }
+    const c = projectCopy, busy = c.busy, published = c.status === 'created-not-opened';
+    const rendering = JSON.stringify(c);
+    if (dialog.dataset.rendering === rendering) return;
+    dialog.dataset.rendering = rendering;
+    const detailsOpen = dialog.querySelector('details')?.open;
+    const previousFocus = dialog.contains(document.activeElement) ? [...document.activeElement.attributes].find(attribute => attribute.name.startsWith('data-copy-'))?.name : null;
+    const scrollTop = dialog.scrollTop;
+    const target = copyTarget();
+    const validName = c.name.trim() && !/[\\/\x00-\x1f]/.test(c.name) && !['.', '..'].includes(c.name);
+    dialog.setAttribute('aria-labelledby', 'project-copy-title');
+    dialog.innerHTML = `<header><h1 id="project-copy-title">复制项目</h1><p>保留当前成果，开启独立的创作方向。</p></header>
+      <dl><dt>来源项目 · ${escapeHtml(c.source.folderName)}</dt><dd>${escapeHtml(c.source.directory)}</dd></dl>
+      <div class="copy-target-fields"><button class="agent-action" type="button" data-copy-parent ${busy || published ? 'disabled' : ''}>选择父目录</button><label>新文件夹名<input data-copy-name value="${escapeHtml(c.name)}" ${busy || published ? 'disabled' : ''} autocomplete="off"></label></div>
+      <dl><dt>副本完整路径</dt><dd data-copy-path>${escapeHtml(target || '请选择父目录')}</dd></dl>
+      <p>保留 Scene、Asset、Speech、Video Brief、已保留的修订历史、离线依赖、候选及恢复检查点。</p><p>保留候选，来源工作区将关闭。</p>
+      <p class="copy-progress" role="status" aria-live="polite">${escapeHtml(published ? '副本已创建，打开失败' : busy ? copyPhases[c.phase] ?? '正在核对复制结果' : c.status === 'cancelled' ? '复制已取消，临时目录已清理；已停止的 Agent 不会自动恢复。' : '副本使用新项目身份，任务保持停止，明确继续后才运行。')}</p>
+      ${c.error ? `<div class="copy-error" role="alert"><p>${escapeHtml(c.error.message)}</p><p>${escapeHtml(c.error.path ?? '')}</p></div>` : ''}
+      <details><summary>复制详情</summary><p>副本生成新 Project ID 与任务 ID，清除 Codex 线程指针；旧 Preview 和检查证据需要重新生成。系统临时文件与可重建派生产物不会复制。已有目录即使为空也不能使用。</p></details>
+      <footer>${c.phase === "reconciling" ? '<button class="agent-action" data-copy-check>核对复制结果</button>' : ""}${busy ? `<button class="agent-action" data-copy-cancel ${['publishing', 'opening'].includes(c.phase) || !c.operationId ? 'disabled' : ''}>${c.phase === 'publishing' ? '正在完成' : '取消复制'}</button>` : published ? '<button class="agent-action" data-copy-open>重试打开</button>' : `<button class="agent-action" data-copy-submit ${!target || !validName ? 'disabled' : ''}>${c.error?.code === 'PROJECT_TEMPORARY_RESIDUE' ? '确认清理并从头重试' : state.creationTask?.status === 'running' ? '停止任务并复制' : '复制并打开副本'}</button>${c.sourceClosed ? '<button class="agent-action" data-copy-source>重新打开来源</button>' : '<button class="agent-action" data-copy-close>取消</button>'}${c.error && !c.sourceClosed ? '<button class="agent-action" data-copy-fix>解决 Brief 冲突或重试保存</button>' : ''}`}</footer>`;
+    if (detailsOpen) dialog.querySelector('details').open = true;
+    if (previousFocus) dialog.querySelector(`[${previousFocus}]:not(:disabled)`)?.focus({ preventScroll: true });
+    dialog.scrollTop = scrollTop;
+    dialog.oncancel = event => { event.preventDefault(); if (!c.busy && !c.sourceClosed) closeCopyDialog(); };
+    dialog.onkeydown = event => { event.stopPropagation(); };
+    dialog.querySelector('[data-copy-name]')?.addEventListener('input', event => {
+      c.name = event.target.value;
+      dialog.querySelector('[data-copy-path]').textContent = copyTarget() || '请选择父目录';
+      dialog.querySelector('[data-copy-submit]').disabled = !c.parent || !c.name.trim() || /[\\/\x00-\x1f]/.test(c.name) || ['.', '..'].includes(c.name);
+    });
+    dialog.querySelector('[data-copy-parent]')?.addEventListener('click', async () => {
+      const path = await chooseDirectory('create-parent', '[data-copy-parent]');
+      if (path) c.parent = path;
+      else if (state.launcher.error) c.error = state.launcher.error;
+      copyDialog(); dialog.querySelector('[data-copy-name]')?.focus();
+    });
+    dialog.querySelector('[data-copy-submit]')?.addEventListener('click', startProjectCopy);
+    dialog.querySelector('[data-copy-check]')?.addEventListener('click', async () => { try { await followProjectCopy(c, await callHostTool('copy_project', { action: 'status', operationId: c.operationId })); } catch (error) { c.error = { message: error.message }; copyDialog(); } });
+    dialog.querySelector('[data-copy-cancel]')?.addEventListener('click', async () => { await callHostTool('copy_project', { action: 'cancel', operationId: c.operationId }); });
+    dialog.querySelector('[data-copy-close]')?.addEventListener('click', closeCopyDialog);
+    dialog.querySelector('[data-copy-source]')?.addEventListener('click', () => reopenCopy(c.source.directory));
+    dialog.querySelector('[data-copy-open]')?.addEventListener('click', () => reopenCopy(c.targetDirectory));
+    dialog.querySelector('[data-copy-fix]')?.addEventListener('click', () => { closeCopyDialog(); if (state.brief.conflict) { state.brief.open = true; render(); } else { state.autosaveStopped = false; void saveProject(); void saveVideoBrief(); } });
+    if (!dialog.open) { dialog.showModal(); dialog.querySelector('[data-copy-close], [data-copy-parent]')?.focus(); }
+  }
+  function closeCopyDialog() { document.getElementById('project-copy-dialog')?.remove(); projectCopy = null; document.querySelector('[data-copy-project]')?.focus(); schedulePoll(); }
+  async function reopenCopy(path) {
+    try {
+      const response = await callHostTool('open_project', { projectDirectory: path });
+      if (response.isError || response.structuredContent?.status !== 'valid') throw new Error(response.structuredContent?.error?.message ?? '无法打开项目');
+      closeCopyDialog(); accept(response.structuredContent);
+    } catch (error) { projectCopy.error = { message: error.message, path }; copyDialog(); }
+  }
+  async function startProjectCopy() {
+    const c = projectCopy;
+    if (!c || c.busy) return;
+    const confirmed = c.error?.code === 'PROJECT_TEMPORARY_RESIDUE';
+    c.operationId = null; c.busy = true; c.phase = 'preparing'; c.error = null; clearTimeout(pollTimer); clearTimeout(briefSaveTimer); copyDialog();
+    try {
+      if (!c.sourceClosed) {
+        if (!await flushProjectBeforeAssetImport()) throw new Error('Scene 保存失败，请重试保存后再次确认复制。');
+        await saveVideoBrief();
+        if (state.brief.conflict || state.brief.version !== state.brief.savedVersion) throw new Error('Video Brief 尚未保存，请解决 Brief 冲突或重试保存后再次确认。');
+      } else {
+        const reopened = await callHostTool('open_project', { projectDirectory: c.source.directory });
+        if (reopened.isError || reopened.structuredContent?.status !== 'valid') throw new Error(reopened.structuredContent?.error?.message ?? '无法重新打开来源');
+        accept(reopened.structuredContent, false, true);
+        clearTimeout(pollTimer);
+        c.sourceClosed = false;
+      }
+      c.operationId = createUuid();
+      let response = await callHostTool('copy_project', { action: 'start', operationId: c.operationId, projectDirectory: c.source.directory, projectId: c.source.projectId, targetDirectory: copyTarget(), confirmTemporaryCleanup: confirmed });
+      if (response.isError) { c.operationId = null; throw new Error(response.structuredContent?.error?.message ?? '无法开始复制'); }
+      await followProjectCopy(c, response);
+    } catch (error) { c.busy = !!c.operationId; if (c.busy) c.phase = 'reconciling'; c.error = { message: error.message }; copyDialog(); }
+  }
+  async function followProjectCopy(c, response) {
+      for (;;) {
+        if (response.isError) throw new Error(response.structuredContent?.error?.message ?? '复制操作失败');
+        const result = response.structuredContent;
+        Object.assign(c, result);
+        c.busy = result.status === 'running'; copyDialog();
+        if (!c.busy) {
+          if (result.status === 'opened') { const workspace = result.workspace; closeCopyDialog(); accept({ ...workspace, copyReceipt: { warning: result.cleanupWarning } }); state.inspectionOpen = true; render(); announce(`副本 ${workspace.project.folderName} 已打开：${workspace.project.directory}。项目身份独立，任务保持停止。${result.cleanupWarning ? ` ${result.cleanupWarning.message}（${result.cleanupWarning.path}）` : ""}`); }
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 350));
+        response = await callHostTool('copy_project', { action: 'status', operationId: c.operationId });
+      }
+  }
+
+  function showIdentityConflict(conflict) {
+    identityConflict = conflict;
+    let dialog = document.getElementById('project-identity-dialog');
+    if (!dialog) { dialog = document.createElement('dialog'); dialog.id = 'project-identity-dialog'; dialog.className = 'project-copy-dialog'; document.body.append(dialog); }
+    dialog.setAttribute('aria-labelledby', 'identity-title');
+    dialog.innerHTML = `<h1 id="identity-title">两个路径具有相同 Project ID</h1><p>手工复制保留原身份，请明确选择本次要使用的项目。</p><dl><dt>当前工作区路径</dt><dd>${escapeHtml(conflict.currentDirectory)}</dd><dt>所选路径</dt><dd>${escapeHtml(conflict.selectedDirectory)}</dd></dl><div class="identity-actions"><button class="agent-action" data-identity="current">返回当前工作区</button><button class="agent-action" data-identity="selected">关闭当前工作区后打开所选路径</button><button class="agent-action" data-identity="convert">将所选副本转换为独立项目（生成新 ID）</button><button class="agent-action" data-identity="cancel">取消本次打开</button></div><p data-identity-feedback role="status"></p>`;
+    dialog.querySelectorAll('[data-identity]').forEach(button => button.addEventListener('click', async () => {
+      const choice = button.dataset.identity;
+      if (choice === 'convert' && !button.dataset.confirmed) { button.dataset.confirmed = 'true'; button.textContent = '确认转换所选路径并生成新 ID'; dialog.querySelector('[data-identity-feedback]').textContent = `将改变 ${conflict.selectedDirectory} 的项目与任务身份，清除线程指针并保持停止。`; return; }
+      dialog.querySelectorAll('button').forEach(item => { item.disabled = true; });
+      try {
+        const response = await callHostTool('open_project', { projectDirectory: conflict.selectedDirectory, identityChoice: choice });
+        if (response.isError) throw new Error(response.structuredContent?.error?.message ?? '打开失败');
+        if (response.structuredContent?.status === 'identity-conflict') { showIdentityConflict(response.structuredContent); return; }
+        dialog.remove(); identityConflict = null; state.launcher.busy = false;
+        if (response.structuredContent?.status === 'valid') accept(response.structuredContent); else render();
+      } catch (error) { dialog.querySelector('[data-identity-feedback]').textContent = error.message; dialog.querySelectorAll('button').forEach(item => { item.disabled = false; }); }
+    }));
+    dialog.oncancel = event => { event.preventDefault(); dialog.querySelector('[data-identity="cancel"]').click(); };
+    if (!dialog.open) dialog.showModal();
+    dialog.onkeydown = event => event.stopPropagation();
+    dialog.querySelector('[data-identity="cancel"]').focus();
+  }
+
   function bind() {
+    document.querySelector("[data-copy-project]")?.addEventListener("click", () => { projectCopy = { source: { ...state.result.project }, parent: "", name: `${state.result.project.folderName}-副本`, busy: false }; copyDialog(); }, { signal: bindings.signal });
     if (state.result?.status === "launcher") {
       bindLauncher();
       return;
@@ -2472,6 +2594,7 @@
     try {
       const response = await callHostTool("open_project", { projectDirectory: path });
       if (response?.isError || response?.structuredContent?.status === "invalid") return lifecycleFailure(response, "项目无法打开，请核对目录后重试。", "[data-open-project]");
+      if (response.structuredContent?.status === "identity-conflict") { showIdentityConflict(response.structuredContent); return; }
       accept(response.structuredContent, response.structuredContent?.project?.sceneCount === 0);
     } catch (error) {
       lifecycleFailure({ structuredContent: { error: { code: "PROJECT_OPEN_FAILED", message: error?.message ?? "项目无法打开，请重试。" } } }, "项目无法打开，请重试。", "[data-open-project]");
@@ -2582,7 +2705,10 @@
     };
   }
 
-  function accept(result, focusEmpty = false) {
+  function accept(result, focusEmpty = false, fromCopy = false) {
+    if (result?.status === 'identity-conflict') { showIdentityConflict(result); return; }
+    if (result?.status === 'open-cancelled') return;
+    if (projectCopy?.busy && !fromCopy) return;
     assetPreviewRequest += 1;
     clearTimeout(briefSaveTimer);
     activeBriefSavePromise = null;

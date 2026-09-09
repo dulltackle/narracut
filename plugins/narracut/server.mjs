@@ -4000,10 +4000,10 @@ var require_resolve_block_map = __commonJS({
       let offset = bm.offset;
       let commentEnd = null;
       for (const collItem of bm.items) {
-        const { start, key, sep: sep3, value } = collItem;
+        const { start, key, sep: sep4, value } = collItem;
         const keyProps = resolveProps.resolveProps(start, {
           indicator: "explicit-key-ind",
-          next: key ?? sep3?.[0],
+          next: key ?? sep4?.[0],
           offset,
           onError,
           parentIndent: bm.indent,
@@ -4017,7 +4017,7 @@ var require_resolve_block_map = __commonJS({
             else if ("indent" in key && key.indent !== bm.indent)
               onError(offset, "BAD_INDENT", startColMsg);
           }
-          if (!keyProps.anchor && !keyProps.tag && !sep3) {
+          if (!keyProps.anchor && !keyProps.tag && !sep4) {
             commentEnd = keyProps.end;
             if (keyProps.comment) {
               if (map2.comment)
@@ -4041,7 +4041,7 @@ var require_resolve_block_map = __commonJS({
         ctx.atKey = false;
         if (utilMapIncludes.mapIncludes(ctx, map2.items, keyNode))
           onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-        const valueProps = resolveProps.resolveProps(sep3 ?? [], {
+        const valueProps = resolveProps.resolveProps(sep4 ?? [], {
           indicator: "map-value-ind",
           next: value,
           offset: keyNode.range[2],
@@ -4057,7 +4057,7 @@ var require_resolve_block_map = __commonJS({
             if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
               onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep3, null, valueProps, onError);
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep4, null, valueProps, onError);
           if (ctx.schema.compat)
             utilFlowIndentCheck.flowIndentCheck(bm.indent, value, onError);
           offset = valueNode.range[2];
@@ -4148,7 +4148,7 @@ var require_resolve_end = __commonJS({
       let comment = "";
       if (end) {
         let hasSpace = false;
-        let sep3 = "";
+        let sep4 = "";
         for (const token of end) {
           const { source, type } = token;
           switch (type) {
@@ -4162,13 +4162,13 @@ var require_resolve_end = __commonJS({
               if (!comment)
                 comment = cb;
               else
-                comment += sep3 + cb;
-              sep3 = "";
+                comment += sep4 + cb;
+              sep4 = "";
               break;
             }
             case "newline":
               if (comment)
-                sep3 += source;
+                sep4 += source;
               hasSpace = true;
               break;
             default:
@@ -4211,18 +4211,18 @@ var require_resolve_flow_collection = __commonJS({
       let offset = fc.offset + fc.start.source.length;
       for (let i = 0; i < fc.items.length; ++i) {
         const collItem = fc.items[i];
-        const { start, key, sep: sep3, value } = collItem;
+        const { start, key, sep: sep4, value } = collItem;
         const props = resolveProps.resolveProps(start, {
           flow: fcName,
           indicator: "explicit-key-ind",
-          next: key ?? sep3?.[0],
+          next: key ?? sep4?.[0],
           offset,
           onError,
           parentIndent: fc.indent,
           startOnNewline: false
         });
         if (!props.found) {
-          if (!props.anchor && !props.tag && !sep3 && !value) {
+          if (!props.anchor && !props.tag && !sep4 && !value) {
             if (i === 0 && props.comma)
               onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
             else if (i < fc.items.length - 1)
@@ -4276,8 +4276,8 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap && !sep3 && !props.found) {
-          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep3, null, props, onError);
+        if (!isMap && !sep4 && !props.found) {
+          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep4, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
           if (isBlock(value))
@@ -4289,7 +4289,7 @@ var require_resolve_flow_collection = __commonJS({
           if (isBlock(key))
             onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
           ctx.atKey = false;
-          const valueProps = resolveProps.resolveProps(sep3 ?? [], {
+          const valueProps = resolveProps.resolveProps(sep4 ?? [], {
             flow: fcName,
             indicator: "map-value-ind",
             next: value,
@@ -4300,8 +4300,8 @@ var require_resolve_flow_collection = __commonJS({
           });
           if (valueProps.found) {
             if (!isMap && !props.found && ctx.options.strict) {
-              if (sep3)
-                for (const st of sep3) {
+              if (sep4)
+                for (const st of sep4) {
                   if (st === valueProps.found)
                     break;
                   if (st.type === "newline") {
@@ -4318,7 +4318,7 @@ var require_resolve_flow_collection = __commonJS({
             else
               onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep3, null, valueProps, onError) : null;
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep4, null, valueProps, onError) : null;
           if (valueNode) {
             if (isBlock(value))
               onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -4498,7 +4498,7 @@ var require_resolve_block_scalar = __commonJS({
           chompStart = i + 1;
       }
       let value = "";
-      let sep3 = "";
+      let sep4 = "";
       let prevMoreIndented = false;
       for (let i = 0; i < contentStart; ++i)
         value += lines[i][0].slice(trimIndent) + "\n";
@@ -4515,24 +4515,24 @@ var require_resolve_block_scalar = __commonJS({
           indent = "";
         }
         if (type === Scalar.Scalar.BLOCK_LITERAL) {
-          value += sep3 + indent.slice(trimIndent) + content;
-          sep3 = "\n";
+          value += sep4 + indent.slice(trimIndent) + content;
+          sep4 = "\n";
         } else if (indent.length > trimIndent || content[0] === "	") {
-          if (sep3 === " ")
-            sep3 = "\n";
-          else if (!prevMoreIndented && sep3 === "\n")
-            sep3 = "\n\n";
-          value += sep3 + indent.slice(trimIndent) + content;
-          sep3 = "\n";
+          if (sep4 === " ")
+            sep4 = "\n";
+          else if (!prevMoreIndented && sep4 === "\n")
+            sep4 = "\n\n";
+          value += sep4 + indent.slice(trimIndent) + content;
+          sep4 = "\n";
           prevMoreIndented = true;
         } else if (content === "") {
-          if (sep3 === "\n")
+          if (sep4 === "\n")
             value += "\n";
           else
-            sep3 = "\n";
+            sep4 = "\n";
         } else {
-          value += sep3 + content;
-          sep3 = " ";
+          value += sep4 + content;
+          sep4 = " ";
           prevMoreIndented = false;
         }
       }
@@ -4714,25 +4714,25 @@ var require_resolve_flow_scalar = __commonJS({
       if (!match)
         return source;
       let res = match[1];
-      let sep3 = " ";
+      let sep4 = " ";
       let pos = first.lastIndex;
       line.lastIndex = pos;
       while (match = line.exec(source)) {
         if (match[1] === "") {
-          if (sep3 === "\n")
-            res += sep3;
+          if (sep4 === "\n")
+            res += sep4;
           else
-            sep3 = "\n";
+            sep4 = "\n";
         } else {
-          res += sep3 + match[1];
-          sep3 = " ";
+          res += sep4 + match[1];
+          sep4 = " ";
         }
         pos = line.lastIndex;
       }
       const last = /[ \t]*(.*)/sy;
       last.lastIndex = pos;
       match = last.exec(source);
-      return res + sep3 + (match?.[1] ?? "");
+      return res + sep4 + (match?.[1] ?? "");
     }
     function doubleQuotedValue(source, onError) {
       let res = "";
@@ -5542,14 +5542,14 @@ var require_cst_stringify = __commonJS({
         }
       }
     }
-    function stringifyItem({ start, key, sep: sep3, value }) {
+    function stringifyItem({ start, key, sep: sep4, value }) {
       let res = "";
       for (const st of start)
         res += st.source;
       if (key)
         res += stringifyToken(key);
-      if (sep3)
-        for (const st of sep3)
+      if (sep4)
+        for (const st of sep4)
           res += st.source;
       if (value)
         res += stringifyToken(value);
@@ -6716,18 +6716,18 @@ var require_parser = __commonJS({
         if (this.type === "map-value-ind") {
           const prev = getPrevProps(this.peek(2));
           const start = getFirstKeyStartProps(prev);
-          let sep3;
+          let sep4;
           if (scalar.end) {
-            sep3 = scalar.end;
-            sep3.push(this.sourceToken);
+            sep4 = scalar.end;
+            sep4.push(this.sourceToken);
             delete scalar.end;
           } else
-            sep3 = [this.sourceToken];
+            sep4 = [this.sourceToken];
           const map2 = {
             type: "block-map",
             offset: scalar.offset,
             indent: scalar.indent,
-            items: [{ start, key: scalar, sep: sep3 }]
+            items: [{ start, key: scalar, sep: sep4 }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map2;
@@ -6880,15 +6880,15 @@ var require_parser = __commonJS({
                 } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                   const start2 = getFirstKeyStartProps(it.start);
                   const key = it.key;
-                  const sep3 = it.sep;
-                  sep3.push(this.sourceToken);
+                  const sep4 = it.sep;
+                  sep4.push(this.sourceToken);
                   delete it.key;
                   delete it.sep;
                   this.stack.push({
                     type: "block-map",
                     offset: this.offset,
                     indent: this.indent,
-                    items: [{ start: start2, key, sep: sep3 }]
+                    items: [{ start: start2, key, sep: sep4 }]
                   });
                 } else if (start.length > 0) {
                   it.sep = it.sep.concat(start, this.sourceToken);
@@ -7082,13 +7082,13 @@ var require_parser = __commonJS({
             const prev = getPrevProps(parent);
             const start = getFirstKeyStartProps(prev);
             fixFlowSeqItems(fc);
-            const sep3 = fc.end.splice(1, fc.end.length);
-            sep3.push(this.sourceToken);
+            const sep4 = fc.end.splice(1, fc.end.length);
+            sep4.push(this.sourceToken);
             const map2 = {
               type: "block-map",
               offset: fc.offset,
               indent: fc.indent,
-              items: [{ start, key: fc, sep: sep3 }]
+              items: [{ start, key: fc, sep: sep4 }]
             };
             this.onKeyLine = true;
             this.stack[this.stack.length - 1] = map2;
@@ -8216,10 +8216,10 @@ var require_truncate = __commonJS({
   "node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/truncate.js"(exports, module) {
     "use strict";
     var parse4 = require_parse();
-    var constants4 = require_constants();
+    var constants5 = require_constants();
     var SemVer = require_semver();
     var truncate = (version2, truncation, options) => {
-      if (!constants4.RELEASE_TYPES.includes(truncation)) {
+      if (!constants5.RELEASE_TYPES.includes(truncation)) {
         return null;
       }
       const clonedVersion = cloneInputVersion(version2, options);
@@ -9268,7 +9268,7 @@ var require_semver2 = __commonJS({
   "node_modules/.pnpm/semver@7.8.5/node_modules/semver/index.js"(exports, module) {
     "use strict";
     var internalRe = require_re();
-    var constants4 = require_constants();
+    var constants5 = require_constants();
     var SemVer = require_semver();
     var identifiers = require_identifiers();
     var parse4 = require_parse();
@@ -9352,8 +9352,8 @@ var require_semver2 = __commonJS({
       re: internalRe.re,
       src: internalRe.src,
       tokens: internalRe.t,
-      SEMVER_SPEC_VERSION: constants4.SEMVER_SPEC_VERSION,
-      RELEASE_TYPES: constants4.RELEASE_TYPES,
+      SEMVER_SPEC_VERSION: constants5.SEMVER_SPEC_VERSION,
+      RELEASE_TYPES: constants5.RELEASE_TYPES,
       compareIdentifiers: identifiers.compareIdentifiers,
       rcompareIdentifiers: identifiers.rcompareIdentifiers
     };
@@ -24337,8 +24337,8 @@ function registryURL(raw) {
   return url2.href;
 }
 async function fetchRegistryPackage(pin, cancellation) {
-  const basename5 = pin.name.split("/").at(-1);
-  let url2 = registryURL(`${REGISTRY}/${pin.name}/-/${basename5}-${pin.version}.tgz`);
+  const basename6 = pin.name.split("/").at(-1);
+  let url2 = registryURL(`${REGISTRY}/${pin.name}/-/${basename6}-${pin.version}.tgz`);
   const signal = AbortSignal.any([AbortSignal.timeout(3e4), ...cancellation ? [cancellation] : []]);
   for (let redirects = 0; redirects <= 4; redirects++) {
     let response;
@@ -24718,12 +24718,12 @@ var ExecutionCapsule = class _ExecutionCapsule {
       });
       let exitCode;
       try {
-        exitCode = await new Promise((resolve4) => {
+        exitCode = await new Promise((resolve5) => {
           child.once("error", () => {
             error51 = failure("CAPSULE_UNAVAILABLE");
-            resolve4(null);
+            resolve5(null);
           });
-          child.once("close", resolve4);
+          child.once("close", resolve5);
         });
         await stopping;
       } finally {
@@ -24993,10 +24993,10 @@ var applicationRoot = join3(dirname3(fileURLToPath2(import.meta.url)), "../..");
 async function programToolchain() {
   const files = /* @__PURE__ */ Object.create(null);
   const packages = /* @__PURE__ */ new Map();
-  async function readTree2(root, prefix, collected, relative4 = "") {
-    for (const item of await readdir2(join3(root, relative4), { withFileTypes: true })) {
+  async function readTree2(root, prefix, collected, relative5 = "") {
+    for (const item of await readdir2(join3(root, relative5), { withFileTypes: true })) {
       if (item.name === "node_modules" || item.name.endsWith(".map")) continue;
-      const path = relative4 ? `${relative4}/${item.name}` : item.name;
+      const path = relative5 ? `${relative5}/${item.name}` : item.name;
       if (item.isDirectory()) await readTree2(root, prefix, collected, path);
       else if (item.isFile()) {
         const bytes = await readFile2(join3(root, path));
@@ -25278,9 +25278,9 @@ async function buildProgramBundle(request2) {
     if (item.pin.version !== fixed.version) throw new ProgramBuildError("DEPENDENCY_LOCK_INVALID", "\u6838\u5FC3\u4F9D\u8D56\u5FC5\u987B\u4E0E\u56FA\u5B9A\u5DE5\u5177\u94FE\u7248\u672C\u4E00\u81F4\u3002");
     const actual = [...installed].filter(([path]) => path.startsWith(`packages/${i}/`));
     for (const [path, bytes] of actual) {
-      const relative4 = path.slice(`packages/${i}/`.length);
-      if (relative4.endsWith(".map")) continue;
-      if (!fixed.files.get(relative4)?.equals(bytes)) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u5B57\u8282\u4E0E\u56FA\u5B9A Runtime \u4E0D\u4E00\u81F4\u3002");
+      const relative5 = path.slice(`packages/${i}/`.length);
+      if (relative5.endsWith(".map")) continue;
+      if (!fixed.files.get(relative5)?.equals(bytes)) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u5B57\u8282\u4E0E\u56FA\u5B9A Runtime \u4E0D\u4E00\u81F4\u3002");
       trustedFiles.push(`/tmp/work/${path}`);
     }
     if ([...fixed.files.keys()].some((path) => !installed.has(`packages/${i}/${path}`))) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u7F3A\u5C11\u56FA\u5B9A Runtime \u6587\u4EF6\u3002");
@@ -25359,27 +25359,27 @@ async function directory(path) {
 async function readTree(root) {
   const tree = /* @__PURE__ */ new Map();
   let bytes = 0;
-  async function walk(path, prefix, depth) {
+  async function walk2(path, prefix, depth) {
     if (depth > 24) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 24 \u5C42");
     const identity2 = await directory(path);
     for (const name of (await readdir3(path)).sort()) {
-      const relative4 = prefix ? `${prefix}/${name}` : name;
-      if (!safePath2(relative4) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
+      const relative5 = prefix ? `${prefix}/${name}` : name;
+      if (!safePath2(relative5) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
       const full = join4(path, name);
       const stat = await lstat(full);
       if (stat.isDirectory() && !stat.isSymbolicLink()) {
-        tree.set(relative4, null);
-        await walk(full, relative4, depth + 1);
+        tree.set(relative5, null);
+        await walk2(full, relative5, depth + 1);
       } else {
         const content = await regular(full);
         bytes += content.length;
         if (bytes > MAX_BYTES) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 32 MiB");
-        tree.set(relative4, content);
+        tree.set(relative5, content);
       }
     }
     if (await directory(path) !== identity2) throw new Error("\u8BFB\u53D6\u671F\u95F4\u76EE\u5F55\u88AB\u66FF\u6362");
   }
-  await walk(root, "", 0);
+  await walk2(root, "", 0);
   for (const required2 of ["program.json", "package.json", "pnpm-lock.yaml", "src/RenderProgram.tsx"]) {
     if (!Buffer.isBuffer(tree.get(required2))) throw new Error(`\u7A0B\u5E8F\u6811\u7F3A\u5C11 ${required2}`);
   }
@@ -25872,6 +25872,3285 @@ async function cleanupEndedTask(project) {
   if (await endedTaskReason(project)) await rm4(join5(project, ".narracut/agent-task.json"), { force: true });
 }
 
+// src/server/project-identity.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
+import { join as join6 } from "node:path";
+import { rename as rename3, rm as rm5 } from "node:fs/promises";
+var markerName = "identity-transition.json";
+function copiedTask(bytes, oldId, newId, detached = false) {
+  const task = JSON.parse(bytes.toString());
+  if (task.projectId !== oldId || typeof task.taskId !== "string") throw new Error("\u4EFB\u52A1\u68C0\u67E5\u70B9\u9879\u76EE\u8EAB\u4EFD\u65E0\u6548\u3002");
+  if (task.status === "terminated") return null;
+  if (!["running", "waiting", "stopped"].includes(task.status) || !detached && task.status !== "stopped") throw new Error("\u6765\u6E90\u4EFB\u52A1\u5C1A\u672A\u5B89\u5168\u505C\u6B62\u3002");
+  return Buffer.from(JSON.stringify({ ...task, projectId: newId, taskId: randomUUID4(), status: "stopped", reason: "PROJECT_COPIED", threadPointer: null, inputIdentity: null, toolApproval: null, pendingMessage: null, ...task.waitingReason === "TOOL_APPROVAL_REQUIRED" || task.reason === "TOOL_APPROVAL_REQUIRED" ? { waitingReason: null, pending: null } : {} }));
+}
+async function optional2(path) {
+  try {
+    return await regular(path, 2e7);
+  } catch (error51) {
+    if (error51.code === "ENOENT") return null;
+    throw error51;
+  }
+}
+async function finishIdentityTransition(root, projectId) {
+  const marker = join6(root, ".narracut", markerName);
+  const bytes = await optional2(marker);
+  if (!bytes) return;
+  const transition = JSON.parse(bytes.toString());
+  if (transition.version !== 1 || typeof transition.oldId !== "string" || typeof transition.newId !== "string" || !(transition.task === null || typeof transition.task === "string")) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u8BB0\u5F55\u635F\u574F\u3002");
+  if (projectId === transition.newId) {
+    const path = join6(root, ".narracut", "agent-task.json");
+    if (transition.task === null) await rm5(path, { force: true });
+    else {
+      const task = JSON.parse(transition.task);
+      if (task.projectId !== projectId || task.status !== "stopped" || task.threadPointer !== null) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u4EFB\u52A1\u8BB0\u5F55\u65E0\u6548\u3002");
+      const temporary = join6(root, ".narracut", `.task-${randomUUID4()}`);
+      await writeBytes(temporary, Buffer.from(transition.task));
+      await rename3(temporary, path);
+    }
+    await syncDirectory(join6(root, ".narracut"));
+  } else if (projectId !== transition.oldId) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u8BB0\u5F55\u4E0E\u9879\u76EE\u4E0D\u5339\u914D\u3002");
+  await rm5(marker);
+}
+async function changeProjectIdentity(root, oldId, assertWritable) {
+  const newId = randomUUID4(), internal = join6(root, ".narracut");
+  const checkpoint = await optional2(join6(internal, "agent-task.json"));
+  const task = checkpoint && !await endedTaskReason(root) ? copiedTask(checkpoint, oldId, newId, true)?.toString() ?? null : null;
+  const marker = join6(internal, markerName);
+  await writeBytes(marker, Buffer.from(JSON.stringify({ version: 1, oldId, newId, task })));
+  await syncDirectory(internal);
+  const temporary = join6(root, `.narracut.json.${randomUUID4()}.tmp`);
+  try {
+    await writeBytes(temporary, Buffer.from(JSON.stringify({ kind: "narracut-project", formatVersion: 1, projectId: newId })));
+    await assertWritable();
+    await rename3(temporary, join6(root, "narracut.json"));
+    await syncDirectory(root);
+    await finishIdentityTransition(root, newId);
+    return newId;
+  } finally {
+    await rm5(temporary, { force: true });
+  }
+}
+
+// src/server/project-copy.ts
+import { createHash as createHash10 } from "node:crypto";
+import { constants as constants2 } from "node:fs";
+import { lstat as lstat6, mkdir as mkdir6, open as open4, readdir as readdir6, readFile as readFile6, rm as rm8, realpath as realpath4 } from "node:fs/promises";
+import { join as join10, relative as relative3, resolve as resolve4, sep as sep3, dirname as dirname7, basename as basename2 } from "node:path";
+
+// src/server/project-lease-handoff.ts
+import { createServer, request } from "node:http";
+async function listenForProjectHandoff(token, handoff) {
+  let pending = null;
+  const server = createServer((req, res) => {
+    if (req.method !== "POST" || req.url !== "/handoff" || req.headers.authorization !== `Bearer ${token}`) {
+      res.writeHead(403).end();
+      return;
+    }
+    req.resume();
+    pending ??= handoff().catch((error51) => {
+      pending = null;
+      throw error51;
+    });
+    void pending.then(() => res.writeHead(204).end(), () => res.writeHead(409).end());
+  });
+  server.requestTimeout = 15e3;
+  server.headersTimeout = 1e4;
+  await new Promise((resolve5, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve5);
+  });
+  server.unref();
+  return { port: server.address().port, close: () => {
+    server.close();
+  } };
+}
+async function requestProjectHandoff(port, token) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
+  await new Promise((resolve5, reject) => {
+    const req = request({ hostname: "127.0.0.1", port, path: "/handoff", method: "POST", headers: { authorization: `Bearer ${token}` }, agent: false }, (res) => {
+      res.resume();
+      res.once("end", () => res.statusCode === 204 ? resolve5() : reject(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
+    });
+    req.setTimeout(15e3, () => req.destroy(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+// src/server/project-lifecycle.ts
+import { createHash as createHash9, randomUUID as randomUUID6 } from "node:crypto";
+import { constants as fsConstants2 } from "node:fs";
+import {
+  access,
+  link,
+  lstat as lstat5,
+  mkdir as mkdir5,
+  open as openFile,
+  readFile as readFile5,
+  readdir as readdir5,
+  realpath as realpath3,
+  rename as rename5,
+  rmdir,
+  rm as rm7,
+  unlink,
+  writeFile as writeFile3
+} from "node:fs/promises";
+import { basename, dirname as dirname6, isAbsolute as isAbsolute2, join as join9, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
+
+// src/server/project-vnext-inspection.ts
+import { createHash as createHash8 } from "node:crypto";
+import { lstat as lstat4, open as open3, readdir as readdir4, realpath as realpath2 } from "node:fs/promises";
+import { isAbsolute, join as join8, relative, resolve as resolve2, sep } from "node:path";
+
+// src/server/project-speech-vnext.ts
+import { execFile as execFile3 } from "node:child_process";
+import { createHash as createHash7, randomUUID as randomUUID5 } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { lstat as lstat3, open as open2, readFile as readFile4, rename as rename4, rm as rm6 } from "node:fs/promises";
+import { dirname as dirname5, join as join7 } from "node:path";
+import { promisify as promisify3 } from "node:util";
+var execFileAsync = promisify3(execFile3);
+var DRAFT_DURATION_MS = 5e3;
+var TTS_CAPABILITIES = {
+  provider: "tokendance",
+  models: [
+    { value: "minimax-speech-2.8-turbo", label: "MiniMax Speech 2.8 Turbo" }
+  ],
+  voices: [
+    { value: "Chinese (Mandarin)_News_Anchor", label: "\u666E\u901A\u8BDD \xB7 \u65B0\u95FB\u4E3B\u64AD" },
+    { value: "Chinese (Mandarin)_Reliable_Executive", label: "\u666E\u901A\u8BDD \xB7 \u6C89\u7A33\u4E3B\u7BA1" }
+  ],
+  ranges: {
+    speed: { min: 0.5, max: 2, step: 0.1 },
+    volume: { min: 0.1, max: 10, step: 0.1 },
+    pitch: { min: -12, max: 12, step: 1 }
+  },
+  audio: { format: "mp3", sampleRate: 32e3, bitrate: 128e3, channels: 1 }
+};
+var ProjectTtsConfigError = class extends Error {
+  constructor(message, path, options = {}) {
+    super(message, options);
+    this.path = path;
+    this.name = "ProjectTtsConfigError";
+  }
+  path;
+  code = "TTS_CONFIG_INVALID";
+};
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function inRange(value, range) {
+  return typeof value === "number" && Number.isFinite(value) && value >= range.min && value <= range.max;
+}
+function validateProjectTtsConfig(value) {
+  if (!isRecord(value)) throw new ProjectTtsConfigError("tts.json \u6839\u503C\u5FC5\u987B\u662F\u5BF9\u8C61\u3002", "tts.json");
+  const keys = Object.keys(value).sort();
+  const expected = ["model", "pitch", "provider", "speed", "voice", "volume"].sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    throw new ProjectTtsConfigError("tts.json \u53EA\u80FD\u5305\u542B provider\u3001model\u3001voice\u3001speed\u3001volume \u4E0E pitch\u3002", "tts.json");
+  }
+  if (value.provider !== TTS_CAPABILITIES.provider) {
+    throw new ProjectTtsConfigError("provider \u5FC5\u987B\u662F tokendance\u3002", "tts.json");
+  }
+  if (!TTS_CAPABILITIES.models.some((model) => model.value === value.model)) {
+    throw new ProjectTtsConfigError("model \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
+  }
+  if (!TTS_CAPABILITIES.voices.some((voice) => voice.value === value.voice)) {
+    throw new ProjectTtsConfigError("voice \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
+  }
+  if (!inRange(value.speed, TTS_CAPABILITIES.ranges.speed)) {
+    throw new ProjectTtsConfigError("speed \u5FC5\u987B\u5728 0.5\u20132.0 \u4E4B\u95F4\u3002", "tts.json");
+  }
+  if (!inRange(value.volume, TTS_CAPABILITIES.ranges.volume)) {
+    throw new ProjectTtsConfigError("volume \u5FC5\u987B\u5728 0.1\u201310.0 \u4E4B\u95F4\u3002", "tts.json");
+  }
+  if (!inRange(value.pitch, TTS_CAPABILITIES.ranges.pitch) || !Number.isInteger(value.pitch)) {
+    throw new ProjectTtsConfigError("pitch \u5FC5\u987B\u662F -12\u201312 \u4E4B\u95F4\u7684\u6574\u6570\u3002", "tts.json");
+  }
+  return value;
+}
+function ttsProfileId(config2) {
+  const stable = JSON.stringify({
+    provider: config2.provider,
+    model: config2.model,
+    voice: config2.voice,
+    speed: config2.speed,
+    volume: config2.volume,
+    pitch: config2.pitch,
+    audio: TTS_CAPABILITIES.audio
+  });
+  return `sha256:${createHash7("sha256").update(stable, "utf8").digest("hex")}`;
+}
+async function readProjectTtsConfig(projectDirectory) {
+  const path = join7(projectDirectory, "tts.json");
+  let bytes;
+  try {
+    const facts = await lstat3(path);
+    if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 16 * 1024) {
+      throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u5C0F\u4E8E 16 KiB \u7684\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002", path);
+    }
+    bytes = await readFile4(path);
+  } catch (cause) {
+    if (cause instanceof ProjectTtsConfigError) throw cause;
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+      return { status: "unconfigured" };
+    }
+    throw new ProjectTtsConfigError("\u65E0\u6CD5\u5B89\u5168\u8BFB\u53D6 tts.json\u3002", path, { cause });
+  }
+  let text3;
+  try {
+    text3 = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (cause) {
+    throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u4E25\u683C UTF-8\u3002", path, { cause });
+  }
+  let parsed;
+  try {
+    parsed = parseStrictJson(text3, {
+      maxDepth: 3,
+      maxArrayItems: 0,
+      maxObjectFields: 8,
+      maxNodes: 16,
+      maxStringScalars: 256,
+      maxStringBytes: 1024,
+      maxNumberBytes: 32,
+      forbidArrays: true
+    });
+  } catch (cause) {
+    throw new ProjectTtsConfigError("tts.json \u4E0D\u662F\u53D7\u652F\u6301\u7684\u4E25\u683C JSON\u3002", path, { cause });
+  }
+  const config2 = validateProjectTtsConfig(parsed);
+  return { status: "configured", config: config2, profileId: ttsProfileId(config2) };
+}
+async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
+  const config2 = validateProjectTtsConfig(input);
+  const path = join7(projectDirectory, "tts.json");
+  const temporaryPath = join7(projectDirectory, `.tts.json.${randomUUID5()}.tmp`);
+  let committed = false;
+  try {
+    const handle = await open2(temporaryPath, "wx", 384);
+    try {
+      await handle.writeFile(Buffer.from(JSON.stringify(config2), "utf8"));
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertWritable();
+    await rename4(temporaryPath, path);
+    committed = true;
+    try {
+      const directory2 = await open2(dirname5(path), "r");
+      try {
+        await directory2.sync();
+      } finally {
+        await directory2.close();
+      }
+    } catch {
+    }
+  } finally {
+    if (!committed) await rm6(temporaryPath, { force: true }).catch(() => void 0);
+  }
+  return { status: "configured", config: config2, profileId: ttsProfileId(config2) };
+}
+function deriveSceneTimeWindows(scenes, fps) {
+  if (!Number.isFinite(fps) || fps <= 0) throw new Error("fps \u5FC5\u987B\u662F\u6B63\u6570\u3002");
+  let startFrame = 0;
+  let renderReady = scenes.length > 0;
+  const windows = scenes.map((scene) => {
+    const durationInFrames = Math.max(1, Math.ceil(scene.durationMs / 1e3 * fps));
+    const window = {
+      sceneId: scene.sceneId,
+      startFrame,
+      durationInFrames,
+      source: scene.source
+    };
+    startFrame += durationInFrames;
+    if (scene.source === "draft") renderReady = false;
+    return window;
+  });
+  return { durationInFrames: startFrame, renderReady, scenes: windows };
+}
+async function probeSpeechDurationMs(path) {
+  const { stdout } = await execFileAsync("ffprobe", [
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration:stream=codec_name",
+    "-of",
+    "json",
+    path
+  ], { encoding: "utf8", timeout: 3e4, maxBuffer: 256 * 1024 });
+  const payload = JSON.parse(stdout);
+  const duration3 = typeof payload.format?.duration === "string" ? Number(payload.format.duration) : Number.NaN;
+  if (!payload.streams?.some((stream) => stream.codec_name === "mp3") || !Number.isFinite(duration3) || duration3 <= 0) {
+    throw new Error("Speech \u4E0D\u662F\u53EF\u89E3\u7801\u7684 MP3\u3002");
+  }
+  return Math.round(duration3 * 1e3);
+}
+async function speechContentHash(path) {
+  const handle = await open2(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const hash4 = createHash7("sha256");
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    let position = 0;
+    while (true) {
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
+      if (bytesRead === 0) break;
+      hash4.update(chunk.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+    return `sha256:${hash4.digest("hex")}`;
+  } finally {
+    await handle.close();
+  }
+}
+async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, options = {}) {
+  const probe = options.probeDurationMs ?? probeSpeechDurationMs;
+  const states = [];
+  const durations = [];
+  for (const scene of scenes) {
+    const speech = scene.speech;
+    if (speech === void 0) {
+      states.push({ sceneId: scene.id, status: "missing", reason: "\u5F53\u524D Scene \u7F3A\u5C11 Speech\u3002" });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    const currentSourceTextHash = `sha256:${createHash7("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
+    if (speech.sourceTextHash !== currentSourceTextHash) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "changed",
+        reason: "Speech \u4E0E\u5F53\u524D Narration \u4E0D\u5339\u914D\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    if (currentProfileId === void 0 || speech.ttsProfileId !== currentProfileId) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "profile-mismatch",
+        reason: "Speech \u4E0E\u5F53\u524D TTS \u914D\u7F6E\u4E0D\u5339\u914D\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    const absolutePath = join7(projectDirectory, speech.path);
+    let before;
+    try {
+      before = await lstat3(absolutePath);
+      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) throw new Error("not ordinary");
+    } catch {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "unavailable",
+        reason: "Speech \u6587\u4EF6\u7F3A\u5931\u3001\u4E0D\u53EF\u8BFB\u6216\u4E0D\u662F\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    if (speech.audioContentHash === void 0) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "changed",
+        reason: "Speech \u7F3A\u5C11\u97F3\u9891\u5185\u5BB9\u6458\u8981\uFF0C\u65E0\u6CD5\u8BC1\u660E\u4ECD\u662F\u5DF2\u63D0\u4EA4\u7684\u97F3\u9891\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    let actualDurationMs;
+    let actualContentHash;
+    try {
+      [actualDurationMs, actualContentHash] = await Promise.all([
+        probe(absolutePath),
+        speechContentHash(absolutePath)
+      ]);
+    } catch {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "decode-failed",
+        reason: "Speech \u6587\u4EF6\u65E0\u6CD5\u89E3\u7801\u4E3A MP3\u3002"
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    let after;
+    try {
+      after = await lstat3(absolutePath);
+    } catch {
+      after = void 0;
+    }
+    const changedDuringProbe = after === void 0 || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs;
+    if (changedDuringProbe || actualDurationMs !== speech.durationMs || actualContentHash !== speech.audioContentHash) {
+      states.push({
+        sceneId: scene.id,
+        path: speech.path,
+        status: "changed",
+        durationMs: actualDurationMs,
+        reason: changedDuringProbe ? "Speech \u6587\u4EF6\u5728\u68C0\u67E5\u671F\u95F4\u53D1\u751F\u539F\u4F4D\u53D8\u5316\u3002" : actualContentHash !== speech.audioContentHash ? "Speech \u97F3\u9891\u5185\u5BB9\u4E0E\u5DF2\u63D0\u4EA4\u6458\u8981\u4E0D\u4E00\u81F4\u3002" : `Speech \u5B9E\u9645\u65F6\u957F ${actualDurationMs} ms \u4E0E\u8BB0\u5F55\u7684 ${speech.durationMs} ms \u4E0D\u4E00\u81F4\u3002`
+      });
+      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
+      continue;
+    }
+    states.push({
+      sceneId: scene.id,
+      path: speech.path,
+      status: "available",
+      durationMs: actualDurationMs
+    });
+    durations.push({ sceneId: scene.id, durationMs: actualDurationMs, source: "speech" });
+  }
+  const timeline = deriveSceneTimeWindows(durations, options.fps ?? 30);
+  return {
+    states,
+    timeline: {
+      ...timeline,
+      renderReady: timeline.renderReady && scenes.every((scene) => scene.narration.text.trim() !== "")
+    }
+  };
+}
+
+// src/server/project-vnext-inspection.ts
+var ProjectInspectionError = class extends Error {
+  constructor(code, path, message, diagnostics = [], options) {
+    super(message, options);
+    this.code = code;
+    this.path = path;
+    this.diagnostics = diagnostics;
+    this.name = "ProjectInspectionError";
+  }
+  code;
+  path;
+  diagnostics;
+};
+function invalidControlFile(path, diagnostic2, options) {
+  return new ProjectInspectionError(
+    "PROJECT_CONTENT_INVALID",
+    path,
+    diagnostic2.message,
+    [diagnostic2],
+    options
+  );
+}
+function invalidContent(path, diagnostics) {
+  const first = diagnostics[0];
+  return new ProjectInspectionError(
+    "PROJECT_CONTENT_INVALID",
+    path,
+    first?.message ?? "Project VNext \u5185\u5BB9\u65E0\u6548\uFF1B\u8BF7\u4FEE\u590D\u62A5\u544A\u7684\u95EE\u9898\u540E\u91CD\u8BD5\u3002",
+    diagnostics
+  );
+}
+var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+function compareStableText(left, right) {
+  return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
+}
+function jsonPropertyPath(parent, key) {
+  return /^[A-Za-z_$][\w$]*$/u.test(key) ? `${parent}.${key}` : `${parent}[${JSON.stringify(key)}]`;
+}
+function validateProjectManifest(manifest) {
+  const diagnostics = [];
+  for (const key of Object.keys(manifest)) {
+    if (!["kind", "formatVersion", "projectId"].includes(key)) {
+      diagnostics.push({
+        code: "PROJECT_MANIFEST_SCHEMA_INVALID",
+        component: "narracut.json",
+        jsonPath: jsonPropertyPath("$", key),
+        message: `narracut.json \u5305\u542B\u672A\u77E5\u5B57\u6BB5 ${key}\uFF1B\u8BF7\u5220\u9664\u8BE5\u5B57\u6BB5\u3002`
+      });
+    }
+  }
+  if (!Number.isInteger(manifest.formatVersion)) {
+    diagnostics.push({
+      code: "PROJECT_MANIFEST_SCHEMA_INVALID",
+      component: "narracut.json",
+      jsonPath: "$.formatVersion",
+      message: "formatVersion \u5FC5\u987B\u662F\u6574\u6570 1\uFF1B\u8BF7\u4FEE\u6B63\u9879\u76EE\u6E05\u5355\u3002"
+    });
+  }
+  if (typeof manifest.projectId !== "string" || !UUID_PATTERN.test(manifest.projectId)) {
+    diagnostics.push({
+      code: "PROJECT_MANIFEST_SCHEMA_INVALID",
+      component: "narracut.json",
+      jsonPath: "$.projectId",
+      message: "projectId \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\uFF1B\u8BF7\u4F7F\u7528\u6709\u6548\u9879\u76EE\u6E05\u5355\u3002"
+    });
+  }
+  return diagnostics.sort((left, right) => compareStableText(
+    `${left.jsonPath}${left.code}`,
+    `${right.jsonPath}${right.code}`
+  ));
+}
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function schemaDiagnostic(code, jsonPath, message) {
+  return { code, component: "project.json", jsonPath, message };
+}
+function unknownFields(value, allowed, jsonPath, diagnostics) {
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) {
+      diagnostics.push(schemaDiagnostic(
+        "PROJECT_DSL_SCHEMA_INVALID",
+        jsonPropertyPath(jsonPath, key),
+        `${jsonPath} \u5305\u542B\u672A\u77E5\u5B57\u6BB5 ${key}\uFF1B\u8BF7\u5220\u9664\u8BE5\u5B57\u6BB5\u3002`
+      ));
+    }
+  }
+}
+function isCanonicalResourcePath(value, root) {
+  if (value.length === 0 || value.startsWith("/") || value.includes("\\") || value.includes("\0") || [...value].length > 1024 || Buffer.byteLength(value, "utf8") > 1024) return false;
+  const parts = value.split("/");
+  return parts[0] === root && parts.length > 1 && parts.every((part) => part !== "" && part !== "." && part !== "..");
+}
+function boundedDiagnostics(diagnostics) {
+  const unique = /* @__PURE__ */ new Map();
+  for (const diagnostic2 of diagnostics) {
+    const identity2 = `${diagnostic2.jsonPath ?? ""}${diagnostic2.code}${diagnostic2.message}`;
+    if (!unique.has(identity2)) unique.set(identity2, diagnostic2);
+  }
+  const sorted = [...unique.values()].sort((left, right) => compareStableText(
+    `${left.jsonPath ?? ""}${left.code}`,
+    `${right.jsonPath ?? ""}${right.code}`
+  ));
+  if (sorted.length <= 100) return sorted;
+  return [
+    ...sorted.slice(0, 99),
+    {
+      code: "DIAGNOSTICS_TRUNCATED",
+      component: "project.json",
+      message: `\u9879\u76EE\u8FD8\u6709 ${sorted.length - 99} \u6761\u95EE\u9898\u672A\u5C55\u793A\uFF1B\u8BF7\u5148\u4FEE\u590D\u5DF2\u5217\u95EE\u9898\u540E\u91CD\u65B0\u68C0\u67E5\u3002`,
+      metric: "diagnostics",
+      actual: sorted.length,
+      limit: 100
+    }
+  ];
+}
+function validateProjectDsl(value) {
+  const diagnostics = [];
+  if (!isRecord2(value)) {
+    return {
+      diagnostics: [schemaDiagnostic(
+        "PROJECT_DSL_SCHEMA_INVALID",
+        "$",
+        "project.json \u6839\u503C\u5FC5\u987B\u662F\u5BF9\u8C61\uFF1B\u8BF7\u63D0\u4F9B assets \u4E0E scenes\u3002"
+      )]
+    };
+  }
+  unknownFields(value, ["assets", "scenes"], "$", diagnostics);
+  const assets = value.assets;
+  const scenes = value.scenes;
+  if (!Array.isArray(assets)) {
+    diagnostics.push(schemaDiagnostic(
+      "PROJECT_DSL_SCHEMA_INVALID",
+      "$.assets",
+      "assets \u5FC5\u987B\u662F\u6570\u7EC4\uFF1B\u8BF7\u4FEE\u6B63 Project DSL\u3002"
+    ));
+  }
+  if (!Array.isArray(scenes)) {
+    diagnostics.push(schemaDiagnostic(
+      "PROJECT_DSL_SCHEMA_INVALID",
+      "$.scenes",
+      "scenes \u5FC5\u987B\u662F\u6570\u7EC4\uFF1B\u8BF7\u4FEE\u6B63 Project DSL\u3002"
+    ));
+  }
+  if (!Array.isArray(assets) || !Array.isArray(scenes)) {
+    return { diagnostics: boundedDiagnostics(diagnostics) };
+  }
+  if (assets.length > 1e3) {
+    return { diagnostics: [{
+      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+      component: "project.json",
+      jsonPath: "$.assets[1000]",
+      message: `assets \u6709 ${assets.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 1000\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59 Asset\u3002`,
+      metric: "assets",
+      actual: assets.length,
+      limit: 1e3
+    }] };
+  }
+  if (scenes.length > 1e3) {
+    return { diagnostics: [{
+      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+      component: "project.json",
+      jsonPath: "$.scenes[1000]",
+      message: `scenes \u6709 ${scenes.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 1000\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59 Scene\u3002`,
+      metric: "scenes",
+      actual: scenes.length,
+      limit: 1e3
+    }] };
+  }
+  for (let index = 0; index < assets.length; index += 1) {
+    const asset = assets[index];
+    if (isRecord2(asset) && typeof asset.path === "string") {
+      const bytes = Buffer.byteLength(asset.path, "utf8");
+      const scalars = [...asset.path].length;
+      if (bytes > 1024) {
+        return { diagnostics: [{
+          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+          component: "project.json",
+          jsonPath: `$.assets[${index}].path`,
+          message: `Asset path \u4E3A ${bytes} UTF-8 \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
+          metric: "pathBytes",
+          actual: bytes,
+          limit: 1024
+        }] };
+      }
+      if (scalars > 1024) {
+        return { diagnostics: [{
+          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+          component: "project.json",
+          jsonPath: `$.assets[${index}].path`,
+          message: `Asset path \u6709 ${scalars} \u4E2A Unicode \u6807\u91CF\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
+          metric: "pathScalars",
+          actual: scalars,
+          limit: 1024
+        }] };
+      }
+    }
+  }
+  for (let index = 0; index < scenes.length; index += 1) {
+    const scene = scenes[index];
+    if (!isRecord2(scene)) continue;
+    if (Array.isArray(scene.assetIds) && scene.assetIds.length > 256) {
+      return { diagnostics: [{
+        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+        component: "project.json",
+        jsonPath: `$.scenes[${index}].assetIds[256]`,
+        message: `Scene \u7684 assetIds \u6709 ${scene.assetIds.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 256\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59\u5F15\u7528\u3002`,
+        metric: "sceneAssetIds",
+        actual: scene.assetIds.length,
+        limit: 256
+      }] };
+    }
+    if (isRecord2(scene.speech)) {
+      if (typeof scene.speech.path === "string") {
+        const bytes = Buffer.byteLength(scene.speech.path, "utf8");
+        const scalars = [...scene.speech.path].length;
+        if (bytes > 1024 || scalars > 1024) {
+          const metric = bytes > 1024 ? "pathBytes" : "pathScalars";
+          const actual = bytes > 1024 ? bytes : scalars;
+          return { diagnostics: [{
+            code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+            component: "project.json",
+            jsonPath: `$.scenes[${index}].speech.path`,
+            message: `Speech path \u7684 ${metric} \u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
+            metric,
+            actual,
+            limit: 1024
+          }] };
+        }
+      }
+      if (typeof scene.speech.ttsProfileId === "string" && [...scene.speech.ttsProfileId].length > 256) {
+        const actual = [...scene.speech.ttsProfileId].length;
+        return { diagnostics: [{
+          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+          component: "project.json",
+          jsonPath: `$.scenes[${index}].speech.ttsProfileId`,
+          message: `ttsProfileId \u6709 ${actual} \u4E2A Unicode \u6807\u91CF\uFF0C\u8D85\u8FC7\u4E0A\u9650 256\uFF1B\u8BF7\u7F29\u77ED\u8BE5\u6807\u8BC6\u3002`,
+          metric: "ttsProfileIdScalars",
+          actual,
+          limit: 256
+        }] };
+      }
+    }
+  }
+  const assetIds = /* @__PURE__ */ new Set();
+  const assetPaths = /* @__PURE__ */ new Set();
+  assets.forEach((asset, index) => {
+    const path = `$.assets[${index}]`;
+    if (!isRecord2(asset)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Asset \u5BF9\u8C61\u3002`));
+      return;
+    }
+    unknownFields(asset, ["id", "path"], path, diagnostics);
+    if (typeof asset.id !== "string" || !UUID_PATTERN.test(asset.id)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.id`, "Asset id \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
+    } else if (assetIds.has(asset.id)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_ID_DUPLICATE", `${path}.id`, `Asset id ${asset.id} \u91CD\u590D\uFF1B\u8BF7\u4E3A\u6BCF\u4E2A Asset \u4F7F\u7528\u552F\u4E00 ID\u3002`));
+    } else {
+      assetIds.add(asset.id);
+    }
+    if (typeof asset.path !== "string" || !isCanonicalResourcePath(asset.path, "assets")) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_INVALID", `${path}.path`, "Asset path \u5FC5\u987B\u662F assets/ \u4E0B\u7684\u89C4\u8303\u9879\u76EE\u76F8\u5BF9\u8DEF\u5F84\u3002"));
+    } else if (assetPaths.has(asset.path)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_DUPLICATE", `${path}.path`, `Asset path ${asset.path} \u91CD\u590D\uFF1B\u8BF7\u4F7F\u7528\u552F\u4E00\u8DEF\u5F84\u3002`));
+    } else {
+      assetPaths.add(asset.path);
+    }
+  });
+  const sceneIds = /* @__PURE__ */ new Set();
+  scenes.forEach((scene, index) => {
+    const path = `$.scenes[${index}]`;
+    if (!isRecord2(scene)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Scene \u5BF9\u8C61\u3002`));
+      return;
+    }
+    unknownFields(scene, ["id", "narration", "assetIds", "speech"], path, diagnostics);
+    if (typeof scene.id !== "string" || !UUID_PATTERN.test(scene.id)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.id`, "Scene id \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
+    } else if (sceneIds.has(scene.id)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_ID_DUPLICATE", `${path}.id`, `Scene id ${scene.id} \u91CD\u590D\uFF1B\u8BF7\u4E3A\u6BCF\u4E2A Scene \u4F7F\u7528\u552F\u4E00 ID\u3002`));
+    } else {
+      sceneIds.add(scene.id);
+    }
+    if (!isRecord2(scene.narration)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.narration`, "narration \u5FC5\u987B\u662F\u53EA\u542B text \u7684\u5BF9\u8C61\u3002"));
+    } else {
+      unknownFields(scene.narration, ["text"], `${path}.narration`, diagnostics);
+      if (typeof scene.narration.text !== "string") {
+        diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.narration.text`, "Narration text \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u3002"));
+      }
+    }
+    if (!Array.isArray(scene.assetIds)) {
+      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.assetIds`, "assetIds \u5FC5\u987B\u662F UUID \u6570\u7EC4\u3002"));
+    } else {
+      const references = /* @__PURE__ */ new Set();
+      scene.assetIds.forEach((assetId, assetIndex) => {
+        const referencePath = `${path}.assetIds[${assetIndex}]`;
+        if (typeof assetId !== "string" || !UUID_PATTERN.test(assetId)) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", referencePath, "Asset \u5F15\u7528\u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
+        } else if (references.has(assetId)) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_REFERENCE_DUPLICATE", referencePath, `Scene \u91CD\u590D\u5F15\u7528 Asset ${assetId}\uFF1B\u8BF7\u79FB\u9664\u91CD\u590D\u9879\u3002`));
+        } else {
+          references.add(assetId);
+          if (!assetIds.has(assetId)) {
+            diagnostics.push(schemaDiagnostic("PROJECT_DSL_REFERENCE_INVALID", referencePath, `Asset \u5F15\u7528 ${assetId} \u672A\u5728 assets \u4E2D\u767B\u8BB0\uFF1B\u8BF7\u767B\u8BB0\u6216\u79FB\u9664\u8BE5\u5F15\u7528\u3002`));
+          }
+        }
+      });
+    }
+    if ("speech" in scene) {
+      if (!isRecord2(scene.speech)) {
+        diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech`, "speech \u7F3A\u7701\u65F6\u5FC5\u987B\u7701\u7565\u5B57\u6BB5\uFF0C\u5B58\u5728\u65F6\u5FC5\u987B\u662F\u5B8C\u6574\u5BF9\u8C61\u3002"));
+      } else {
+        unknownFields(scene.speech, ["path", "durationMs", "sourceTextHash", "ttsProfileId", "audioContentHash"], `${path}.speech`, diagnostics);
+        const expectedPath = typeof scene.id === "string" ? `speech/${scene.id}.mp3` : void 0;
+        if (typeof scene.speech.path !== "string" || !isCanonicalResourcePath(scene.speech.path, "speech") || scene.speech.path !== expectedPath) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_INVALID", `${path}.speech.path`, `Speech path \u5FC5\u987B\u7CBE\u786E\u4E3A ${expectedPath ?? "speech/<sceneId>.mp3"}\u3002`));
+        }
+        if (!Number.isSafeInteger(scene.speech.durationMs) || scene.speech.durationMs <= 0) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.durationMs`, "durationMs \u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002"));
+        }
+        const narrationText = isRecord2(scene.narration) && typeof scene.narration.text === "string" ? scene.narration.text : void 0;
+        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash8("sha256").update(narrationText, "utf8").digest("hex")}`;
+        if (typeof scene.speech.sourceTextHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.sourceTextHash) || expectedHash !== void 0 && scene.speech.sourceTextHash !== expectedHash) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SPEECH_MISMATCH", `${path}.speech.sourceTextHash`, "sourceTextHash \u5FC5\u987B\u5339\u914D\u5F53\u524D Narration \u7684\u539F\u59CB UTF-8 \u5B57\u8282\u3002"));
+        }
+        if (typeof scene.speech.ttsProfileId !== "string") {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.ttsProfileId`, "ttsProfileId \u5FC5\u987B\u662F\u4E0D\u8D85\u8FC7 256 \u4E2A Unicode \u6807\u91CF\u7684\u5B57\u7B26\u4E32\u3002"));
+        }
+        if ("audioContentHash" in scene.speech && (typeof scene.speech.audioContentHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.audioContentHash))) {
+          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.audioContentHash`, "audioContentHash \u5FC5\u987B\u662F\u89C4\u8303\u7684 SHA-256 \u6458\u8981\u3002"));
+        }
+      }
+    }
+  });
+  return {
+    ...diagnostics.length === 0 ? { project: value } : {},
+    diagnostics: boundedDiagnostics(diagnostics)
+  };
+}
+function validateProjectVNextForSave(value, projectPath = "project.json") {
+  let inputBytes;
+  try {
+    inputBytes = Buffer.from(JSON.stringify(value), "utf8");
+  } catch (cause) {
+    throw invalidControlFile(projectPath, {
+      code: "PROJECT_DSL_SCHEMA_INVALID",
+      component: "project.json",
+      jsonPath: "$",
+      message: "Project DSL \u5FC5\u987B\u662F\u53EF\u5E8F\u5217\u5316\u7684 JSON \u5BF9\u8C61\u3002"
+    }, { cause });
+  }
+  if (inputBytes.length > 10 * 1024 * 1024) {
+    throw invalidControlFile(projectPath, {
+      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+      component: "project.json",
+      message: `project.json \u4E3A ${inputBytes.length} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${10 * 1024 * 1024}\uFF1B\u8BF7\u7F29\u51CF\u5185\u5BB9\u540E\u91CD\u8BD5\u3002`,
+      metric: "bytes",
+      actual: inputBytes.length,
+      limit: 10 * 1024 * 1024
+    });
+  }
+  const parsed = parseControlJson(
+    inputBytes.toString("utf8"),
+    projectPath,
+    "project.json",
+    PROJECT_JSON_LIMITS
+  );
+  const validation = validateProjectDsl(parsed);
+  if (validation.project === void 0) {
+    throw invalidContent(projectPath, validation.diagnostics);
+  }
+  const project = validation.project;
+  const bytes = Buffer.from(JSON.stringify({
+    assets: project.assets.map((asset) => ({ id: asset.id, path: asset.path })),
+    scenes: project.scenes.map((scene) => ({
+      id: scene.id,
+      narration: { text: scene.narration.text },
+      assetIds: [...scene.assetIds],
+      ...scene.speech === void 0 ? {} : {
+        speech: {
+          path: scene.speech.path,
+          durationMs: scene.speech.durationMs,
+          sourceTextHash: scene.speech.sourceTextHash,
+          ttsProfileId: scene.speech.ttsProfileId,
+          ...scene.speech.audioContentHash === void 0 ? {} : { audioContentHash: scene.speech.audioContentHash }
+        }
+      }
+    }))
+  }), "utf8");
+  return { project, bytes };
+}
+function decodeUtf8(bytes, path, component, allowBom) {
+  if (!allowBom && bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) {
+    throw invalidControlFile(path, {
+      code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
+      component,
+      message: `${component} \u4E0D\u5F97\u5305\u542B UTF-8 BOM\uFF1B\u8BF7\u79FB\u9664 BOM \u540E\u91CD\u8BD5\u3002`
+    });
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: allowBom }).decode(bytes);
+  } catch (cause) {
+    throw invalidControlFile(path, {
+      code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
+      component,
+      message: `${component} \u4E0D\u662F\u4E25\u683C UTF-8\uFF1B\u8BF7\u4EE5 UTF-8 \u91CD\u65B0\u4FDD\u5B58\u540E\u91CD\u8BD5\u3002`
+    }, { cause });
+  }
+}
+var MANIFEST_JSON_LIMITS = {
+  maxDepth: 4,
+  maxArrayItems: 0,
+  maxObjectFields: 16,
+  maxNodes: 32,
+  maxStringScalars: 256,
+  maxStringBytes: 1024,
+  maxNumberBytes: 64,
+  forbidArrays: true
+};
+var PROJECT_JSON_LIMITS = {
+  maxDepth: 8,
+  maxArrayItems: 1e5,
+  maxObjectFields: 32e3,
+  maxNodes: 2e5,
+  maxStringScalars: 65536,
+  maxStringBytes: 256 * 1024,
+  maxNumberBytes: 64
+};
+function parseControlJson(input, path, component, limits2) {
+  try {
+    return parseStrictJson(input, limits2);
+  } catch (cause) {
+    if (!(cause instanceof StrictJsonFailure)) throw cause;
+    throw invalidControlFile(path, {
+      code: cause.code,
+      component,
+      message: cause.message,
+      jsonPath: cause.jsonPath,
+      ...cause.metric === void 0 ? {} : { metric: cause.metric },
+      ...cause.actual === void 0 ? {} : { actual: cause.actual },
+      ...cause.limit === void 0 ? {} : { limit: cause.limit }
+    }, { cause });
+  }
+}
+async function readBoundedControlFile(path, component, limit) {
+  const pathFacts = await lstat4(path);
+  if (!pathFacts.isFile() || pathFacts.isSymbolicLink() || pathFacts.nlink !== 1) {
+    throw invalidControlFile(path, {
+      code: "PROJECT_REQUIRED_CONTENT_INVALID",
+      component,
+      message: `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
+    });
+  }
+  const handle = await open3(path, "r");
+  try {
+    const facts = await handle.stat();
+    if (!facts.isFile() || facts.dev !== pathFacts.dev || facts.ino !== pathFacts.ino) {
+      throw invalidControlFile(path, {
+        code: "PROJECT_REQUIRED_CONTENT_INVALID",
+        component,
+        message: `${component} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
+      });
+    }
+    if (facts.size > limit) {
+      throw invalidControlFile(path, {
+        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+        component,
+        message: `${component} \u4E3A ${facts.size} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
+        metric: "bytes",
+        actual: facts.size,
+        limit
+      });
+    }
+    const bytes = Buffer.allocUnsafe(limit + 1);
+    let total = 0;
+    while (total < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, total, bytes.length - total, total);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+    }
+    if (total > limit) {
+      throw invalidControlFile(path, {
+        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+        component,
+        message: `${component} \u5728\u8BFB\u53D6\u671F\u95F4\u8D85\u8FC7 ${limit} \u5B57\u8282\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u5E76\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
+        metric: "bytes",
+        actual: total,
+        limit
+      });
+    }
+    return bytes.subarray(0, total);
+  } finally {
+    await handle.close();
+  }
+}
+async function readProjectVNextRevision(projectPath) {
+  const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
+  return `sha256:${createHash8("sha256").update(bytes).digest("hex")}`;
+}
+async function readVideoBriefVNext(videoBriefPath) {
+  const buffer = await readBoundedControlFile(videoBriefPath, "video.md", 2 * 1024 * 1024);
+  return {
+    content: decodeUtf8(buffer, videoBriefPath, "video.md", true),
+    revision: `sha256:${createHash8("sha256").update(buffer).digest("hex")}`,
+    bytes: buffer.length
+  };
+}
+async function requireDirectory(path) {
+  const facts = await lstat4(path);
+  if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
+}
+async function requireFile(path) {
+  const facts = await lstat4(path);
+  if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1) {
+    throw new Error(`\u5FC5\u9700\u6587\u4EF6\u65E0\u6548\uFF1A${path}`);
+  }
+}
+function isFileSystemError(error51) {
+  return error51 instanceof Error && "code" in error51;
+}
+function missingContent(path, component) {
+  return invalidContent(path, [{
+    code: "PROJECT_REQUIRED_CONTENT_MISSING",
+    component,
+    message: `\u7F3A\u5C11\u5FC5\u9700\u7684 ${component}\uFF1B\u8BF7\u6062\u590D\u5B8C\u6574 Project VNext \u5185\u5BB9\u540E\u91CD\u8BD5\u3002`
+  }]);
+}
+function invalidResource(path, component, message) {
+  return invalidContent(path, [{ code: "PROJECT_RESOURCE_INVALID", component, message }]);
+}
+async function validateOrdinaryResource(projectDirectory, relativePath, required2) {
+  const parts = relativePath.split("/");
+  const directoryIdentities = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const component = parts.slice(0, index + 1).join("/");
+    const path = join8(projectDirectory, component);
+    let facts;
+    try {
+      facts = await lstat4(path);
+    } catch (cause) {
+      if (isFileSystemError(cause) && cause.code === "ENOENT" && !required2) return;
+      if (isFileSystemError(cause) && cause.code === "ENOENT") {
+        throw missingContent(path, component);
+      }
+      throw new ProjectInspectionError(
+        "PROJECT_PATH_UNAVAILABLE",
+        path,
+        `\u65E0\u6CD5\u68C0\u67E5\u8D44\u6E90 ${path}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+        [],
+        { cause }
+      );
+    }
+    const isLeaf = index === parts.length - 1;
+    if (!isLeaf && (!facts.isDirectory() || facts.isSymbolicLink())) {
+      throw invalidResource(
+        path,
+        component,
+        `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u7684\u666E\u901A\u76EE\u5F55\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u3002`
+      );
+    }
+    if (!isLeaf) directoryIdentities.push({ path, dev: facts.dev, ino: facts.ino });
+    if (isLeaf && (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1)) {
+      throw invalidResource(
+        path,
+        relativePath,
+        `${relativePath} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`
+      );
+    }
+  }
+  const resourcePath = join8(projectDirectory, relativePath);
+  const allowedRoot = await realpath2(join8(projectDirectory, parts[0]));
+  const resolvedResource = await realpath2(resourcePath);
+  const relation = relative(allowedRoot, resolvedResource);
+  if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+    throw invalidResource(
+      resourcePath,
+      relativePath,
+      `${relativePath} \u89E3\u6790\u5230 ${allowedRoot} \u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002`
+    );
+  }
+  for (const identity2 of directoryIdentities) {
+    const current = await lstat4(identity2.path);
+    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity2.dev || current.ino !== identity2.ino) {
+      throw invalidResource(
+        identity2.path,
+        relative(projectDirectory, identity2.path),
+        `${relative(projectDirectory, identity2.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
+      );
+    }
+  }
+}
+async function validateProjectVNextResources(projectDirectory, project, options = {}) {
+  const assetStates = [];
+  for (const asset of project.assets) {
+    const path = join8(projectDirectory, asset.path);
+    await validateOrdinaryResource(projectDirectory, asset.path, false);
+    let facts;
+    try {
+      facts = await lstat4(path);
+    } catch (cause) {
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "unavailable",
+        reason: isFileSystemError(cause) && cause.code === "ENOENT" ? "\u6587\u4EF6\u7F3A\u5931\u6216\u5DF2\u88AB\u79FB\u52A8\u3002" : "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
+      });
+      continue;
+    }
+    try {
+      const handle = await open3(path, "r");
+      await handle.close();
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "available",
+        size: facts.size
+      });
+    } catch {
+      assetStates.push({
+        id: asset.id,
+        path: asset.path,
+        status: "unavailable",
+        reason: "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
+      });
+    }
+  }
+  const speech = await inspectProjectSpeech(
+    projectDirectory,
+    project.scenes,
+    options.currentTtsProfileId,
+    { probeDurationMs: options.probeSpeechDurationMs }
+  );
+  const speechWarnings = speech.states.filter((state) => state.status !== "available" && state.status !== "missing").map((state, index) => {
+    const sceneIndex = project.scenes.findIndex((scene) => scene.id === state.sceneId);
+    const code = {
+      available: "",
+      missing: "PROJECT_SPEECH_MISSING",
+      unavailable: "PROJECT_SPEECH_UNAVAILABLE",
+      "decode-failed": "PROJECT_SPEECH_DECODE_FAILED",
+      changed: "PROJECT_SPEECH_CHANGED",
+      "profile-mismatch": "PROJECT_SPEECH_PROFILE_MISMATCH"
+    }[state.status];
+    return {
+      code: code ?? "PROJECT_SPEECH_UNAVAILABLE",
+      component: state.path ?? `Scene ${sceneIndex + 1}`,
+      jsonPath: `$.scenes[${sceneIndex < 0 ? index : sceneIndex}].speech`,
+      message: state.reason ?? "Speech \u5F53\u524D\u4E0D\u53EF\u7528\u4E8E\u6B63\u5F0F Render\u3002"
+    };
+  });
+  return {
+    assetStates,
+    speechStates: speech.states,
+    timeline: speech.timeline,
+    warnings: boundedDiagnostics([...assetStates.filter((asset) => asset.status === "unavailable").map((asset) => ({
+      code: "PROJECT_ASSET_UNAVAILABLE",
+      component: asset.path,
+      message: `${asset.path} \u4E0D\u53EF\u7528\uFF1A${asset.reason ?? "\u65E0\u6CD5\u8BFB\u53D6\u3002"}`
+    })), ...speechWarnings])
+  };
+}
+async function readStableDirectory(directory2) {
+  const entries = await readdir4(directory2, { withFileTypes: true });
+  entries.sort((left, right) => compareStableText(left.name, right.name));
+  return entries;
+}
+var MAX_DIRECTORY_TREE_DEPTH = 32;
+var MAX_DIRECTORY_TREE_DIRECTORIES = 4096;
+function directoryTreeLimit(projectDirectory, path, metric, actual, limit) {
+  const component = relative(projectDirectory, path) || ".";
+  return invalidControlFile(path, {
+    code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
+    component,
+    metric,
+    actual,
+    limit,
+    message: `${component} \u7684${metric === "directoryDepth" ? "\u76EE\u5F55\u6DF1\u5EA6" : "\u5DF2\u68C0\u67E5\u76EE\u5F55\u6570"}\u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7CBE\u7B80\u9879\u76EE\u5185\u90E8\u6811\u540E\u91CD\u8BD5\u3002`
+  });
+}
+async function discoverRenderProgramDirectories(projectDirectory) {
+  const excludedRoots = /* @__PURE__ */ new Set(["assets", "speech", "renders"]);
+  const stack = [{ directory: projectDirectory, depth: 0 }];
+  const programs = [];
+  let directoriesVisited = 0;
+  while (stack.length > 0) {
+    const { directory: directory2, depth } = stack.pop();
+    directoriesVisited += 1;
+    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
+      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+    }
+    let entries;
+    try {
+      entries = await readStableDirectory(directory2);
+    } catch (cause) {
+      throw new ProjectInspectionError(
+        "PROJECT_PATH_UNAVAILABLE",
+        directory2,
+        `\u65E0\u6CD5\u68C0\u67E5\u9879\u76EE\u5185\u5BB9\u76EE\u5F55 ${directory2}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+        [],
+        { cause }
+      );
+    }
+    for (const entry of [...entries].reverse()) {
+      if (directory2 === projectDirectory && excludedRoots.has(entry.name)) continue;
+      if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
+      const path = join8(directory2, entry.name);
+      const facts = await lstat4(path);
+      if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
+      const childDepth = depth + 1;
+      if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
+        throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
+      }
+      if (entry.name === "render-program") {
+        programs.push(path);
+      } else {
+        stack.push({ directory: path, depth: childDepth });
+      }
+    }
+  }
+  programs.sort(compareStableText);
+  return programs;
+}
+async function validateRenderProgramDirectory(projectDirectory, programDirectory) {
+  const projectRoot = await realpath2(projectDirectory);
+  const resolvedProgram = await realpath2(programDirectory);
+  const programRelation = relative(projectRoot, resolvedProgram);
+  if (programRelation === ".." || programRelation.startsWith(`..${sep}`) || isAbsolute(programRelation)) {
+    throw invalidResource(
+      programDirectory,
+      relative(projectDirectory, programDirectory),
+      "Render Program \u89E3\u6790\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u7236\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002"
+    );
+  }
+  const requiredEntries = [
+    ["program.json", "file"],
+    ["package.json", "file"],
+    ["pnpm-lock.yaml", "file"],
+    ["src", "directory"],
+    ["src/RenderProgram.tsx", "file"],
+    ["resources", "directory"]
+  ];
+  for (const [entry, kind] of requiredEntries) {
+    const path = join8(programDirectory, ...entry.split("/"));
+    let facts;
+    try {
+      facts = await lstat4(path);
+    } catch (cause) {
+      if (isFileSystemError(cause) && cause.code === "ENOENT") {
+        throw missingContent(path, relative(projectDirectory, path));
+      }
+      throw new ProjectInspectionError(
+        "PROJECT_PATH_UNAVAILABLE",
+        path,
+        `\u65E0\u6CD5\u68C0\u67E5 Render Program \u8DEF\u5F84 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+        [],
+        { cause }
+      );
+    }
+    const valid2 = kind === "directory" ? facts.isDirectory() && !facts.isSymbolicLink() : facts.isFile() && !facts.isSymbolicLink() && facts.nlink === 1;
+    if (!valid2) {
+      throw invalidResource(
+        path,
+        relative(projectDirectory, path),
+        `${relative(projectDirectory, path)} \u5FC5\u987B\u662F\u65E0\u94FE\u63A5\u7684\u666E\u901A${kind === "directory" ? "\u76EE\u5F55" : "\u6587\u4EF6"}\u3002`
+      );
+    }
+  }
+  const stack = [{ directory: programDirectory, depth: 0 }];
+  let directoriesVisited = 0;
+  while (stack.length > 0) {
+    const { directory: directory2, depth } = stack.pop();
+    directoriesVisited += 1;
+    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
+      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+    }
+    for (const entry of [...await readStableDirectory(directory2)].reverse()) {
+      const path = join8(directory2, entry.name);
+      const component = relative(projectDirectory, path);
+      if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
+        throw invalidResource(path, component, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
+      }
+      const facts = await lstat4(path);
+      if (facts.isSymbolicLink()) {
+        throw invalidResource(path, component, `${component} \u662F\u7B26\u53F7\u94FE\u63A5\uFF1BRender Program \u6811\u53EA\u5141\u8BB8\u666E\u901A\u6587\u4EF6\u548C\u76EE\u5F55\u3002`);
+      }
+      if (facts.isDirectory()) {
+        const childDepth = depth + 1;
+        if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
+          throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
+        }
+        stack.push({ directory: path, depth: childDepth });
+      } else if (!facts.isFile() || facts.nlink !== 1) {
+        throw invalidResource(path, component, `${component} \u4E0D\u662F\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`);
+      }
+    }
+  }
+  if (await realpath2(programDirectory) !== resolvedProgram) {
+    throw invalidResource(
+      programDirectory,
+      relative(projectDirectory, programDirectory),
+      "Render Program \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002"
+    );
+  }
+}
+async function inspectProjectVNext(inputPath, options = {}) {
+  const projectDirectory = resolve2(inputPath);
+  try {
+    await requireDirectory(projectDirectory);
+  } catch (cause) {
+    throw new ProjectInspectionError(
+      "PROJECT_PATH_UNAVAILABLE",
+      projectDirectory,
+      `\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55 ${projectDirectory}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+      [],
+      { cause }
+    );
+  }
+  const manifestPath = join8(projectDirectory, "narracut.json");
+  let manifestBuffer;
+  try {
+    manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
+  } catch (cause) {
+    if (cause instanceof ProjectInspectionError) throw cause;
+    if (isFileSystemError(cause) && cause.code === "ENOENT") {
+      throw new ProjectInspectionError(
+        "NOT_A_NARRACUT_PROJECT",
+        manifestPath,
+        `\u76EE\u5F55\u4E2D\u6CA1\u6709 narracut.json\uFF1B\u8BF7\u9009\u62E9 Project VNext \u9879\u76EE\u76EE\u5F55\u3002`,
+        [],
+        { cause }
+      );
+    }
+    throw new ProjectInspectionError(
+      "PROJECT_PATH_UNAVAILABLE",
+      manifestPath,
+      `\u65E0\u6CD5\u8BFB\u53D6 ${manifestPath}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+      [],
+      { cause }
+    );
+  }
+  const manifestBytes = decodeUtf8(manifestBuffer, manifestPath, "narracut.json", false);
+  const parsedManifest = parseControlJson(
+    manifestBytes,
+    manifestPath,
+    "narracut.json",
+    MANIFEST_JSON_LIMITS
+  );
+  if (typeof parsedManifest !== "object" || parsedManifest === null || Array.isArray(parsedManifest) || !("kind" in parsedManifest) || parsedManifest.kind !== "narracut-project") {
+    throw new ProjectInspectionError(
+      "NOT_A_NARRACUT_PROJECT",
+      manifestPath,
+      `\u8BE5\u76EE\u5F55\u6CA1\u6709\u6709\u6548\u7684 Project VNext \u6807\u8BC6\uFF1B\u8BF7\u9009\u62E9\u5305\u542B kind=narracut-project \u6E05\u5355\u7684\u9879\u76EE\u76EE\u5F55\u3002`
+    );
+  }
+  const manifest = parsedManifest;
+  if (Number.isInteger(manifest.formatVersion) && manifest.formatVersion !== 1) {
+    throw new ProjectInspectionError(
+      "PROJECT_FORMAT_UNSUPPORTED",
+      manifestPath,
+      `\u9879\u76EE\u683C\u5F0F\u7248\u672C ${String(manifest.formatVersion)} \u4E0D\u53D7\u652F\u6301\uFF1B\u8BF7\u4F7F\u7528\u652F\u6301\u8BE5\u683C\u5F0F\u7684 Narracut \u7248\u672C\u3002`
+    );
+  }
+  const manifestDiagnostics = validateProjectManifest(manifest);
+  if (manifestDiagnostics.length > 0) throw invalidContent(manifestPath, manifestDiagnostics);
+  const requiredEntries = [
+    [join8(projectDirectory, "assets"), "assets/", "directory"],
+    [join8(projectDirectory, "speech"), "speech/", "directory"],
+    [join8(projectDirectory, "renders"), "renders/", "directory"]
+  ];
+  for (const [path, component, kind] of requiredEntries) {
+    try {
+      if (kind === "directory") await requireDirectory(path);
+      else await requireFile(path);
+    } catch (cause) {
+      if (isFileSystemError(cause) && cause.code !== "ENOENT") {
+        throw new ProjectInspectionError(
+          "PROJECT_PATH_UNAVAILABLE",
+          path,
+          `\u65E0\u6CD5\u8BFB\u53D6 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+          [],
+          { cause }
+        );
+      }
+      throw missingContent(path, component);
+    }
+  }
+  const renderProgramDirectories = await discoverRenderProgramDirectories(projectDirectory);
+  if (renderProgramDirectories.length === 0) {
+    throw missingContent(
+      projectDirectory,
+      "\u81F3\u5C11\u4E00\u4EFD\u5019\u9009\u6216\u4FEE\u8BA2\u5185\u90E8\u7684 render-program/"
+    );
+  }
+  let currentRevision;
+  try {
+    currentRevision = (await readCurrentPointer(projectDirectory)).revisionId;
+  } catch {
+  }
+  for (const programDirectory of renderProgramDirectories) {
+    const retained = relative(projectDirectory, programDirectory).match(/^\.narracut\/revisions\/([0-9a-f-]{36})\/render-program$/);
+    if (currentRevision && retained && retained[1] !== currentRevision) continue;
+    await validateRenderProgramDirectory(projectDirectory, programDirectory);
+  }
+  let projectBuffer;
+  let videoBuffer;
+  try {
+    [projectBuffer, videoBuffer] = await Promise.all([
+      readBoundedControlFile(
+        join8(projectDirectory, "project.json"),
+        "project.json",
+        10 * 1024 * 1024
+      ),
+      readBoundedControlFile(
+        join8(projectDirectory, "video.md"),
+        "video.md",
+        2 * 1024 * 1024
+      )
+    ]);
+  } catch (cause) {
+    if (cause instanceof ProjectInspectionError) throw cause;
+    const path = isFileSystemError(cause) && typeof cause.path === "string" ? cause.path : projectDirectory;
+    const component = path.startsWith(`${projectDirectory}/`) ? path.slice(projectDirectory.length + 1) : path;
+    if (isFileSystemError(cause) && cause.code === "ENOENT") {
+      throw missingContent(path, component);
+    }
+    throw new ProjectInspectionError(
+      "PROJECT_PATH_UNAVAILABLE",
+      path,
+      `\u65E0\u6CD5\u8BFB\u53D6 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+      [],
+      { cause }
+    );
+  }
+  const projectBytes = decodeUtf8(
+    projectBuffer,
+    join8(projectDirectory, "project.json"),
+    "project.json",
+    false
+  );
+  const videoBytes = decodeUtf8(
+    videoBuffer,
+    join8(projectDirectory, "video.md"),
+    "video.md",
+    true
+  );
+  const projectPath = join8(projectDirectory, "project.json");
+  const parsedProject = parseControlJson(
+    projectBytes,
+    projectPath,
+    "project.json",
+    PROJECT_JSON_LIMITS
+  );
+  const projectValidation = validateProjectDsl(parsedProject);
+  if (projectValidation.project === void 0) {
+    throw invalidContent(projectPath, projectValidation.diagnostics);
+  }
+  let tts;
+  try {
+    tts = await readProjectTtsConfig(projectDirectory);
+  } catch (cause) {
+    if (cause instanceof ProjectTtsConfigError) {
+      throw invalidControlFile(cause.path, {
+        code: cause.code,
+        component: "tts.json",
+        jsonPath: "$",
+        message: cause.message
+      }, { cause });
+    }
+    throw cause;
+  }
+  const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
+    projectDirectory,
+    projectValidation.project,
+    {
+      ...tts.status === "configured" ? { currentTtsProfileId: tts.profileId } : {},
+      probeSpeechDurationMs: options.probeSpeechDurationMs
+    }
+  );
+  return {
+    projectDirectory,
+    manifest,
+    project: projectValidation.project,
+    projectRevision: `sha256:${createHash8("sha256").update(projectBuffer).digest("hex")}`,
+    videoBrief: videoBytes,
+    videoBriefRevision: `sha256:${createHash8("sha256").update(videoBuffer).digest("hex")}`,
+    renderPrograms: { directories: renderProgramDirectories },
+    assetStates,
+    tts,
+    speechStates,
+    timeline,
+    warnings
+  };
+}
+
+// src/server/project-lifecycle.ts
+var STARTER_REACT_VERSION = "19.2.8";
+var STARTER_REMOTION_VERSION = RUNTIME_REMOTION_VERSION;
+var ProjectLifecycleError = class extends Error {
+  constructor(code, path, message, options = {}) {
+    super(message, options);
+    this.code = code;
+    this.path = path;
+    this.name = "ProjectLifecycleError";
+  }
+  code;
+  path;
+};
+var ProjectTtsConfirmationError = class extends Error {
+  constructor(affectedSpeechCount) {
+    super(`\u4FDD\u5B58\u5F53\u524D TTS \u914D\u7F6E\u4F1A\u79FB\u9664 ${affectedSpeechCount} \u6761\u4E0D\u5339\u914D\u7684 Speech \u8BB0\u5F55\uFF0C\u9700\u8981\u91CD\u65B0\u786E\u8BA4\u3002`);
+    this.affectedSpeechCount = affectedSpeechCount;
+    this.name = "ProjectTtsConfirmationError";
+  }
+  affectedSpeechCount;
+  code = "TTS_CONFIRMATION_REQUIRED";
+};
+var OPERATION_MARKER = ".narracut-operation.json";
+var activeLeasePaths = /* @__PURE__ */ new Set();
+function isCreateOperationMarker(value, projectDirectory, operationToken, operation = "create") {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const marker = value;
+  return Object.keys(marker).length === 5 && marker.kind === "narracut-operation" && marker.version === 1 && marker.operation === operation && marker.targetDirectory === projectDirectory && typeof marker.operationToken === "string" && marker.operationToken.length > 0 && (operationToken === void 0 || marker.operationToken === operationToken);
+}
+async function pathExists(path) {
+  try {
+    await lstat5(path);
+    return true;
+  } catch (error51) {
+    if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return false;
+    throw error51;
+  }
+}
+async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory, confirmed, operation = "create") {
+  const facts = await lstat5(temporaryDirectory);
+  if (!facts.isDirectory() || facts.isSymbolicLink()) {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
+      temporaryDirectory,
+      `\u4E34\u65F6\u8DEF\u5F84\u4E0D\u662F\u53EF\u786E\u8BA4\u5F52\u5C5E\u7684\u666E\u901A\u76EE\u5F55\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
+    );
+  }
+  const markerPath = join9(temporaryDirectory, OPERATION_MARKER);
+  let marker;
+  try {
+    const markerFacts = await lstat5(markerPath);
+    if (!markerFacts.isFile() || markerFacts.isSymbolicLink() || markerFacts.nlink !== 1 || markerFacts.size > 4096) {
+      throw new Error("invalid marker");
+    }
+    marker = JSON.parse(await readFile5(markerPath, "utf8"));
+  } catch {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
+      temporaryDirectory,
+      `\u4E34\u65F6\u76EE\u5F55\u7F3A\u5C11\u53EF\u9A8C\u8BC1\u7684\u521B\u5EFA\u6807\u8BB0\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
+    );
+  }
+  if (!isCreateOperationMarker(marker, projectDirectory, void 0, operation)) {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
+      temporaryDirectory,
+      `\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u4E0E\u672C\u6B21\u521B\u5EFA\u76EE\u6807\u4E0D\u5339\u914D\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
+    );
+  }
+  if (!confirmed) {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE",
+      temporaryDirectory,
+      `\u53D1\u73B0\u4E0E\u672C\u6B21\u76EE\u6807\u5339\u914D\u7684\u521B\u5EFA\u6B8B\u7559\uFF1A${temporaryDirectory}\u3002\u8BF7\u786E\u8BA4\u6E05\u7406\u540E\u4ECE\u5934\u91CD\u8BD5\u3002`
+    );
+  }
+  const currentFacts = await lstat5(temporaryDirectory);
+  if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino || !currentFacts.isDirectory()) {
+    throw new ProjectLifecycleError(
+      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
+      temporaryDirectory,
+      `\u4E34\u65F6\u76EE\u5F55\u5728\u786E\u8BA4\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
+    );
+  }
+  await rm7(temporaryDirectory, { recursive: true });
+}
+function starterLockfile() {
+  return `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      react:
+        specifier: ${STARTER_REACT_VERSION}
+        version: ${STARTER_REACT_VERSION}
+      react-dom:
+        specifier: ${STARTER_REACT_VERSION}
+        version: ${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION})
+      remotion:
+        specifier: ${STARTER_REMOTION_VERSION}
+        version: ${STARTER_REMOTION_VERSION}(react-dom@${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION}))(react@${STARTER_REACT_VERSION})
+
+packages:
+
+  react-dom@${STARTER_REACT_VERSION}:
+    resolution: {integrity: sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==}
+    peerDependencies:
+      react: ^${STARTER_REACT_VERSION}
+
+  react@${STARTER_REACT_VERSION}:
+    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
+    engines: {node: '>=0.10.0'}
+
+  remotion@${STARTER_REMOTION_VERSION}:
+    resolution: {integrity: sha512-L47ImosLFn/uSEGhgV6nO9agEjrRTD+xfeIC4QlGSkCkHjG4IpH2dm0psRoLrK0eo8iiUc4rwUFNnNxQpLnx2w==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+
+  scheduler@0.27.0:
+    resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
+
+snapshots:
+
+  react-dom@${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION}):
+    dependencies:
+      react: ${STARTER_REACT_VERSION}
+      scheduler: 0.27.0
+
+  react@${STARTER_REACT_VERSION}: {}
+
+  remotion@${STARTER_REMOTION_VERSION}(react-dom@${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION}))(react@${STARTER_REACT_VERSION}):
+    dependencies:
+      react: ${STARTER_REACT_VERSION}
+      react-dom: ${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION})
+
+  scheduler@0.27.0: {}
+`;
+}
+function starterManifest(projectId) {
+  return JSON.stringify({ kind: "narracut-project", formatVersion: 1, projectId });
+}
+function starterCurrent(revisionId) {
+  return JSON.stringify({ revisionId });
+}
+function starterRevision(revisionId) {
+  return JSON.stringify({
+    revisionId,
+    previousRevisionId: null,
+    briefFingerprint: revisionOf(Buffer.alloc(0)),
+    source: "starter",
+    summary: "Narracut starter Render Program"
+  });
+}
+function starterProgramManifest() {
+  return JSON.stringify({ apiVersion: 1, output: { width: 1920, height: 1080, fps: 30 } });
+}
+function starterPackageManifest() {
+  return JSON.stringify({
+    private: true,
+    dependencies: {
+      react: STARTER_REACT_VERSION,
+      "react-dom": STARTER_REACT_VERSION,
+      remotion: STARTER_REMOTION_VERSION
+    }
+  });
+}
+function starterSource() {
+  return 'import { AbsoluteFill } from "remotion";\n\ntype RenderProgramInputV1 = Readonly<{ apiVersion: 1 }>;\n\nexport function RenderProgram(input: RenderProgramInputV1) {\n  void input;\n  return <AbsoluteFill style={{ backgroundColor: "#090d0e" }} />;\n}\n';
+}
+async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
+  const renderProgramDirectory = join9(
+    temporaryDirectory,
+    ".narracut",
+    "revisions",
+    revisionId,
+    "render-program"
+  );
+  await Promise.all([
+    mkdir5(join9(temporaryDirectory, "assets"), { recursive: true }),
+    mkdir5(join9(temporaryDirectory, "speech"), { recursive: true }),
+    mkdir5(join9(temporaryDirectory, "renders"), { recursive: true }),
+    mkdir5(join9(renderProgramDirectory, "src"), { recursive: true }),
+    mkdir5(join9(renderProgramDirectory, "resources"), { recursive: true })
+  ]);
+  await Promise.all([
+    writeFile3(join9(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
+    writeFile3(join9(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
+    writeFile3(join9(temporaryDirectory, "video.md"), ""),
+    writeFile3(join9(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
+    writeFile3(
+      join9(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
+      starterRevision(revisionId)
+    ),
+    writeFile3(join9(renderProgramDirectory, "program.json"), starterProgramManifest()),
+    writeFile3(join9(renderProgramDirectory, "package.json"), starterPackageManifest()),
+    writeFile3(join9(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
+    writeFile3(join9(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
+  ]);
+}
+async function validateStarterProject(temporaryDirectory, projectId, revisionId) {
+  const renderProgramDirectory = join9(
+    temporaryDirectory,
+    ".narracut",
+    "revisions",
+    revisionId,
+    "render-program"
+  );
+  const [
+    inspection,
+    manifest,
+    projectDsl,
+    videoBrief,
+    current,
+    revision,
+    programManifest,
+    packageManifest2,
+    lockfile,
+    source
+  ] = await Promise.all([
+    inspectProjectVNext(temporaryDirectory),
+    readFile5(join9(temporaryDirectory, "narracut.json"), "utf8"),
+    readFile5(join9(temporaryDirectory, "project.json"), "utf8"),
+    readFile5(join9(temporaryDirectory, "video.md"), "utf8"),
+    readFile5(join9(temporaryDirectory, ".narracut", "current.json"), "utf8"),
+    readFile5(join9(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
+    readFile5(join9(renderProgramDirectory, "program.json"), "utf8"),
+    readFile5(join9(renderProgramDirectory, "package.json"), "utf8"),
+    readFile5(join9(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
+    readFile5(join9(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
+  ]);
+  if (inspection.manifest.projectId !== projectId || inspection.project.assets.length !== 0 || inspection.project.scenes.length !== 0 || inspection.videoBrief !== "" || manifest !== starterManifest(projectId) || projectDsl !== '{"assets":[],"scenes":[]}' || videoBrief !== "" || current !== starterCurrent(revisionId) || revision !== starterRevision(revisionId) || programManifest !== starterProgramManifest() || packageManifest2 !== starterPackageManifest() || lockfile !== starterLockfile() || source !== starterSource()) {
+    throw new Error("starter \u9879\u76EE\u590D\u6838\u7ED3\u679C\u4E0E\u521B\u5EFA\u8F93\u5165\u4E0D\u4E00\u81F4\u3002");
+  }
+}
+var INTERNAL_JSON_LIMITS = {
+  maxDepth: 8,
+  maxArrayItems: 32,
+  maxObjectFields: 64,
+  maxNodes: 256,
+  maxStringScalars: 4096,
+  maxStringBytes: 16384,
+  maxNumberBytes: 32
+};
+var UUID_PATTERN2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+function isPlainRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+async function readRegularUtf8(path, maxBytes) {
+  const facts = await lstat5(path);
+  if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > maxBytes) {
+    throw new Error(`\u4E0D\u662F\u53D7\u652F\u6301\u7684\u666E\u901A\u6587\u4EF6\uFF1A${path}`);
+  }
+  return readFile5(path, "utf8");
+}
+async function validateCurrentProjectState(inspection) {
+  const projectDirectory = inspection.projectDirectory;
+  const currentPath = join9(projectDirectory, ".narracut", "current.json");
+  let briefRevision = null;
+  try {
+    const current = await readCurrentPointer(projectDirectory);
+    await verifyRevision(projectDirectory, current.revisionId);
+    const revisionId = current.revisionId;
+    const revisionDirectory = join9(projectDirectory, ".narracut", "revisions", revisionId);
+    const renderProgramDirectory = join9(revisionDirectory, "render-program");
+    if (!inspection.renderPrograms.directories.includes(renderProgramDirectory)) {
+      throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6CA1\u6709\u53EF\u68C0\u67E5\u7684 Render Program\u3002");
+    }
+    const [revision, program, packageJson, lockfile, source] = await Promise.all([
+      readRegularUtf8(join9(revisionDirectory, "revision.json"), 1048576).then((value) => JSON.parse(value)),
+      readRegularUtf8(join9(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join9(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join9(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
+      readRegularUtf8(join9(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
+    ]);
+    if (!isPlainRecord(revision) || Object.keys(revision).some(
+      (key) => !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary", "programFingerprint", "acceptedAt", "inputFingerprint", "sourceRevision", "acceptance", "requestId"].includes(key)
+    ) || revision.revisionId !== revisionId || !(revision.previousRevisionId === null || typeof revision.previousRevisionId === "string" && UUID_PATTERN2.test(revision.previousRevisionId)) || revision.briefFingerprint !== void 0 && (typeof revision.briefFingerprint !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(revision.briefFingerprint)) || typeof revision.source !== "string" || typeof revision.summary !== "string") {
+      throw new Error("\u5F53\u524D\u4FEE\u8BA2\u5143\u6570\u636E\u65E0\u6548\u3002");
+    }
+    const output = isPlainRecord(program) && isPlainRecord(program.output) ? program.output : null;
+    if (!isPlainRecord(program) || program.apiVersion !== 1 || output === null || ![output.width, output.height, output.fps].every(
+      (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    )) {
+      throw new Error("\u5F53\u524D Render Program manifest \u65E0\u6548\u3002");
+    }
+    if (!isPlainRecord(packageJson) || !isPlainRecord(packageJson.dependencies)) {
+      throw new Error("\u5F53\u524D Render Program package manifest \u65E0\u6548\u3002");
+    }
+    const dependencies = Object.entries(packageJson.dependencies);
+    if (packageJson.private !== true || dependencies.length === 0 || dependencies.some(
+      ([, version2]) => typeof version2 !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version2)
+    ) || dependencies.some(
+      ([name, version2]) => !lockfile.includes(`      ${name}:
+        specifier: ${String(version2)}
+`)
+    ) || !source.includes("export function RenderProgram(input:")) {
+      throw new Error("\u5F53\u524D Render Program \u4F9D\u8D56\u6216\u5165\u53E3\u65E0\u6548\u3002");
+    }
+    briefRevision = typeof revision.briefFingerprint === "string" ? revision.briefFingerprint : null;
+  } catch (cause) {
+    if (cause instanceof ProjectLifecycleError) throw cause;
+    throw new ProjectLifecycleError(
+      "PROJECT_CURRENT_INVALID",
+      currentPath,
+      `\u5F53\u524D Render Program \u4FEE\u8BA2\u65E0\u6548\uFF1A${projectDirectory}\u3002Narracut \u4E0D\u4F1A\u6253\u5F00\u6216\u4FEE\u590D\u8BE5\u9879\u76EE\u3002`,
+      { cause }
+    );
+  }
+  return briefRevision;
+}
+async function captureDirectoryIdentity(path) {
+  const facts = await lstat5(path);
+  if (!facts.isDirectory() || facts.isSymbolicLink()) {
+    throw new Error(`\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u76EE\u5F55\uFF1A${path}`);
+  }
+  return { dev: facts.dev, ino: facts.ino };
+}
+function hasIdentity(facts, identity2) {
+  return facts.dev === identity2.dev && facts.ino === identity2.ino;
+}
+async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, markerWritten, projectDirectory, operationToken, operation = "create") {
+  let facts;
+  try {
+    facts = await lstat5(temporaryDirectory);
+  } catch (error51) {
+    if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return;
+    throw error51;
+  }
+  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity2)) {
+    throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u5DF2\u88AB\u66FF\u6362\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
+  }
+  if (markerWritten) {
+    const marker = JSON.parse(await readRegularUtf8(
+      join9(temporaryDirectory, OPERATION_MARKER),
+      4096
+    ));
+    if (!isCreateOperationMarker(marker, projectDirectory, operationToken, operation)) {
+      throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u5DF2\u53D8\u5316\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
+    }
+  }
+  await rm7(temporaryDirectory, { recursive: true });
+}
+async function cleanupTargetReservation(projectDirectory, identity2) {
+  let facts;
+  try {
+    facts = await lstat5(projectDirectory);
+  } catch (error51) {
+    if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return;
+    throw error51;
+  }
+  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity2)) {
+    throw new Error("\u53D1\u5E03\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u5DF2\u88AB\u66FF\u6362\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
+  }
+  if ((await readdir5(projectDirectory)).length !== 0) {
+    throw new Error("\u53D1\u5E03\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u51FA\u73B0\u5916\u90E8\u5185\u5BB9\uFF0CNarracut \u62D2\u7EDD\u5220\u9664\u3002");
+  }
+  await rmdir(projectDirectory);
+}
+async function createProjectVNext(inputPath, options = {}) {
+  return publishProjectVNext(inputPath, options, "create", async (temporary, projectId, revisionId) => {
+    await writeStarterProject(temporary, projectId, revisionId);
+    await validateStarterProject(temporary, projectId, revisionId);
+  });
+}
+async function publishProjectVNext(inputPath, options, operation, prepare) {
+  const projectDirectory = resolve3(inputPath);
+  const projectName = basename(projectDirectory);
+  if (projectName === "" || projectName === "." || projectName === "..") {
+    throw new ProjectLifecycleError(
+      "PROJECT_CREATE_TARGET_INVALID",
+      projectDirectory,
+      "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
+    );
+  }
+  const temporaryDirectory = join9(dirname6(projectDirectory), `.${projectName}.narracut-tmp`);
+  const createId = options.createId ?? randomUUID6;
+  const projectId = createId();
+  const revisionId = createId();
+  const operationToken = randomUUID6();
+  let temporaryIdentity = null;
+  let markerWritten = false;
+  let targetReservationIdentity = null;
+  try {
+    if (await pathExists(projectDirectory)) {
+      throw new ProjectLifecycleError(
+        "PROJECT_CREATE_TARGET_EXISTS",
+        projectDirectory,
+        `\u521B\u5EFA\u76EE\u6807\u5DF2\u5B58\u5728\uFF1A${projectDirectory}\u3002\u8BF7\u9009\u62E9\u5C1A\u4E0D\u5B58\u5728\u7684\u65B0\u8DEF\u5F84\u3002`
+      );
+    }
+    if (await pathExists(temporaryDirectory)) {
+      await removeConfirmedCreateResidue(
+        temporaryDirectory,
+        projectDirectory,
+        options.confirmTemporaryCleanup === true,
+        operation
+      );
+    }
+    await mkdir5(temporaryDirectory);
+    temporaryIdentity = await captureDirectoryIdentity(temporaryDirectory);
+    await writeFile3(join9(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
+      kind: "narracut-operation",
+      version: 1,
+      operation,
+      targetDirectory: projectDirectory,
+      operationToken
+    }));
+    markerWritten = true;
+    await prepare(temporaryDirectory, projectId, revisionId);
+    if (process.platform !== "win32") {
+      try {
+        await mkdir5(projectDirectory);
+      } catch (error51) {
+        if (error51 instanceof Error && "code" in error51 && error51.code === "EEXIST") {
+          throw new ProjectLifecycleError(
+            "PROJECT_CREATE_TARGET_EXISTS",
+            projectDirectory,
+            `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`,
+            { cause: error51 }
+          );
+        }
+        throw error51;
+      }
+      targetReservationIdentity = await captureDirectoryIdentity(projectDirectory);
+    } else if (await pathExists(projectDirectory)) {
+      throw new ProjectLifecycleError(
+        "PROJECT_CREATE_TARGET_EXISTS",
+        projectDirectory,
+        `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`
+      );
+    }
+    if (targetReservationIdentity !== null) {
+      const currentReservation = await lstat5(projectDirectory);
+      if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir5(projectDirectory)).length !== 0) {
+        throw new ProjectLifecycleError(
+          "PROJECT_CREATE_TARGET_EXISTS",
+          projectDirectory,
+          `\u539F\u5B50\u53D1\u5E03\u65F6\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u8986\u76D6\u3002`
+        );
+      }
+    }
+    await rename5(temporaryDirectory, projectDirectory);
+    temporaryIdentity = null;
+    targetReservationIdentity = null;
+    await unlink(join9(projectDirectory, OPERATION_MARKER)).catch(() => void 0);
+    return { projectDirectory, projectId, revisionId };
+  } catch (cause) {
+    try {
+      if (targetReservationIdentity !== null) {
+        await cleanupTargetReservation(projectDirectory, targetReservationIdentity);
+      }
+      if (temporaryIdentity !== null) {
+        await cleanupOwnedTemporaryDirectory(
+          temporaryDirectory,
+          temporaryIdentity,
+          markerWritten,
+          projectDirectory,
+          operationToken,
+          operation
+        );
+      }
+    } catch (cleanupCause) {
+      throw new ProjectLifecycleError(
+        operation === "copy" ? "PROJECT_COPY_CLEANUP_FAILED" : "PROJECT_CREATE_CLEANUP_FAILED",
+        temporaryDirectory,
+        `\u521B\u5EFA\u5931\u8D25\uFF0C\u4E14\u65E0\u6CD5\u8BC1\u660E\u4E34\u65F6\u4EA7\u7269\u4ECD\u5F52\u672C\u6B21\u64CD\u4F5C\u6240\u6709\uFF1B\u5DF2\u4FDD\u7559\u73B0\u573A\uFF1A${temporaryDirectory}\u3002`,
+        { cause: cleanupCause }
+      );
+    }
+    if (cause instanceof ProjectLifecycleError) throw cause;
+    throw new ProjectLifecycleError(
+      operation === "copy" ? "PROJECT_COPY_FAILED" : "PROJECT_CREATE_FAILED",
+      projectDirectory,
+      `${operation === "copy" ? "\u590D\u5236" : "\u521B\u5EFA"} Project VNext \u5931\u8D25\uFF1A${projectDirectory}\u3002${cause instanceof Error ? cause.message : ""}`,
+      { cause }
+    );
+  }
+}
+async function readProcessIdentity(pid) {
+  if (process.platform !== "linux") return null;
+  try {
+    const statBytes = await readFile5(`/proc/${pid}/stat`, "utf8");
+    const commandEnd = statBytes.lastIndexOf(")");
+    if (commandEnd < 0) return null;
+    return statBytes.slice(commandEnd + 2).trim().split(/\s+/u)[19] ?? null;
+  } catch {
+    return null;
+  }
+}
+async function leaseHolderIsAlive(marker) {
+  if (!Number.isSafeInteger(marker.pid) || marker.pid <= 0) return true;
+  try {
+    process.kill(marker.pid, 0);
+  } catch (error51) {
+    if (error51 instanceof Error && "code" in error51 && error51.code === "ESRCH") return false;
+    return true;
+  }
+  if (marker.processIdentity === null) return true;
+  const currentIdentity = await readProcessIdentity(marker.pid);
+  return currentIdentity === null || currentIdentity === marker.processIdentity;
+}
+function isLeaseMarker(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const marker = value;
+  return marker.kind === "narracut-project-lease" && marker.version === 1 && typeof marker.projectDirectory === "string" && typeof marker.projectId === "string" && typeof marker.pid === "number" && (marker.processIdentity === null || typeof marker.processIdentity === "string") && typeof marker.token === "string";
+}
+async function clearStaleLease(leasePath) {
+  let facts;
+  let marker;
+  try {
+    facts = await lstat5(leasePath);
+    if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 4096) return false;
+    marker = JSON.parse(await readFile5(leasePath, "utf8"));
+  } catch {
+    return false;
+  }
+  if (!isLeaseMarker(marker) || await leaseHolderIsAlive(marker)) return false;
+  const currentFacts = await lstat5(leasePath);
+  if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino) return false;
+  await unlink(leasePath);
+  return true;
+}
+async function acquireProjectLease(inspection, onHandoff) {
+  const projectDirectory = inspection.projectDirectory;
+  const leasePath = join9(projectDirectory, ".narracut", "workspace.lease");
+  let transferred = false;
+  if (onHandoff) {
+    const existing = await readFile5(leasePath, "utf8").then((bytes) => JSON.parse(bytes)).catch(() => null);
+    if (existing && isLeaseMarker(existing) && existing.projectId === inspection.manifest.projectId && existing.projectDirectory === projectDirectory && existing.handoffPort && await leaseHolderIsAlive(existing)) {
+      try {
+        await requestProjectHandoff(existing.handoffPort, existing.token);
+        transferred = true;
+      } catch (cause) {
+        throw new ProjectLifecycleError("PROJECT_IN_USE", projectDirectory, "\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9\uFF1B\u5C1A\u672A\u53D6\u5F97\u4EFB\u52A1\u63A7\u5236\u6743\u3002", { cause });
+      }
+    }
+  }
+  if (activeLeasePaths.has(leasePath)) {
+    throw new ProjectLifecycleError(
+      "PROJECT_IN_USE",
+      projectDirectory,
+      `\u9879\u76EE\u5DF2\u7531\u53E6\u4E00\u4E2A Narracut \u5DE5\u4F5C\u533A\u5360\u7528\uFF1A${projectDirectory}\u3002`
+    );
+  }
+  const marker = {
+    kind: "narracut-project-lease",
+    version: 1,
+    projectDirectory,
+    projectId: inspection.manifest.projectId,
+    pid: process.pid,
+    processIdentity: await readProcessIdentity(process.pid),
+    token: randomUUID6()
+  };
+  let handle;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      handle = await openFile(leasePath, "wx", 384);
+      break;
+    } catch (error51) {
+      if (!(error51 instanceof Error && "code" in error51 && error51.code === "EEXIST")) throw error51;
+      if (attempt === 0 && await clearStaleLease(leasePath)) continue;
+      throw new ProjectLifecycleError(
+        "PROJECT_IN_USE",
+        projectDirectory,
+        `\u9879\u76EE\u5DF2\u7531\u53E6\u4E00\u4E2A Narracut \u5DE5\u4F5C\u533A\u5360\u7528\uFF1A${projectDirectory}\u3002`,
+        { cause: error51 }
+      );
+    }
+  }
+  if (handle === void 0) {
+    throw new ProjectLifecycleError(
+      "PROJECT_IN_USE",
+      projectDirectory,
+      `\u65E0\u6CD5\u53D6\u5F97\u9879\u76EE\u5199\u5165\u79DF\u7EA6\uFF1A${projectDirectory}\u3002`
+    );
+  }
+  let endpoint;
+  try {
+    if (onHandoff) {
+      endpoint = await listenForProjectHandoff(marker.token, onHandoff);
+      marker.handoffPort = endpoint.port;
+    }
+    await handle.writeFile(JSON.stringify(marker));
+    await handle.sync();
+  } catch (cause) {
+    endpoint?.close();
+    await handle.close();
+    await rm7(leasePath, { force: true });
+    throw new ProjectLifecycleError(
+      "PROJECT_IN_USE",
+      projectDirectory,
+      `\u65E0\u6CD5\u5199\u5165\u9879\u76EE\u79DF\u7EA6\uFF1A${projectDirectory}\u3002`,
+      { cause }
+    );
+  }
+  await handle.close();
+  let leaseDirectoryHandle;
+  try {
+    leaseDirectoryHandle = await openFile(dirname6(leasePath), "r");
+  } catch (cause) {
+    endpoint?.close();
+    await rm7(leasePath, { force: true });
+    throw new ProjectLifecycleError(
+      "PROJECT_IN_USE",
+      projectDirectory,
+      `\u65E0\u6CD5\u951A\u5B9A\u9879\u76EE\u79DF\u7EA6\u76EE\u5F55\uFF1A${projectDirectory}\u3002`,
+      { cause }
+    );
+  }
+  activeLeasePaths.add(leasePath);
+  let released = false;
+  const assertCurrent = async () => {
+    if (released) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        projectDirectory,
+        "\u9879\u76EE\u5DE5\u4F5C\u533A\u79DF\u7EA6\u5DF2\u7ECF\u91CA\u653E\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u3002"
+      );
+    }
+    try {
+      const current = JSON.parse(await readFile5(leasePath, "utf8"));
+      if (current.token !== marker.token || current.projectId !== marker.projectId) throw new Error("\u79DF\u7EA6\u8EAB\u4EFD\u4E0D\u5339\u914D");
+    } catch (cause) {
+      throw new ProjectLifecycleError(
+        "PROJECT_IDENTITY_LOST",
+        projectDirectory,
+        "\u9879\u76EE\u5199\u5165\u79DF\u7EA6\u5DF2\u7ECF\u5931\u6548\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+        { cause }
+      );
+    }
+  };
+  const release2 = async () => {
+    if (released) return;
+    released = true;
+    endpoint?.close();
+    activeLeasePaths.delete(leasePath);
+    const anchoredLeasePath = process.platform === "win32" ? leasePath : `/dev/fd/${leaseDirectoryHandle.fd}/workspace.lease`;
+    try {
+      const current = JSON.parse(await readFile5(anchoredLeasePath, "utf8"));
+      if (current.token === marker.token) await unlink(anchoredLeasePath);
+    } catch (error51) {
+      if (!(error51 instanceof Error && "code" in error51 && error51.code === "ENOENT")) throw error51;
+    } finally {
+      await leaseDirectoryHandle.close();
+    }
+  };
+  return { assertCurrent, release: release2, transferred };
+}
+function revisionOf(bytes) {
+  return `sha256:${createHash9("sha256").update(bytes).digest("hex")}`;
+}
+async function currentProjectRevision(projectFile, message) {
+  try {
+    return await readProjectVNextRevision(projectFile);
+  } catch (cause) {
+    throw new ProjectLifecycleError(
+      "PROJECT_SAVE_CONFLICT",
+      projectFile,
+      message,
+      { cause }
+    );
+  }
+}
+function assertWorkbenchMutation(current, next, projectPath) {
+  if (JSON.stringify(current.assets) !== JSON.stringify(next.assets)) {
+    throw new ProjectLifecycleError(
+      "PROJECT_SAVE_FAILED",
+      projectPath,
+      "\u672C\u6B21\u4FDD\u5B58\u53EA\u80FD\u4FEE\u6539 Scene\uFF1BAsset \u767B\u8BB0\u8868\u5FC5\u987B\u4FDD\u6301\u4E0D\u53D8\u3002"
+    );
+  }
+  const currentScenes = new Map(current.scenes.map((scene) => [scene.id, scene]));
+  for (const scene of next.scenes) {
+    const previous = currentScenes.get(scene.id);
+    if (previous === void 0) {
+      if (scene.speech !== void 0) {
+        throw new ProjectLifecycleError(
+          "PROJECT_SAVE_FAILED",
+          projectPath,
+          "\u65B0\u589E\u6216\u590D\u5236\u7684 Scene \u4E0D\u80FD\u521B\u5EFA Speech\uFF1B\u8BF7\u4ECE\u8868\u683C\u5DE5\u4F5C\u533A\u91CD\u8BD5\u3002"
+        );
+      }
+      continue;
+    }
+    if (scene.narration.text !== previous.narration.text && scene.speech !== void 0) {
+      throw new ProjectLifecycleError(
+        "PROJECT_SAVE_FAILED",
+        projectPath,
+        `Scene ${scene.id} \u4FEE\u6539 Narration \u540E\u5FC5\u987B\u79FB\u9664\u5931\u6548 Speech\u3002`
+      );
+    }
+    if (scene.speech !== void 0 && JSON.stringify(scene.speech) !== JSON.stringify(previous.speech)) {
+      throw new ProjectLifecycleError(
+        "PROJECT_SAVE_FAILED",
+        projectPath,
+        `Scene ${scene.id} \u7684 Speech \u4E0D\u5C5E\u4E8E\u672C\u7968\u53EF\u5199\u8303\u56F4\u3002`
+      );
+    }
+  }
+}
+function assetSourceRejection(inspection, code, message) {
+  return { status: "rejected", code, message, asset: null, inspection };
+}
+var MAX_ASSET_FILENAME_BYTES = 255;
+function truncateUtf8(value, maxBytes) {
+  let result = value;
+  while (Buffer.byteLength(result, "utf8") > maxBytes) result = [...result].slice(0, -1).join("");
+  return result;
+}
+function safeAssetFilename(sourcePath) {
+  const original = basename(sourcePath).replace(/[\u0000-\u001f\u007f]/gu, "_");
+  const fallback = original === "" || original === "." || original === ".." ? "asset" : original;
+  if (Buffer.byteLength(fallback, "utf8") <= MAX_ASSET_FILENAME_BYTES) return fallback;
+  const extensionIndex = fallback.lastIndexOf(".");
+  const extension = extensionIndex > 0 && Buffer.byteLength(fallback.slice(extensionIndex), "utf8") <= 64 ? fallback.slice(extensionIndex) : "";
+  const stem = truncateUtf8(
+    extension === "" ? fallback : fallback.slice(0, extensionIndex),
+    MAX_ASSET_FILENAME_BYTES - Buffer.byteLength(extension, "utf8")
+  );
+  return `${stem || "asset"}${extension}`;
+}
+function suffixedAssetFilename(filename, suffix) {
+  const extensionIndex = filename.lastIndexOf(".");
+  const stem = extensionIndex > 0 ? filename.slice(0, extensionIndex) : filename;
+  const extension = extensionIndex > 0 ? filename.slice(extensionIndex) : "";
+  const marker = suffix === 1 ? "" : `-${suffix}`;
+  const stemBudget = MAX_ASSET_FILENAME_BYTES - Buffer.byteLength(marker, "utf8") - Buffer.byteLength(extension, "utf8");
+  return `${truncateUtf8(stem, Math.max(1, stemBudget)) || "asset"}${marker}${extension}`;
+}
+async function uniqueAssetPath(assetsDirectory, sourcePath) {
+  const filename = safeAssetFilename(sourcePath);
+  for (let suffix = 1; suffix <= 1e4; suffix += 1) {
+    const candidate = suffixedAssetFilename(filename, suffix);
+    const relativePath = `assets/${candidate}`;
+    try {
+      await access(join9(assetsDirectory, candidate));
+    } catch (error51) {
+      if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return relativePath;
+      throw error51;
+    }
+  }
+  return `assets/${randomUUID6()}`;
+}
+async function isProjectControlFile(projectDirectory, sourcePath, sourceFacts) {
+  for (const name of ["narracut.json", "project.json", "video.md"]) {
+    const controlPath = join9(projectDirectory, name);
+    if (resolve3(sourcePath) === controlPath) return true;
+    const controlFacts = await lstat5(controlPath);
+    if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
+  }
+  return false;
+}
+async function copyStableFile(source, opened, temporaryPath, assertDestinationCurrent) {
+  let destination = null;
+  try {
+    await assertDestinationCurrent();
+    destination = await openFile(temporaryPath, "wx", 384);
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let position = 0;
+    while (true) {
+      const { bytesRead } = await source.read(buffer, 0, buffer.length, position);
+      if (bytesRead === 0) break;
+      let written = 0;
+      while (written < bytesRead) {
+        const result = await destination.write(buffer, written, bytesRead - written, position + written);
+        written += result.bytesWritten;
+      }
+      position += bytesRead;
+    }
+    await destination.sync();
+    const after = await source.stat();
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || position !== opened.size) {
+      throw new Error("\u5BFC\u5165\u6E90\u5728\u590D\u5236\u671F\u95F4\u53D1\u751F\u53D8\u5316\u3002");
+    }
+  } finally {
+    await destination?.close().catch(() => void 0);
+  }
+}
+async function replaceProjectFile(projectFile, bytes, assertWritable) {
+  const temporaryFile = join9(dirname6(projectFile), `.${basename(projectFile)}.${randomUUID6()}.tmp`);
+  let committed = false;
+  try {
+    const handle = await openFile(temporaryFile, "wx", 384);
+    try {
+      await handle.writeFile(bytes);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertWritable();
+    await rename5(temporaryFile, projectFile);
+    committed = true;
+    try {
+      const directory2 = await openFile(dirname6(projectFile), "r");
+      try {
+        await directory2.sync();
+      } finally {
+        await directory2.close();
+      }
+    } catch {
+    }
+  } finally {
+    if (!committed) await rm7(temporaryFile, { force: true }).catch(() => void 0);
+  }
+}
+async function openProjectVNext(inputPath, options = {}) {
+  const projectDirectory = await realpath3(resolve3(inputPath)).catch(() => resolve3(inputPath));
+  try {
+    const initialInspection = await inspectProjectVNext(projectDirectory, options);
+    await validateCurrentProjectState(initialInspection);
+    const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
+    const lease = await acquireProjectLease(initialInspection, options.onHandoff);
+    let assetsDirectoryHandle = null;
+    let speechDirectoryHandle = null;
+    try {
+      await finishIdentityTransition(projectDirectory, initialInspection.manifest.projectId);
+      const inspection = await inspectProjectVNext(projectDirectory, options);
+      const acceptedBriefRevision = await validateCurrentProjectState(inspection);
+      inspection.currentRenderProgram = {
+        briefRevision: acceptedBriefRevision,
+        briefReviewPending: acceptedBriefRevision !== inspection.videoBriefRevision,
+        previewPreserved: true
+      };
+      if (inspection.manifest.projectId !== initialInspection.manifest.projectId) {
+        throw new ProjectLifecycleError(
+          "PROJECT_IDENTITY_LOST",
+          projectDirectory,
+          `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
+        );
+      }
+      const assetsDirectory = join9(projectDirectory, "assets");
+      const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
+      assetsDirectoryHandle = await openFile(assetsDirectory, "r");
+      const openedAssetsDirectory = await assetsDirectoryHandle.stat();
+      if (!openedAssetsDirectory.isDirectory() || !hasIdentity(openedAssetsDirectory, assetsDirectoryIdentity)) {
+        throw new ProjectLifecycleError(
+          "PROJECT_IDENTITY_LOST",
+          assetsDirectory,
+          "Asset \u76EE\u5F55\u8EAB\u4EFD\u5728\u6253\u5F00\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u3002"
+        );
+      }
+      const anchoredAssetsDirectory = process.platform === "win32" ? assetsDirectory : `/dev/fd/${assetsDirectoryHandle.fd}`;
+      const speechDirectory = join9(projectDirectory, "speech");
+      const speechDirectoryIdentity = await captureDirectoryIdentity(speechDirectory);
+      speechDirectoryHandle = await openFile(speechDirectory, "r");
+      const openedSpeechDirectory = await speechDirectoryHandle.stat();
+      if (!openedSpeechDirectory.isDirectory() || !hasIdentity(openedSpeechDirectory, speechDirectoryIdentity)) {
+        throw new ProjectLifecycleError(
+          "PROJECT_IDENTITY_LOST",
+          speechDirectory,
+          "Speech \u76EE\u5F55\u8EAB\u4EFD\u5728\u6253\u5F00\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u3002"
+        );
+      }
+      const anchoredSpeechDirectory = process.platform === "win32" ? speechDirectory : `/dev/fd/${speechDirectoryHandle.fd}`;
+      let currentInspection = inspection;
+      let saveQueue = Promise.resolve();
+      let closing = false;
+      let releasePromise = null;
+      const assertWritable = async () => {
+        await lease.assertCurrent();
+        let facts;
+        try {
+          facts = await lstat5(projectDirectory);
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u76EE\u5F55\u5DF2\u7ECF\u79FB\u52A8\u6216\u4E0D\u53EF\u7528\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+            { cause }
+          );
+        }
+        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, directoryIdentity)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u76EE\u5F55\u8EAB\u4EFD\u5DF2\u7ECF\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002"
+          );
+        }
+        try {
+          const manifestPath = join9(projectDirectory, "narracut.json");
+          const manifestFacts = await lstat5(manifestPath);
+          if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
+            throw new Error("\u9879\u76EE\u6E05\u5355\u6587\u4EF6\u8EAB\u4EFD\u65E0\u6548");
+          }
+          const manifest = JSON.parse(await readFile5(manifestPath, "utf8"));
+          if (manifest.projectId !== initialInspection.manifest.projectId) {
+            throw new Error("\u9879\u76EE\u6E05\u5355\u4E2D\u7684 projectId \u5DF2\u53D8\u5316");
+          }
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u6E05\u5355\u8EAB\u4EFD\u5DF2\u7ECF\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+            { cause }
+          );
+        }
+      };
+      const candidateManager = await createCandidateManager(projectDirectory, assertWritable);
+      const candidate = (request2) => {
+        if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002"));
+        const operation = saveQueue.then(() => candidateManager(request2));
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      await candidate({ action: "read" });
+      const assertAssetsDirectoryCurrent = async () => {
+        await assertWritable();
+        let facts;
+        try {
+          facts = await lstat5(assetsDirectory);
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            assetsDirectory,
+            "Asset \u76EE\u5F55\u5DF2\u79FB\u52A8\u6216\u4E0D\u53EF\u7528\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\u3002",
+            { cause }
+          );
+        }
+        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, assetsDirectoryIdentity)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            assetsDirectory,
+            "Asset \u76EE\u5F55\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\u3002"
+          );
+        }
+      };
+      const assertSpeechDirectoryCurrent = async () => {
+        await assertWritable();
+        let facts;
+        try {
+          facts = await lstat5(speechDirectory);
+        } catch (cause) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            speechDirectory,
+            "Speech \u76EE\u5F55\u5DF2\u79FB\u52A8\u6216\u4E0D\u53EF\u7528\uFF1BNarracut \u5DF2\u505C\u6B62\u751F\u6210\u3002",
+            { cause }
+          );
+        }
+        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, speechDirectoryIdentity)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            speechDirectory,
+            "Speech \u76EE\u5F55\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u751F\u6210\u3002"
+          );
+        }
+      };
+      const saveProject = (project, baselineRevision) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536\u65B0\u7684\u5199\u5165\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const projectFile = join9(projectDirectory, "project.json");
+          try {
+            await assertWritable();
+            if (await currentProjectRevision(
+              projectFile,
+              "\u65E0\u6CD5\u786E\u8BA4 project.json \u4ECD\u662F\u5F53\u524D\u78C1\u76D8\u57FA\u7EBF\uFF1BNarracut \u5DF2\u505C\u6B62\u81EA\u52A8\u4FDD\u5B58\u3002"
+            ) !== baselineRevision) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_CONFLICT",
+                projectFile,
+                "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u81EA\u52A8\u4FDD\u5B58\uFF0C\u4E0D\u4F1A\u8986\u76D6\u78C1\u76D8\u5185\u5BB9\u3002"
+              );
+            }
+            const validated = validateProjectVNextForSave(project, projectFile);
+            assertWorkbenchMutation(currentInspection.project, validated.project, projectFile);
+            const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
+              projectDirectory,
+              validated.project,
+              {
+                ...currentInspection.tts.status === "configured" ? { currentTtsProfileId: currentInspection.tts.profileId } : {},
+                probeSpeechDurationMs: options.probeSpeechDurationMs
+              }
+            );
+            const nextRevision = revisionOf(validated.bytes);
+            if (nextRevision !== baselineRevision) {
+              await replaceProjectFile(projectFile, validated.bytes, async () => {
+                await assertWritable();
+                if (await currentProjectRevision(
+                  projectFile,
+                  "project.json \u5728\u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                ) !== baselineRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    projectFile,
+                    "project.json \u5728\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                  );
+                }
+              });
+            }
+            currentInspection = {
+              ...currentInspection,
+              project: validated.project,
+              projectRevision: nextRevision,
+              assetStates,
+              speechStates,
+              timeline,
+              warnings
+            };
+            return { inspection: currentInspection };
+          } catch (cause) {
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) {
+              throw cause;
+            }
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              projectFile,
+              "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 project.json\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+              { cause }
+            );
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      const saveVideoBrief = (content, baselineRevision, authorize) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536\u65B0\u7684\u5199\u5165\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const videoBriefPath = join9(projectDirectory, "video.md");
+          try {
+            await assertWritable();
+            authorize?.();
+            const bytes = Buffer.from(content, "utf8");
+            if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_FAILED",
+                videoBriefPath,
+                "Video Brief \u5305\u542B\u4E0D\u80FD\u8868\u793A\u4E3A\u4E25\u683C UTF-8 \u7684\u5B57\u7B26\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002"
+              );
+            }
+            if (bytes.length > 2 * 1024 * 1024) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_FAILED",
+                videoBriefPath,
+                `Video Brief \u4E3A ${bytes.length} \u5B57\u8282\uFF0C\u8D85\u8FC7 2 MiB \u4E0A\u9650\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002`
+              );
+            }
+            const disk = await readVideoBriefVNext(videoBriefPath);
+            if (disk.revision !== baselineRevision) return { status: "conflict", disk };
+            const nextRevision = revisionOf(bytes);
+            if (nextRevision !== baselineRevision) {
+              await replaceProjectFile(videoBriefPath, bytes, async () => {
+                await assertWritable();
+                authorize?.();
+                const current = await readVideoBriefVNext(videoBriefPath);
+                if (current.revision !== baselineRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    videoBriefPath,
+                    "video.md \u5728\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                  );
+                }
+              });
+            }
+            currentInspection = {
+              ...currentInspection,
+              videoBrief: content,
+              videoBriefRevision: nextRevision,
+              currentRenderProgram: currentInspection.currentRenderProgram === void 0 ? void 0 : {
+                ...currentInspection.currentRenderProgram,
+                briefReviewPending: currentInspection.currentRenderProgram.briefRevision !== nextRevision
+              }
+            };
+            return { status: "saved", inspection: currentInspection };
+          } catch (cause) {
+            if (cause instanceof ProjectLifecycleError && cause.code === "PROJECT_SAVE_CONFLICT") {
+              try {
+                return { status: "conflict", disk: await readVideoBriefVNext(videoBriefPath) };
+              } catch {
+                throw cause;
+              }
+            }
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              videoBriefPath,
+              "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 video.md\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
+              { cause }
+            );
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      const exportVideoBriefLocal = async (content, targetDirectory) => {
+        await assertWritable();
+        const bytes = Buffer.from(content, "utf8");
+        if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content || bytes.length > 2 * 1024 * 1024) {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            projectDirectory,
+            "Video Brief LOCAL \u5FC5\u987B\u662F\u6700\u591A 2 MiB \u7684\u4E25\u683C UTF-8\uFF1BNarracut \u62D2\u7EDD\u5BFC\u51FA\u3002"
+          );
+        }
+        const destinationDirectory = await realpath3(resolve3(targetDirectory)).catch((cause) => {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            resolve3(targetDirectory),
+            "\u65E0\u6CD5\u8BBF\u95EE Video Brief LOCAL \u5BFC\u51FA\u76EE\u5F55\u3002",
+            { cause }
+          );
+        });
+        const relation = relative2(projectDirectory, destinationDirectory);
+        if (relation === "" || !relation.startsWith(`..${sep2}`) && relation !== ".." && !isAbsolute2(relation)) {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            destinationDirectory,
+            "Video Brief LOCAL \u53EA\u80FD\u5BFC\u51FA\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002"
+          );
+        }
+        const facts = await lstat5(destinationDirectory);
+        if (!facts.isDirectory() || facts.isSymbolicLink()) {
+          throw new ProjectLifecycleError(
+            "PROJECT_SAVE_FAILED",
+            destinationDirectory,
+            "Video Brief LOCAL \u5BFC\u51FA\u76EE\u6807\u5FC5\u987B\u662F\u666E\u901A\u76EE\u5F55\u3002"
+          );
+        }
+        for (let suffix = 1; suffix <= 1e4; suffix += 1) {
+          const filename = suffix === 1 ? "video-brief-local.md" : `video-brief-local-${suffix}.md`;
+          const path = join9(destinationDirectory, filename);
+          let handle = null;
+          try {
+            handle = await openFile(path, "wx", 384);
+            await handle.writeFile(bytes);
+            await handle.sync();
+            return { path, bytes: bytes.length, revision: revisionOf(bytes) };
+          } catch (cause) {
+            if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") continue;
+            if (handle !== null) {
+              const openedFacts = await handle.stat().catch(() => null);
+              const currentFacts = await lstat5(path).catch(() => null);
+              if (openedFacts !== null && currentFacts !== null && openedFacts.dev === currentFacts.dev && openedFacts.ino === currentFacts.ino) await unlink(path).catch(() => void 0);
+            }
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              path,
+              "\u65E0\u6CD5\u5BFC\u51FA Video Brief LOCAL\uFF1BNarracut \u6CA1\u6709\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002",
+              { cause }
+            );
+          } finally {
+            await handle?.close().catch(() => void 0);
+          }
+        }
+        throw new ProjectLifecycleError(
+          "PROJECT_SAVE_FAILED",
+          destinationDirectory,
+          "\u5BFC\u51FA\u76EE\u5F55\u4E2D\u5DF2\u6709\u8FC7\u591A\u540C\u540D Video Brief LOCAL \u6587\u4EF6\uFF1BNarracut \u6CA1\u6709\u8986\u76D6\u5B83\u4EEC\u3002"
+        );
+      };
+      const importAsset = (input) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536\u65B0\u7684\u5199\u5165\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const projectFile = join9(projectDirectory, "project.json");
+          const sourcePath = resolve3(input.sourcePath);
+          await assertWritable();
+          if (await currentProjectRevision(
+            projectFile,
+            "\u65E0\u6CD5\u786E\u8BA4 project.json \u4ECD\u662F\u5F53\u524D\u78C1\u76D8\u57FA\u7EBF\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\u3002"
+          ) !== input.baselineRevision) {
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_CONFLICT",
+              projectFile,
+              "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\uFF0C\u4E0D\u4F1A\u8986\u76D6\u78C1\u76D8\u5185\u5BB9\u3002"
+            );
+          }
+          let pathFacts;
+          try {
+            pathFacts = await lstat5(sourcePath);
+          } catch (cause) {
+            return {
+              status: "failed",
+              code: "ASSET_SOURCE_UNAVAILABLE",
+              message: "\u65E0\u6CD5\u8BFB\u53D6\u5BFC\u5165\u6E90\uFF1B\u8BF7\u68C0\u67E5\u6587\u4EF6\u662F\u5426\u4ECD\u5B58\u5728\u4E14\u53EF\u8BBF\u95EE\u3002",
+              asset: null,
+              inspection: currentInspection
+            };
+          }
+          if (pathFacts.isSymbolicLink()) {
+            return assetSourceRejection(
+              currentInspection,
+              "ASSET_SOURCE_SYMBOLIC_LINK",
+              "\u5BFC\u5165\u6E90\u662F\u7B26\u53F7\u94FE\u63A5\uFF1B\u8BF7\u9009\u62E9\u94FE\u63A5\u6307\u5411\u7684\u666E\u901A\u6587\u4EF6\u3002"
+            );
+          }
+          if (!pathFacts.isFile()) {
+            return assetSourceRejection(
+              currentInspection,
+              "ASSET_SOURCE_NOT_FILE",
+              pathFacts.isDirectory() ? "\u5BFC\u5165\u6E90\u662F\u76EE\u5F55\uFF1B\u8BF7\u9009\u62E9\u4E00\u4E2A\u6216\u591A\u4E2A\u666E\u901A\u6587\u4EF6\u3002" : "\u5BFC\u5165\u6E90\u4E0D\u662F\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u9009\u62E9\u53EF\u590D\u5236\u7684\u666E\u901A\u6587\u4EF6\u3002"
+            );
+          }
+          let source;
+          try {
+            source = await openFile(sourcePath, fsConstants2.O_RDONLY | (fsConstants2.O_NOFOLLOW ?? 0));
+          } catch (cause) {
+            return {
+              status: "failed",
+              code: "ASSET_SOURCE_UNAVAILABLE",
+              message: "\u65E0\u6CD5\u5B89\u5168\u6253\u5F00\u5BFC\u5165\u6E90\uFF1B\u8BF7\u91CD\u65B0\u9009\u62E9\u6587\u4EF6\u3002",
+              asset: null,
+              inspection: currentInspection
+            };
+          }
+          try {
+            const sourceFacts = await source.stat();
+            if (!sourceFacts.isFile() || !hasIdentity(sourceFacts, pathFacts)) {
+              return assetSourceRejection(
+                currentInspection,
+                "ASSET_SOURCE_CHANGED",
+                "\u5BFC\u5165\u6E90\u5728\u6253\u5F00\u65F6\u53D1\u751F\u53D8\u5316\uFF1B\u8BF7\u91CD\u65B0\u9009\u62E9\u6587\u4EF6\u3002"
+              );
+            }
+            if (await isProjectControlFile(projectDirectory, sourcePath, sourceFacts)) {
+              return assetSourceRejection(
+                currentInspection,
+                "ASSET_SOURCE_PROJECT_CONTROL_FILE",
+                "\u9879\u76EE\u63A7\u5236\u6587\u4EF6\u4E0D\u80FD\u767B\u8BB0\u4E3A Asset\u3002"
+              );
+            }
+            if (currentInspection.project.assets.length >= 1e3) {
+              return assetSourceRejection(
+                currentInspection,
+                "PROJECT_ASSET_LIMIT_REACHED",
+                "\u9879\u76EE\u5DF2\u8FBE\u5230 1,000 \u4E2A Asset \u4E0A\u9650\u3002"
+              );
+            }
+            await assertAssetsDirectoryCurrent();
+            const asset = {
+              id: randomUUID6(),
+              path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath)
+            };
+            const temporaryPath = join9(anchoredAssetsDirectory, `.import-${randomUUID6()}.tmp`);
+            let finalPath = join9(anchoredAssetsDirectory, basename(asset.path));
+            let published = false;
+            try {
+              await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
+              for (let attempt = 0; attempt < 1e4; attempt += 1) {
+                try {
+                  await assertAssetsDirectoryCurrent();
+                  await link(temporaryPath, finalPath);
+                  published = true;
+                  break;
+                } catch (cause) {
+                  if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
+                  asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
+                  finalPath = join9(anchoredAssetsDirectory, basename(asset.path));
+                }
+              }
+              if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
+              await assertAssetsDirectoryCurrent();
+              await unlink(temporaryPath);
+              const project = structuredClone(currentInspection.project);
+              project.assets.push(asset);
+              const targetScene = input.targetSceneId === void 0 ? void 0 : project.scenes.find((scene) => scene.id === input.targetSceneId);
+              const bound = targetScene !== void 0 && targetScene.assetIds.length < 256;
+              if (bound) targetScene.assetIds.push(asset.id);
+              const validated = validateProjectVNextForSave(project, projectFile);
+              const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
+                projectDirectory,
+                validated.project,
+                {
+                  ...currentInspection.tts.status === "configured" ? { currentTtsProfileId: currentInspection.tts.profileId } : {},
+                  probeSpeechDurationMs: options.probeSpeechDurationMs
+                }
+              );
+              const nextRevision = revisionOf(validated.bytes);
+              await replaceProjectFile(projectFile, validated.bytes, async () => {
+                await assertAssetsDirectoryCurrent();
+                if (await currentProjectRevision(
+                  projectFile,
+                  "project.json \u5728\u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\uFF1BNarracut \u62D2\u7EDD\u5B8C\u6210\u5BFC\u5165\u3002"
+                ) !== input.baselineRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    projectFile,
+                    "project.json \u5728\u5BFC\u5165\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                  );
+                }
+              });
+              currentInspection = {
+                ...currentInspection,
+                project: validated.project,
+                projectRevision: nextRevision,
+                assetStates,
+                speechStates,
+                timeline,
+                warnings
+              };
+              return {
+                status: bound ? "imported-and-bound" : "imported-unbound",
+                code: bound ? "ASSET_IMPORTED_AND_BOUND" : "ASSET_IMPORTED_UNBOUND",
+                message: bound ? "Asset \u5DF2\u5BFC\u5165\u5E76\u7ED1\u5B9A\u5230\u539F\u76EE\u6807 Scene\u3002" : targetScene === void 0 && input.targetSceneId !== void 0 ? "Asset \u5DF2\u5BFC\u5165\uFF1B\u539F\u76EE\u6807 Scene \u5DF2\u4E0D\u5B58\u5728\uFF0C\u56E0\u6B64\u4FDD\u6301\u6682\u672A\u7ED1\u5B9A\u3002" : targetScene !== void 0 ? "Asset \u5DF2\u5BFC\u5165\uFF1B\u539F\u76EE\u6807 Scene \u5DF2\u8FBE\u5230 256 \u4E2A\u5F15\u7528\u4E0A\u9650\uFF0C\u56E0\u6B64\u4FDD\u6301\u6682\u672A\u7ED1\u5B9A\u3002" : "Asset \u5DF2\u5BFC\u5165\u5E76\u767B\u8BB0\u4E3A\u6682\u672A\u7ED1\u5B9A\u3002",
+                asset,
+                inspection: currentInspection
+              };
+            } catch (cause) {
+              if (published) await unlink(finalPath).catch(() => void 0);
+              await unlink(temporaryPath).catch(() => void 0);
+              if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+              return {
+                status: "failed",
+                code: "ASSET_IMPORT_FAILED",
+                message: cause instanceof Error ? cause.message : "\u65E0\u6CD5\u590D\u5236\u5E76\u767B\u8BB0 Asset\u3002",
+                asset: null,
+                inspection: currentInspection
+              };
+            }
+          } finally {
+            await source.close().catch(() => void 0);
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      const saveTtsSettings = (input) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536 TTS \u914D\u7F6E\u5199\u5165\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          const projectFile = join9(projectDirectory, "project.json");
+          await assertWritable();
+          if (await currentProjectRevision(
+            projectFile,
+            "\u65E0\u6CD5\u786E\u8BA4 project.json \u4ECD\u662F\u5F53\u524D\u78C1\u76D8\u57FA\u7EBF\uFF1BNarracut \u5DF2\u505C\u6B62\u4FDD\u5B58 TTS \u914D\u7F6E\u3002"
+          ) !== input.baselineRevision) {
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_CONFLICT",
+              projectFile,
+              "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u4FDD\u5B58 TTS \u914D\u7F6E\u3002"
+            );
+          }
+          const config2 = validateProjectTtsConfig(input.config);
+          const nextProfileId = ttsProfileId(config2);
+          const previousProjectBytes = await readFile5(projectFile);
+          if (revisionOf(previousProjectBytes) !== currentInspection.projectRevision) {
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_CONFLICT",
+              projectFile,
+              "project.json \u5728\u5EFA\u7ACB TTS \u914D\u7F6E\u56DE\u6EDA\u951A\u70B9\u65F6\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+            );
+          }
+          const project = structuredClone(currentInspection.project);
+          let affectedSpeechCount = 0;
+          for (const scene of project.scenes) {
+            if (scene.speech !== void 0 && scene.speech.ttsProfileId !== nextProfileId) {
+              affectedSpeechCount += 1;
+              delete scene.speech;
+            }
+          }
+          if (affectedSpeechCount !== input.expectedAffectedSpeechCount) {
+            throw new ProjectTtsConfirmationError(affectedSpeechCount);
+          }
+          const validated = validateProjectVNextForSave(project, projectFile);
+          const previousProjectRevision = currentInspection.projectRevision;
+          const nextRevision = revisionOf(validated.bytes);
+          const resourceValidation = await validateProjectVNextResources(
+            projectDirectory,
+            validated.project,
+            {
+              currentTtsProfileId: nextProfileId,
+              probeSpeechDurationMs: options.probeSpeechDurationMs
+            }
+          );
+          let projectWritten = false;
+          try {
+            if (nextRevision !== previousProjectRevision) {
+              await replaceProjectFile(projectFile, validated.bytes, async () => {
+                await assertWritable();
+                if (await currentProjectRevision(
+                  projectFile,
+                  "project.json \u5728 TTS \u914D\u7F6E\u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\u3002"
+                ) !== previousProjectRevision) {
+                  throw new ProjectLifecycleError(
+                    "PROJECT_SAVE_CONFLICT",
+                    projectFile,
+                    "project.json \u5728 TTS \u914D\u7F6E\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                  );
+                }
+              });
+              projectWritten = true;
+            }
+            const tts = await writeProjectTtsConfig(projectDirectory, config2, assertWritable);
+            currentInspection = {
+              ...currentInspection,
+              project: validated.project,
+              projectRevision: nextRevision,
+              tts,
+              ...resourceValidation
+            };
+            return { affectedSpeechCount, inspection: currentInspection };
+          } catch (cause) {
+            if (projectWritten) {
+              try {
+                await replaceProjectFile(projectFile, previousProjectBytes, async () => {
+                  await assertWritable();
+                  if (await currentProjectRevision(
+                    projectFile,
+                    "project.json \u5728 TTS \u914D\u7F6E\u56DE\u6EDA\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\u3002"
+                  ) !== nextRevision) {
+                    throw new ProjectLifecycleError(
+                      "PROJECT_SAVE_CONFLICT",
+                      projectFile,
+                      "TTS \u914D\u7F6E\u5931\u8D25\u540E project.json \u53C8\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u5E76\u4FDD\u7559\u73B0\u573A\u3002"
+                    );
+                  }
+                });
+              } catch (rollbackCause) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_SAVE_FAILED",
+                  projectFile,
+                  "TTS \u914D\u7F6E\u63D0\u4EA4\u5931\u8D25\uFF0C\u4E14 Scene \u5F15\u7528\u56DE\u6EDA\u5931\u8D25\uFF1B\u9879\u76EE\u4FDD\u6301\u65E0\u9648\u65E7 Speech \u7684\u5B89\u5168\u72B6\u6001\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u68C0\u67E5\u3002",
+                  { cause: rollbackCause }
+                );
+              }
+            }
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              join9(projectDirectory, "tts.json"),
+              "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1BNarracut \u5DF2\u4FDD\u7559\u539F\u914D\u7F6E\u4E0E Scene \u5185\u5BB9\u3002",
+              { cause }
+            );
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      const probeSpeechAudio = async (input) => {
+        await assertSpeechDirectoryCurrent();
+        const probeFile = join9(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
+        const decoderPath = process.platform === "linux" ? join9(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join9(speechDirectory, `.probe-${input.jobId}.mp3`);
+        let created = false;
+        try {
+          const handle = await openFile(probeFile, "wx", 384);
+          created = true;
+          try {
+            await handle.writeFile(input.audio);
+            await handle.sync();
+          } finally {
+            await handle.close();
+          }
+          await assertSpeechDirectoryCurrent();
+          const durationMs = await (options.probeSpeechDurationMs ?? probeSpeechDurationMs)(decoderPath);
+          if (!Number.isSafeInteger(durationMs) || durationMs <= 0) {
+            throw new Error("Speech \u5B9E\u9645\u65F6\u957F\u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002");
+          }
+          await assertSpeechDirectoryCurrent();
+          return durationMs;
+        } finally {
+          if (created) await rm7(probeFile, { force: true }).catch(() => void 0);
+        }
+      };
+      const commitSpeech = (input) => {
+        if (closing) {
+          return Promise.reject(new ProjectLifecycleError(
+            "PROJECT_IDENTITY_LOST",
+            projectDirectory,
+            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536 Speech \u7ED3\u679C\u3002"
+          ));
+        }
+        const operation = saveQueue.then(async () => {
+          await assertWritable();
+          const tts = await readProjectTtsConfig(projectDirectory);
+          if (tts.status !== "configured" || tts.profileId !== input.ttsProfileId) {
+            return {
+              status: "rejected",
+              code: "SPEECH_RESULT_CONFIG_CHANGED",
+              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1ATTS \u914D\u7F6E\u5DF2\u7ECF\u53D8\u5316\u3002",
+              inspection: currentInspection
+            };
+          }
+          const scene = currentInspection.project.scenes.find((candidate2) => candidate2.id === input.sceneId);
+          if (scene === void 0) {
+            return {
+              status: "rejected",
+              code: "SPEECH_RESULT_SCENE_DELETED",
+              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1A\u76EE\u6807 Scene \u5DF2\u5220\u9664\u3002",
+              inspection: currentInspection
+            };
+          }
+          if (scene.narration.text !== input.narrationText) {
+            return {
+              status: "rejected",
+              code: "SPEECH_RESULT_NARRATION_CHANGED",
+              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1ANarration \u5DF2\u7ECF\u53D8\u5316\u3002",
+              inspection: currentInspection
+            };
+          }
+          if (input.isCancelled?.()) {
+            return {
+              status: "rejected",
+              code: "SPEECH_RESULT_CANCELLED",
+              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1ASpeech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002",
+              inspection: currentInspection
+            };
+          }
+          const finalFile = join9(anchoredSpeechDirectory, `${scene.id}.mp3`);
+          const temporaryFile = join9(anchoredSpeechDirectory, `.speech-${randomUUID6()}.tmp`);
+          const backupFile = join9(anchoredSpeechDirectory, `.speech-${randomUUID6()}.previous`);
+          let previousFile = false;
+          let published = false;
+          try {
+            const handle = await openFile(temporaryFile, "wx", 384);
+            try {
+              await handle.writeFile(input.audio);
+              await handle.sync();
+            } finally {
+              await handle.close();
+            }
+            try {
+              const finalFacts = await lstat5(finalFile);
+              if (!finalFacts.isFile() || finalFacts.isSymbolicLink()) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_IDENTITY_LOST",
+                  finalFile,
+                  "\u65E2\u6709 Speech \u4E0D\u518D\u662F\u666E\u901A\u6587\u4EF6\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                );
+              }
+              await link(finalFile, backupFile);
+              const backupFacts = await lstat5(backupFile);
+              if (!backupFacts.isFile() || backupFacts.isSymbolicLink() || !hasIdentity(backupFacts, finalFacts)) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_IDENTITY_LOST",
+                  backupFile,
+                  "\u65E2\u6709 Speech \u5728\u5EFA\u7ACB\u56DE\u6EDA\u951A\u70B9\u65F6\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                );
+              }
+              previousFile = true;
+            } catch (cause) {
+              if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) throw cause;
+            }
+            await assertSpeechDirectoryCurrent();
+            if (input.isCancelled?.()) throw new Error("Speech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002");
+            await rename5(temporaryFile, finalFile);
+            published = true;
+            const project = structuredClone(currentInspection.project);
+            const target = project.scenes.find((candidate2) => candidate2.id === scene.id);
+            target.speech = {
+              path: `speech/${scene.id}.mp3`,
+              durationMs: input.durationMs,
+              sourceTextHash: `sha256:${createHash9("sha256").update(input.narrationText, "utf8").digest("hex")}`,
+              ttsProfileId: input.ttsProfileId,
+              audioContentHash: `sha256:${createHash9("sha256").update(input.audio).digest("hex")}`
+            };
+            const projectFile = join9(projectDirectory, "project.json");
+            const baselineRevision = currentInspection.projectRevision;
+            const validated = validateProjectVNextForSave(project, projectFile);
+            const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
+              projectDirectory,
+              validated.project,
+              {
+                currentTtsProfileId: tts.profileId,
+                probeSpeechDurationMs: options.probeSpeechDurationMs
+              }
+            );
+            if (speechStates.find((state) => state.sceneId === scene.id)?.status !== "available") {
+              throw new Error("\u53D1\u5E03\u540E\u7684 Speech \u672A\u901A\u8FC7\u53EF\u89E3\u7801\u6027\u4E0E\u65F6\u957F\u590D\u6838\u3002");
+            }
+            if (input.isCancelled?.()) throw new Error("Speech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002");
+            input.onCommitPoint?.();
+            await replaceProjectFile(projectFile, validated.bytes, async () => {
+              await assertSpeechDirectoryCurrent();
+              if (await currentProjectRevision(
+                projectFile,
+                "project.json \u5728 Speech \u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\u3002"
+              ) !== baselineRevision) {
+                throw new ProjectLifecycleError(
+                  "PROJECT_SAVE_CONFLICT",
+                  projectFile,
+                  "project.json \u5728 Speech \u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
+                );
+              }
+            });
+            currentInspection = {
+              ...currentInspection,
+              project: validated.project,
+              projectRevision: revisionOf(validated.bytes),
+              tts,
+              assetStates,
+              speechStates,
+              timeline,
+              warnings
+            };
+            await rm7(backupFile, { force: true }).catch(() => void 0);
+            return {
+              status: "applied",
+              code: "SPEECH_APPLIED",
+              message: "Speech \u5DF2\u6821\u9A8C\u5E76\u539F\u5B50\u5E94\u7528\u5230\u5F53\u524D Scene\u3002",
+              inspection: currentInspection
+            };
+          } catch (cause) {
+            let rollbackFailure;
+            if (published) {
+              try {
+                if (previousFile) {
+                  if (process.platform === "win32") await rm7(finalFile, { force: true });
+                  await rename5(backupFile, finalFile);
+                } else await rm7(finalFile, { force: true });
+              } catch (rollbackCause) {
+                rollbackFailure = rollbackCause;
+              }
+            }
+            await rm7(temporaryFile, { force: true }).catch(() => void 0);
+            if (rollbackFailure === void 0) await rm7(backupFile, { force: true }).catch(() => void 0);
+            if (rollbackFailure !== void 0) {
+              throw new ProjectLifecycleError(
+                "PROJECT_SAVE_FAILED",
+                backupFile,
+                `Speech \u56DE\u6EDA\u5931\u8D25\uFF1B\u65E7\u97F3\u9891\u5907\u4EFD\u5DF2\u4FDD\u7559\u5728 ${backupFile}\uFF0CNarracut \u4E0D\u4F1A\u58F0\u79F0\u65E7 Speech \u672A\u53D8\u3002`,
+                { cause: rollbackFailure }
+              );
+            }
+            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
+            throw new ProjectLifecycleError(
+              "PROJECT_SAVE_FAILED",
+              finalFile,
+              "\u65E0\u6CD5\u539F\u5B50\u5E94\u7528 Speech\uFF1B\u65E7 Speech \u4E0E Scene \u5185\u5BB9\u4FDD\u6301\u4E0D\u53D8\u3002",
+              { cause }
+            );
+          }
+        });
+        saveQueue = operation.then(() => void 0, () => void 0);
+        return operation;
+      };
+      const release2 = async () => {
+        closing = true;
+        releasePromise ??= saveQueue.then(async () => {
+          try {
+            await lease.release();
+          } finally {
+            await assetsDirectoryHandle?.close();
+            assetsDirectoryHandle = null;
+            await speechDirectoryHandle?.close();
+            speechDirectoryHandle = null;
+          }
+        });
+        await releasePromise;
+      };
+      return {
+        transferred: lease.transferred,
+        candidate,
+        programTransaction: (run) => {
+          if (closing) return Promise.reject(new Error("\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002"));
+          const operation = saveQueue.then(async () => {
+            await assertWritable();
+            const result = await run(candidateManager);
+            const accepted = result;
+            if (accepted?.status === "accepted" && accepted.revision?.briefFingerprint && accepted.revision.current !== false && accepted.revision.valid !== false) {
+              const currentRenderProgram = { briefRevision: accepted.revision.briefFingerprint, briefReviewPending: accepted.revision.briefFingerprint !== currentInspection.videoBriefRevision, previewPreserved: true };
+              currentInspection = { ...currentInspection, currentRenderProgram };
+              inspection.currentRenderProgram = currentRenderProgram;
+            }
+            return result;
+          });
+          saveQueue = operation.then(() => void 0, () => void 0);
+          return operation;
+        },
+        readPreviewSource: async (target) => {
+          await saveQueue;
+          return candidateManager.previewSource(target);
+        },
+        buildCandidateBundle: async (request2) => {
+          await saveQueue;
+          return candidateManager.build(request2);
+        },
+        inspection,
+        saveProject,
+        saveVideoBrief,
+        exportVideoBriefLocal,
+        importAsset,
+        saveTtsSettings,
+        probeSpeechAudio,
+        commitSpeech,
+        release: release2
+      };
+    } catch (error51) {
+      try {
+        await lease.release();
+      } finally {
+        await assetsDirectoryHandle?.close();
+        await speechDirectoryHandle?.close();
+      }
+      throw error51;
+    }
+  } catch (error51) {
+    if (error51 instanceof ProjectLifecycleError || error51 instanceof ProjectInspectionError) {
+      throw error51;
+    }
+    throw new ProjectLifecycleError(
+      "PROJECT_OPEN_FAILED",
+      projectDirectory,
+      `\u65E0\u6CD5\u6253\u5F00 Project VNext\uFF1A${projectDirectory}\u3002`,
+      { cause: error51 }
+    );
+  }
+}
+
+// src/server/project-copy.ts
+var excluded = (path) => path === ".narracut-operation.json" || path === ".narracut/workspace.lease" || /^\.narracut\/(cache|bundles|previews|node_modules|logs|tmp)(\/|$)/.test(path) || path.split("/").some((name) => name === ".DS_Store" || name === "Thumbs.db" || name.endsWith(".narracut-tmp")) || /^((assets|speech)\/\.(import|speech|probe)-|\.narracut\/\.task-)/.test(path) || /^\.(project\.json|narracut\.json|tts\.json|video\.md)\.[0-9a-f-]+\.tmp$/.test(path) || /^\.narracut\/(task-[0-9a-f-]+\.tmp|(accept|discard|consumed)-[0-9a-f-]+\.json)$/.test(path) || /^(node_modules|bundle|\.cache)(\/|$)/.test(path);
+async function rewrite(path, bytes) {
+  const file2 = await open4(path, "w");
+  try {
+    await file2.writeFile(bytes);
+    await file2.sync();
+  } finally {
+    await file2.close();
+  }
+}
+async function walk(root, destination, signal, keep = () => true) {
+  const entries = /* @__PURE__ */ new Map();
+  async function visit(path) {
+    signal?.throwIfAborted();
+    const full = join10(root, path), before = await lstat6(full);
+    if (before.isSymbolicLink()) throw new Error(`\u4E0D\u80FD\u590D\u5236\u7B26\u53F7\u94FE\u63A5\uFF1A${full}`);
+    if (before.isDirectory()) {
+      entries.set(path, "directory");
+      if (destination && path) await mkdir6(join10(destination, path));
+      for (const name of (await readdir6(full)).sort()) {
+        const child = path ? `${path}/${name}` : name;
+        if (!excluded(child) && keep(child)) await visit(child);
+      }
+    } else {
+      if (!before.isFile() || before.nlink !== 1) throw new Error(`\u4E0D\u80FD\u590D\u5236\u975E\u72EC\u7ACB\u666E\u901A\u6587\u4EF6\uFF1A${full}`);
+      const source = await open4(full, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
+      const target = destination ? await open4(join10(destination, path), "wx", 384) : null;
+      try {
+        const anchored = await source.stat();
+        if (anchored.dev !== before.dev || anchored.ino !== before.ino || !anchored.isFile() || anchored.nlink !== 1) throw new Error(`\u590D\u5236\u6587\u4EF6\u8EAB\u4EFD\u53D8\u5316\uFF1A${full}`);
+        const hash4 = createHash10("sha256"), buffer = Buffer.alloc(1024 * 1024);
+        for (; ; ) {
+          signal?.throwIfAborted();
+          const { bytesRead } = await source.read(buffer, 0, buffer.length, null);
+          if (!bytesRead) break;
+          const bytes = buffer.subarray(0, bytesRead);
+          hash4.update(bytes);
+          if (target) await target.writeFile(bytes);
+        }
+        await target?.sync();
+        entries.set(path, hash4.digest("hex"));
+      } finally {
+        await source.close();
+        await target?.close();
+      }
+    }
+    const after = await lstat6(full);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.size !== after.size) throw new Error(`\u590D\u5236\u671F\u95F4\u6765\u6E90\u53D1\u751F\u53D8\u5316\uFF1A${full}`);
+  }
+  await visit("");
+  return entries;
+}
+function assertSame(a, b) {
+  if (a.size !== b.size || [...a].some(([path, hash4]) => b.get(path) !== hash4)) throw new Error("\u590D\u5236\u671F\u95F4\u6301\u4E45\u5185\u5BB9\u53D1\u751F\u53D8\u5316\uFF0C\u5DF2\u53D6\u6D88\u53D1\u5E03\u3002");
+}
+async function copyProjectVNext(sourcePath, targetPath, options = {}) {
+  const source = await realpath4(resolve4(sourcePath));
+  const target = join10(await realpath4(dirname7(resolve4(targetPath))), basename2(resolve4(targetPath)));
+  const rel = relative3(source, target);
+  if (!rel || !rel.startsWith(`..${sep3}`) && rel !== ".." && !rel.startsWith(sep3)) throw new Error("\u590D\u5236\u76EE\u6807\u5FC5\u987B\u4F4D\u4E8E\u6765\u6E90\u9879\u76EE\u4E4B\u5916\u3002");
+  const opened = await openProjectVNext(source);
+  let published = null;
+  try {
+    const candidate = await opened.candidate({ action: "read" });
+    const current = await readCurrentPointer(source);
+    const revisions = /* @__PURE__ */ new Set([current.revisionId, ...(current.history ?? []).map((item) => item.revisionId)]);
+    const retained = [candidate.candidate?.path, candidate.checkpoint?.path, candidate.offline].filter((path) => !!path);
+    const keep = (path) => {
+      const revision = /^\.narracut\/revisions\/([^/]+)/.exec(path);
+      if (revision && !revisions.has(revision[1])) return false;
+      if (/^\.narracut\/candidate-/.test(path)) return retained.some((ref) => path === ref || path.startsWith(`${ref}/`) || ref.startsWith(`${path}/`));
+      return true;
+    };
+    if (candidate.status === "integrity-failed") throw new Error(candidate.error?.message ?? "\u5019\u9009\u5B8C\u6574\u6027\u6821\u9A8C\u5931\u8D25");
+    const result = await publishProjectVNext(target, options, "copy", async (temporary, projectId) => {
+      options.signal?.throwIfAborted();
+      options.onPhase?.("copying");
+      const before = await walk(source, temporary, options.signal, keep);
+      options.onPhase?.("validating");
+      const copied = await walk(temporary, null, options.signal);
+      copied.delete(".narracut-operation.json");
+      assertSame(before, copied);
+      await rewrite(join10(temporary, "narracut.json"), JSON.stringify({ ...opened.inspection.manifest, projectId }));
+      const taskPath = join10(temporary, ".narracut", "agent-task.json");
+      let taskBytes = null;
+      try {
+        taskBytes = await readFile6(taskPath, "utf8");
+      } catch (error51) {
+        if (error51.code !== "ENOENT") throw error51;
+      }
+      if (taskBytes !== null) {
+        const task = await endedTaskReason(source) ? null : copiedTask(Buffer.from(taskBytes), opened.inspection.manifest.projectId, projectId);
+        if (task) await rewrite(taskPath, task);
+        else await rm8(taskPath);
+      }
+      const inspection = await inspectProjectVNext(temporary);
+      if (inspection.manifest.projectId !== projectId) throw new Error("\u526F\u672C\u8EAB\u4EFD\u6821\u9A8C\u5931\u8D25\u3002");
+      for (const [path, value] of [...before].reverse()) if (value === "directory") await syncDirectory(join10(temporary, path));
+      assertSame(before, await walk(source, null, options.signal, keep));
+      options.signal?.throwIfAborted();
+      options.onPhase?.("publishing");
+    });
+    published = { ...result, revisionId: candidate.sourceRevision };
+    return published;
+  } catch (error51) {
+    if (error51 instanceof ProjectLifecycleError) throw error51;
+    throw new ProjectLifecycleError("PROJECT_COPY_FAILED", target, `\u590D\u5236\u5931\u8D25\uFF1A${error51 instanceof Error ? error51.message : error51}`, { cause: error51 });
+  } finally {
+    try {
+      await opened.release();
+    } catch (error51) {
+      if (!published) throw error51;
+      published.cleanupWarning = { path: join10(source, ".narracut/workspace.lease"), message: `\u526F\u672C\u5DF2\u521B\u5EFA\uFF1B\u6765\u6E90\u79DF\u7EA6\u6536\u5C3E\u5931\u8D25\uFF1A${error51 instanceof Error ? error51.message : error51}` };
+    }
+  }
+}
+
 // plugins/narracut/src/creation-interaction.ts
 var text = external_exports.string().min(1).max(4e3);
 var sceneCondition = external_exports.object({
@@ -25921,12 +29200,12 @@ function authorizesBrief(instruction) {
 }
 
 // plugins/narracut/src/creation-task.ts
-import { randomUUID as randomUUID5 } from "node:crypto";
-import { join as join6 } from "node:path";
-import { rename as rename3, rm as rm5, open as open2 } from "node:fs/promises";
+import { randomUUID as randomUUID8 } from "node:crypto";
+import { join as join11 } from "node:path";
+import { rename as rename6, rm as rm9, open as open5 } from "node:fs/promises";
 
 // plugins/narracut/src/codex-host.ts
-import { randomUUID as randomUUID4 } from "node:crypto";
+import { randomUUID as randomUUID7 } from "node:crypto";
 var CodexThreadUnavailableError = class extends Error {
   code = "CODEX_THREAD_UNAVAILABLE";
   threadId;
@@ -25997,7 +29276,7 @@ var AgentHostValidationService = class {
   #unsubscribe;
   constructor(host, options = {}) {
     this.#host = host;
-    this.#idFactory = options.idFactory ?? randomUUID4;
+    this.#idFactory = options.idFactory ?? randomUUID7;
     this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
   }
   async start(request2) {
@@ -26547,7 +29826,7 @@ var CreationTask = class {
     }
   }
   #path() {
-    return join6(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
+    return join11(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
   }
   async #save() {
     if (!this.#state || this.#state.status === "terminated") return;
@@ -26556,10 +29835,10 @@ var CreationTask = class {
     await this.opened.programTransaction(() => this.#writeCheckpoint(bytes));
   }
   async #writeCheckpoint(bytes, validate) {
-    const parent = join6(this.opened.inspection.projectDirectory, ".narracut");
-    const identity2 = await directory(parent), temporary = join6(parent, `task-${randomUUID5()}.tmp`);
+    const parent = join11(this.opened.inspection.projectDirectory, ".narracut");
+    const identity2 = await directory(parent), temporary = join11(parent, `task-${randomUUID8()}.tmp`);
     try {
-      const handle = await open2(temporary, "wx", 384);
+      const handle = await open5(temporary, "wx", 384);
       try {
         await handle.writeFile(bytes);
         await handle.sync();
@@ -26568,10 +29847,10 @@ var CreationTask = class {
       }
       if (identity2 !== await directory(parent)) throw new Error("\u4EFB\u52A1\u76EE\u5F55\u5DF2\u66FF\u6362");
       await validate?.();
-      await rename3(temporary, this.#path());
+      await rename6(temporary, this.#path());
       await syncDirectory(parent).catch(() => void 0);
     } finally {
-      await rm5(temporary, { force: true }).catch(() => void 0);
+      await rm9(temporary, { force: true }).catch(() => void 0);
     }
   }
   async start(instruction, parentOrigin = "null") {
@@ -26585,7 +29864,7 @@ var CreationTask = class {
       const candidate = await this.opened.candidate({ action: "read" });
       if (candidate.status !== "absent") throw new Error("\u5DF2\u6709\u5019\u9009\uFF1B\u672C\u6B21\u4E0D\u4F1A\u66FF\u6362\u6216\u63A5\u7BA1\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
       this.#state = {
-        taskId: randomUUID5(),
+        taskId: randomUUID8(),
         projectId: this.opened.inspection.manifest.projectId,
         instruction,
         externalBaseline: null,
@@ -26635,7 +29914,7 @@ var CreationTask = class {
         if (candidate.status === "external-change") candidate = await manager({ action: "adopt", baseline, confirmed: true });
         if (candidate.status !== "saved") throw new Error(candidate.error?.message ?? "\u8BF7\u5148\u5728\u5019\u9009\u533A\u57DF\u5904\u7406\u5B8C\u6574\u6027\u95EE\u9898\u3002");
         const checkpoint = {
-          taskId: requestId ?? randomUUID5(),
+          taskId: requestId ?? randomUUID8(),
           projectId: this.opened.inspection.manifest.projectId,
           instruction,
           status: "running",
@@ -26860,7 +30139,7 @@ var CreationTask = class {
         if (!original?.trim() || original.length > 4e3 || state.pendingMessage) throw new Error("\u8BF7\u5148\u5904\u7406\u62DF\u4FDD\u5B58\u7684\u539F\u6587\u7247\u6BB5\uFF0C\u6216\u586B\u5199 1\u20134000 \u5B57\u6D88\u606F");
         const resume = state.status === "running";
         await this.#interrupt();
-        state.pendingMessage = { id: randomUUID5(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
+        state.pendingMessage = { id: randomUUID8(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
         this.#messageMode = { original, resume, stopped: state.status === "stopped" };
         state.status = "running";
         await this.#save();
@@ -27008,7 +30287,7 @@ var CreationTask = class {
     const state = this.#state, snapshot = await this.#snapshot();
     state.inputIdentity = snapshot.signature;
     if (!state.threadPointer) state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
-    const driver = { token: randomUUID5(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID8(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -27060,7 +30339,7 @@ var CreationTask = class {
     state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
     await this.#save();
     this.#assert();
-    const driver = { token: randomUUID5(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID8(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -27209,7 +30488,7 @@ var CreationTask = class {
     if (answer.action === "wait") return this.#wait(this.#state.suggestions.some((item) => item.required && !item.satisfied) ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
     if (answer.action === "brief") {
       if (!answer.brief) throw new Error("Brief \u63D0\u6848\u7F3A\u5C11\u5B8C\u6574\u7ED3\u679C");
-      const proposal = { id: randomUUID5(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
+      const proposal = { id: randomUUID8(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
       this.#state.briefProposal = proposal;
       if (!authorizesBrief(this.#state.instruction)) return this.#wait("BRIEF_REVIEW_REQUIRED", answer.brief.purpose);
       const saved = await this.opened.saveVideoBrief(proposal.content, proposal.baseline, () => this.#assert());
@@ -27316,7 +30595,7 @@ var CreationTask = class {
       const value = await read();
       await this.#fresh();
       if (done(value)) return value;
-      await new Promise((resolve4) => setTimeout(resolve4, 100));
+      await new Promise((resolve5) => setTimeout(resolve5, 100));
     }
   }
   async #wait(reason, pending) {
@@ -27397,12 +30676,12 @@ var CreationTask = class {
 };
 
 // src/server/project-acceptance.ts
-import { randomUUID as randomUUID7 } from "node:crypto";
+import { randomUUID as randomUUID10 } from "node:crypto";
 
 // src/server/preview-origin.ts
-import { createServer } from "node:http";
-import { createHash as createHash7, randomBytes, randomUUID as randomUUID6 } from "node:crypto";
-var previewDigest = (value) => `sha256:${createHash7("sha256").update(value).digest("hex")}`;
+import { createServer as createServer2 } from "node:http";
+import { createHash as createHash11, randomBytes, randomUUID as randomUUID9 } from "node:crypto";
+var previewDigest = (value) => `sha256:${createHash11("sha256").update(value).digest("hex")}`;
 var CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
 var PreviewOrigin = class {
   #server;
@@ -27410,8 +30689,8 @@ var PreviewOrigin = class {
   #origin = "";
   #instances = /* @__PURE__ */ new Map();
   origin() {
-    return this.#starting ??= new Promise((resolve4, reject) => {
-      this.#server = createServer((req, res) => {
+    return this.#starting ??= new Promise((resolve5, reject) => {
+      this.#server = createServer2((req, res) => {
         res.setHeader("Content-Security-Policy", CSP);
         res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Referrer-Policy", "no-referrer");
@@ -27454,7 +30733,7 @@ var PreviewOrigin = class {
       this.#server.listen(0, "127.0.0.1", () => {
         this.#origin = `http://127.0.0.1:${this.#server.address().port}`;
         this.#server.unref();
-        resolve4(this.#origin);
+        resolve5(this.#origin);
       });
     });
   }
@@ -27465,7 +30744,7 @@ var PreviewOrigin = class {
     const boundIdentity = previewDigest(Buffer.concat([Buffer.from(JSON.stringify(["binding", bindingBytes.length]) + "\n"), bindingBytes]));
     if (boundIdentity !== args.bundle.inputIdentity) throw new Error("Preview \u8F93\u5165\u4E0E Bundle \u6784\u5EFA\u7ED1\u5B9A\u4E0D\u4E00\u81F4\u3002");
     const identity2 = { bundle: args.bundle.identity, input: args.bundle.inputIdentity, media: previewDigest(JSON.stringify([...args.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())), environment: args.bundle.environmentIdentity };
-    const instanceId = randomUUID6(), token = randomBytes(32).toString("hex");
+    const instanceId = randomUUID9(), token = randomBytes(32).toString("hex");
     if (!/^[a-f0-9]{48}$/.test(args.key) || this.#instances.has(args.key)) throw new Error("Preview \u5B9E\u4F8B\u4E0D\u80FD\u91CD\u590D\u7ED1\u5B9A\u3002");
     const files = /* @__PURE__ */ new Map([["bundle.js", args.bundle.files().get("bundle.js")]]);
     for (const [path, bytes] of args.media) {
@@ -27494,7 +30773,7 @@ var PreviewOrigin = class {
     this.#instances.clear();
     if (this.#server) {
       this.#server.closeAllConnections();
-      await new Promise((resolve4) => this.#server.close(() => resolve4()));
+      await new Promise((resolve5) => this.#server.close(() => resolve5()));
     }
   }
 };
@@ -27534,7 +30813,7 @@ var ProjectAcceptance = class {
     };
     const summary = delivery.report.summary;
     const key = previewDigest(JSON.stringify([delivery, batch, history.current, history.revisions.map((item) => item.revisionId), record3]));
-    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID7() };
+    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID10() };
   }
   async operate(opened, args) {
     if (args.action === "review") return { confirmation: await this.review(opened) };
@@ -27575,1326 +30854,16 @@ var ProjectAcceptance = class {
 };
 
 // src/server/project-render.ts
-import { randomUUID as randomUUID9, randomBytes as randomBytes3 } from "node:crypto";
-import { constants as constants3, watch } from "node:fs";
-import { open as open6, realpath as realpath4, link, unlink, lstat as lstat6 } from "node:fs/promises";
-import { basename, dirname as dirname6, isAbsolute as isAbsolute3, join as join10 } from "node:path";
+import { randomUUID as randomUUID11, randomBytes as randomBytes3 } from "node:crypto";
+import { constants as constants4, watch } from "node:fs";
+import { open as open7, realpath as realpath6, link as link2, unlink as unlink2, lstat as lstat8 } from "node:fs/promises";
+import { basename as basename3, dirname as dirname8, isAbsolute as isAbsolute4, join as join13 } from "node:path";
 
 // src/server/project-preview.ts
-import { constants as constants2 } from "node:fs";
+import { constants as constants3 } from "node:fs";
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { lstat as lstat5, open as open5, realpath as realpath3 } from "node:fs/promises";
-import { join as join9, relative as relative2, isAbsolute as isAbsolute2 } from "node:path";
-
-// src/server/project-vnext-inspection.ts
-import { createHash as createHash9 } from "node:crypto";
-import { lstat as lstat4, open as open4, readdir as readdir4, realpath as realpath2 } from "node:fs/promises";
-import { isAbsolute, join as join8, relative, resolve as resolve2, sep } from "node:path";
-
-// src/server/project-speech-vnext.ts
-import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash8, randomUUID as randomUUID8 } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
-import { lstat as lstat3, open as open3, readFile as readFile4, rename as rename4, rm as rm6 } from "node:fs/promises";
-import { dirname as dirname5, join as join7 } from "node:path";
-import { promisify as promisify3 } from "node:util";
-var execFileAsync = promisify3(execFile3);
-var DRAFT_DURATION_MS = 5e3;
-var TTS_CAPABILITIES = {
-  provider: "tokendance",
-  models: [
-    { value: "minimax-speech-2.8-turbo", label: "MiniMax Speech 2.8 Turbo" }
-  ],
-  voices: [
-    { value: "Chinese (Mandarin)_News_Anchor", label: "\u666E\u901A\u8BDD \xB7 \u65B0\u95FB\u4E3B\u64AD" },
-    { value: "Chinese (Mandarin)_Reliable_Executive", label: "\u666E\u901A\u8BDD \xB7 \u6C89\u7A33\u4E3B\u7BA1" }
-  ],
-  ranges: {
-    speed: { min: 0.5, max: 2, step: 0.1 },
-    volume: { min: 0.1, max: 10, step: 0.1 },
-    pitch: { min: -12, max: 12, step: 1 }
-  },
-  audio: { format: "mp3", sampleRate: 32e3, bitrate: 128e3, channels: 1 }
-};
-var ProjectTtsConfigError = class extends Error {
-  constructor(message, path, options = {}) {
-    super(message, options);
-    this.path = path;
-    this.name = "ProjectTtsConfigError";
-  }
-  path;
-  code = "TTS_CONFIG_INVALID";
-};
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function inRange(value, range) {
-  return typeof value === "number" && Number.isFinite(value) && value >= range.min && value <= range.max;
-}
-function validateProjectTtsConfig(value) {
-  if (!isRecord(value)) throw new ProjectTtsConfigError("tts.json \u6839\u503C\u5FC5\u987B\u662F\u5BF9\u8C61\u3002", "tts.json");
-  const keys = Object.keys(value).sort();
-  const expected = ["model", "pitch", "provider", "speed", "voice", "volume"].sort();
-  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
-    throw new ProjectTtsConfigError("tts.json \u53EA\u80FD\u5305\u542B provider\u3001model\u3001voice\u3001speed\u3001volume \u4E0E pitch\u3002", "tts.json");
-  }
-  if (value.provider !== TTS_CAPABILITIES.provider) {
-    throw new ProjectTtsConfigError("provider \u5FC5\u987B\u662F tokendance\u3002", "tts.json");
-  }
-  if (!TTS_CAPABILITIES.models.some((model) => model.value === value.model)) {
-    throw new ProjectTtsConfigError("model \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
-  }
-  if (!TTS_CAPABILITIES.voices.some((voice) => voice.value === value.voice)) {
-    throw new ProjectTtsConfigError("voice \u4E0D\u5728\u670D\u52A1\u7AEF\u58F0\u660E\u7684\u652F\u6301\u8303\u56F4\u5185\u3002", "tts.json");
-  }
-  if (!inRange(value.speed, TTS_CAPABILITIES.ranges.speed)) {
-    throw new ProjectTtsConfigError("speed \u5FC5\u987B\u5728 0.5\u20132.0 \u4E4B\u95F4\u3002", "tts.json");
-  }
-  if (!inRange(value.volume, TTS_CAPABILITIES.ranges.volume)) {
-    throw new ProjectTtsConfigError("volume \u5FC5\u987B\u5728 0.1\u201310.0 \u4E4B\u95F4\u3002", "tts.json");
-  }
-  if (!inRange(value.pitch, TTS_CAPABILITIES.ranges.pitch) || !Number.isInteger(value.pitch)) {
-    throw new ProjectTtsConfigError("pitch \u5FC5\u987B\u662F -12\u201312 \u4E4B\u95F4\u7684\u6574\u6570\u3002", "tts.json");
-  }
-  return value;
-}
-function ttsProfileId(config2) {
-  const stable = JSON.stringify({
-    provider: config2.provider,
-    model: config2.model,
-    voice: config2.voice,
-    speed: config2.speed,
-    volume: config2.volume,
-    pitch: config2.pitch,
-    audio: TTS_CAPABILITIES.audio
-  });
-  return `sha256:${createHash8("sha256").update(stable, "utf8").digest("hex")}`;
-}
-async function readProjectTtsConfig(projectDirectory) {
-  const path = join7(projectDirectory, "tts.json");
-  let bytes;
-  try {
-    const facts = await lstat3(path);
-    if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 16 * 1024) {
-      throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u5C0F\u4E8E 16 KiB \u7684\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002", path);
-    }
-    bytes = await readFile4(path);
-  } catch (cause) {
-    if (cause instanceof ProjectTtsConfigError) throw cause;
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
-      return { status: "unconfigured" };
-    }
-    throw new ProjectTtsConfigError("\u65E0\u6CD5\u5B89\u5168\u8BFB\u53D6 tts.json\u3002", path, { cause });
-  }
-  let text3;
-  try {
-    text3 = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch (cause) {
-    throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u4E25\u683C UTF-8\u3002", path, { cause });
-  }
-  let parsed;
-  try {
-    parsed = parseStrictJson(text3, {
-      maxDepth: 3,
-      maxArrayItems: 0,
-      maxObjectFields: 8,
-      maxNodes: 16,
-      maxStringScalars: 256,
-      maxStringBytes: 1024,
-      maxNumberBytes: 32,
-      forbidArrays: true
-    });
-  } catch (cause) {
-    throw new ProjectTtsConfigError("tts.json \u4E0D\u662F\u53D7\u652F\u6301\u7684\u4E25\u683C JSON\u3002", path, { cause });
-  }
-  const config2 = validateProjectTtsConfig(parsed);
-  return { status: "configured", config: config2, profileId: ttsProfileId(config2) };
-}
-async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
-  const config2 = validateProjectTtsConfig(input);
-  const path = join7(projectDirectory, "tts.json");
-  const temporaryPath = join7(projectDirectory, `.tts.json.${randomUUID8()}.tmp`);
-  let committed = false;
-  try {
-    const handle = await open3(temporaryPath, "wx", 384);
-    try {
-      await handle.writeFile(Buffer.from(JSON.stringify(config2), "utf8"));
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await assertWritable();
-    await rename4(temporaryPath, path);
-    committed = true;
-    try {
-      const directory2 = await open3(dirname5(path), "r");
-      try {
-        await directory2.sync();
-      } finally {
-        await directory2.close();
-      }
-    } catch {
-    }
-  } finally {
-    if (!committed) await rm6(temporaryPath, { force: true }).catch(() => void 0);
-  }
-  return { status: "configured", config: config2, profileId: ttsProfileId(config2) };
-}
-function deriveSceneTimeWindows(scenes, fps) {
-  if (!Number.isFinite(fps) || fps <= 0) throw new Error("fps \u5FC5\u987B\u662F\u6B63\u6570\u3002");
-  let startFrame = 0;
-  let renderReady = scenes.length > 0;
-  const windows = scenes.map((scene) => {
-    const durationInFrames = Math.max(1, Math.ceil(scene.durationMs / 1e3 * fps));
-    const window = {
-      sceneId: scene.sceneId,
-      startFrame,
-      durationInFrames,
-      source: scene.source
-    };
-    startFrame += durationInFrames;
-    if (scene.source === "draft") renderReady = false;
-    return window;
-  });
-  return { durationInFrames: startFrame, renderReady, scenes: windows };
-}
-async function probeSpeechDurationMs(path) {
-  const { stdout } = await execFileAsync("ffprobe", [
-    "-v",
-    "error",
-    "-show_entries",
-    "format=duration:stream=codec_name",
-    "-of",
-    "json",
-    path
-  ], { encoding: "utf8", timeout: 3e4, maxBuffer: 256 * 1024 });
-  const payload = JSON.parse(stdout);
-  const duration3 = typeof payload.format?.duration === "string" ? Number(payload.format.duration) : Number.NaN;
-  if (!payload.streams?.some((stream) => stream.codec_name === "mp3") || !Number.isFinite(duration3) || duration3 <= 0) {
-    throw new Error("Speech \u4E0D\u662F\u53EF\u89E3\u7801\u7684 MP3\u3002");
-  }
-  return Math.round(duration3 * 1e3);
-}
-async function speechContentHash(path) {
-  const handle = await open3(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-  try {
-    const hash4 = createHash8("sha256");
-    const chunk = Buffer.allocUnsafe(64 * 1024);
-    let position = 0;
-    while (true) {
-      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
-      if (bytesRead === 0) break;
-      hash4.update(chunk.subarray(0, bytesRead));
-      position += bytesRead;
-    }
-    return `sha256:${hash4.digest("hex")}`;
-  } finally {
-    await handle.close();
-  }
-}
-async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, options = {}) {
-  const probe = options.probeDurationMs ?? probeSpeechDurationMs;
-  const states = [];
-  const durations = [];
-  for (const scene of scenes) {
-    const speech = scene.speech;
-    if (speech === void 0) {
-      states.push({ sceneId: scene.id, status: "missing", reason: "\u5F53\u524D Scene \u7F3A\u5C11 Speech\u3002" });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    const currentSourceTextHash = `sha256:${createHash8("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
-    if (speech.sourceTextHash !== currentSourceTextHash) {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "changed",
-        reason: "Speech \u4E0E\u5F53\u524D Narration \u4E0D\u5339\u914D\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    if (currentProfileId === void 0 || speech.ttsProfileId !== currentProfileId) {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "profile-mismatch",
-        reason: "Speech \u4E0E\u5F53\u524D TTS \u914D\u7F6E\u4E0D\u5339\u914D\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    const absolutePath = join7(projectDirectory, speech.path);
-    let before;
-    try {
-      before = await lstat3(absolutePath);
-      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) throw new Error("not ordinary");
-    } catch {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "unavailable",
-        reason: "Speech \u6587\u4EF6\u7F3A\u5931\u3001\u4E0D\u53EF\u8BFB\u6216\u4E0D\u662F\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    if (speech.audioContentHash === void 0) {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "changed",
-        reason: "Speech \u7F3A\u5C11\u97F3\u9891\u5185\u5BB9\u6458\u8981\uFF0C\u65E0\u6CD5\u8BC1\u660E\u4ECD\u662F\u5DF2\u63D0\u4EA4\u7684\u97F3\u9891\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    let actualDurationMs;
-    let actualContentHash;
-    try {
-      [actualDurationMs, actualContentHash] = await Promise.all([
-        probe(absolutePath),
-        speechContentHash(absolutePath)
-      ]);
-    } catch {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "decode-failed",
-        reason: "Speech \u6587\u4EF6\u65E0\u6CD5\u89E3\u7801\u4E3A MP3\u3002"
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    let after;
-    try {
-      after = await lstat3(absolutePath);
-    } catch {
-      after = void 0;
-    }
-    const changedDuringProbe = after === void 0 || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs;
-    if (changedDuringProbe || actualDurationMs !== speech.durationMs || actualContentHash !== speech.audioContentHash) {
-      states.push({
-        sceneId: scene.id,
-        path: speech.path,
-        status: "changed",
-        durationMs: actualDurationMs,
-        reason: changedDuringProbe ? "Speech \u6587\u4EF6\u5728\u68C0\u67E5\u671F\u95F4\u53D1\u751F\u539F\u4F4D\u53D8\u5316\u3002" : actualContentHash !== speech.audioContentHash ? "Speech \u97F3\u9891\u5185\u5BB9\u4E0E\u5DF2\u63D0\u4EA4\u6458\u8981\u4E0D\u4E00\u81F4\u3002" : `Speech \u5B9E\u9645\u65F6\u957F ${actualDurationMs} ms \u4E0E\u8BB0\u5F55\u7684 ${speech.durationMs} ms \u4E0D\u4E00\u81F4\u3002`
-      });
-      durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
-      continue;
-    }
-    states.push({
-      sceneId: scene.id,
-      path: speech.path,
-      status: "available",
-      durationMs: actualDurationMs
-    });
-    durations.push({ sceneId: scene.id, durationMs: actualDurationMs, source: "speech" });
-  }
-  const timeline = deriveSceneTimeWindows(durations, options.fps ?? 30);
-  return {
-    states,
-    timeline: {
-      ...timeline,
-      renderReady: timeline.renderReady && scenes.every((scene) => scene.narration.text.trim() !== "")
-    }
-  };
-}
-
-// src/server/project-vnext-inspection.ts
-var ProjectInspectionError = class extends Error {
-  constructor(code, path, message, diagnostics = [], options) {
-    super(message, options);
-    this.code = code;
-    this.path = path;
-    this.diagnostics = diagnostics;
-    this.name = "ProjectInspectionError";
-  }
-  code;
-  path;
-  diagnostics;
-};
-function invalidControlFile(path, diagnostic2, options) {
-  return new ProjectInspectionError(
-    "PROJECT_CONTENT_INVALID",
-    path,
-    diagnostic2.message,
-    [diagnostic2],
-    options
-  );
-}
-function invalidContent(path, diagnostics) {
-  const first = diagnostics[0];
-  return new ProjectInspectionError(
-    "PROJECT_CONTENT_INVALID",
-    path,
-    first?.message ?? "Project VNext \u5185\u5BB9\u65E0\u6548\uFF1B\u8BF7\u4FEE\u590D\u62A5\u544A\u7684\u95EE\u9898\u540E\u91CD\u8BD5\u3002",
-    diagnostics
-  );
-}
-var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-function compareStableText(left, right) {
-  return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
-}
-function jsonPropertyPath(parent, key) {
-  return /^[A-Za-z_$][\w$]*$/u.test(key) ? `${parent}.${key}` : `${parent}[${JSON.stringify(key)}]`;
-}
-function validateProjectManifest(manifest) {
-  const diagnostics = [];
-  for (const key of Object.keys(manifest)) {
-    if (!["kind", "formatVersion", "projectId"].includes(key)) {
-      diagnostics.push({
-        code: "PROJECT_MANIFEST_SCHEMA_INVALID",
-        component: "narracut.json",
-        jsonPath: jsonPropertyPath("$", key),
-        message: `narracut.json \u5305\u542B\u672A\u77E5\u5B57\u6BB5 ${key}\uFF1B\u8BF7\u5220\u9664\u8BE5\u5B57\u6BB5\u3002`
-      });
-    }
-  }
-  if (!Number.isInteger(manifest.formatVersion)) {
-    diagnostics.push({
-      code: "PROJECT_MANIFEST_SCHEMA_INVALID",
-      component: "narracut.json",
-      jsonPath: "$.formatVersion",
-      message: "formatVersion \u5FC5\u987B\u662F\u6574\u6570 1\uFF1B\u8BF7\u4FEE\u6B63\u9879\u76EE\u6E05\u5355\u3002"
-    });
-  }
-  if (typeof manifest.projectId !== "string" || !UUID_PATTERN.test(manifest.projectId)) {
-    diagnostics.push({
-      code: "PROJECT_MANIFEST_SCHEMA_INVALID",
-      component: "narracut.json",
-      jsonPath: "$.projectId",
-      message: "projectId \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\uFF1B\u8BF7\u4F7F\u7528\u6709\u6548\u9879\u76EE\u6E05\u5355\u3002"
-    });
-  }
-  return diagnostics.sort((left, right) => compareStableText(
-    `${left.jsonPath}${left.code}`,
-    `${right.jsonPath}${right.code}`
-  ));
-}
-function isRecord2(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function schemaDiagnostic(code, jsonPath, message) {
-  return { code, component: "project.json", jsonPath, message };
-}
-function unknownFields(value, allowed, jsonPath, diagnostics) {
-  for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) {
-      diagnostics.push(schemaDiagnostic(
-        "PROJECT_DSL_SCHEMA_INVALID",
-        jsonPropertyPath(jsonPath, key),
-        `${jsonPath} \u5305\u542B\u672A\u77E5\u5B57\u6BB5 ${key}\uFF1B\u8BF7\u5220\u9664\u8BE5\u5B57\u6BB5\u3002`
-      ));
-    }
-  }
-}
-function isCanonicalResourcePath(value, root) {
-  if (value.length === 0 || value.startsWith("/") || value.includes("\\") || value.includes("\0") || [...value].length > 1024 || Buffer.byteLength(value, "utf8") > 1024) return false;
-  const parts = value.split("/");
-  return parts[0] === root && parts.length > 1 && parts.every((part) => part !== "" && part !== "." && part !== "..");
-}
-function boundedDiagnostics(diagnostics) {
-  const unique = /* @__PURE__ */ new Map();
-  for (const diagnostic2 of diagnostics) {
-    const identity2 = `${diagnostic2.jsonPath ?? ""}${diagnostic2.code}${diagnostic2.message}`;
-    if (!unique.has(identity2)) unique.set(identity2, diagnostic2);
-  }
-  const sorted = [...unique.values()].sort((left, right) => compareStableText(
-    `${left.jsonPath ?? ""}${left.code}`,
-    `${right.jsonPath ?? ""}${right.code}`
-  ));
-  if (sorted.length <= 100) return sorted;
-  return [
-    ...sorted.slice(0, 99),
-    {
-      code: "DIAGNOSTICS_TRUNCATED",
-      component: "project.json",
-      message: `\u9879\u76EE\u8FD8\u6709 ${sorted.length - 99} \u6761\u95EE\u9898\u672A\u5C55\u793A\uFF1B\u8BF7\u5148\u4FEE\u590D\u5DF2\u5217\u95EE\u9898\u540E\u91CD\u65B0\u68C0\u67E5\u3002`,
-      metric: "diagnostics",
-      actual: sorted.length,
-      limit: 100
-    }
-  ];
-}
-function validateProjectDsl(value) {
-  const diagnostics = [];
-  if (!isRecord2(value)) {
-    return {
-      diagnostics: [schemaDiagnostic(
-        "PROJECT_DSL_SCHEMA_INVALID",
-        "$",
-        "project.json \u6839\u503C\u5FC5\u987B\u662F\u5BF9\u8C61\uFF1B\u8BF7\u63D0\u4F9B assets \u4E0E scenes\u3002"
-      )]
-    };
-  }
-  unknownFields(value, ["assets", "scenes"], "$", diagnostics);
-  const assets = value.assets;
-  const scenes = value.scenes;
-  if (!Array.isArray(assets)) {
-    diagnostics.push(schemaDiagnostic(
-      "PROJECT_DSL_SCHEMA_INVALID",
-      "$.assets",
-      "assets \u5FC5\u987B\u662F\u6570\u7EC4\uFF1B\u8BF7\u4FEE\u6B63 Project DSL\u3002"
-    ));
-  }
-  if (!Array.isArray(scenes)) {
-    diagnostics.push(schemaDiagnostic(
-      "PROJECT_DSL_SCHEMA_INVALID",
-      "$.scenes",
-      "scenes \u5FC5\u987B\u662F\u6570\u7EC4\uFF1B\u8BF7\u4FEE\u6B63 Project DSL\u3002"
-    ));
-  }
-  if (!Array.isArray(assets) || !Array.isArray(scenes)) {
-    return { diagnostics: boundedDiagnostics(diagnostics) };
-  }
-  if (assets.length > 1e3) {
-    return { diagnostics: [{
-      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-      component: "project.json",
-      jsonPath: "$.assets[1000]",
-      message: `assets \u6709 ${assets.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 1000\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59 Asset\u3002`,
-      metric: "assets",
-      actual: assets.length,
-      limit: 1e3
-    }] };
-  }
-  if (scenes.length > 1e3) {
-    return { diagnostics: [{
-      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-      component: "project.json",
-      jsonPath: "$.scenes[1000]",
-      message: `scenes \u6709 ${scenes.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 1000\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59 Scene\u3002`,
-      metric: "scenes",
-      actual: scenes.length,
-      limit: 1e3
-    }] };
-  }
-  for (let index = 0; index < assets.length; index += 1) {
-    const asset = assets[index];
-    if (isRecord2(asset) && typeof asset.path === "string") {
-      const bytes = Buffer.byteLength(asset.path, "utf8");
-      const scalars = [...asset.path].length;
-      if (bytes > 1024) {
-        return { diagnostics: [{
-          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-          component: "project.json",
-          jsonPath: `$.assets[${index}].path`,
-          message: `Asset path \u4E3A ${bytes} UTF-8 \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
-          metric: "pathBytes",
-          actual: bytes,
-          limit: 1024
-        }] };
-      }
-      if (scalars > 1024) {
-        return { diagnostics: [{
-          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-          component: "project.json",
-          jsonPath: `$.assets[${index}].path`,
-          message: `Asset path \u6709 ${scalars} \u4E2A Unicode \u6807\u91CF\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
-          metric: "pathScalars",
-          actual: scalars,
-          limit: 1024
-        }] };
-      }
-    }
-  }
-  for (let index = 0; index < scenes.length; index += 1) {
-    const scene = scenes[index];
-    if (!isRecord2(scene)) continue;
-    if (Array.isArray(scene.assetIds) && scene.assetIds.length > 256) {
-      return { diagnostics: [{
-        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-        component: "project.json",
-        jsonPath: `$.scenes[${index}].assetIds[256]`,
-        message: `Scene \u7684 assetIds \u6709 ${scene.assetIds.length} \u9879\uFF0C\u8D85\u8FC7\u4E0A\u9650 256\uFF1B\u8BF7\u79FB\u9664\u591A\u4F59\u5F15\u7528\u3002`,
-        metric: "sceneAssetIds",
-        actual: scene.assetIds.length,
-        limit: 256
-      }] };
-    }
-    if (isRecord2(scene.speech)) {
-      if (typeof scene.speech.path === "string") {
-        const bytes = Buffer.byteLength(scene.speech.path, "utf8");
-        const scalars = [...scene.speech.path].length;
-        if (bytes > 1024 || scalars > 1024) {
-          const metric = bytes > 1024 ? "pathBytes" : "pathScalars";
-          const actual = bytes > 1024 ? bytes : scalars;
-          return { diagnostics: [{
-            code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-            component: "project.json",
-            jsonPath: `$.scenes[${index}].speech.path`,
-            message: `Speech path \u7684 ${metric} \u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 1024\uFF1B\u8BF7\u7F29\u77ED\u8DEF\u5F84\u3002`,
-            metric,
-            actual,
-            limit: 1024
-          }] };
-        }
-      }
-      if (typeof scene.speech.ttsProfileId === "string" && [...scene.speech.ttsProfileId].length > 256) {
-        const actual = [...scene.speech.ttsProfileId].length;
-        return { diagnostics: [{
-          code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-          component: "project.json",
-          jsonPath: `$.scenes[${index}].speech.ttsProfileId`,
-          message: `ttsProfileId \u6709 ${actual} \u4E2A Unicode \u6807\u91CF\uFF0C\u8D85\u8FC7\u4E0A\u9650 256\uFF1B\u8BF7\u7F29\u77ED\u8BE5\u6807\u8BC6\u3002`,
-          metric: "ttsProfileIdScalars",
-          actual,
-          limit: 256
-        }] };
-      }
-    }
-  }
-  const assetIds = /* @__PURE__ */ new Set();
-  const assetPaths = /* @__PURE__ */ new Set();
-  assets.forEach((asset, index) => {
-    const path = `$.assets[${index}]`;
-    if (!isRecord2(asset)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Asset \u5BF9\u8C61\u3002`));
-      return;
-    }
-    unknownFields(asset, ["id", "path"], path, diagnostics);
-    if (typeof asset.id !== "string" || !UUID_PATTERN.test(asset.id)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.id`, "Asset id \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
-    } else if (assetIds.has(asset.id)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_ID_DUPLICATE", `${path}.id`, `Asset id ${asset.id} \u91CD\u590D\uFF1B\u8BF7\u4E3A\u6BCF\u4E2A Asset \u4F7F\u7528\u552F\u4E00 ID\u3002`));
-    } else {
-      assetIds.add(asset.id);
-    }
-    if (typeof asset.path !== "string" || !isCanonicalResourcePath(asset.path, "assets")) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_INVALID", `${path}.path`, "Asset path \u5FC5\u987B\u662F assets/ \u4E0B\u7684\u89C4\u8303\u9879\u76EE\u76F8\u5BF9\u8DEF\u5F84\u3002"));
-    } else if (assetPaths.has(asset.path)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_DUPLICATE", `${path}.path`, `Asset path ${asset.path} \u91CD\u590D\uFF1B\u8BF7\u4F7F\u7528\u552F\u4E00\u8DEF\u5F84\u3002`));
-    } else {
-      assetPaths.add(asset.path);
-    }
-  });
-  const sceneIds = /* @__PURE__ */ new Set();
-  scenes.forEach((scene, index) => {
-    const path = `$.scenes[${index}]`;
-    if (!isRecord2(scene)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", path, `${path} \u5FC5\u987B\u662F Scene \u5BF9\u8C61\u3002`));
-      return;
-    }
-    unknownFields(scene, ["id", "narration", "assetIds", "speech"], path, diagnostics);
-    if (typeof scene.id !== "string" || !UUID_PATTERN.test(scene.id)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.id`, "Scene id \u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
-    } else if (sceneIds.has(scene.id)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_ID_DUPLICATE", `${path}.id`, `Scene id ${scene.id} \u91CD\u590D\uFF1B\u8BF7\u4E3A\u6BCF\u4E2A Scene \u4F7F\u7528\u552F\u4E00 ID\u3002`));
-    } else {
-      sceneIds.add(scene.id);
-    }
-    if (!isRecord2(scene.narration)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.narration`, "narration \u5FC5\u987B\u662F\u53EA\u542B text \u7684\u5BF9\u8C61\u3002"));
-    } else {
-      unknownFields(scene.narration, ["text"], `${path}.narration`, diagnostics);
-      if (typeof scene.narration.text !== "string") {
-        diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.narration.text`, "Narration text \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u3002"));
-      }
-    }
-    if (!Array.isArray(scene.assetIds)) {
-      diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.assetIds`, "assetIds \u5FC5\u987B\u662F UUID \u6570\u7EC4\u3002"));
-    } else {
-      const references = /* @__PURE__ */ new Set();
-      scene.assetIds.forEach((assetId, assetIndex) => {
-        const referencePath = `${path}.assetIds[${assetIndex}]`;
-        if (typeof assetId !== "string" || !UUID_PATTERN.test(assetId)) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", referencePath, "Asset \u5F15\u7528\u5FC5\u987B\u662F\u89C4\u8303\u7684\u5C0F\u5199 UUID\u3002"));
-        } else if (references.has(assetId)) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_REFERENCE_DUPLICATE", referencePath, `Scene \u91CD\u590D\u5F15\u7528 Asset ${assetId}\uFF1B\u8BF7\u79FB\u9664\u91CD\u590D\u9879\u3002`));
-        } else {
-          references.add(assetId);
-          if (!assetIds.has(assetId)) {
-            diagnostics.push(schemaDiagnostic("PROJECT_DSL_REFERENCE_INVALID", referencePath, `Asset \u5F15\u7528 ${assetId} \u672A\u5728 assets \u4E2D\u767B\u8BB0\uFF1B\u8BF7\u767B\u8BB0\u6216\u79FB\u9664\u8BE5\u5F15\u7528\u3002`));
-          }
-        }
-      });
-    }
-    if ("speech" in scene) {
-      if (!isRecord2(scene.speech)) {
-        diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech`, "speech \u7F3A\u7701\u65F6\u5FC5\u987B\u7701\u7565\u5B57\u6BB5\uFF0C\u5B58\u5728\u65F6\u5FC5\u987B\u662F\u5B8C\u6574\u5BF9\u8C61\u3002"));
-      } else {
-        unknownFields(scene.speech, ["path", "durationMs", "sourceTextHash", "ttsProfileId", "audioContentHash"], `${path}.speech`, diagnostics);
-        const expectedPath = typeof scene.id === "string" ? `speech/${scene.id}.mp3` : void 0;
-        if (typeof scene.speech.path !== "string" || !isCanonicalResourcePath(scene.speech.path, "speech") || scene.speech.path !== expectedPath) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_PATH_INVALID", `${path}.speech.path`, `Speech path \u5FC5\u987B\u7CBE\u786E\u4E3A ${expectedPath ?? "speech/<sceneId>.mp3"}\u3002`));
-        }
-        if (!Number.isSafeInteger(scene.speech.durationMs) || scene.speech.durationMs <= 0) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.durationMs`, "durationMs \u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002"));
-        }
-        const narrationText = isRecord2(scene.narration) && typeof scene.narration.text === "string" ? scene.narration.text : void 0;
-        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash9("sha256").update(narrationText, "utf8").digest("hex")}`;
-        if (typeof scene.speech.sourceTextHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.sourceTextHash) || expectedHash !== void 0 && scene.speech.sourceTextHash !== expectedHash) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SPEECH_MISMATCH", `${path}.speech.sourceTextHash`, "sourceTextHash \u5FC5\u987B\u5339\u914D\u5F53\u524D Narration \u7684\u539F\u59CB UTF-8 \u5B57\u8282\u3002"));
-        }
-        if (typeof scene.speech.ttsProfileId !== "string") {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.ttsProfileId`, "ttsProfileId \u5FC5\u987B\u662F\u4E0D\u8D85\u8FC7 256 \u4E2A Unicode \u6807\u91CF\u7684\u5B57\u7B26\u4E32\u3002"));
-        }
-        if ("audioContentHash" in scene.speech && (typeof scene.speech.audioContentHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.audioContentHash))) {
-          diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.audioContentHash`, "audioContentHash \u5FC5\u987B\u662F\u89C4\u8303\u7684 SHA-256 \u6458\u8981\u3002"));
-        }
-      }
-    }
-  });
-  return {
-    ...diagnostics.length === 0 ? { project: value } : {},
-    diagnostics: boundedDiagnostics(diagnostics)
-  };
-}
-function validateProjectVNextForSave(value, projectPath = "project.json") {
-  let inputBytes;
-  try {
-    inputBytes = Buffer.from(JSON.stringify(value), "utf8");
-  } catch (cause) {
-    throw invalidControlFile(projectPath, {
-      code: "PROJECT_DSL_SCHEMA_INVALID",
-      component: "project.json",
-      jsonPath: "$",
-      message: "Project DSL \u5FC5\u987B\u662F\u53EF\u5E8F\u5217\u5316\u7684 JSON \u5BF9\u8C61\u3002"
-    }, { cause });
-  }
-  if (inputBytes.length > 10 * 1024 * 1024) {
-    throw invalidControlFile(projectPath, {
-      code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-      component: "project.json",
-      message: `project.json \u4E3A ${inputBytes.length} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${10 * 1024 * 1024}\uFF1B\u8BF7\u7F29\u51CF\u5185\u5BB9\u540E\u91CD\u8BD5\u3002`,
-      metric: "bytes",
-      actual: inputBytes.length,
-      limit: 10 * 1024 * 1024
-    });
-  }
-  const parsed = parseControlJson(
-    inputBytes.toString("utf8"),
-    projectPath,
-    "project.json",
-    PROJECT_JSON_LIMITS
-  );
-  const validation = validateProjectDsl(parsed);
-  if (validation.project === void 0) {
-    throw invalidContent(projectPath, validation.diagnostics);
-  }
-  const project = validation.project;
-  const bytes = Buffer.from(JSON.stringify({
-    assets: project.assets.map((asset) => ({ id: asset.id, path: asset.path })),
-    scenes: project.scenes.map((scene) => ({
-      id: scene.id,
-      narration: { text: scene.narration.text },
-      assetIds: [...scene.assetIds],
-      ...scene.speech === void 0 ? {} : {
-        speech: {
-          path: scene.speech.path,
-          durationMs: scene.speech.durationMs,
-          sourceTextHash: scene.speech.sourceTextHash,
-          ttsProfileId: scene.speech.ttsProfileId,
-          ...scene.speech.audioContentHash === void 0 ? {} : { audioContentHash: scene.speech.audioContentHash }
-        }
-      }
-    }))
-  }), "utf8");
-  return { project, bytes };
-}
-function decodeUtf8(bytes, path, component, allowBom) {
-  if (!allowBom && bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) {
-    throw invalidControlFile(path, {
-      code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
-      component,
-      message: `${component} \u4E0D\u5F97\u5305\u542B UTF-8 BOM\uFF1B\u8BF7\u79FB\u9664 BOM \u540E\u91CD\u8BD5\u3002`
-    });
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: allowBom }).decode(bytes);
-  } catch (cause) {
-    throw invalidControlFile(path, {
-      code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
-      component,
-      message: `${component} \u4E0D\u662F\u4E25\u683C UTF-8\uFF1B\u8BF7\u4EE5 UTF-8 \u91CD\u65B0\u4FDD\u5B58\u540E\u91CD\u8BD5\u3002`
-    }, { cause });
-  }
-}
-var MANIFEST_JSON_LIMITS = {
-  maxDepth: 4,
-  maxArrayItems: 0,
-  maxObjectFields: 16,
-  maxNodes: 32,
-  maxStringScalars: 256,
-  maxStringBytes: 1024,
-  maxNumberBytes: 64,
-  forbidArrays: true
-};
-var PROJECT_JSON_LIMITS = {
-  maxDepth: 8,
-  maxArrayItems: 1e5,
-  maxObjectFields: 32e3,
-  maxNodes: 2e5,
-  maxStringScalars: 65536,
-  maxStringBytes: 256 * 1024,
-  maxNumberBytes: 64
-};
-function parseControlJson(input, path, component, limits2) {
-  try {
-    return parseStrictJson(input, limits2);
-  } catch (cause) {
-    if (!(cause instanceof StrictJsonFailure)) throw cause;
-    throw invalidControlFile(path, {
-      code: cause.code,
-      component,
-      message: cause.message,
-      jsonPath: cause.jsonPath,
-      ...cause.metric === void 0 ? {} : { metric: cause.metric },
-      ...cause.actual === void 0 ? {} : { actual: cause.actual },
-      ...cause.limit === void 0 ? {} : { limit: cause.limit }
-    }, { cause });
-  }
-}
-async function readBoundedControlFile(path, component, limit) {
-  const pathFacts = await lstat4(path);
-  if (!pathFacts.isFile() || pathFacts.isSymbolicLink() || pathFacts.nlink !== 1) {
-    throw invalidControlFile(path, {
-      code: "PROJECT_REQUIRED_CONTENT_INVALID",
-      component,
-      message: `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
-    });
-  }
-  const handle = await open4(path, "r");
-  try {
-    const facts = await handle.stat();
-    if (!facts.isFile() || facts.dev !== pathFacts.dev || facts.ino !== pathFacts.ino) {
-      throw invalidControlFile(path, {
-        code: "PROJECT_REQUIRED_CONTENT_INVALID",
-        component,
-        message: `${component} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
-      });
-    }
-    if (facts.size > limit) {
-      throw invalidControlFile(path, {
-        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-        component,
-        message: `${component} \u4E3A ${facts.size} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
-        metric: "bytes",
-        actual: facts.size,
-        limit
-      });
-    }
-    const bytes = Buffer.allocUnsafe(limit + 1);
-    let total = 0;
-    while (total < bytes.length) {
-      const { bytesRead } = await handle.read(bytes, total, bytes.length - total, total);
-      if (bytesRead === 0) break;
-      total += bytesRead;
-    }
-    if (total > limit) {
-      throw invalidControlFile(path, {
-        code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-        component,
-        message: `${component} \u5728\u8BFB\u53D6\u671F\u95F4\u8D85\u8FC7 ${limit} \u5B57\u8282\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u5E76\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
-        metric: "bytes",
-        actual: total,
-        limit
-      });
-    }
-    return bytes.subarray(0, total);
-  } finally {
-    await handle.close();
-  }
-}
-async function readProjectVNextRevision(projectPath) {
-  const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
-  return `sha256:${createHash9("sha256").update(bytes).digest("hex")}`;
-}
-async function readVideoBriefVNext(videoBriefPath) {
-  const buffer = await readBoundedControlFile(videoBriefPath, "video.md", 2 * 1024 * 1024);
-  return {
-    content: decodeUtf8(buffer, videoBriefPath, "video.md", true),
-    revision: `sha256:${createHash9("sha256").update(buffer).digest("hex")}`,
-    bytes: buffer.length
-  };
-}
-async function requireDirectory(path) {
-  const facts = await lstat4(path);
-  if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
-}
-async function requireFile(path) {
-  const facts = await lstat4(path);
-  if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1) {
-    throw new Error(`\u5FC5\u9700\u6587\u4EF6\u65E0\u6548\uFF1A${path}`);
-  }
-}
-function isFileSystemError(error51) {
-  return error51 instanceof Error && "code" in error51;
-}
-function missingContent(path, component) {
-  return invalidContent(path, [{
-    code: "PROJECT_REQUIRED_CONTENT_MISSING",
-    component,
-    message: `\u7F3A\u5C11\u5FC5\u9700\u7684 ${component}\uFF1B\u8BF7\u6062\u590D\u5B8C\u6574 Project VNext \u5185\u5BB9\u540E\u91CD\u8BD5\u3002`
-  }]);
-}
-function invalidResource(path, component, message) {
-  return invalidContent(path, [{ code: "PROJECT_RESOURCE_INVALID", component, message }]);
-}
-async function validateOrdinaryResource(projectDirectory, relativePath, required2) {
-  const parts = relativePath.split("/");
-  const directoryIdentities = [];
-  for (let index = 0; index < parts.length; index += 1) {
-    const component = parts.slice(0, index + 1).join("/");
-    const path = join8(projectDirectory, component);
-    let facts;
-    try {
-      facts = await lstat4(path);
-    } catch (cause) {
-      if (isFileSystemError(cause) && cause.code === "ENOENT" && !required2) return;
-      if (isFileSystemError(cause) && cause.code === "ENOENT") {
-        throw missingContent(path, component);
-      }
-      throw new ProjectInspectionError(
-        "PROJECT_PATH_UNAVAILABLE",
-        path,
-        `\u65E0\u6CD5\u68C0\u67E5\u8D44\u6E90 ${path}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-        [],
-        { cause }
-      );
-    }
-    const isLeaf = index === parts.length - 1;
-    if (!isLeaf && (!facts.isDirectory() || facts.isSymbolicLink())) {
-      throw invalidResource(
-        path,
-        component,
-        `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u7684\u666E\u901A\u76EE\u5F55\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u3002`
-      );
-    }
-    if (!isLeaf) directoryIdentities.push({ path, dev: facts.dev, ino: facts.ino });
-    if (isLeaf && (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1)) {
-      throw invalidResource(
-        path,
-        relativePath,
-        `${relativePath} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`
-      );
-    }
-  }
-  const resourcePath = join8(projectDirectory, relativePath);
-  const allowedRoot = await realpath2(join8(projectDirectory, parts[0]));
-  const resolvedResource = await realpath2(resourcePath);
-  const relation = relative(allowedRoot, resolvedResource);
-  if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
-    throw invalidResource(
-      resourcePath,
-      relativePath,
-      `${relativePath} \u89E3\u6790\u5230 ${allowedRoot} \u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002`
-    );
-  }
-  for (const identity2 of directoryIdentities) {
-    const current = await lstat4(identity2.path);
-    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity2.dev || current.ino !== identity2.ino) {
-      throw invalidResource(
-        identity2.path,
-        relative(projectDirectory, identity2.path),
-        `${relative(projectDirectory, identity2.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
-      );
-    }
-  }
-}
-async function validateProjectVNextResources(projectDirectory, project, options = {}) {
-  const assetStates = [];
-  for (const asset of project.assets) {
-    const path = join8(projectDirectory, asset.path);
-    await validateOrdinaryResource(projectDirectory, asset.path, false);
-    let facts;
-    try {
-      facts = await lstat4(path);
-    } catch (cause) {
-      assetStates.push({
-        id: asset.id,
-        path: asset.path,
-        status: "unavailable",
-        reason: isFileSystemError(cause) && cause.code === "ENOENT" ? "\u6587\u4EF6\u7F3A\u5931\u6216\u5DF2\u88AB\u79FB\u52A8\u3002" : "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
-      });
-      continue;
-    }
-    try {
-      const handle = await open4(path, "r");
-      await handle.close();
-      assetStates.push({
-        id: asset.id,
-        path: asset.path,
-        status: "available",
-        size: facts.size
-      });
-    } catch {
-      assetStates.push({
-        id: asset.id,
-        path: asset.path,
-        status: "unavailable",
-        reason: "\u6587\u4EF6\u65E0\u6CD5\u8BFB\u53D6\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u8BBE\u5907\u72B6\u6001\u3002"
-      });
-    }
-  }
-  const speech = await inspectProjectSpeech(
-    projectDirectory,
-    project.scenes,
-    options.currentTtsProfileId,
-    { probeDurationMs: options.probeSpeechDurationMs }
-  );
-  const speechWarnings = speech.states.filter((state) => state.status !== "available" && state.status !== "missing").map((state, index) => {
-    const sceneIndex = project.scenes.findIndex((scene) => scene.id === state.sceneId);
-    const code = {
-      available: "",
-      missing: "PROJECT_SPEECH_MISSING",
-      unavailable: "PROJECT_SPEECH_UNAVAILABLE",
-      "decode-failed": "PROJECT_SPEECH_DECODE_FAILED",
-      changed: "PROJECT_SPEECH_CHANGED",
-      "profile-mismatch": "PROJECT_SPEECH_PROFILE_MISMATCH"
-    }[state.status];
-    return {
-      code: code ?? "PROJECT_SPEECH_UNAVAILABLE",
-      component: state.path ?? `Scene ${sceneIndex + 1}`,
-      jsonPath: `$.scenes[${sceneIndex < 0 ? index : sceneIndex}].speech`,
-      message: state.reason ?? "Speech \u5F53\u524D\u4E0D\u53EF\u7528\u4E8E\u6B63\u5F0F Render\u3002"
-    };
-  });
-  return {
-    assetStates,
-    speechStates: speech.states,
-    timeline: speech.timeline,
-    warnings: boundedDiagnostics([...assetStates.filter((asset) => asset.status === "unavailable").map((asset) => ({
-      code: "PROJECT_ASSET_UNAVAILABLE",
-      component: asset.path,
-      message: `${asset.path} \u4E0D\u53EF\u7528\uFF1A${asset.reason ?? "\u65E0\u6CD5\u8BFB\u53D6\u3002"}`
-    })), ...speechWarnings])
-  };
-}
-async function readStableDirectory(directory2) {
-  const entries = await readdir4(directory2, { withFileTypes: true });
-  entries.sort((left, right) => compareStableText(left.name, right.name));
-  return entries;
-}
-var MAX_DIRECTORY_TREE_DEPTH = 32;
-var MAX_DIRECTORY_TREE_DIRECTORIES = 4096;
-function directoryTreeLimit(projectDirectory, path, metric, actual, limit) {
-  const component = relative(projectDirectory, path) || ".";
-  return invalidControlFile(path, {
-    code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-    component,
-    metric,
-    actual,
-    limit,
-    message: `${component} \u7684${metric === "directoryDepth" ? "\u76EE\u5F55\u6DF1\u5EA6" : "\u5DF2\u68C0\u67E5\u76EE\u5F55\u6570"}\u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7CBE\u7B80\u9879\u76EE\u5185\u90E8\u6811\u540E\u91CD\u8BD5\u3002`
-  });
-}
-async function discoverRenderProgramDirectories(projectDirectory) {
-  const excludedRoots = /* @__PURE__ */ new Set(["assets", "speech", "renders"]);
-  const stack = [{ directory: projectDirectory, depth: 0 }];
-  const programs = [];
-  let directoriesVisited = 0;
-  while (stack.length > 0) {
-    const { directory: directory2, depth } = stack.pop();
-    directoriesVisited += 1;
-    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
-      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
-    }
-    let entries;
-    try {
-      entries = await readStableDirectory(directory2);
-    } catch (cause) {
-      throw new ProjectInspectionError(
-        "PROJECT_PATH_UNAVAILABLE",
-        directory2,
-        `\u65E0\u6CD5\u68C0\u67E5\u9879\u76EE\u5185\u5BB9\u76EE\u5F55 ${directory2}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-        [],
-        { cause }
-      );
-    }
-    for (const entry of [...entries].reverse()) {
-      if (directory2 === projectDirectory && excludedRoots.has(entry.name)) continue;
-      if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
-      const path = join8(directory2, entry.name);
-      const facts = await lstat4(path);
-      if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
-      const childDepth = depth + 1;
-      if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
-        throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
-      }
-      if (entry.name === "render-program") {
-        programs.push(path);
-      } else {
-        stack.push({ directory: path, depth: childDepth });
-      }
-    }
-  }
-  programs.sort(compareStableText);
-  return programs;
-}
-async function validateRenderProgramDirectory(projectDirectory, programDirectory) {
-  const projectRoot = await realpath2(projectDirectory);
-  const resolvedProgram = await realpath2(programDirectory);
-  const programRelation = relative(projectRoot, resolvedProgram);
-  if (programRelation === ".." || programRelation.startsWith(`..${sep}`) || isAbsolute(programRelation)) {
-    throw invalidResource(
-      programDirectory,
-      relative(projectDirectory, programDirectory),
-      "Render Program \u89E3\u6790\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u7236\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002"
-    );
-  }
-  const requiredEntries = [
-    ["program.json", "file"],
-    ["package.json", "file"],
-    ["pnpm-lock.yaml", "file"],
-    ["src", "directory"],
-    ["src/RenderProgram.tsx", "file"],
-    ["resources", "directory"]
-  ];
-  for (const [entry, kind] of requiredEntries) {
-    const path = join8(programDirectory, ...entry.split("/"));
-    let facts;
-    try {
-      facts = await lstat4(path);
-    } catch (cause) {
-      if (isFileSystemError(cause) && cause.code === "ENOENT") {
-        throw missingContent(path, relative(projectDirectory, path));
-      }
-      throw new ProjectInspectionError(
-        "PROJECT_PATH_UNAVAILABLE",
-        path,
-        `\u65E0\u6CD5\u68C0\u67E5 Render Program \u8DEF\u5F84 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-        [],
-        { cause }
-      );
-    }
-    const valid2 = kind === "directory" ? facts.isDirectory() && !facts.isSymbolicLink() : facts.isFile() && !facts.isSymbolicLink() && facts.nlink === 1;
-    if (!valid2) {
-      throw invalidResource(
-        path,
-        relative(projectDirectory, path),
-        `${relative(projectDirectory, path)} \u5FC5\u987B\u662F\u65E0\u94FE\u63A5\u7684\u666E\u901A${kind === "directory" ? "\u76EE\u5F55" : "\u6587\u4EF6"}\u3002`
-      );
-    }
-  }
-  const stack = [{ directory: programDirectory, depth: 0 }];
-  let directoriesVisited = 0;
-  while (stack.length > 0) {
-    const { directory: directory2, depth } = stack.pop();
-    directoriesVisited += 1;
-    if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
-      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
-    }
-    for (const entry of [...await readStableDirectory(directory2)].reverse()) {
-      const path = join8(directory2, entry.name);
-      const component = relative(projectDirectory, path);
-      if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
-        throw invalidResource(path, component, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
-      }
-      const facts = await lstat4(path);
-      if (facts.isSymbolicLink()) {
-        throw invalidResource(path, component, `${component} \u662F\u7B26\u53F7\u94FE\u63A5\uFF1BRender Program \u6811\u53EA\u5141\u8BB8\u666E\u901A\u6587\u4EF6\u548C\u76EE\u5F55\u3002`);
-      }
-      if (facts.isDirectory()) {
-        const childDepth = depth + 1;
-        if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
-          throw directoryTreeLimit(projectDirectory, path, "directoryDepth", childDepth, MAX_DIRECTORY_TREE_DEPTH);
-        }
-        stack.push({ directory: path, depth: childDepth });
-      } else if (!facts.isFile() || facts.nlink !== 1) {
-        throw invalidResource(path, component, `${component} \u4E0D\u662F\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`);
-      }
-    }
-  }
-  if (await realpath2(programDirectory) !== resolvedProgram) {
-    throw invalidResource(
-      programDirectory,
-      relative(projectDirectory, programDirectory),
-      "Render Program \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002"
-    );
-  }
-}
-async function inspectProjectVNext(inputPath, options = {}) {
-  const projectDirectory = resolve2(inputPath);
-  try {
-    await requireDirectory(projectDirectory);
-  } catch (cause) {
-    throw new ProjectInspectionError(
-      "PROJECT_PATH_UNAVAILABLE",
-      projectDirectory,
-      `\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55 ${projectDirectory}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-      [],
-      { cause }
-    );
-  }
-  const manifestPath = join8(projectDirectory, "narracut.json");
-  let manifestBuffer;
-  try {
-    manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
-  } catch (cause) {
-    if (cause instanceof ProjectInspectionError) throw cause;
-    if (isFileSystemError(cause) && cause.code === "ENOENT") {
-      throw new ProjectInspectionError(
-        "NOT_A_NARRACUT_PROJECT",
-        manifestPath,
-        `\u76EE\u5F55\u4E2D\u6CA1\u6709 narracut.json\uFF1B\u8BF7\u9009\u62E9 Project VNext \u9879\u76EE\u76EE\u5F55\u3002`,
-        [],
-        { cause }
-      );
-    }
-    throw new ProjectInspectionError(
-      "PROJECT_PATH_UNAVAILABLE",
-      manifestPath,
-      `\u65E0\u6CD5\u8BFB\u53D6 ${manifestPath}\uFF1B\u8BF7\u68C0\u67E5\u8DEF\u5F84\u548C\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-      [],
-      { cause }
-    );
-  }
-  const manifestBytes = decodeUtf8(manifestBuffer, manifestPath, "narracut.json", false);
-  const parsedManifest = parseControlJson(
-    manifestBytes,
-    manifestPath,
-    "narracut.json",
-    MANIFEST_JSON_LIMITS
-  );
-  if (typeof parsedManifest !== "object" || parsedManifest === null || Array.isArray(parsedManifest) || !("kind" in parsedManifest) || parsedManifest.kind !== "narracut-project") {
-    throw new ProjectInspectionError(
-      "NOT_A_NARRACUT_PROJECT",
-      manifestPath,
-      `\u8BE5\u76EE\u5F55\u6CA1\u6709\u6709\u6548\u7684 Project VNext \u6807\u8BC6\uFF1B\u8BF7\u9009\u62E9\u5305\u542B kind=narracut-project \u6E05\u5355\u7684\u9879\u76EE\u76EE\u5F55\u3002`
-    );
-  }
-  const manifest = parsedManifest;
-  if (Number.isInteger(manifest.formatVersion) && manifest.formatVersion !== 1) {
-    throw new ProjectInspectionError(
-      "PROJECT_FORMAT_UNSUPPORTED",
-      manifestPath,
-      `\u9879\u76EE\u683C\u5F0F\u7248\u672C ${String(manifest.formatVersion)} \u4E0D\u53D7\u652F\u6301\uFF1B\u8BF7\u4F7F\u7528\u652F\u6301\u8BE5\u683C\u5F0F\u7684 Narracut \u7248\u672C\u3002`
-    );
-  }
-  const manifestDiagnostics = validateProjectManifest(manifest);
-  if (manifestDiagnostics.length > 0) throw invalidContent(manifestPath, manifestDiagnostics);
-  const requiredEntries = [
-    [join8(projectDirectory, "assets"), "assets/", "directory"],
-    [join8(projectDirectory, "speech"), "speech/", "directory"],
-    [join8(projectDirectory, "renders"), "renders/", "directory"]
-  ];
-  for (const [path, component, kind] of requiredEntries) {
-    try {
-      if (kind === "directory") await requireDirectory(path);
-      else await requireFile(path);
-    } catch (cause) {
-      if (isFileSystemError(cause) && cause.code !== "ENOENT") {
-        throw new ProjectInspectionError(
-          "PROJECT_PATH_UNAVAILABLE",
-          path,
-          `\u65E0\u6CD5\u8BFB\u53D6 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-          [],
-          { cause }
-        );
-      }
-      throw missingContent(path, component);
-    }
-  }
-  const renderProgramDirectories = await discoverRenderProgramDirectories(projectDirectory);
-  if (renderProgramDirectories.length === 0) {
-    throw missingContent(
-      projectDirectory,
-      "\u81F3\u5C11\u4E00\u4EFD\u5019\u9009\u6216\u4FEE\u8BA2\u5185\u90E8\u7684 render-program/"
-    );
-  }
-  let currentRevision;
-  try {
-    currentRevision = (await readCurrentPointer(projectDirectory)).revisionId;
-  } catch {
-  }
-  for (const programDirectory of renderProgramDirectories) {
-    const retained = relative(projectDirectory, programDirectory).match(/^\.narracut\/revisions\/([0-9a-f-]{36})\/render-program$/);
-    if (currentRevision && retained && retained[1] !== currentRevision) continue;
-    await validateRenderProgramDirectory(projectDirectory, programDirectory);
-  }
-  let projectBuffer;
-  let videoBuffer;
-  try {
-    [projectBuffer, videoBuffer] = await Promise.all([
-      readBoundedControlFile(
-        join8(projectDirectory, "project.json"),
-        "project.json",
-        10 * 1024 * 1024
-      ),
-      readBoundedControlFile(
-        join8(projectDirectory, "video.md"),
-        "video.md",
-        2 * 1024 * 1024
-      )
-    ]);
-  } catch (cause) {
-    if (cause instanceof ProjectInspectionError) throw cause;
-    const path = isFileSystemError(cause) && typeof cause.path === "string" ? cause.path : projectDirectory;
-    const component = path.startsWith(`${projectDirectory}/`) ? path.slice(projectDirectory.length + 1) : path;
-    if (isFileSystemError(cause) && cause.code === "ENOENT") {
-      throw missingContent(path, component);
-    }
-    throw new ProjectInspectionError(
-      "PROJECT_PATH_UNAVAILABLE",
-      path,
-      `\u65E0\u6CD5\u8BFB\u53D6 ${path}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
-      [],
-      { cause }
-    );
-  }
-  const projectBytes = decodeUtf8(
-    projectBuffer,
-    join8(projectDirectory, "project.json"),
-    "project.json",
-    false
-  );
-  const videoBytes = decodeUtf8(
-    videoBuffer,
-    join8(projectDirectory, "video.md"),
-    "video.md",
-    true
-  );
-  const projectPath = join8(projectDirectory, "project.json");
-  const parsedProject = parseControlJson(
-    projectBytes,
-    projectPath,
-    "project.json",
-    PROJECT_JSON_LIMITS
-  );
-  const projectValidation = validateProjectDsl(parsedProject);
-  if (projectValidation.project === void 0) {
-    throw invalidContent(projectPath, projectValidation.diagnostics);
-  }
-  let tts;
-  try {
-    tts = await readProjectTtsConfig(projectDirectory);
-  } catch (cause) {
-    if (cause instanceof ProjectTtsConfigError) {
-      throw invalidControlFile(cause.path, {
-        code: cause.code,
-        component: "tts.json",
-        jsonPath: "$",
-        message: cause.message
-      }, { cause });
-    }
-    throw cause;
-  }
-  const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
-    projectDirectory,
-    projectValidation.project,
-    {
-      ...tts.status === "configured" ? { currentTtsProfileId: tts.profileId } : {},
-      probeSpeechDurationMs: options.probeSpeechDurationMs
-    }
-  );
-  return {
-    projectDirectory,
-    manifest,
-    project: projectValidation.project,
-    projectRevision: `sha256:${createHash9("sha256").update(projectBuffer).digest("hex")}`,
-    videoBrief: videoBytes,
-    videoBriefRevision: `sha256:${createHash9("sha256").update(videoBuffer).digest("hex")}`,
-    renderPrograms: { directories: renderProgramDirectories },
-    assetStates,
-    tts,
-    speechStates,
-    timeline,
-    warnings
-  };
-}
+import { lstat as lstat7, open as open6, realpath as realpath5 } from "node:fs/promises";
+import { join as join12, relative as relative4, isAbsolute as isAbsolute3 } from "node:path";
 
 // src/server/render-program-input.ts
 function deepFreeze(value) {
@@ -28952,16 +30921,16 @@ function createRenderProgramInput(state, output, assetSources) {
 
 // src/server/project-preview.ts
 async function snapshotFile(root, path, limit) {
-  const full = join9(root, path), resolved = await realpath3(full), rel = relative2(await realpath3(root), resolved);
-  if (rel.startsWith("..") || isAbsolute2(rel) || (await lstat5(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
-  const expected = await lstat5(resolved);
-  const file2 = await open5(full, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
+  const full = join12(root, path), resolved = await realpath5(full), rel = relative4(await realpath5(root), resolved);
+  if (rel.startsWith("..") || isAbsolute3(rel) || (await lstat7(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
+  const expected = await lstat7(resolved);
+  const file2 = await open6(full, constants3.O_RDONLY | constants3.O_NOFOLLOW | constants3.O_NONBLOCK);
   try {
     const before = await file2.stat();
-    if (!before.isFile() || before.nlink !== 1 || before.dev !== expected.dev || before.ino !== expected.ino || await realpath3(full) !== resolved || before.size > limit) throw new Error("Preview \u6587\u4EF6\u4E0D\u53EF\u7528\u6216\u8D85\u8FC7\u5185\u5B58\u4E0A\u9650\u3002");
+    if (!before.isFile() || before.nlink !== 1 || before.dev !== expected.dev || before.ino !== expected.ino || await realpath5(full) !== resolved || before.size > limit) throw new Error("Preview \u6587\u4EF6\u4E0D\u53EF\u7528\u6216\u8D85\u8FC7\u5185\u5B58\u4E0A\u9650\u3002");
     const bytes = await file2.readFile();
     const after = await file2.stat();
-    if (await realpath3(full) !== resolved || bytes.length > limit || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("Preview \u8BFB\u53D6\u671F\u95F4\u5A92\u4F53\u53D1\u751F\u53D8\u5316\u3002");
+    if (await realpath5(full) !== resolved || bytes.length > limit || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("Preview \u8BFB\u53D6\u671F\u95F4\u5A92\u4F53\u53D1\u751F\u53D8\u5316\u3002");
     return bytes;
   } finally {
     await file2.close();
@@ -29255,26 +31224,26 @@ var ProjectRender = class {
     const known = [...this.#jobs.values()].find((job) => job.requestId === args.requestId);
     if (known) return { job: structuredClone(known) };
     if (this.#abort) throw new FinalRenderError("RENDER_BUSY", "\u5F53\u524D\u9879\u76EE\u5DF2\u6709\u6700\u7EC8 Render\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210\u6216\u53D6\u6D88\u3002");
-    if (!isAbsolute3(args.outputPath) || !args.outputPath.endsWith(".mp4") || /[\0\r\n]/.test(args.outputPath)) throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8BF7\u901A\u8FC7\u7CFB\u7EDF\u9009\u62E9\u5668\u6307\u5B9A\u65B0\u7684 MP4 \u8F93\u51FA\u4F4D\u7F6E\u3002");
+    if (!isAbsolute4(args.outputPath) || !args.outputPath.endsWith(".mp4") || /[\0\r\n]/.test(args.outputPath)) throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8BF7\u901A\u8FC7\u7CFB\u7EDF\u9009\u62E9\u5668\u6307\u5B9A\u65B0\u7684 MP4 \u8F93\u51FA\u4F4D\u7F6E\u3002");
     const abort = this.#abort = new AbortController();
     let preparedDone;
-    this.#preparing = new Promise((resolve4) => {
-      preparedDone = resolve4;
+    this.#preparing = new Promise((resolve5) => {
+      preparedDone = resolve5;
     });
     this.#pending.add(args.requestId);
     try {
       const prepared = await this.#inspect(opened);
       if (!prepared.source.ready || prepared.source.key !== args.key || !prepared.capture || !prepared.record || !prepared.program) throw new FinalRenderError("RENDER_NOT_READY", prepared.source.issues.map((issue2) => issue2.message).join("\uFF1B") || "\u51C6\u5907\u671F\u95F4\u63A5\u53D7\u72B6\u6001\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
-      const parent = await realpath4(dirname6(args.outputPath));
-      const outputPath = join10(parent, basename(args.outputPath));
+      const parent = await realpath6(dirname8(args.outputPath));
+      const outputPath = join13(parent, basename3(args.outputPath));
       try {
-        await lstat6(outputPath);
+        await lstat8(outputPath);
         throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8F93\u51FA\u6587\u4EF6\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u4F4D\u7F6E\uFF1B\u4E0D\u4F1A\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002");
       } catch (error51) {
         if (error51.code !== "ENOENT") throw error51;
       }
       abort.signal.throwIfAborted();
-      const job = { id: randomUUID9(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
+      const job = { id: randomUUID11(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
       this.#jobs.set(job.id, job);
       this.#running = this.#run(opened, prepared, job, abort);
       this.#pending.delete(args.requestId);
@@ -29338,13 +31307,13 @@ var ProjectRender = class {
     try {
       const parents = /* @__PURE__ */ new Map();
       for (const path of capture.mediaPaths.keys()) {
-        const parent2 = dirname6(path);
+        const parent2 = dirname8(path);
         if (!parents.has(parent2)) parents.set(parent2, /* @__PURE__ */ new Set());
-        parents.get(parent2).add(basename(path));
+        parents.get(parent2).add(basename3(path));
       }
       for (const [parent2, names] of parents) {
-        const watcher = watch(join10(opened.inspection.projectDirectory, parent2), (_event, file3) => {
-          if (!file3 || names.has(String(file3))) changed(join10(parent2, String(file3 ?? "")));
+        const watcher = watch(join13(opened.inspection.projectDirectory, parent2), (_event, file3) => {
+          if (!file3 || names.has(String(file3))) changed(join13(parent2, String(file3 ?? "")));
         });
         watcher.on("error", () => changed(parent2));
         watchers.push(watcher);
@@ -29363,8 +31332,8 @@ var ProjectRender = class {
       job.stage = "publishing";
       await verifyMedia();
       if (await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("CAPSULE_UNAVAILABLE", "\u6267\u884C\u73AF\u5883\u5728 Render \u671F\u95F4\u53D8\u5316\uFF0C\u672A\u751F\u6210\u4EA7\u7269\u3002");
-      temporary = join10(dirname6(job.outputPath), `.narracut-render-${randomUUID9()}.tmp`);
-      const file2 = await open6(temporary, constants3.O_WRONLY | constants3.O_CREAT | constants3.O_EXCL | constants3.O_NOFOLLOW, 384);
+      temporary = join13(dirname8(job.outputPath), `.narracut-render-${randomUUID11()}.tmp`);
+      const file2 = await open7(temporary, constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | constants4.O_NOFOLLOW, 384);
       try {
         await file2.writeFile(bytes);
         await file2.sync();
@@ -29372,10 +31341,10 @@ var ProjectRender = class {
         await file2.close();
       }
       await verifyMedia();
-      await link(temporary, job.outputPath);
+      await link2(temporary, job.outputPath);
       published = true;
       await verifyMedia();
-      const parent = await open6(dirname6(job.outputPath), constants3.O_RDONLY | constants3.O_DIRECTORY);
+      const parent = await open7(dirname8(job.outputPath), constants4.O_RDONLY | constants4.O_DIRECTORY);
       try {
         await parent.sync();
       } finally {
@@ -29386,8 +31355,8 @@ var ProjectRender = class {
       outcome = { status: "succeeded", stage: "completed" };
     } catch (error51) {
       if (published && temporary) {
-        const [own, target] = await Promise.all([lstat6(temporary), lstat6(job.outputPath)]).catch(() => []);
-        if (own && target && own.dev === target.dev && own.ino === target.ino) await unlink(job.outputPath).catch(() => {
+        const [own, target] = await Promise.all([lstat8(temporary), lstat8(job.outputPath)]).catch(() => []);
+        if (own && target && own.dev === target.dev && own.ino === target.ino) await unlink2(job.outputPath).catch(() => {
         });
       }
       if (abort.signal.aborted && !mediaFailure) outcome = { status: "cancelled" };
@@ -29398,7 +31367,7 @@ var ProjectRender = class {
       }
     } finally {
       for (const watcher of watchers) watcher.close();
-      if (temporary) await unlink(temporary).catch(() => {
+      if (temporary) await unlink2(temporary).catch(() => {
       });
       await origin.close();
       this.#abort = void 0;
@@ -29409,7 +31378,7 @@ var ProjectRender = class {
 };
 
 // src/server/project-delivery.ts
-import { randomUUID as randomUUID10 } from "node:crypto";
+import { randomUUID as randomUUID12 } from "node:crypto";
 
 // src/shared/representative-frames.ts
 function representativePlan(input, supplemental = []) {
@@ -29550,7 +31519,7 @@ var ProjectDelivery = class {
       if (this.#current && this.#current.binding.instanceId === args.instanceId && !args.supplements && await this.#fresh(opened, this.#current)) return this.status(opened);
       const supplements = supplementsSchema.parse(args.supplements ?? []);
       this.clear();
-      const current2 = new CandidateDelivery(randomUUID10(), snapshot.binding, snapshot.descriptor.input, supplements);
+      const current2 = new CandidateDelivery(randomUUID12(), snapshot.binding, snapshot.descriptor.input, supplements);
       this.#current = current2;
       this.#output = snapshot.descriptor.input.output;
       if (!await this.#fresh(opened, current2)) throw new Error("\u5019\u9009 Preview \u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6784\u5EFA\u3002");
@@ -29659,7 +31628,7 @@ var ProjectDelivery = class {
 };
 
 // src/server/project-checks.ts
-import { randomUUID as randomUUID11 } from "node:crypto";
+import { randomUUID as randomUUID13 } from "node:crypto";
 var ProjectChecks = class {
   constructor(preview) {
     this.preview = preview;
@@ -29755,7 +31724,7 @@ var ProjectChecks = class {
           }
         } }
       ];
-      const batch = new CheckBatch(randomUUID11(), identity2, checks);
+      const batch = new CheckBatch(randomUUID13(), identity2, checks);
       this.#batches.push(batch);
       this.#batches = this.#batches.slice(-2);
       void batch.run().then(async () => {
@@ -29800,9 +31769,9 @@ var ProjectChecks = class {
 };
 
 // plugins/narracut/src/server.ts
-import { randomUUID as randomUUID13 } from "node:crypto";
-import { readFile as readFile6 } from "node:fs/promises";
-import { basename as basename4, isAbsolute as isAbsolute5 } from "node:path";
+import { randomUUID as randomUUID14 } from "node:crypto";
+import { readFile as readFile7 } from "node:fs/promises";
+import { basename as basename5, isAbsolute as isAbsolute5 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -29918,8 +31887,8 @@ var CodexAppServerHost = class {
     const approval = this.#approvals.get(approvalId), child = this.#child;
     if (!approval || !child || approval.approved !== void 0) throw new Error("\u5DE5\u5177\u5BA1\u6279\u5DF2\u8FC7\u671F\u6216\u56DE\u6267\u5F85\u6838\u5BF9");
     approval.approved = approved;
-    await new Promise((resolve4, reject) => child.stdin.write(`${JSON.stringify({ id: approval.rpcId, result: { decision: approved ? "accept" : "decline" } })}
-`, (error51) => error51 ? reject(error51) : resolve4()));
+    await new Promise((resolve5, reject) => child.stdin.write(`${JSON.stringify({ id: approval.rpcId, result: { decision: approved ? "accept" : "decline" } })}
+`, (error51) => error51 ? reject(error51) : resolve5()));
   }
   async dispose() {
     this.#disposed = true;
@@ -29978,14 +31947,14 @@ var CodexAppServerHost = class {
       return Promise.reject(new Error("Codex App Server \u672A\u8FDE\u63A5\u3002"));
     }
     const id = ++this.#requestId;
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       const timer = setTimeout(() => {
         if (!this.#pending.delete(id)) return;
         const error51 = Object.assign(new Error(`${method} \u8D85\u8FC7 ${this.#requestTimeoutMs}ms \u672A\u54CD\u5E94\u3002`), { code: "CODEX_UNAVAILABLE" });
         reject(error51);
         this.#handleExit(child, error51);
       }, this.#requestTimeoutMs);
-      this.#pending.set(id, { method, resolve: resolve4, reject, timer });
+      this.#pending.set(id, { method, resolve: resolve5, reject, timer });
       child.stdin.write(`${JSON.stringify({ method, id, params })}
 `, (error51) => {
         if (error51 === null || error51 === void 0) return;
@@ -30123,1786 +32092,10 @@ var CodexAppServerHost = class {
   }
 };
 
-// src/server/project-lease-handoff.ts
-import { createServer as createServer2, request } from "node:http";
-async function listenForProjectHandoff(token, handoff) {
-  let pending = null;
-  const server = createServer2((req, res) => {
-    if (req.method !== "POST" || req.url !== "/handoff" || req.headers.authorization !== `Bearer ${token}`) {
-      res.writeHead(403).end();
-      return;
-    }
-    req.resume();
-    pending ??= handoff().catch((error51) => {
-      pending = null;
-      throw error51;
-    });
-    void pending.then(() => res.writeHead(204).end(), () => res.writeHead(409).end());
-  });
-  server.requestTimeout = 15e3;
-  server.headersTimeout = 1e4;
-  await new Promise((resolve4, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve4);
-  });
-  server.unref();
-  return { port: server.address().port, close: () => {
-    server.close();
-  } };
-}
-async function requestProjectHandoff(port, token) {
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
-  await new Promise((resolve4, reject) => {
-    const req = request({ hostname: "127.0.0.1", port, path: "/handoff", method: "POST", headers: { authorization: `Bearer ${token}` }, agent: false }, (res) => {
-      res.resume();
-      res.once("end", () => res.statusCode === 204 ? resolve4() : reject(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
-    });
-    req.setTimeout(15e3, () => req.destroy(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
-    req.on("error", reject);
-    req.end();
-  });
-}
-
-// src/server/project-lifecycle.ts
-import { createHash as createHash10, randomUUID as randomUUID12 } from "node:crypto";
-import { constants as fsConstants2 } from "node:fs";
-import {
-  access,
-  link as link2,
-  lstat as lstat7,
-  mkdir as mkdir5,
-  open as openFile,
-  readFile as readFile5,
-  readdir as readdir5,
-  realpath as realpath5,
-  rename as rename5,
-  rmdir,
-  rm as rm7,
-  unlink as unlink2,
-  writeFile as writeFile3
-} from "node:fs/promises";
-import { basename as basename2, dirname as dirname7, isAbsolute as isAbsolute4, join as join11, relative as relative3, resolve as resolve3, sep as sep2 } from "node:path";
-var STARTER_REACT_VERSION = "19.2.8";
-var STARTER_REMOTION_VERSION = RUNTIME_REMOTION_VERSION;
-var ProjectLifecycleError = class extends Error {
-  constructor(code, path, message, options = {}) {
-    super(message, options);
-    this.code = code;
-    this.path = path;
-    this.name = "ProjectLifecycleError";
-  }
-  code;
-  path;
-};
-var ProjectTtsConfirmationError = class extends Error {
-  constructor(affectedSpeechCount) {
-    super(`\u4FDD\u5B58\u5F53\u524D TTS \u914D\u7F6E\u4F1A\u79FB\u9664 ${affectedSpeechCount} \u6761\u4E0D\u5339\u914D\u7684 Speech \u8BB0\u5F55\uFF0C\u9700\u8981\u91CD\u65B0\u786E\u8BA4\u3002`);
-    this.affectedSpeechCount = affectedSpeechCount;
-    this.name = "ProjectTtsConfirmationError";
-  }
-  affectedSpeechCount;
-  code = "TTS_CONFIRMATION_REQUIRED";
-};
-var OPERATION_MARKER = ".narracut-operation.json";
-var activeLeasePaths = /* @__PURE__ */ new Set();
-function isCreateOperationMarker(value, projectDirectory, operationToken) {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const marker = value;
-  return Object.keys(marker).length === 5 && marker.kind === "narracut-operation" && marker.version === 1 && marker.operation === "create" && marker.targetDirectory === projectDirectory && typeof marker.operationToken === "string" && marker.operationToken.length > 0 && (operationToken === void 0 || marker.operationToken === operationToken);
-}
-async function pathExists(path) {
-  try {
-    await lstat7(path);
-    return true;
-  } catch (error51) {
-    if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return false;
-    throw error51;
-  }
-}
-async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory, confirmed) {
-  const facts = await lstat7(temporaryDirectory);
-  if (!facts.isDirectory() || facts.isSymbolicLink()) {
-    throw new ProjectLifecycleError(
-      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
-      temporaryDirectory,
-      `\u4E34\u65F6\u8DEF\u5F84\u4E0D\u662F\u53EF\u786E\u8BA4\u5F52\u5C5E\u7684\u666E\u901A\u76EE\u5F55\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
-    );
-  }
-  const markerPath = join11(temporaryDirectory, OPERATION_MARKER);
-  let marker;
-  try {
-    const markerFacts = await lstat7(markerPath);
-    if (!markerFacts.isFile() || markerFacts.isSymbolicLink() || markerFacts.nlink !== 1 || markerFacts.size > 4096) {
-      throw new Error("invalid marker");
-    }
-    marker = JSON.parse(await readFile5(markerPath, "utf8"));
-  } catch {
-    throw new ProjectLifecycleError(
-      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
-      temporaryDirectory,
-      `\u4E34\u65F6\u76EE\u5F55\u7F3A\u5C11\u53EF\u9A8C\u8BC1\u7684\u521B\u5EFA\u6807\u8BB0\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
-    );
-  }
-  if (!isCreateOperationMarker(marker, projectDirectory)) {
-    throw new ProjectLifecycleError(
-      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
-      temporaryDirectory,
-      `\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u4E0E\u672C\u6B21\u521B\u5EFA\u76EE\u6807\u4E0D\u5339\u914D\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
-    );
-  }
-  if (!confirmed) {
-    throw new ProjectLifecycleError(
-      "PROJECT_TEMPORARY_RESIDUE",
-      temporaryDirectory,
-      `\u53D1\u73B0\u4E0E\u672C\u6B21\u76EE\u6807\u5339\u914D\u7684\u521B\u5EFA\u6B8B\u7559\uFF1A${temporaryDirectory}\u3002\u8BF7\u786E\u8BA4\u6E05\u7406\u540E\u4ECE\u5934\u91CD\u8BD5\u3002`
-    );
-  }
-  const currentFacts = await lstat7(temporaryDirectory);
-  if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino || !currentFacts.isDirectory()) {
-    throw new ProjectLifecycleError(
-      "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
-      temporaryDirectory,
-      `\u4E34\u65F6\u76EE\u5F55\u5728\u786E\u8BA4\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
-    );
-  }
-  await rm7(temporaryDirectory, { recursive: true });
-}
-function starterLockfile() {
-  return `lockfileVersion: '9.0'
-
-settings:
-  autoInstallPeers: true
-  excludeLinksFromLockfile: false
-
-importers:
-
-  .:
-    dependencies:
-      react:
-        specifier: ${STARTER_REACT_VERSION}
-        version: ${STARTER_REACT_VERSION}
-      react-dom:
-        specifier: ${STARTER_REACT_VERSION}
-        version: ${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION})
-      remotion:
-        specifier: ${STARTER_REMOTION_VERSION}
-        version: ${STARTER_REMOTION_VERSION}(react-dom@${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION}))(react@${STARTER_REACT_VERSION})
-
-packages:
-
-  react-dom@${STARTER_REACT_VERSION}:
-    resolution: {integrity: sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==}
-    peerDependencies:
-      react: ^${STARTER_REACT_VERSION}
-
-  react@${STARTER_REACT_VERSION}:
-    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
-    engines: {node: '>=0.10.0'}
-
-  remotion@${STARTER_REMOTION_VERSION}:
-    resolution: {integrity: sha512-L47ImosLFn/uSEGhgV6nO9agEjrRTD+xfeIC4QlGSkCkHjG4IpH2dm0psRoLrK0eo8iiUc4rwUFNnNxQpLnx2w==}
-    peerDependencies:
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
-
-  scheduler@0.27.0:
-    resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
-
-snapshots:
-
-  react-dom@${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION}):
-    dependencies:
-      react: ${STARTER_REACT_VERSION}
-      scheduler: 0.27.0
-
-  react@${STARTER_REACT_VERSION}: {}
-
-  remotion@${STARTER_REMOTION_VERSION}(react-dom@${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION}))(react@${STARTER_REACT_VERSION}):
-    dependencies:
-      react: ${STARTER_REACT_VERSION}
-      react-dom: ${STARTER_REACT_VERSION}(react@${STARTER_REACT_VERSION})
-
-  scheduler@0.27.0: {}
-`;
-}
-function starterManifest(projectId) {
-  return JSON.stringify({ kind: "narracut-project", formatVersion: 1, projectId });
-}
-function starterCurrent(revisionId) {
-  return JSON.stringify({ revisionId });
-}
-function starterRevision(revisionId) {
-  return JSON.stringify({
-    revisionId,
-    previousRevisionId: null,
-    briefFingerprint: revisionOf(Buffer.alloc(0)),
-    source: "starter",
-    summary: "Narracut starter Render Program"
-  });
-}
-function starterProgramManifest() {
-  return JSON.stringify({ apiVersion: 1, output: { width: 1920, height: 1080, fps: 30 } });
-}
-function starterPackageManifest() {
-  return JSON.stringify({
-    private: true,
-    dependencies: {
-      react: STARTER_REACT_VERSION,
-      "react-dom": STARTER_REACT_VERSION,
-      remotion: STARTER_REMOTION_VERSION
-    }
-  });
-}
-function starterSource() {
-  return 'import { AbsoluteFill } from "remotion";\n\ntype RenderProgramInputV1 = Readonly<{ apiVersion: 1 }>;\n\nexport function RenderProgram(input: RenderProgramInputV1) {\n  void input;\n  return <AbsoluteFill style={{ backgroundColor: "#090d0e" }} />;\n}\n';
-}
-async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join11(
-    temporaryDirectory,
-    ".narracut",
-    "revisions",
-    revisionId,
-    "render-program"
-  );
-  await Promise.all([
-    mkdir5(join11(temporaryDirectory, "assets"), { recursive: true }),
-    mkdir5(join11(temporaryDirectory, "speech"), { recursive: true }),
-    mkdir5(join11(temporaryDirectory, "renders"), { recursive: true }),
-    mkdir5(join11(renderProgramDirectory, "src"), { recursive: true }),
-    mkdir5(join11(renderProgramDirectory, "resources"), { recursive: true })
-  ]);
-  await Promise.all([
-    writeFile3(join11(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
-    writeFile3(join11(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
-    writeFile3(join11(temporaryDirectory, "video.md"), ""),
-    writeFile3(join11(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
-    writeFile3(
-      join11(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
-      starterRevision(revisionId)
-    ),
-    writeFile3(join11(renderProgramDirectory, "program.json"), starterProgramManifest()),
-    writeFile3(join11(renderProgramDirectory, "package.json"), starterPackageManifest()),
-    writeFile3(join11(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
-    writeFile3(join11(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
-  ]);
-}
-async function validateStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join11(
-    temporaryDirectory,
-    ".narracut",
-    "revisions",
-    revisionId,
-    "render-program"
-  );
-  const [
-    inspection,
-    manifest,
-    projectDsl,
-    videoBrief,
-    current,
-    revision,
-    programManifest,
-    packageManifest2,
-    lockfile,
-    source
-  ] = await Promise.all([
-    inspectProjectVNext(temporaryDirectory),
-    readFile5(join11(temporaryDirectory, "narracut.json"), "utf8"),
-    readFile5(join11(temporaryDirectory, "project.json"), "utf8"),
-    readFile5(join11(temporaryDirectory, "video.md"), "utf8"),
-    readFile5(join11(temporaryDirectory, ".narracut", "current.json"), "utf8"),
-    readFile5(join11(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
-    readFile5(join11(renderProgramDirectory, "program.json"), "utf8"),
-    readFile5(join11(renderProgramDirectory, "package.json"), "utf8"),
-    readFile5(join11(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
-    readFile5(join11(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
-  ]);
-  if (inspection.manifest.projectId !== projectId || inspection.project.assets.length !== 0 || inspection.project.scenes.length !== 0 || inspection.videoBrief !== "" || manifest !== starterManifest(projectId) || projectDsl !== '{"assets":[],"scenes":[]}' || videoBrief !== "" || current !== starterCurrent(revisionId) || revision !== starterRevision(revisionId) || programManifest !== starterProgramManifest() || packageManifest2 !== starterPackageManifest() || lockfile !== starterLockfile() || source !== starterSource()) {
-    throw new Error("starter \u9879\u76EE\u590D\u6838\u7ED3\u679C\u4E0E\u521B\u5EFA\u8F93\u5165\u4E0D\u4E00\u81F4\u3002");
-  }
-}
-var INTERNAL_JSON_LIMITS = {
-  maxDepth: 8,
-  maxArrayItems: 32,
-  maxObjectFields: 64,
-  maxNodes: 256,
-  maxStringScalars: 4096,
-  maxStringBytes: 16384,
-  maxNumberBytes: 32
-};
-var UUID_PATTERN2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-function isPlainRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-async function readRegularUtf8(path, maxBytes) {
-  const facts = await lstat7(path);
-  if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > maxBytes) {
-    throw new Error(`\u4E0D\u662F\u53D7\u652F\u6301\u7684\u666E\u901A\u6587\u4EF6\uFF1A${path}`);
-  }
-  return readFile5(path, "utf8");
-}
-async function validateCurrentProjectState(inspection) {
-  const projectDirectory = inspection.projectDirectory;
-  const currentPath = join11(projectDirectory, ".narracut", "current.json");
-  let briefRevision = null;
-  try {
-    const current = await readCurrentPointer(projectDirectory);
-    await verifyRevision(projectDirectory, current.revisionId);
-    const revisionId = current.revisionId;
-    const revisionDirectory = join11(projectDirectory, ".narracut", "revisions", revisionId);
-    const renderProgramDirectory = join11(revisionDirectory, "render-program");
-    if (!inspection.renderPrograms.directories.includes(renderProgramDirectory)) {
-      throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6CA1\u6709\u53EF\u68C0\u67E5\u7684 Render Program\u3002");
-    }
-    const [revision, program, packageJson, lockfile, source] = await Promise.all([
-      readRegularUtf8(join11(revisionDirectory, "revision.json"), 1048576).then((value) => JSON.parse(value)),
-      readRegularUtf8(join11(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join11(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join11(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
-      readRegularUtf8(join11(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
-    ]);
-    if (!isPlainRecord(revision) || Object.keys(revision).some(
-      (key) => !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary", "programFingerprint", "acceptedAt", "inputFingerprint", "sourceRevision", "acceptance", "requestId"].includes(key)
-    ) || revision.revisionId !== revisionId || !(revision.previousRevisionId === null || typeof revision.previousRevisionId === "string" && UUID_PATTERN2.test(revision.previousRevisionId)) || revision.briefFingerprint !== void 0 && (typeof revision.briefFingerprint !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(revision.briefFingerprint)) || typeof revision.source !== "string" || typeof revision.summary !== "string") {
-      throw new Error("\u5F53\u524D\u4FEE\u8BA2\u5143\u6570\u636E\u65E0\u6548\u3002");
-    }
-    const output = isPlainRecord(program) && isPlainRecord(program.output) ? program.output : null;
-    if (!isPlainRecord(program) || program.apiVersion !== 1 || output === null || ![output.width, output.height, output.fps].every(
-      (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0
-    )) {
-      throw new Error("\u5F53\u524D Render Program manifest \u65E0\u6548\u3002");
-    }
-    if (!isPlainRecord(packageJson) || !isPlainRecord(packageJson.dependencies)) {
-      throw new Error("\u5F53\u524D Render Program package manifest \u65E0\u6548\u3002");
-    }
-    const dependencies = Object.entries(packageJson.dependencies);
-    if (packageJson.private !== true || dependencies.length === 0 || dependencies.some(
-      ([, version2]) => typeof version2 !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version2)
-    ) || dependencies.some(
-      ([name, version2]) => !lockfile.includes(`      ${name}:
-        specifier: ${String(version2)}
-`)
-    ) || !source.includes("export function RenderProgram(input:")) {
-      throw new Error("\u5F53\u524D Render Program \u4F9D\u8D56\u6216\u5165\u53E3\u65E0\u6548\u3002");
-    }
-    briefRevision = typeof revision.briefFingerprint === "string" ? revision.briefFingerprint : null;
-  } catch (cause) {
-    if (cause instanceof ProjectLifecycleError) throw cause;
-    throw new ProjectLifecycleError(
-      "PROJECT_CURRENT_INVALID",
-      currentPath,
-      `\u5F53\u524D Render Program \u4FEE\u8BA2\u65E0\u6548\uFF1A${projectDirectory}\u3002Narracut \u4E0D\u4F1A\u6253\u5F00\u6216\u4FEE\u590D\u8BE5\u9879\u76EE\u3002`,
-      { cause }
-    );
-  }
-  return briefRevision;
-}
-async function captureDirectoryIdentity(path) {
-  const facts = await lstat7(path);
-  if (!facts.isDirectory() || facts.isSymbolicLink()) {
-    throw new Error(`\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u76EE\u5F55\uFF1A${path}`);
-  }
-  return { dev: facts.dev, ino: facts.ino };
-}
-function hasIdentity(facts, identity2) {
-  return facts.dev === identity2.dev && facts.ino === identity2.ino;
-}
-async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, markerWritten, projectDirectory, operationToken) {
-  let facts;
-  try {
-    facts = await lstat7(temporaryDirectory);
-  } catch (error51) {
-    if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return;
-    throw error51;
-  }
-  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity2)) {
-    throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u5DF2\u88AB\u66FF\u6362\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
-  }
-  if (markerWritten) {
-    const marker = JSON.parse(await readRegularUtf8(
-      join11(temporaryDirectory, OPERATION_MARKER),
-      4096
-    ));
-    if (!isCreateOperationMarker(marker, projectDirectory, operationToken)) {
-      throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u5DF2\u53D8\u5316\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
-    }
-  }
-  await rm7(temporaryDirectory, { recursive: true });
-}
-async function cleanupTargetReservation(projectDirectory, identity2) {
-  let facts;
-  try {
-    facts = await lstat7(projectDirectory);
-  } catch (error51) {
-    if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return;
-    throw error51;
-  }
-  if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, identity2)) {
-    throw new Error("\u53D1\u5E03\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u5DF2\u88AB\u66FF\u6362\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
-  }
-  if ((await readdir5(projectDirectory)).length !== 0) {
-    throw new Error("\u53D1\u5E03\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u51FA\u73B0\u5916\u90E8\u5185\u5BB9\uFF0CNarracut \u62D2\u7EDD\u5220\u9664\u3002");
-  }
-  await rmdir(projectDirectory);
-}
-async function createProjectVNext(inputPath, options = {}) {
-  const projectDirectory = resolve3(inputPath);
-  const projectName = basename2(projectDirectory);
-  if (projectName === "" || projectName === "." || projectName === "..") {
-    throw new ProjectLifecycleError(
-      "PROJECT_CREATE_TARGET_INVALID",
-      projectDirectory,
-      "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
-    );
-  }
-  const temporaryDirectory = join11(dirname7(projectDirectory), `.${projectName}.narracut-tmp`);
-  const createId = options.createId ?? randomUUID12;
-  const projectId = createId();
-  const revisionId = createId();
-  const operationToken = randomUUID12();
-  let temporaryIdentity = null;
-  let markerWritten = false;
-  let targetReservationIdentity = null;
-  try {
-    if (await pathExists(projectDirectory)) {
-      throw new ProjectLifecycleError(
-        "PROJECT_CREATE_TARGET_EXISTS",
-        projectDirectory,
-        `\u521B\u5EFA\u76EE\u6807\u5DF2\u5B58\u5728\uFF1A${projectDirectory}\u3002\u8BF7\u9009\u62E9\u5C1A\u4E0D\u5B58\u5728\u7684\u65B0\u8DEF\u5F84\u3002`
-      );
-    }
-    if (await pathExists(temporaryDirectory)) {
-      await removeConfirmedCreateResidue(
-        temporaryDirectory,
-        projectDirectory,
-        options.confirmTemporaryCleanup === true
-      );
-    }
-    await mkdir5(temporaryDirectory);
-    temporaryIdentity = await captureDirectoryIdentity(temporaryDirectory);
-    await writeFile3(join11(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
-      kind: "narracut-operation",
-      version: 1,
-      operation: "create",
-      targetDirectory: projectDirectory,
-      operationToken
-    }));
-    markerWritten = true;
-    await writeStarterProject(temporaryDirectory, projectId, revisionId);
-    await validateStarterProject(temporaryDirectory, projectId, revisionId);
-    if (process.platform !== "win32") {
-      try {
-        await mkdir5(projectDirectory);
-      } catch (error51) {
-        if (error51 instanceof Error && "code" in error51 && error51.code === "EEXIST") {
-          throw new ProjectLifecycleError(
-            "PROJECT_CREATE_TARGET_EXISTS",
-            projectDirectory,
-            `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`,
-            { cause: error51 }
-          );
-        }
-        throw error51;
-      }
-      targetReservationIdentity = await captureDirectoryIdentity(projectDirectory);
-    } else if (await pathExists(projectDirectory)) {
-      throw new ProjectLifecycleError(
-        "PROJECT_CREATE_TARGET_EXISTS",
-        projectDirectory,
-        `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`
-      );
-    }
-    await unlink2(join11(temporaryDirectory, OPERATION_MARKER));
-    markerWritten = false;
-    if (targetReservationIdentity !== null) {
-      const currentReservation = await lstat7(projectDirectory);
-      if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir5(projectDirectory)).length !== 0) {
-        throw new ProjectLifecycleError(
-          "PROJECT_CREATE_TARGET_EXISTS",
-          projectDirectory,
-          `\u539F\u5B50\u53D1\u5E03\u65F6\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u8986\u76D6\u3002`
-        );
-      }
-    }
-    await rename5(temporaryDirectory, projectDirectory);
-    temporaryIdentity = null;
-    targetReservationIdentity = null;
-    return { projectDirectory, projectId, revisionId };
-  } catch (cause) {
-    try {
-      if (targetReservationIdentity !== null) {
-        await cleanupTargetReservation(projectDirectory, targetReservationIdentity);
-      }
-      if (temporaryIdentity !== null) {
-        await cleanupOwnedTemporaryDirectory(
-          temporaryDirectory,
-          temporaryIdentity,
-          markerWritten,
-          projectDirectory,
-          operationToken
-        );
-      }
-    } catch (cleanupCause) {
-      throw new ProjectLifecycleError(
-        "PROJECT_CREATE_CLEANUP_FAILED",
-        temporaryDirectory,
-        `\u521B\u5EFA\u5931\u8D25\uFF0C\u4E14\u65E0\u6CD5\u8BC1\u660E\u4E34\u65F6\u4EA7\u7269\u4ECD\u5F52\u672C\u6B21\u64CD\u4F5C\u6240\u6709\uFF1B\u5DF2\u4FDD\u7559\u73B0\u573A\uFF1A${temporaryDirectory}\u3002`,
-        { cause: cleanupCause }
-      );
-    }
-    if (cause instanceof ProjectLifecycleError) throw cause;
-    throw new ProjectLifecycleError(
-      "PROJECT_CREATE_FAILED",
-      projectDirectory,
-      `\u65E0\u6CD5\u521B\u5EFA Project VNext\uFF1A${projectDirectory}\u3002`,
-      { cause }
-    );
-  }
-}
-async function readProcessIdentity(pid) {
-  if (process.platform !== "linux") return null;
-  try {
-    const statBytes = await readFile5(`/proc/${pid}/stat`, "utf8");
-    const commandEnd = statBytes.lastIndexOf(")");
-    if (commandEnd < 0) return null;
-    return statBytes.slice(commandEnd + 2).trim().split(/\s+/u)[19] ?? null;
-  } catch {
-    return null;
-  }
-}
-async function leaseHolderIsAlive(marker) {
-  if (!Number.isSafeInteger(marker.pid) || marker.pid <= 0) return true;
-  try {
-    process.kill(marker.pid, 0);
-  } catch (error51) {
-    if (error51 instanceof Error && "code" in error51 && error51.code === "ESRCH") return false;
-    return true;
-  }
-  if (marker.processIdentity === null) return true;
-  const currentIdentity = await readProcessIdentity(marker.pid);
-  return currentIdentity === null || currentIdentity === marker.processIdentity;
-}
-function isLeaseMarker(value) {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const marker = value;
-  return marker.kind === "narracut-project-lease" && marker.version === 1 && typeof marker.projectDirectory === "string" && typeof marker.projectId === "string" && typeof marker.pid === "number" && (marker.processIdentity === null || typeof marker.processIdentity === "string") && typeof marker.token === "string";
-}
-async function clearStaleLease(leasePath) {
-  let facts;
-  let marker;
-  try {
-    facts = await lstat7(leasePath);
-    if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 4096) return false;
-    marker = JSON.parse(await readFile5(leasePath, "utf8"));
-  } catch {
-    return false;
-  }
-  if (!isLeaseMarker(marker) || await leaseHolderIsAlive(marker)) return false;
-  const currentFacts = await lstat7(leasePath);
-  if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino) return false;
-  await unlink2(leasePath);
-  return true;
-}
-async function acquireProjectLease(inspection, onHandoff) {
-  const projectDirectory = inspection.projectDirectory;
-  const leasePath = join11(projectDirectory, ".narracut", "workspace.lease");
-  let transferred = false;
-  if (onHandoff) {
-    const existing = await readFile5(leasePath, "utf8").then((bytes) => JSON.parse(bytes)).catch(() => null);
-    if (existing && isLeaseMarker(existing) && existing.projectId === inspection.manifest.projectId && existing.projectDirectory === projectDirectory && existing.handoffPort && await leaseHolderIsAlive(existing)) {
-      try {
-        await requestProjectHandoff(existing.handoffPort, existing.token);
-        transferred = true;
-      } catch (cause) {
-        throw new ProjectLifecycleError("PROJECT_IN_USE", projectDirectory, "\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9\uFF1B\u5C1A\u672A\u53D6\u5F97\u4EFB\u52A1\u63A7\u5236\u6743\u3002", { cause });
-      }
-    }
-  }
-  if (activeLeasePaths.has(leasePath)) {
-    throw new ProjectLifecycleError(
-      "PROJECT_IN_USE",
-      projectDirectory,
-      `\u9879\u76EE\u5DF2\u7531\u53E6\u4E00\u4E2A Narracut \u5DE5\u4F5C\u533A\u5360\u7528\uFF1A${projectDirectory}\u3002`
-    );
-  }
-  const marker = {
-    kind: "narracut-project-lease",
-    version: 1,
-    projectDirectory,
-    projectId: inspection.manifest.projectId,
-    pid: process.pid,
-    processIdentity: await readProcessIdentity(process.pid),
-    token: randomUUID12()
-  };
-  let handle;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      handle = await openFile(leasePath, "wx", 384);
-      break;
-    } catch (error51) {
-      if (!(error51 instanceof Error && "code" in error51 && error51.code === "EEXIST")) throw error51;
-      if (attempt === 0 && await clearStaleLease(leasePath)) continue;
-      throw new ProjectLifecycleError(
-        "PROJECT_IN_USE",
-        projectDirectory,
-        `\u9879\u76EE\u5DF2\u7531\u53E6\u4E00\u4E2A Narracut \u5DE5\u4F5C\u533A\u5360\u7528\uFF1A${projectDirectory}\u3002`,
-        { cause: error51 }
-      );
-    }
-  }
-  if (handle === void 0) {
-    throw new ProjectLifecycleError(
-      "PROJECT_IN_USE",
-      projectDirectory,
-      `\u65E0\u6CD5\u53D6\u5F97\u9879\u76EE\u5199\u5165\u79DF\u7EA6\uFF1A${projectDirectory}\u3002`
-    );
-  }
-  let endpoint;
-  try {
-    if (onHandoff) {
-      endpoint = await listenForProjectHandoff(marker.token, onHandoff);
-      marker.handoffPort = endpoint.port;
-    }
-    await handle.writeFile(JSON.stringify(marker));
-    await handle.sync();
-  } catch (cause) {
-    endpoint?.close();
-    await handle.close();
-    await rm7(leasePath, { force: true });
-    throw new ProjectLifecycleError(
-      "PROJECT_IN_USE",
-      projectDirectory,
-      `\u65E0\u6CD5\u5199\u5165\u9879\u76EE\u79DF\u7EA6\uFF1A${projectDirectory}\u3002`,
-      { cause }
-    );
-  }
-  await handle.close();
-  let leaseDirectoryHandle;
-  try {
-    leaseDirectoryHandle = await openFile(dirname7(leasePath), "r");
-  } catch (cause) {
-    endpoint?.close();
-    await rm7(leasePath, { force: true });
-    throw new ProjectLifecycleError(
-      "PROJECT_IN_USE",
-      projectDirectory,
-      `\u65E0\u6CD5\u951A\u5B9A\u9879\u76EE\u79DF\u7EA6\u76EE\u5F55\uFF1A${projectDirectory}\u3002`,
-      { cause }
-    );
-  }
-  activeLeasePaths.add(leasePath);
-  let released = false;
-  const assertCurrent = async () => {
-    if (released) {
-      throw new ProjectLifecycleError(
-        "PROJECT_IDENTITY_LOST",
-        projectDirectory,
-        "\u9879\u76EE\u5DE5\u4F5C\u533A\u79DF\u7EA6\u5DF2\u7ECF\u91CA\u653E\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u3002"
-      );
-    }
-    try {
-      const current = JSON.parse(await readFile5(leasePath, "utf8"));
-      if (current.token !== marker.token || current.projectId !== marker.projectId) throw new Error("\u79DF\u7EA6\u8EAB\u4EFD\u4E0D\u5339\u914D");
-    } catch (cause) {
-      throw new ProjectLifecycleError(
-        "PROJECT_IDENTITY_LOST",
-        projectDirectory,
-        "\u9879\u76EE\u5199\u5165\u79DF\u7EA6\u5DF2\u7ECF\u5931\u6548\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
-        { cause }
-      );
-    }
-  };
-  const release2 = async () => {
-    if (released) return;
-    released = true;
-    endpoint?.close();
-    activeLeasePaths.delete(leasePath);
-    const anchoredLeasePath = process.platform === "win32" ? leasePath : `/dev/fd/${leaseDirectoryHandle.fd}/workspace.lease`;
-    try {
-      const current = JSON.parse(await readFile5(anchoredLeasePath, "utf8"));
-      if (current.token === marker.token) await unlink2(anchoredLeasePath);
-    } catch (error51) {
-      if (!(error51 instanceof Error && "code" in error51 && error51.code === "ENOENT")) throw error51;
-    } finally {
-      await leaseDirectoryHandle.close();
-    }
-  };
-  return { assertCurrent, release: release2, transferred };
-}
-function revisionOf(bytes) {
-  return `sha256:${createHash10("sha256").update(bytes).digest("hex")}`;
-}
-async function currentProjectRevision(projectFile, message) {
-  try {
-    return await readProjectVNextRevision(projectFile);
-  } catch (cause) {
-    throw new ProjectLifecycleError(
-      "PROJECT_SAVE_CONFLICT",
-      projectFile,
-      message,
-      { cause }
-    );
-  }
-}
-function assertWorkbenchMutation(current, next, projectPath) {
-  if (JSON.stringify(current.assets) !== JSON.stringify(next.assets)) {
-    throw new ProjectLifecycleError(
-      "PROJECT_SAVE_FAILED",
-      projectPath,
-      "\u672C\u6B21\u4FDD\u5B58\u53EA\u80FD\u4FEE\u6539 Scene\uFF1BAsset \u767B\u8BB0\u8868\u5FC5\u987B\u4FDD\u6301\u4E0D\u53D8\u3002"
-    );
-  }
-  const currentScenes = new Map(current.scenes.map((scene) => [scene.id, scene]));
-  for (const scene of next.scenes) {
-    const previous = currentScenes.get(scene.id);
-    if (previous === void 0) {
-      if (scene.speech !== void 0) {
-        throw new ProjectLifecycleError(
-          "PROJECT_SAVE_FAILED",
-          projectPath,
-          "\u65B0\u589E\u6216\u590D\u5236\u7684 Scene \u4E0D\u80FD\u521B\u5EFA Speech\uFF1B\u8BF7\u4ECE\u8868\u683C\u5DE5\u4F5C\u533A\u91CD\u8BD5\u3002"
-        );
-      }
-      continue;
-    }
-    if (scene.narration.text !== previous.narration.text && scene.speech !== void 0) {
-      throw new ProjectLifecycleError(
-        "PROJECT_SAVE_FAILED",
-        projectPath,
-        `Scene ${scene.id} \u4FEE\u6539 Narration \u540E\u5FC5\u987B\u79FB\u9664\u5931\u6548 Speech\u3002`
-      );
-    }
-    if (scene.speech !== void 0 && JSON.stringify(scene.speech) !== JSON.stringify(previous.speech)) {
-      throw new ProjectLifecycleError(
-        "PROJECT_SAVE_FAILED",
-        projectPath,
-        `Scene ${scene.id} \u7684 Speech \u4E0D\u5C5E\u4E8E\u672C\u7968\u53EF\u5199\u8303\u56F4\u3002`
-      );
-    }
-  }
-}
-function assetSourceRejection(inspection, code, message) {
-  return { status: "rejected", code, message, asset: null, inspection };
-}
-var MAX_ASSET_FILENAME_BYTES = 255;
-function truncateUtf8(value, maxBytes) {
-  let result = value;
-  while (Buffer.byteLength(result, "utf8") > maxBytes) result = [...result].slice(0, -1).join("");
-  return result;
-}
-function safeAssetFilename(sourcePath) {
-  const original = basename2(sourcePath).replace(/[\u0000-\u001f\u007f]/gu, "_");
-  const fallback = original === "" || original === "." || original === ".." ? "asset" : original;
-  if (Buffer.byteLength(fallback, "utf8") <= MAX_ASSET_FILENAME_BYTES) return fallback;
-  const extensionIndex = fallback.lastIndexOf(".");
-  const extension = extensionIndex > 0 && Buffer.byteLength(fallback.slice(extensionIndex), "utf8") <= 64 ? fallback.slice(extensionIndex) : "";
-  const stem = truncateUtf8(
-    extension === "" ? fallback : fallback.slice(0, extensionIndex),
-    MAX_ASSET_FILENAME_BYTES - Buffer.byteLength(extension, "utf8")
-  );
-  return `${stem || "asset"}${extension}`;
-}
-function suffixedAssetFilename(filename, suffix) {
-  const extensionIndex = filename.lastIndexOf(".");
-  const stem = extensionIndex > 0 ? filename.slice(0, extensionIndex) : filename;
-  const extension = extensionIndex > 0 ? filename.slice(extensionIndex) : "";
-  const marker = suffix === 1 ? "" : `-${suffix}`;
-  const stemBudget = MAX_ASSET_FILENAME_BYTES - Buffer.byteLength(marker, "utf8") - Buffer.byteLength(extension, "utf8");
-  return `${truncateUtf8(stem, Math.max(1, stemBudget)) || "asset"}${marker}${extension}`;
-}
-async function uniqueAssetPath(assetsDirectory, sourcePath) {
-  const filename = safeAssetFilename(sourcePath);
-  for (let suffix = 1; suffix <= 1e4; suffix += 1) {
-    const candidate = suffixedAssetFilename(filename, suffix);
-    const relativePath = `assets/${candidate}`;
-    try {
-      await access(join11(assetsDirectory, candidate));
-    } catch (error51) {
-      if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return relativePath;
-      throw error51;
-    }
-  }
-  return `assets/${randomUUID12()}`;
-}
-async function isProjectControlFile(projectDirectory, sourcePath, sourceFacts) {
-  for (const name of ["narracut.json", "project.json", "video.md"]) {
-    const controlPath = join11(projectDirectory, name);
-    if (resolve3(sourcePath) === controlPath) return true;
-    const controlFacts = await lstat7(controlPath);
-    if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
-  }
-  return false;
-}
-async function copyStableFile(source, opened, temporaryPath, assertDestinationCurrent) {
-  let destination = null;
-  try {
-    await assertDestinationCurrent();
-    destination = await openFile(temporaryPath, "wx", 384);
-    const buffer = Buffer.allocUnsafe(1024 * 1024);
-    let position = 0;
-    while (true) {
-      const { bytesRead } = await source.read(buffer, 0, buffer.length, position);
-      if (bytesRead === 0) break;
-      let written = 0;
-      while (written < bytesRead) {
-        const result = await destination.write(buffer, written, bytesRead - written, position + written);
-        written += result.bytesWritten;
-      }
-      position += bytesRead;
-    }
-    await destination.sync();
-    const after = await source.stat();
-    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || position !== opened.size) {
-      throw new Error("\u5BFC\u5165\u6E90\u5728\u590D\u5236\u671F\u95F4\u53D1\u751F\u53D8\u5316\u3002");
-    }
-  } finally {
-    await destination?.close().catch(() => void 0);
-  }
-}
-async function replaceProjectFile(projectFile, bytes, assertWritable) {
-  const temporaryFile = join11(dirname7(projectFile), `.${basename2(projectFile)}.${randomUUID12()}.tmp`);
-  let committed = false;
-  try {
-    const handle = await openFile(temporaryFile, "wx", 384);
-    try {
-      await handle.writeFile(bytes);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await assertWritable();
-    await rename5(temporaryFile, projectFile);
-    committed = true;
-    try {
-      const directory2 = await openFile(dirname7(projectFile), "r");
-      try {
-        await directory2.sync();
-      } finally {
-        await directory2.close();
-      }
-    } catch {
-    }
-  } finally {
-    if (!committed) await rm7(temporaryFile, { force: true }).catch(() => void 0);
-  }
-}
-async function openProjectVNext(inputPath, options = {}) {
-  const projectDirectory = await realpath5(resolve3(inputPath)).catch(() => resolve3(inputPath));
-  try {
-    const initialInspection = await inspectProjectVNext(projectDirectory, options);
-    await validateCurrentProjectState(initialInspection);
-    const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
-    const lease = await acquireProjectLease(initialInspection, options.onHandoff);
-    let assetsDirectoryHandle = null;
-    let speechDirectoryHandle = null;
-    try {
-      const inspection = await inspectProjectVNext(projectDirectory, options);
-      const acceptedBriefRevision = await validateCurrentProjectState(inspection);
-      inspection.currentRenderProgram = {
-        briefRevision: acceptedBriefRevision,
-        briefReviewPending: acceptedBriefRevision !== inspection.videoBriefRevision,
-        previewPreserved: true
-      };
-      if (inspection.manifest.projectId !== initialInspection.manifest.projectId) {
-        throw new ProjectLifecycleError(
-          "PROJECT_IDENTITY_LOST",
-          projectDirectory,
-          `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
-        );
-      }
-      const assetsDirectory = join11(projectDirectory, "assets");
-      const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
-      assetsDirectoryHandle = await openFile(assetsDirectory, "r");
-      const openedAssetsDirectory = await assetsDirectoryHandle.stat();
-      if (!openedAssetsDirectory.isDirectory() || !hasIdentity(openedAssetsDirectory, assetsDirectoryIdentity)) {
-        throw new ProjectLifecycleError(
-          "PROJECT_IDENTITY_LOST",
-          assetsDirectory,
-          "Asset \u76EE\u5F55\u8EAB\u4EFD\u5728\u6253\u5F00\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u3002"
-        );
-      }
-      const anchoredAssetsDirectory = process.platform === "win32" ? assetsDirectory : `/dev/fd/${assetsDirectoryHandle.fd}`;
-      const speechDirectory = join11(projectDirectory, "speech");
-      const speechDirectoryIdentity = await captureDirectoryIdentity(speechDirectory);
-      speechDirectoryHandle = await openFile(speechDirectory, "r");
-      const openedSpeechDirectory = await speechDirectoryHandle.stat();
-      if (!openedSpeechDirectory.isDirectory() || !hasIdentity(openedSpeechDirectory, speechDirectoryIdentity)) {
-        throw new ProjectLifecycleError(
-          "PROJECT_IDENTITY_LOST",
-          speechDirectory,
-          "Speech \u76EE\u5F55\u8EAB\u4EFD\u5728\u6253\u5F00\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u3002"
-        );
-      }
-      const anchoredSpeechDirectory = process.platform === "win32" ? speechDirectory : `/dev/fd/${speechDirectoryHandle.fd}`;
-      let currentInspection = inspection;
-      let saveQueue = Promise.resolve();
-      let closing = false;
-      let releasePromise = null;
-      const assertWritable = async () => {
-        await lease.assertCurrent();
-        let facts;
-        try {
-          facts = await lstat7(projectDirectory);
-        } catch (cause) {
-          throw new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            projectDirectory,
-            "\u9879\u76EE\u76EE\u5F55\u5DF2\u7ECF\u79FB\u52A8\u6216\u4E0D\u53EF\u7528\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
-            { cause }
-          );
-        }
-        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, directoryIdentity)) {
-          throw new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            projectDirectory,
-            "\u9879\u76EE\u76EE\u5F55\u8EAB\u4EFD\u5DF2\u7ECF\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002"
-          );
-        }
-        try {
-          const manifestPath = join11(projectDirectory, "narracut.json");
-          const manifestFacts = await lstat7(manifestPath);
-          if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
-            throw new Error("\u9879\u76EE\u6E05\u5355\u6587\u4EF6\u8EAB\u4EFD\u65E0\u6548");
-          }
-          const manifest = JSON.parse(await readFile5(manifestPath, "utf8"));
-          if (manifest.projectId !== initialInspection.manifest.projectId) {
-            throw new Error("\u9879\u76EE\u6E05\u5355\u4E2D\u7684 projectId \u5DF2\u53D8\u5316");
-          }
-        } catch (cause) {
-          throw new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            projectDirectory,
-            "\u9879\u76EE\u6E05\u5355\u8EAB\u4EFD\u5DF2\u7ECF\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5199\u5165\u5E76\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
-            { cause }
-          );
-        }
-      };
-      const candidateManager = await createCandidateManager(projectDirectory, assertWritable);
-      const candidate = (request2) => {
-        if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002"));
-        const operation = saveQueue.then(() => candidateManager(request2));
-        saveQueue = operation.then(() => void 0, () => void 0);
-        return operation;
-      };
-      await candidate({ action: "read" });
-      const assertAssetsDirectoryCurrent = async () => {
-        await assertWritable();
-        let facts;
-        try {
-          facts = await lstat7(assetsDirectory);
-        } catch (cause) {
-          throw new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            assetsDirectory,
-            "Asset \u76EE\u5F55\u5DF2\u79FB\u52A8\u6216\u4E0D\u53EF\u7528\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\u3002",
-            { cause }
-          );
-        }
-        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, assetsDirectoryIdentity)) {
-          throw new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            assetsDirectory,
-            "Asset \u76EE\u5F55\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\u3002"
-          );
-        }
-      };
-      const assertSpeechDirectoryCurrent = async () => {
-        await assertWritable();
-        let facts;
-        try {
-          facts = await lstat7(speechDirectory);
-        } catch (cause) {
-          throw new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            speechDirectory,
-            "Speech \u76EE\u5F55\u5DF2\u79FB\u52A8\u6216\u4E0D\u53EF\u7528\uFF1BNarracut \u5DF2\u505C\u6B62\u751F\u6210\u3002",
-            { cause }
-          );
-        }
-        if (!facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, speechDirectoryIdentity)) {
-          throw new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            speechDirectory,
-            "Speech \u76EE\u5F55\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF1BNarracut \u5DF2\u505C\u6B62\u751F\u6210\u3002"
-          );
-        }
-      };
-      const saveProject = (project, baselineRevision) => {
-        if (closing) {
-          return Promise.reject(new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            projectDirectory,
-            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536\u65B0\u7684\u5199\u5165\u3002"
-          ));
-        }
-        const operation = saveQueue.then(async () => {
-          const projectFile = join11(projectDirectory, "project.json");
-          try {
-            await assertWritable();
-            if (await currentProjectRevision(
-              projectFile,
-              "\u65E0\u6CD5\u786E\u8BA4 project.json \u4ECD\u662F\u5F53\u524D\u78C1\u76D8\u57FA\u7EBF\uFF1BNarracut \u5DF2\u505C\u6B62\u81EA\u52A8\u4FDD\u5B58\u3002"
-            ) !== baselineRevision) {
-              throw new ProjectLifecycleError(
-                "PROJECT_SAVE_CONFLICT",
-                projectFile,
-                "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u81EA\u52A8\u4FDD\u5B58\uFF0C\u4E0D\u4F1A\u8986\u76D6\u78C1\u76D8\u5185\u5BB9\u3002"
-              );
-            }
-            const validated = validateProjectVNextForSave(project, projectFile);
-            assertWorkbenchMutation(currentInspection.project, validated.project, projectFile);
-            const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
-              projectDirectory,
-              validated.project,
-              {
-                ...currentInspection.tts.status === "configured" ? { currentTtsProfileId: currentInspection.tts.profileId } : {},
-                probeSpeechDurationMs: options.probeSpeechDurationMs
-              }
-            );
-            const nextRevision = revisionOf(validated.bytes);
-            if (nextRevision !== baselineRevision) {
-              await replaceProjectFile(projectFile, validated.bytes, async () => {
-                await assertWritable();
-                if (await currentProjectRevision(
-                  projectFile,
-                  "project.json \u5728\u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
-                ) !== baselineRevision) {
-                  throw new ProjectLifecycleError(
-                    "PROJECT_SAVE_CONFLICT",
-                    projectFile,
-                    "project.json \u5728\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
-                  );
-                }
-              });
-            }
-            currentInspection = {
-              ...currentInspection,
-              project: validated.project,
-              projectRevision: nextRevision,
-              assetStates,
-              speechStates,
-              timeline,
-              warnings
-            };
-            return { inspection: currentInspection };
-          } catch (cause) {
-            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) {
-              throw cause;
-            }
-            throw new ProjectLifecycleError(
-              "PROJECT_SAVE_FAILED",
-              projectFile,
-              "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 project.json\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
-              { cause }
-            );
-          }
-        });
-        saveQueue = operation.then(() => void 0, () => void 0);
-        return operation;
-      };
-      const saveVideoBrief = (content, baselineRevision, authorize) => {
-        if (closing) {
-          return Promise.reject(new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            projectDirectory,
-            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536\u65B0\u7684\u5199\u5165\u3002"
-          ));
-        }
-        const operation = saveQueue.then(async () => {
-          const videoBriefPath = join11(projectDirectory, "video.md");
-          try {
-            await assertWritable();
-            authorize?.();
-            const bytes = Buffer.from(content, "utf8");
-            if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content) {
-              throw new ProjectLifecycleError(
-                "PROJECT_SAVE_FAILED",
-                videoBriefPath,
-                "Video Brief \u5305\u542B\u4E0D\u80FD\u8868\u793A\u4E3A\u4E25\u683C UTF-8 \u7684\u5B57\u7B26\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002"
-              );
-            }
-            if (bytes.length > 2 * 1024 * 1024) {
-              throw new ProjectLifecycleError(
-                "PROJECT_SAVE_FAILED",
-                videoBriefPath,
-                `Video Brief \u4E3A ${bytes.length} \u5B57\u8282\uFF0C\u8D85\u8FC7 2 MiB \u4E0A\u9650\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002`
-              );
-            }
-            const disk = await readVideoBriefVNext(videoBriefPath);
-            if (disk.revision !== baselineRevision) return { status: "conflict", disk };
-            const nextRevision = revisionOf(bytes);
-            if (nextRevision !== baselineRevision) {
-              await replaceProjectFile(videoBriefPath, bytes, async () => {
-                await assertWritable();
-                authorize?.();
-                const current = await readVideoBriefVNext(videoBriefPath);
-                if (current.revision !== baselineRevision) {
-                  throw new ProjectLifecycleError(
-                    "PROJECT_SAVE_CONFLICT",
-                    videoBriefPath,
-                    "video.md \u5728\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
-                  );
-                }
-              });
-            }
-            currentInspection = {
-              ...currentInspection,
-              videoBrief: content,
-              videoBriefRevision: nextRevision,
-              currentRenderProgram: currentInspection.currentRenderProgram === void 0 ? void 0 : {
-                ...currentInspection.currentRenderProgram,
-                briefReviewPending: currentInspection.currentRenderProgram.briefRevision !== nextRevision
-              }
-            };
-            return { status: "saved", inspection: currentInspection };
-          } catch (cause) {
-            if (cause instanceof ProjectLifecycleError && cause.code === "PROJECT_SAVE_CONFLICT") {
-              try {
-                return { status: "conflict", disk: await readVideoBriefVNext(videoBriefPath) };
-              } catch {
-                throw cause;
-              }
-            }
-            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
-            throw new ProjectLifecycleError(
-              "PROJECT_SAVE_FAILED",
-              videoBriefPath,
-              "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 video.md\uFF1BNarracut \u5DF2\u4FDD\u7559\u5185\u5B58\u4FEE\u6539\u3002",
-              { cause }
-            );
-          }
-        });
-        saveQueue = operation.then(() => void 0, () => void 0);
-        return operation;
-      };
-      const exportVideoBriefLocal = async (content, targetDirectory) => {
-        await assertWritable();
-        const bytes = Buffer.from(content, "utf8");
-        if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content || bytes.length > 2 * 1024 * 1024) {
-          throw new ProjectLifecycleError(
-            "PROJECT_SAVE_FAILED",
-            projectDirectory,
-            "Video Brief LOCAL \u5FC5\u987B\u662F\u6700\u591A 2 MiB \u7684\u4E25\u683C UTF-8\uFF1BNarracut \u62D2\u7EDD\u5BFC\u51FA\u3002"
-          );
-        }
-        const destinationDirectory = await realpath5(resolve3(targetDirectory)).catch((cause) => {
-          throw new ProjectLifecycleError(
-            "PROJECT_SAVE_FAILED",
-            resolve3(targetDirectory),
-            "\u65E0\u6CD5\u8BBF\u95EE Video Brief LOCAL \u5BFC\u51FA\u76EE\u5F55\u3002",
-            { cause }
-          );
-        });
-        const relation = relative3(projectDirectory, destinationDirectory);
-        if (relation === "" || !relation.startsWith(`..${sep2}`) && relation !== ".." && !isAbsolute4(relation)) {
-          throw new ProjectLifecycleError(
-            "PROJECT_SAVE_FAILED",
-            destinationDirectory,
-            "Video Brief LOCAL \u53EA\u80FD\u5BFC\u51FA\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002"
-          );
-        }
-        const facts = await lstat7(destinationDirectory);
-        if (!facts.isDirectory() || facts.isSymbolicLink()) {
-          throw new ProjectLifecycleError(
-            "PROJECT_SAVE_FAILED",
-            destinationDirectory,
-            "Video Brief LOCAL \u5BFC\u51FA\u76EE\u6807\u5FC5\u987B\u662F\u666E\u901A\u76EE\u5F55\u3002"
-          );
-        }
-        for (let suffix = 1; suffix <= 1e4; suffix += 1) {
-          const filename = suffix === 1 ? "video-brief-local.md" : `video-brief-local-${suffix}.md`;
-          const path = join11(destinationDirectory, filename);
-          let handle = null;
-          try {
-            handle = await openFile(path, "wx", 384);
-            await handle.writeFile(bytes);
-            await handle.sync();
-            return { path, bytes: bytes.length, revision: revisionOf(bytes) };
-          } catch (cause) {
-            if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") continue;
-            if (handle !== null) {
-              const openedFacts = await handle.stat().catch(() => null);
-              const currentFacts = await lstat7(path).catch(() => null);
-              if (openedFacts !== null && currentFacts !== null && openedFacts.dev === currentFacts.dev && openedFacts.ino === currentFacts.ino) await unlink2(path).catch(() => void 0);
-            }
-            throw new ProjectLifecycleError(
-              "PROJECT_SAVE_FAILED",
-              path,
-              "\u65E0\u6CD5\u5BFC\u51FA Video Brief LOCAL\uFF1BNarracut \u6CA1\u6709\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002",
-              { cause }
-            );
-          } finally {
-            await handle?.close().catch(() => void 0);
-          }
-        }
-        throw new ProjectLifecycleError(
-          "PROJECT_SAVE_FAILED",
-          destinationDirectory,
-          "\u5BFC\u51FA\u76EE\u5F55\u4E2D\u5DF2\u6709\u8FC7\u591A\u540C\u540D Video Brief LOCAL \u6587\u4EF6\uFF1BNarracut \u6CA1\u6709\u8986\u76D6\u5B83\u4EEC\u3002"
-        );
-      };
-      const importAsset = (input) => {
-        if (closing) {
-          return Promise.reject(new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            projectDirectory,
-            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536\u65B0\u7684\u5199\u5165\u3002"
-          ));
-        }
-        const operation = saveQueue.then(async () => {
-          const projectFile = join11(projectDirectory, "project.json");
-          const sourcePath = resolve3(input.sourcePath);
-          await assertWritable();
-          if (await currentProjectRevision(
-            projectFile,
-            "\u65E0\u6CD5\u786E\u8BA4 project.json \u4ECD\u662F\u5F53\u524D\u78C1\u76D8\u57FA\u7EBF\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\u3002"
-          ) !== input.baselineRevision) {
-            throw new ProjectLifecycleError(
-              "PROJECT_SAVE_CONFLICT",
-              projectFile,
-              "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u5BFC\u5165\uFF0C\u4E0D\u4F1A\u8986\u76D6\u78C1\u76D8\u5185\u5BB9\u3002"
-            );
-          }
-          let pathFacts;
-          try {
-            pathFacts = await lstat7(sourcePath);
-          } catch (cause) {
-            return {
-              status: "failed",
-              code: "ASSET_SOURCE_UNAVAILABLE",
-              message: "\u65E0\u6CD5\u8BFB\u53D6\u5BFC\u5165\u6E90\uFF1B\u8BF7\u68C0\u67E5\u6587\u4EF6\u662F\u5426\u4ECD\u5B58\u5728\u4E14\u53EF\u8BBF\u95EE\u3002",
-              asset: null,
-              inspection: currentInspection
-            };
-          }
-          if (pathFacts.isSymbolicLink()) {
-            return assetSourceRejection(
-              currentInspection,
-              "ASSET_SOURCE_SYMBOLIC_LINK",
-              "\u5BFC\u5165\u6E90\u662F\u7B26\u53F7\u94FE\u63A5\uFF1B\u8BF7\u9009\u62E9\u94FE\u63A5\u6307\u5411\u7684\u666E\u901A\u6587\u4EF6\u3002"
-            );
-          }
-          if (!pathFacts.isFile()) {
-            return assetSourceRejection(
-              currentInspection,
-              "ASSET_SOURCE_NOT_FILE",
-              pathFacts.isDirectory() ? "\u5BFC\u5165\u6E90\u662F\u76EE\u5F55\uFF1B\u8BF7\u9009\u62E9\u4E00\u4E2A\u6216\u591A\u4E2A\u666E\u901A\u6587\u4EF6\u3002" : "\u5BFC\u5165\u6E90\u4E0D\u662F\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u9009\u62E9\u53EF\u590D\u5236\u7684\u666E\u901A\u6587\u4EF6\u3002"
-            );
-          }
-          let source;
-          try {
-            source = await openFile(sourcePath, fsConstants2.O_RDONLY | (fsConstants2.O_NOFOLLOW ?? 0));
-          } catch (cause) {
-            return {
-              status: "failed",
-              code: "ASSET_SOURCE_UNAVAILABLE",
-              message: "\u65E0\u6CD5\u5B89\u5168\u6253\u5F00\u5BFC\u5165\u6E90\uFF1B\u8BF7\u91CD\u65B0\u9009\u62E9\u6587\u4EF6\u3002",
-              asset: null,
-              inspection: currentInspection
-            };
-          }
-          try {
-            const sourceFacts = await source.stat();
-            if (!sourceFacts.isFile() || !hasIdentity(sourceFacts, pathFacts)) {
-              return assetSourceRejection(
-                currentInspection,
-                "ASSET_SOURCE_CHANGED",
-                "\u5BFC\u5165\u6E90\u5728\u6253\u5F00\u65F6\u53D1\u751F\u53D8\u5316\uFF1B\u8BF7\u91CD\u65B0\u9009\u62E9\u6587\u4EF6\u3002"
-              );
-            }
-            if (await isProjectControlFile(projectDirectory, sourcePath, sourceFacts)) {
-              return assetSourceRejection(
-                currentInspection,
-                "ASSET_SOURCE_PROJECT_CONTROL_FILE",
-                "\u9879\u76EE\u63A7\u5236\u6587\u4EF6\u4E0D\u80FD\u767B\u8BB0\u4E3A Asset\u3002"
-              );
-            }
-            if (currentInspection.project.assets.length >= 1e3) {
-              return assetSourceRejection(
-                currentInspection,
-                "PROJECT_ASSET_LIMIT_REACHED",
-                "\u9879\u76EE\u5DF2\u8FBE\u5230 1,000 \u4E2A Asset \u4E0A\u9650\u3002"
-              );
-            }
-            await assertAssetsDirectoryCurrent();
-            const asset = {
-              id: randomUUID12(),
-              path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath)
-            };
-            const temporaryPath = join11(anchoredAssetsDirectory, `.import-${randomUUID12()}.tmp`);
-            let finalPath = join11(anchoredAssetsDirectory, basename2(asset.path));
-            let published = false;
-            try {
-              await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
-              for (let attempt = 0; attempt < 1e4; attempt += 1) {
-                try {
-                  await assertAssetsDirectoryCurrent();
-                  await link2(temporaryPath, finalPath);
-                  published = true;
-                  break;
-                } catch (cause) {
-                  if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
-                  asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
-                  finalPath = join11(anchoredAssetsDirectory, basename2(asset.path));
-                }
-              }
-              if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
-              await assertAssetsDirectoryCurrent();
-              await unlink2(temporaryPath);
-              const project = structuredClone(currentInspection.project);
-              project.assets.push(asset);
-              const targetScene = input.targetSceneId === void 0 ? void 0 : project.scenes.find((scene) => scene.id === input.targetSceneId);
-              const bound = targetScene !== void 0 && targetScene.assetIds.length < 256;
-              if (bound) targetScene.assetIds.push(asset.id);
-              const validated = validateProjectVNextForSave(project, projectFile);
-              const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
-                projectDirectory,
-                validated.project,
-                {
-                  ...currentInspection.tts.status === "configured" ? { currentTtsProfileId: currentInspection.tts.profileId } : {},
-                  probeSpeechDurationMs: options.probeSpeechDurationMs
-                }
-              );
-              const nextRevision = revisionOf(validated.bytes);
-              await replaceProjectFile(projectFile, validated.bytes, async () => {
-                await assertAssetsDirectoryCurrent();
-                if (await currentProjectRevision(
-                  projectFile,
-                  "project.json \u5728\u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\uFF1BNarracut \u62D2\u7EDD\u5B8C\u6210\u5BFC\u5165\u3002"
-                ) !== input.baselineRevision) {
-                  throw new ProjectLifecycleError(
-                    "PROJECT_SAVE_CONFLICT",
-                    projectFile,
-                    "project.json \u5728\u5BFC\u5165\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
-                  );
-                }
-              });
-              currentInspection = {
-                ...currentInspection,
-                project: validated.project,
-                projectRevision: nextRevision,
-                assetStates,
-                speechStates,
-                timeline,
-                warnings
-              };
-              return {
-                status: bound ? "imported-and-bound" : "imported-unbound",
-                code: bound ? "ASSET_IMPORTED_AND_BOUND" : "ASSET_IMPORTED_UNBOUND",
-                message: bound ? "Asset \u5DF2\u5BFC\u5165\u5E76\u7ED1\u5B9A\u5230\u539F\u76EE\u6807 Scene\u3002" : targetScene === void 0 && input.targetSceneId !== void 0 ? "Asset \u5DF2\u5BFC\u5165\uFF1B\u539F\u76EE\u6807 Scene \u5DF2\u4E0D\u5B58\u5728\uFF0C\u56E0\u6B64\u4FDD\u6301\u6682\u672A\u7ED1\u5B9A\u3002" : targetScene !== void 0 ? "Asset \u5DF2\u5BFC\u5165\uFF1B\u539F\u76EE\u6807 Scene \u5DF2\u8FBE\u5230 256 \u4E2A\u5F15\u7528\u4E0A\u9650\uFF0C\u56E0\u6B64\u4FDD\u6301\u6682\u672A\u7ED1\u5B9A\u3002" : "Asset \u5DF2\u5BFC\u5165\u5E76\u767B\u8BB0\u4E3A\u6682\u672A\u7ED1\u5B9A\u3002",
-                asset,
-                inspection: currentInspection
-              };
-            } catch (cause) {
-              if (published) await unlink2(finalPath).catch(() => void 0);
-              await unlink2(temporaryPath).catch(() => void 0);
-              if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
-              return {
-                status: "failed",
-                code: "ASSET_IMPORT_FAILED",
-                message: cause instanceof Error ? cause.message : "\u65E0\u6CD5\u590D\u5236\u5E76\u767B\u8BB0 Asset\u3002",
-                asset: null,
-                inspection: currentInspection
-              };
-            }
-          } finally {
-            await source.close().catch(() => void 0);
-          }
-        });
-        saveQueue = operation.then(() => void 0, () => void 0);
-        return operation;
-      };
-      const saveTtsSettings = (input) => {
-        if (closing) {
-          return Promise.reject(new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            projectDirectory,
-            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536 TTS \u914D\u7F6E\u5199\u5165\u3002"
-          ));
-        }
-        const operation = saveQueue.then(async () => {
-          const projectFile = join11(projectDirectory, "project.json");
-          await assertWritable();
-          if (await currentProjectRevision(
-            projectFile,
-            "\u65E0\u6CD5\u786E\u8BA4 project.json \u4ECD\u662F\u5F53\u524D\u78C1\u76D8\u57FA\u7EBF\uFF1BNarracut \u5DF2\u505C\u6B62\u4FDD\u5B58 TTS \u914D\u7F6E\u3002"
-          ) !== input.baselineRevision) {
-            throw new ProjectLifecycleError(
-              "PROJECT_SAVE_CONFLICT",
-              projectFile,
-              "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u4FDD\u5B58 TTS \u914D\u7F6E\u3002"
-            );
-          }
-          const config2 = validateProjectTtsConfig(input.config);
-          const nextProfileId = ttsProfileId(config2);
-          const previousProjectBytes = await readFile5(projectFile);
-          if (revisionOf(previousProjectBytes) !== currentInspection.projectRevision) {
-            throw new ProjectLifecycleError(
-              "PROJECT_SAVE_CONFLICT",
-              projectFile,
-              "project.json \u5728\u5EFA\u7ACB TTS \u914D\u7F6E\u56DE\u6EDA\u951A\u70B9\u65F6\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
-            );
-          }
-          const project = structuredClone(currentInspection.project);
-          let affectedSpeechCount = 0;
-          for (const scene of project.scenes) {
-            if (scene.speech !== void 0 && scene.speech.ttsProfileId !== nextProfileId) {
-              affectedSpeechCount += 1;
-              delete scene.speech;
-            }
-          }
-          if (affectedSpeechCount !== input.expectedAffectedSpeechCount) {
-            throw new ProjectTtsConfirmationError(affectedSpeechCount);
-          }
-          const validated = validateProjectVNextForSave(project, projectFile);
-          const previousProjectRevision = currentInspection.projectRevision;
-          const nextRevision = revisionOf(validated.bytes);
-          const resourceValidation = await validateProjectVNextResources(
-            projectDirectory,
-            validated.project,
-            {
-              currentTtsProfileId: nextProfileId,
-              probeSpeechDurationMs: options.probeSpeechDurationMs
-            }
-          );
-          let projectWritten = false;
-          try {
-            if (nextRevision !== previousProjectRevision) {
-              await replaceProjectFile(projectFile, validated.bytes, async () => {
-                await assertWritable();
-                if (await currentProjectRevision(
-                  projectFile,
-                  "project.json \u5728 TTS \u914D\u7F6E\u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\u3002"
-                ) !== previousProjectRevision) {
-                  throw new ProjectLifecycleError(
-                    "PROJECT_SAVE_CONFLICT",
-                    projectFile,
-                    "project.json \u5728 TTS \u914D\u7F6E\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
-                  );
-                }
-              });
-              projectWritten = true;
-            }
-            const tts = await writeProjectTtsConfig(projectDirectory, config2, assertWritable);
-            currentInspection = {
-              ...currentInspection,
-              project: validated.project,
-              projectRevision: nextRevision,
-              tts,
-              ...resourceValidation
-            };
-            return { affectedSpeechCount, inspection: currentInspection };
-          } catch (cause) {
-            if (projectWritten) {
-              try {
-                await replaceProjectFile(projectFile, previousProjectBytes, async () => {
-                  await assertWritable();
-                  if (await currentProjectRevision(
-                    projectFile,
-                    "project.json \u5728 TTS \u914D\u7F6E\u56DE\u6EDA\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\u3002"
-                  ) !== nextRevision) {
-                    throw new ProjectLifecycleError(
-                      "PROJECT_SAVE_CONFLICT",
-                      projectFile,
-                      "TTS \u914D\u7F6E\u5931\u8D25\u540E project.json \u53C8\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u5E76\u4FDD\u7559\u73B0\u573A\u3002"
-                    );
-                  }
-                });
-              } catch (rollbackCause) {
-                throw new ProjectLifecycleError(
-                  "PROJECT_SAVE_FAILED",
-                  projectFile,
-                  "TTS \u914D\u7F6E\u63D0\u4EA4\u5931\u8D25\uFF0C\u4E14 Scene \u5F15\u7528\u56DE\u6EDA\u5931\u8D25\uFF1B\u9879\u76EE\u4FDD\u6301\u65E0\u9648\u65E7 Speech \u7684\u5B89\u5168\u72B6\u6001\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u68C0\u67E5\u3002",
-                  { cause: rollbackCause }
-                );
-              }
-            }
-            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
-            throw new ProjectLifecycleError(
-              "PROJECT_SAVE_FAILED",
-              join11(projectDirectory, "tts.json"),
-              "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1BNarracut \u5DF2\u4FDD\u7559\u539F\u914D\u7F6E\u4E0E Scene \u5185\u5BB9\u3002",
-              { cause }
-            );
-          }
-        });
-        saveQueue = operation.then(() => void 0, () => void 0);
-        return operation;
-      };
-      const probeSpeechAudio = async (input) => {
-        await assertSpeechDirectoryCurrent();
-        const probeFile = join11(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
-        const decoderPath = process.platform === "linux" ? join11(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join11(speechDirectory, `.probe-${input.jobId}.mp3`);
-        let created = false;
-        try {
-          const handle = await openFile(probeFile, "wx", 384);
-          created = true;
-          try {
-            await handle.writeFile(input.audio);
-            await handle.sync();
-          } finally {
-            await handle.close();
-          }
-          await assertSpeechDirectoryCurrent();
-          const durationMs = await (options.probeSpeechDurationMs ?? probeSpeechDurationMs)(decoderPath);
-          if (!Number.isSafeInteger(durationMs) || durationMs <= 0) {
-            throw new Error("Speech \u5B9E\u9645\u65F6\u957F\u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002");
-          }
-          await assertSpeechDirectoryCurrent();
-          return durationMs;
-        } finally {
-          if (created) await rm7(probeFile, { force: true }).catch(() => void 0);
-        }
-      };
-      const commitSpeech = (input) => {
-        if (closing) {
-          return Promise.reject(new ProjectLifecycleError(
-            "PROJECT_IDENTITY_LOST",
-            projectDirectory,
-            "\u9879\u76EE\u5DE5\u4F5C\u533A\u6B63\u5728\u5173\u95ED\uFF1BNarracut \u5DF2\u505C\u6B62\u63A5\u6536 Speech \u7ED3\u679C\u3002"
-          ));
-        }
-        const operation = saveQueue.then(async () => {
-          await assertWritable();
-          const tts = await readProjectTtsConfig(projectDirectory);
-          if (tts.status !== "configured" || tts.profileId !== input.ttsProfileId) {
-            return {
-              status: "rejected",
-              code: "SPEECH_RESULT_CONFIG_CHANGED",
-              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1ATTS \u914D\u7F6E\u5DF2\u7ECF\u53D8\u5316\u3002",
-              inspection: currentInspection
-            };
-          }
-          const scene = currentInspection.project.scenes.find((candidate2) => candidate2.id === input.sceneId);
-          if (scene === void 0) {
-            return {
-              status: "rejected",
-              code: "SPEECH_RESULT_SCENE_DELETED",
-              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1A\u76EE\u6807 Scene \u5DF2\u5220\u9664\u3002",
-              inspection: currentInspection
-            };
-          }
-          if (scene.narration.text !== input.narrationText) {
-            return {
-              status: "rejected",
-              code: "SPEECH_RESULT_NARRATION_CHANGED",
-              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1ANarration \u5DF2\u7ECF\u53D8\u5316\u3002",
-              inspection: currentInspection
-            };
-          }
-          if (input.isCancelled?.()) {
-            return {
-              status: "rejected",
-              code: "SPEECH_RESULT_CANCELLED",
-              message: "\u7ED3\u679C\u672A\u5E94\u7528\uFF1ASpeech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002",
-              inspection: currentInspection
-            };
-          }
-          const finalFile = join11(anchoredSpeechDirectory, `${scene.id}.mp3`);
-          const temporaryFile = join11(anchoredSpeechDirectory, `.speech-${randomUUID12()}.tmp`);
-          const backupFile = join11(anchoredSpeechDirectory, `.speech-${randomUUID12()}.previous`);
-          let previousFile = false;
-          let published = false;
-          try {
-            const handle = await openFile(temporaryFile, "wx", 384);
-            try {
-              await handle.writeFile(input.audio);
-              await handle.sync();
-            } finally {
-              await handle.close();
-            }
-            try {
-              const finalFacts = await lstat7(finalFile);
-              if (!finalFacts.isFile() || finalFacts.isSymbolicLink()) {
-                throw new ProjectLifecycleError(
-                  "PROJECT_IDENTITY_LOST",
-                  finalFile,
-                  "\u65E2\u6709 Speech \u4E0D\u518D\u662F\u666E\u901A\u6587\u4EF6\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
-                );
-              }
-              await link2(finalFile, backupFile);
-              const backupFacts = await lstat7(backupFile);
-              if (!backupFacts.isFile() || backupFacts.isSymbolicLink() || !hasIdentity(backupFacts, finalFacts)) {
-                throw new ProjectLifecycleError(
-                  "PROJECT_IDENTITY_LOST",
-                  backupFile,
-                  "\u65E2\u6709 Speech \u5728\u5EFA\u7ACB\u56DE\u6EDA\u951A\u70B9\u65F6\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
-                );
-              }
-              previousFile = true;
-            } catch (cause) {
-              if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) throw cause;
-            }
-            await assertSpeechDirectoryCurrent();
-            if (input.isCancelled?.()) throw new Error("Speech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002");
-            await rename5(temporaryFile, finalFile);
-            published = true;
-            const project = structuredClone(currentInspection.project);
-            const target = project.scenes.find((candidate2) => candidate2.id === scene.id);
-            target.speech = {
-              path: `speech/${scene.id}.mp3`,
-              durationMs: input.durationMs,
-              sourceTextHash: `sha256:${createHash10("sha256").update(input.narrationText, "utf8").digest("hex")}`,
-              ttsProfileId: input.ttsProfileId,
-              audioContentHash: `sha256:${createHash10("sha256").update(input.audio).digest("hex")}`
-            };
-            const projectFile = join11(projectDirectory, "project.json");
-            const baselineRevision = currentInspection.projectRevision;
-            const validated = validateProjectVNextForSave(project, projectFile);
-            const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
-              projectDirectory,
-              validated.project,
-              {
-                currentTtsProfileId: tts.profileId,
-                probeSpeechDurationMs: options.probeSpeechDurationMs
-              }
-            );
-            if (speechStates.find((state) => state.sceneId === scene.id)?.status !== "available") {
-              throw new Error("\u53D1\u5E03\u540E\u7684 Speech \u672A\u901A\u8FC7\u53EF\u89E3\u7801\u6027\u4E0E\u65F6\u957F\u590D\u6838\u3002");
-            }
-            if (input.isCancelled?.()) throw new Error("Speech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002");
-            input.onCommitPoint?.();
-            await replaceProjectFile(projectFile, validated.bytes, async () => {
-              await assertSpeechDirectoryCurrent();
-              if (await currentProjectRevision(
-                projectFile,
-                "project.json \u5728 Speech \u63D0\u4EA4\u524D\u53D8\u5F97\u4E0D\u53EF\u5B89\u5168\u8BFB\u53D6\u3002"
-              ) !== baselineRevision) {
-                throw new ProjectLifecycleError(
-                  "PROJECT_SAVE_CONFLICT",
-                  projectFile,
-                  "project.json \u5728 Speech \u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
-                );
-              }
-            });
-            currentInspection = {
-              ...currentInspection,
-              project: validated.project,
-              projectRevision: revisionOf(validated.bytes),
-              tts,
-              assetStates,
-              speechStates,
-              timeline,
-              warnings
-            };
-            await rm7(backupFile, { force: true }).catch(() => void 0);
-            return {
-              status: "applied",
-              code: "SPEECH_APPLIED",
-              message: "Speech \u5DF2\u6821\u9A8C\u5E76\u539F\u5B50\u5E94\u7528\u5230\u5F53\u524D Scene\u3002",
-              inspection: currentInspection
-            };
-          } catch (cause) {
-            let rollbackFailure;
-            if (published) {
-              try {
-                if (previousFile) {
-                  if (process.platform === "win32") await rm7(finalFile, { force: true });
-                  await rename5(backupFile, finalFile);
-                } else await rm7(finalFile, { force: true });
-              } catch (rollbackCause) {
-                rollbackFailure = rollbackCause;
-              }
-            }
-            await rm7(temporaryFile, { force: true }).catch(() => void 0);
-            if (rollbackFailure === void 0) await rm7(backupFile, { force: true }).catch(() => void 0);
-            if (rollbackFailure !== void 0) {
-              throw new ProjectLifecycleError(
-                "PROJECT_SAVE_FAILED",
-                backupFile,
-                `Speech \u56DE\u6EDA\u5931\u8D25\uFF1B\u65E7\u97F3\u9891\u5907\u4EFD\u5DF2\u4FDD\u7559\u5728 ${backupFile}\uFF0CNarracut \u4E0D\u4F1A\u58F0\u79F0\u65E7 Speech \u672A\u53D8\u3002`,
-                { cause: rollbackFailure }
-              );
-            }
-            if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
-            throw new ProjectLifecycleError(
-              "PROJECT_SAVE_FAILED",
-              finalFile,
-              "\u65E0\u6CD5\u539F\u5B50\u5E94\u7528 Speech\uFF1B\u65E7 Speech \u4E0E Scene \u5185\u5BB9\u4FDD\u6301\u4E0D\u53D8\u3002",
-              { cause }
-            );
-          }
-        });
-        saveQueue = operation.then(() => void 0, () => void 0);
-        return operation;
-      };
-      const release2 = async () => {
-        closing = true;
-        releasePromise ??= saveQueue.then(async () => {
-          try {
-            await lease.release();
-          } finally {
-            await assetsDirectoryHandle?.close();
-            assetsDirectoryHandle = null;
-            await speechDirectoryHandle?.close();
-            speechDirectoryHandle = null;
-          }
-        });
-        await releasePromise;
-      };
-      return {
-        transferred: lease.transferred,
-        candidate,
-        programTransaction: (run) => {
-          if (closing) return Promise.reject(new Error("\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002"));
-          const operation = saveQueue.then(async () => {
-            await assertWritable();
-            const result = await run(candidateManager);
-            const accepted = result;
-            if (accepted?.status === "accepted" && accepted.revision?.briefFingerprint && accepted.revision.current !== false && accepted.revision.valid !== false) {
-              const currentRenderProgram = { briefRevision: accepted.revision.briefFingerprint, briefReviewPending: accepted.revision.briefFingerprint !== currentInspection.videoBriefRevision, previewPreserved: true };
-              currentInspection = { ...currentInspection, currentRenderProgram };
-              inspection.currentRenderProgram = currentRenderProgram;
-            }
-            return result;
-          });
-          saveQueue = operation.then(() => void 0, () => void 0);
-          return operation;
-        },
-        readPreviewSource: async (target) => {
-          await saveQueue;
-          return candidateManager.previewSource(target);
-        },
-        buildCandidateBundle: async (request2) => {
-          await saveQueue;
-          return candidateManager.build(request2);
-        },
-        inspection,
-        saveProject,
-        saveVideoBrief,
-        exportVideoBriefLocal,
-        importAsset,
-        saveTtsSettings,
-        probeSpeechAudio,
-        commitSpeech,
-        release: release2
-      };
-    } catch (error51) {
-      try {
-        await lease.release();
-      } finally {
-        await assetsDirectoryHandle?.close();
-        await speechDirectoryHandle?.close();
-      }
-      throw error51;
-    }
-  } catch (error51) {
-    if (error51 instanceof ProjectLifecycleError || error51 instanceof ProjectInspectionError) {
-      throw error51;
-    }
-    throw new ProjectLifecycleError(
-      "PROJECT_OPEN_FAILED",
-      projectDirectory,
-      `\u65E0\u6CD5\u6253\u5F00 Project VNext\uFF1A${projectDirectory}\u3002`,
-      { cause: error51 }
-    );
-  }
-}
-
 // src/server/project-asset-preview.ts
 import { constants as fsConstants3 } from "node:fs";
-import { lstat as lstat8, open as openFile2 } from "node:fs/promises";
-import { basename as basename3, join as join12 } from "node:path";
+import { lstat as lstat9, open as openFile2 } from "node:fs/promises";
+import { basename as basename4, join as join14 } from "node:path";
 var MAX_INLINE_PREVIEW_BYTES = 32 * 1024 * 1024;
 function startsWith(bytes, signature) {
   return signature.every((byte, index) => bytes[index] === byte);
@@ -31941,7 +32134,7 @@ async function readProjectAssetPreview(inspection, assetId) {
   if (asset === void 0) {
     return { status: "dangling", id: assetId, reason: "\u672A\u627E\u5230\u767B\u8BB0\u7684 Asset\u3002" };
   }
-  const absolutePath = join12(inspection.projectDirectory, asset.path);
+  const absolutePath = join14(inspection.projectDirectory, asset.path);
   try {
     const { assetStates: [runtime] } = await validateProjectVNextResources(
       inspection.projectDirectory,
@@ -31955,7 +32148,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         reason: runtime?.reason ?? "Asset \u6587\u4EF6\u4E0D\u53EF\u7528\u3002"
       };
     }
-    const before = await lstat8(absolutePath);
+    const before = await lstat9(absolutePath);
     const handle = await openFile2(absolutePath, fsConstants3.O_RDONLY | (fsConstants3.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
@@ -31969,7 +32162,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         status: "available",
         id: asset.id,
         path: asset.path,
-        filename: basename3(asset.path),
+        filename: basename4(asset.path),
         size: opened.size,
         ...detected
       };
@@ -32034,6 +32227,7 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  { name: "copy_project", title: "\u590D\u5236\u9879\u76EE", description: "\u5B89\u5168\u505C\u6B62\u5E76\u5173\u95ED\u6765\u6E90\uFF0C\u5B8C\u6574\u590D\u5236\u540E\u6253\u5F00\u72EC\u7ACB\u526F\u672C\uFF1B\u53EF\u67E5\u8BE2\u9636\u6BB5\u548C\u5728\u53D1\u5E03\u524D\u53D6\u6D88\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["start", "status", "cancel"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, targetDirectory: { type: "string" }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop", "takeover", "approve-tool", "reject-tool"] }, id: { type: "string" }, baseline: { type: "string" }, parentOrigin: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "start_creation_task", description: "\u4ECE Composer \u539F\u6587\u53D1\u8D77\u4E13\u7528\u521B\u4F5C\u4EFB\u52A1\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "get_creation_task", description: "\u8BFB\u53D6\u5F53\u524D\u5355\u9879\u521B\u4F5C\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ["app"] } } },
@@ -32220,7 +32414,7 @@ var tools = [
     inputSchema: {
       type: "object",
       required: ["projectDirectory"],
-      properties: { projectDirectory: { type: "string", minLength: 1 } },
+      properties: { projectDirectory: { type: "string", minLength: 1 }, identityChoice: { enum: ["current", "selected", "convert", "cancel"] } },
       additionalProperties: false
     },
     outputSchema: { type: "object" },
@@ -32497,7 +32691,7 @@ function serializeInspection(inspection, writable = false, credential = { status
     timeline: inspection.timeline,
     project: {
       directory: inspection.projectDirectory,
-      folderName: basename4(inspection.projectDirectory),
+      folderName: basename5(inspection.projectDirectory),
       projectId: inspection.manifest.projectId,
       sceneCount: inspection.project.scenes.length,
       assetCount: inspection.project.assets.length
@@ -32539,16 +32733,16 @@ function diagnosticSummary(diagnostics) {
 }
 async function loadWorkbench() {
   const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript, acceptanceScript, renderScript] = await Promise.all([
-    readFile6(WORKBENCH_PATH, "utf8"),
-    readFile6(WORKBENCH_SCRIPT_PATH, "utf8"),
-    readFile6(PAPER_TEXTURE_PATH),
-    readFile6(FILM_TEXTURE_PATH),
-    readFile6(DISPLAY_FONT_PATH),
-    readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8"),
-    readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
-    readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-delivery.js" : "../workbench-delivery.js", import.meta.url), "utf8"),
-    readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-acceptance.js" : "../workbench-acceptance.js", import.meta.url), "utf8"),
-    readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-render.js" : "../workbench-render.js", import.meta.url), "utf8")
+    readFile7(WORKBENCH_PATH, "utf8"),
+    readFile7(WORKBENCH_SCRIPT_PATH, "utf8"),
+    readFile7(PAPER_TEXTURE_PATH),
+    readFile7(FILM_TEXTURE_PATH),
+    readFile7(DISPLAY_FONT_PATH),
+    readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8"),
+    readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
+    readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-delivery.js" : "../workbench-delivery.js", import.meta.url), "utf8"),
+    readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-acceptance.js" : "../workbench-acceptance.js", import.meta.url), "utf8"),
+    readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-render.js" : "../workbench-render.js", import.meta.url), "utf8")
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + acceptanceScript + "\n" + renderScript + "\n" + script);
@@ -32584,7 +32778,7 @@ async function inspectProject(argumentsValue) {
       structuredContent,
       content: [{
         type: "text",
-        text: `${basename4(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
+        text: `${basename5(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
       }]
     };
   } catch (error51) {
@@ -32594,7 +32788,7 @@ async function inspectProject(argumentsValue) {
         structuredContent: {
           status: "invalid",
           connection: connectedState(),
-          project: { directory: projectDirectory, folderName: basename4(projectDirectory) },
+          project: { directory: projectDirectory, folderName: basename5(projectDirectory) },
           error: {
             code: error51.code,
             path: error51.path,
@@ -32648,7 +32842,75 @@ function credentialState(value) {
   if (value === void 0) return { status: "missing", storage: "session" };
   return { status: "available", storage: "session", masked: `\u2022\u2022\u2022\u2022${value.slice(-4)}` };
 }
-var ProjectWorkspaceSession = class {
+var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
+  static identityQueue = Promise.resolve();
+  #choosingIdentity = false;
+  static sessions = /* @__PURE__ */ new Set();
+  #copy = null;
+  #identityConflict = null;
+  #copyController = null;
+  #copyPromise = null;
+  #speechPending = /* @__PURE__ */ new Set();
+  get copying() {
+    return this.#copy?.status === "running";
+  }
+  async copyOperation(input) {
+    if (!input || !["start", "status", "cancel"].includes(input.action)) throw new Error("\u590D\u5236\u53C2\u6570\u65E0\u6548\u3002");
+    if (input.action !== "start") {
+      if (!this.#copy || input.operationId !== this.#copy.operationId) throw new Error("\u590D\u5236\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
+      if (input.action === "cancel" && this.#copy.phase !== "publishing") this.#copyController?.abort();
+      return { ...this.#copy };
+    }
+    if (input.operationId && this.#copy && this.#copy.operationId === input.operationId) {
+      if (this.#copy.sourceDirectory !== input.projectDirectory || this.#copy.targetDirectory !== input.targetDirectory) throw new Error("\u590D\u5236\u64CD\u4F5C ID \u4E0E\u8DEF\u5F84\u4E0D\u5339\u914D\u3002");
+      return { ...this.#copy };
+    }
+    if (this.copying || this.#opening || this.#choosingIdentity || this.#resolvingCandidate) throw new Error("\u9879\u76EE\u64CD\u4F5C\u5C1A\u672A\u7ED3\u675F\u3002");
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (typeof input.targetDirectory !== "string" || !isAbsolute5(input.targetDirectory)) throw new Error("\u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
+    this.#copy = { operationId: typeof input.operationId === "string" && /^[0-9a-f-]{36}$/i.test(input.operationId) ? input.operationId : randomUUID14(), status: "running", phase: "stopping", sourceDirectory: input.projectDirectory, targetDirectory: input.targetDirectory, sourceClosed: false };
+    const operation = this.#copy;
+    const controller = this.#copyController = new AbortController();
+    this.#copyPromise = (async () => {
+      let published = false;
+      try {
+        operation.phase = "waiting";
+        await Promise.all([...this.pendingOperations]);
+        if (this.#requireOpened(input.projectDirectory, input.projectId) !== opened) throw new Error("\u7B49\u5F85\u671F\u95F4\u6765\u6E90\u5DE5\u4F5C\u533A\u53D1\u751F\u53D8\u5316\u3002");
+        operation.phase = "stopping";
+        if (this.creation?.value && this.creation.value.status !== "terminated") await this.creation.respond({ action: "stop" });
+        controller.signal.throwIfAborted();
+        operation.phase = "waiting";
+        await this.render.close();
+        for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
+        await Promise.all([...this.#speechPending]);
+        controller.signal.throwIfAborted();
+        operation.phase = "closing";
+        await this.creation?.close();
+        await opened.release();
+        this.#opened = null;
+        this.creation = null;
+        operation.sourceClosed = true;
+        this.delivery.clear();
+        this.checks.clear();
+        this.preview.clear();
+        const copied = await copyProjectVNext(input.projectDirectory, input.targetDirectory, { signal: controller.signal, confirmTemporaryCleanup: input.confirmTemporaryCleanup === true, onPhase: (phase) => {
+          operation.phase = phase;
+        } });
+        operation.cleanupWarning = copied.cleanupWarning;
+        operation.phase = "opening";
+        published = true;
+        const inspection = await this.#open(input.targetDirectory);
+        operation.workspace = this.serialize(inspection);
+        operation.status = "opened";
+      } catch (error51) {
+        operation.status = published ? "created-not-opened" : controller.signal.aborted && !String(error51.code).includes("CLEANUP_FAILED") ? "cancelled" : "failed";
+        operation.error = { code: error51.code ?? "PROJECT_COPY_FAILED", message: error51.message, path: error51.path ?? input.targetDirectory };
+      }
+    })();
+    return { ...operation };
+  }
+  pendingOperations = /* @__PURE__ */ new Set();
   #transferred = false;
   #handoffPending = false;
   #opening = false;
@@ -32736,6 +32998,7 @@ var ProjectWorkspaceSession = class {
   #ttsFetch;
   #probeSpeechDurationMs;
   constructor(options = {}) {
+    _ProjectWorkspaceSession.sessions.add(this);
     this.#codexHost = options.codexHost;
     this.#ttsFetch = options.ttsFetch ?? globalThis.fetch;
     this.#probeSpeechDurationMs = options.probeSpeechDurationMs ?? probeSpeechDurationMs;
@@ -32746,6 +33009,58 @@ var ProjectWorkspaceSession = class {
   #candidateStatus = null;
   serialize(inspection, writable = true) {
     return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
+  }
+  async openWithChoice(projectDirectory, choice) {
+    this.#choosingIdentity = true;
+    const operation = _ProjectWorkspaceSession.identityQueue.then(() => this.#openWithChoice(projectDirectory, choice));
+    _ProjectWorkspaceSession.identityQueue = operation.catch(() => void 0);
+    try {
+      return await operation;
+    } finally {
+      this.#choosingIdentity = false;
+    }
+  }
+  async #openWithChoice(projectDirectory, choice) {
+    const selected = await inspectProjectVNext(projectDirectory);
+    const owner = [..._ProjectWorkspaceSession.sessions].find((session) => !session.#transferred && session.#opened?.inspection.manifest.projectId === selected.manifest.projectId && session.#opened.inspection.projectDirectory !== selected.projectDirectory);
+    const current = owner ? owner.#opened?.inspection : void 0;
+    if (current && current.manifest.projectId === selected.manifest.projectId && current.projectDirectory !== selected.projectDirectory) {
+      const conflict = { projectId: selected.manifest.projectId, currentDirectory: current.projectDirectory, selectedDirectory: selected.projectDirectory };
+      if (!choice || !this.#identityConflict || JSON.stringify(this.#identityConflict) !== JSON.stringify(conflict)) {
+        this.#identityConflict = conflict;
+        return { status: "identity-conflict", ...conflict };
+      }
+      if (choice === "cancel") {
+        this.#identityConflict = null;
+        return { status: "open-cancelled" };
+      }
+      if (choice === "current") {
+        this.#identityConflict = null;
+        return owner === this ? this.serialize(current) : this.serialize(await this.open(current.projectDirectory));
+      }
+      if (!["selected", "convert"].includes(choice)) throw new Error("\u8BF7\u9009\u62E9\u660E\u786E\u7684\u9879\u76EE\u8EAB\u4EFD\u5904\u7406\u65B9\u5F0F\u3002");
+      if (choice === "convert") {
+        const selectedWorkspace = await openProjectVNext(selected.projectDirectory);
+        try {
+          await selectedWorkspace.programTransaction(async () => changeProjectIdentity(selected.projectDirectory, selected.manifest.projectId, async () => {
+            const latest = await inspectProjectVNext(selected.projectDirectory);
+            if (latest.manifest.projectId !== selected.manifest.projectId) throw new Error("\u6240\u9009\u9879\u76EE\u8EAB\u4EFD\u5DF2\u53D8\u5316\u3002");
+          }));
+        } finally {
+          await selectedWorkspace.release();
+        }
+      }
+      if (owner.creation?.value && owner.creation.value.status !== "terminated") await owner.creation.respond({ action: "stop" });
+      await owner.creation?.close();
+      await owner.render.close();
+      for (const job of owner.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) owner.cancelSpeech(job.id);
+      await Promise.all([...owner.#speechPending]);
+      await owner.#opened?.release();
+      owner.#opened = null;
+      owner.creation = null;
+      this.#identityConflict = null;
+    }
+    return this.serialize(await this.open(selected.projectDirectory));
   }
   async open(projectDirectory) {
     if (this.#opening || this.#resolvingCandidate) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u6216\u5019\u9009\u64CD\u4F5C\u7ED3\u679C\u5F85\u6838\u5BF9");
@@ -32920,7 +33235,7 @@ var ProjectWorkspaceSession = class {
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const job = {
-      id: randomUUID13(),
+      id: randomUUID14(),
       sceneId: scene.id,
       status: "queued",
       stage: "\u6392\u961F",
@@ -32934,7 +33249,11 @@ var ProjectWorkspaceSession = class {
       credential: key
     };
     this.#speechJobs.set(job.id, job);
-    setImmediate(() => void this.#processSpeech(job));
+    const processing = new Promise((resolve5) => setImmediate(() => {
+      void this.#processSpeech(job).finally(resolve5);
+    }));
+    this.#speechPending.add(processing);
+    void processing.finally(() => this.#speechPending.delete(processing));
     return publicSpeechJob(job);
   }
   getSpeech(jobId) {
@@ -33076,6 +33395,8 @@ var ProjectWorkspaceSession = class {
     }
   }
   async dispose() {
+    await this.#copyPromise;
+    _ProjectWorkspaceSession.sessions.delete(this);
     await this.creation?.close();
     await this.render.close();
     for (const job of this.#speechJobs.values()) {
@@ -33112,6 +33433,14 @@ async function callTool(params, hostValidation, workspace) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
   const { name, arguments: argumentsValue } = params;
+  if (name === "copy_project") {
+    try {
+      return { structuredContent: await workspace.copyOperation(argumentsValue), content: [] };
+    } catch (error51) {
+      return { isError: true, structuredContent: { error: { code: error51.code ?? "PROJECT_COPY_FAILED", message: error51.message } }, content: [] };
+    }
+  }
+  if (workspace.copying) return { isError: true, structuredContent: { error: { code: "PROJECT_COPY_BUSY", message: "\u6B63\u5728\u590D\u5236\u9879\u76EE\uFF0C\u6682\u4E0D\u63A5\u6536\u65B0\u7684\u7F16\u8F91\u548C\u5199\u4EFB\u52A1\u3002" } }, content: [] };
   if (name === "respond_creation_task" || name === "start_creation_task" || name === "get_creation_task" || name === "continue_creation_task") {
     try {
       return { structuredContent: await workspace.creationOperation(argumentsValue, name === "start_creation_task", name === "continue_creation_task", name === "respond_creation_task"), content: [] };
@@ -33198,12 +33527,16 @@ async function callTool(params, hostValidation, workspace) {
       } else {
         operation = "opened";
       }
+      if (name === "open_project") {
+        const content = await workspace.openWithChoice(projectDirectory, stringArgument(argumentsValue, "identityChoice") ?? void 0);
+        return { structuredContent: { ...content, ...content.status === "valid" ? { operation: "opened" } : {} }, content: [] };
+      }
       const inspection = await workspace.open(projectDirectory);
       return {
         structuredContent: { ...workspace.serialize(inspection), operation },
         content: [{
           type: "text",
-          text: operation === "created" ? `${basename4(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename4(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
+          text: operation === "created" ? `${basename5(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename5(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
         }]
       };
     } catch (error51) {
@@ -33214,7 +33547,7 @@ async function callTool(params, hostValidation, workspace) {
           structuredContent: {
             status: "created-not-opened",
             connection: launcherConnectionState(),
-            project: { directory: projectDirectory, folderName: basename4(projectDirectory) },
+            project: { directory: projectDirectory, folderName: basename5(projectDirectory) },
             error: {
               code: "PROJECT_CREATED_NOT_OPENED",
               causeCode,
@@ -33709,8 +34042,16 @@ function createNarracutRequestHandler(options = {}) {
         return {};
       case "tools/list":
         return { tools };
-      case "tools/call":
-        return callTool(request2.params, hostValidation, workspace);
+      case "tools/call": {
+        const operation = callTool(request2.params, hostValidation, workspace);
+        if (request2.params?.name === "copy_project") return operation;
+        workspace.pendingOperations.add(operation);
+        try {
+          return await operation;
+        } finally {
+          workspace.pendingOperations.delete(operation);
+        }
+      }
       case "resources/list":
         return {
           resources: [{

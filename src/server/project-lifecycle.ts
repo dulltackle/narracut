@@ -1,3 +1,4 @@
+import { finishIdentityTransition } from './project-identity';
 import { listenForProjectHandoff, requestProjectHandoff } from './project-lease-handoff';
 import { readCurrentPointer, verifyRevision } from './project-revisions';
 import { RUNTIME_REMOTION_VERSION } from './project-dependencies';
@@ -50,6 +51,9 @@ export type ProjectLifecycleErrorCode =
   | "PROJECT_CREATE_TARGET_INVALID"
   | "PROJECT_TEMPORARY_RESIDUE"
   | "PROJECT_TEMPORARY_RESIDUE_UNOWNED"
+  | "PROJECT_COPY_FAILED"
+  | "PROJECT_COPY_CLEANUP_FAILED"
+  | "PROJECT_COPY_CANCELLED"
   | "PROJECT_CREATE_FAILED"
   | "PROJECT_CREATE_CLEANUP_FAILED"
   | "PROJECT_IN_USE"
@@ -98,13 +102,14 @@ function isCreateOperationMarker(
   value: unknown,
   projectDirectory: string,
   operationToken?: string,
+  operation = "create",
 ): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const marker = value as Record<string, unknown>;
   return Object.keys(marker).length === 5 &&
     marker.kind === "narracut-operation" &&
     marker.version === 1 &&
-    marker.operation === "create" &&
+    marker.operation === operation &&
     marker.targetDirectory === projectDirectory &&
     typeof marker.operationToken === "string" &&
     marker.operationToken.length > 0 &&
@@ -125,6 +130,7 @@ async function removeConfirmedCreateResidue(
   temporaryDirectory: string,
   projectDirectory: string,
   confirmed: boolean,
+  operation = "create",
 ): Promise<void> {
   const facts = await lstat(temporaryDirectory);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
@@ -149,7 +155,7 @@ async function removeConfirmedCreateResidue(
       `临时目录缺少可验证的创建标记：${temporaryDirectory}。Narracut 拒绝删除。`,
     );
   }
-  if (!isCreateOperationMarker(marker, projectDirectory)) {
+  if (!isCreateOperationMarker(marker, projectDirectory, undefined, operation)) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
       temporaryDirectory,
@@ -493,6 +499,7 @@ async function cleanupOwnedTemporaryDirectory(
   markerWritten: boolean,
   projectDirectory: string,
   operationToken: string,
+  operation = "create",
 ): Promise<void> {
   let facts;
   try {
@@ -509,7 +516,7 @@ async function cleanupOwnedTemporaryDirectory(
       join(temporaryDirectory, OPERATION_MARKER),
       4096,
     )) as unknown;
-    if (!isCreateOperationMarker(marker, projectDirectory, operationToken)) {
+    if (!isCreateOperationMarker(marker, projectDirectory, operationToken, operation)) {
       throw new Error("创建临时目录标记已变化，无法证明清理所有权。");
     }
   }
@@ -539,6 +546,17 @@ async function cleanupTargetReservation(
 export async function createProjectVNext(
   inputPath: string,
   options: CreateProjectOptions = {},
+): Promise<CreatedProjectVNext> {
+  return publishProjectVNext(inputPath, options, "create", async (temporary, projectId, revisionId) => {
+    await writeStarterProject(temporary, projectId, revisionId);
+    await validateStarterProject(temporary, projectId, revisionId);
+  });
+}
+
+/** 创建与复制共享临时目录所有权、目标保留和单一发布提交点。 */
+export async function publishProjectVNext(
+  inputPath: string, options: CreateProjectOptions, operation: "create" | "copy",
+  prepare: (temporary: string, projectId: string, revisionId: string) => Promise<void>,
 ): Promise<CreatedProjectVNext> {
   const projectDirectory = resolve(inputPath);
   const projectName = basename(projectDirectory);
@@ -570,6 +588,7 @@ export async function createProjectVNext(
         temporaryDirectory,
         projectDirectory,
         options.confirmTemporaryCleanup === true,
+        operation,
       );
     }
     await mkdir(temporaryDirectory);
@@ -577,13 +596,12 @@ export async function createProjectVNext(
     await writeFile(join(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
       kind: "narracut-operation",
       version: 1,
-      operation: "create",
+      operation,
       targetDirectory: projectDirectory,
       operationToken,
     }));
     markerWritten = true;
-    await writeStarterProject(temporaryDirectory, projectId, revisionId);
-    await validateStarterProject(temporaryDirectory, projectId, revisionId);
+    await prepare(temporaryDirectory, projectId, revisionId);
     if (process.platform !== "win32") {
       try {
         await mkdir(projectDirectory);
@@ -606,8 +624,6 @@ export async function createProjectVNext(
         `原子发布前目标已经出现：${projectDirectory}。Narracut 拒绝接管。`,
       );
     }
-    await unlink(join(temporaryDirectory, OPERATION_MARKER));
-    markerWritten = false;
     if (targetReservationIdentity !== null) {
       const currentReservation = await lstat(projectDirectory);
       if (
@@ -626,6 +642,8 @@ export async function createProjectVNext(
     await rename(temporaryDirectory, projectDirectory);
     temporaryIdentity = null;
     targetReservationIdentity = null;
+    // 提交前一直保留归属标记，崩溃后仍能要求用户确认清理；提交后的清理不撤销发布。
+    await unlink(join(projectDirectory, OPERATION_MARKER)).catch(() => undefined);
     return { projectDirectory, projectId, revisionId };
   } catch (cause) {
     try {
@@ -639,11 +657,12 @@ export async function createProjectVNext(
           markerWritten,
           projectDirectory,
           operationToken,
+          operation,
         );
       }
     } catch (cleanupCause) {
       throw new ProjectLifecycleError(
-        "PROJECT_CREATE_CLEANUP_FAILED",
+        operation === "copy" ? "PROJECT_COPY_CLEANUP_FAILED" : "PROJECT_CREATE_CLEANUP_FAILED",
         temporaryDirectory,
         `创建失败，且无法证明临时产物仍归本次操作所有；已保留现场：${temporaryDirectory}。`,
         { cause: cleanupCause },
@@ -651,9 +670,9 @@ export async function createProjectVNext(
     }
     if (cause instanceof ProjectLifecycleError) throw cause;
     throw new ProjectLifecycleError(
-      "PROJECT_CREATE_FAILED",
+      operation === "copy" ? "PROJECT_COPY_FAILED" : "PROJECT_CREATE_FAILED",
       projectDirectory,
-      `无法创建 Project VNext：${projectDirectory}。`,
+      `${operation === "copy" ? "复制" : "创建"} Project VNext 失败：${projectDirectory}。${cause instanceof Error ? cause.message : ""}`,
       { cause },
     );
   }
@@ -1124,6 +1143,7 @@ export async function openProjectVNext(
     let assetsDirectoryHandle: FileHandle | null = null;
     let speechDirectoryHandle: FileHandle | null = null;
     try {
+      await finishIdentityTransition(projectDirectory, initialInspection.manifest.projectId);
       const inspection = await inspectProjectVNext(projectDirectory, options);
       const acceptedBriefRevision = await validateCurrentProjectState(inspection);
       inspection.currentRenderProgram = {

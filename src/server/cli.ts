@@ -1,3 +1,4 @@
+import { copyProjectVNext } from './project-copy';
 import { join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -199,6 +200,16 @@ export async function runCreateCli(options: ProjectWorkspaceCliOptions): Promise
   return { ...created, server };
 }
 
+export async function runCopyCli(options: ProjectWorkspaceCliOptions): Promise<CreateCliResult> {
+  const [source, ...rest] = options.args;
+  if (!source || source.startsWith('--')) throw new Error('用法：copy <来源路径> <新路径> [--open] [--confirm-cleanup]');
+  const parsed = parseCreateArguments(rest);
+  const copied = await copyProjectVNext(source, parsed.projectDirectory, parsed);
+  options.log?.(JSON.stringify({ code: 'PROJECT_COPIED', path: copied.projectDirectory, projectId: copied.projectId }));
+  if (!parsed.open) return copied;
+  return { ...copied, server: await runOpenProjectCli({ ...options, args: [copied.projectDirectory] }) };
+}
+
 export async function runOpenProjectCli(
   options: ProjectWorkspaceCliOptions,
 ): Promise<RunningServer> {
@@ -258,6 +269,11 @@ export function formatCliError(error: unknown): string {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  if (args[0] === "copy") {
+    const copied = await runCopyCli({ args: args.slice(1) });
+    if (copied.server) registerShutdown(copied.server);
+    return;
+  }
   if (args[0] === "create") {
     const created = await runCreateCli({ args: args.slice(1) });
     if (created.server === undefined) return;
