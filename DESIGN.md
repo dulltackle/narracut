@@ -1,6 +1,6 @@
 ---
 name: Narracut VNext Workbench
-description: 以暗房接触印样组织 Project VNext Scene 剪接、Asset 引用、Asset 只读预览、成片 Preview 与 Codex 宿主验证的 Operate 工作台。
+description: 以暗房接触印样组织 Scene 编辑、Agent 创作、候选审阅与成片输出的工作台。
 colors:
   darkroom: "#090d0e"
   shell: "#101516"
@@ -45,28 +45,6 @@ colors:
   asset-hover-tint: "rgba(78,136,223,.035)"
   preview-scrim: "rgba(3,5,5,.9)"
 typography:
-  scale:
-    micro: "0.55rem"
-    machine-small: "0.58rem"
-    machine: "0.62rem"
-    metadata: "0.66rem"
-    fact: "0.68rem"
-    helper: "0.7rem"
-    action: "0.72rem"
-    compact: "0.79rem"
-    item: "0.84rem"
-    body: "1rem"
-    section: "1.08rem"
-    result-title: "1.1rem"
-    strong: "1.25rem"
-    mobile-title: "1.3rem"
-    panel-title: "1.35rem"
-    empty-title: "1.4rem"
-    state-title: "1.55rem"
-    brand: "1.65rem"
-    empty-title-max: "2.4rem"
-    agent-title-max: "2.75rem"
-    state-title-max: "2.8rem"
   display:
     fontFamily: '"Narracut Display", sans-serif'
     fontSize: "clamp(1.45rem, 2.1vw, 2rem)"
@@ -117,7 +95,7 @@ spacing:
 components:
   workspace-tab:
     backgroundColor: "transparent"
-    textColor: "{colors.muted}"
+    textColor: "#959d9a"
     typography: "{typography.control}"
     rounded: "0"
     padding: "0 28px"
@@ -140,7 +118,7 @@ components:
     rounded: "0"
     padding: "0"
   scene-row:
-    backgroundColor: "{colors.paper}"
+    backgroundColor: "transparent"
     textColor: "{colors.ink}"
     typography: "{typography.title}"
     rounded: "0"
@@ -175,26 +153,35 @@ components:
     backgroundColor: "{colors.proof-blue-deep}"
     textColor: "#ffffff"
     rounded: "{rounded.control}"
-    padding: "0 18px"
-    height: "44px"
   agent-action-stop:
     backgroundColor: "{colors.control}"
     textColor: "#e1b36c"
     rounded: "{rounded.control}"
-    padding: "0 18px"
-    height: "44px"
   agent-action-disabled:
     backgroundColor: "#111617"
     textColor: "#68716f"
     rounded: "{rounded.control}"
-    padding: "0 18px"
-    height: "44px"
   composer-draft:
     backgroundColor: "{colors.control}"
     textColor: "{colors.paper}"
     rounded: "{rounded.field}"
     padding: "8px 12px"
     height: "64px"
+  composer-send:
+    backgroundColor: "{colors.proof-blue-deep}"
+    textColor: "{colors.high-contrast-white}"
+    rounded: "{rounded.control}"
+    width: "104px"
+  delivery-panel:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.paper}"
+    padding: "24px"
+  brief-editor:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.micro}"
+    padding: "24px"
+
 ---
 
 # Design System: Narracut VNext Workbench
@@ -203,25 +190,22 @@ components:
 
 **Creative North Star: "暗房接触印样台"**
 
-Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和真实纸张/胶片纹理让界面属于影像创作者的世界，而不是通用 IDE 或 SaaS 后台。
+Narracut 的工作台是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和纸张/胶片纹理构成既有视觉识别。
 
-这套系统的触感来自材料与结构，不来自拟物控件堆叠。接触表是表格工作区的主工作面，项目检查是窄侧台；Agent 工作区以克制的单任务 Codex 宿主验证状态台和成片 Preview 主区延续暗房世界，任务与结果保持工业仪表感，成片保留完整比例，不模仿聊天。Composer 是固定在灯箱下沿的多行批注槽，可记录会话草稿，发送按钮保持禁用并说明创作发送尚未启用。
+触感来自材料与结构。Scene 表格以连续纸面承载密集编辑，检查面板使用暗色侧台；Agent 创作指令、候选、检查、交付与最终 Render 沿暗色纵向工作面排列，以标题、分隔线、状态和下一步操作组织信息。Composer 固定在底部，输入框下方紧邻会话说明与编辑边界。Preview 保留画面比例，详细身份和证据收进可展开区域。
 
-当前交付把表格工作区扩展为可编辑剪接台：操作轨、原位 Narration 编辑、Asset 子视图和保存状态明确哪些内容正在改变。Asset 列继续只做摘要，导入、有序引用和只读预览在既有项目检查层与独立预览层中完成，不抢占接触表主面。Speech 单元格以文字与形状展示生成阶段，并提供单 Scene 生成、重试或取消；项目 TTS 输出契约在右侧检查台的子视图中配置，移动端沿用抽屉。Video Brief 从项目检查进入独立的原始 Markdown 编辑层，拥有与 Scene 分离的历史、保存状态和冲突决策。Agent、Render Program 与 Composer 不改写 Scene 的边界仍持续可见。Agent 状态台只展示当前任务、连接、有界结果与可用操作，不展示 Render Program 源码、对话或日志历史；成片 Preview 在独立主区展示具名当前版本与候选，并明确正在查看的版本。
+本次刷新依据 `plugins/narracut/workbench.html` 的最终 CSS 层叠、`workbench.js` 及 Preview、检查、交付、接受和 Render 模块；桌面与移动端表格已用当前构建截图核对。本文记录已实现的视觉约定，产品规则以 PRODUCT.md 与项目规范为准，不把旧阶段的功能禁用状态固化为设计禁令。
 
 **Key Characteristics:**
 
-- 黑色暗房外壳包围背光暖白接触表，主内容拥有最高亮度与面积。
-- Scene 是连续校片行；Narration 居主列，Asset 仅显示身份、路径或占位。
-- Asset 引用管理复用项目检查侧台；内容预览仅在独立只读层中出现，关闭后回到原操作位置。
-- Speech 动作用紧凑的校片控件贴在接触表行内；成功状态显示实际时长，项目检查同时显示半开帧窗口与 Render 就绪性。
-- TTS 配置复用右侧检查台，不建立新的全局设置页；凭据缺失、会话存储限制和输出规格在同一决策点说明。
-- 蓝色校片线同时配合三角指示与圈记边码表达选择，不只依赖颜色。
-- Agent 工作区的宿主验证保持单任务：桌面任务/结果双列，窄屏顺序叠放，不出现对话气泡。
-- 成片 Preview 以具名版本、正在查看标记、独立过期提示与明确切换保留用户对画面的控制；技术身份收进详情。
-- 状态同时使用文字与形状：蓝色圆点表示运行，绿色圆点表示连接或成功，琥珀方形表示停止或不可用。
-- 自托管窄体展示字、中文 UI sans 与等宽标签构成三种受控声音。
-- 纸张与胶片 raster 由插件以内嵌 data URI 提供，界面不依赖网络材料。
+- 深色外壳包围暖白接触表，Scene 内容拥有最高亮度。
+- Narration、Asset 摘要和 Speech 状态采用稳定列与连续行，编辑入口贴近内容。
+- 项目检查在窄屏转为抽屉；移动端保留 Narration 与 Speech，Asset 从检查入口管理。
+- Agent 以当前创作指令和下一步操作为中心，技术身份折叠，沿用状态台而非聊天气泡。
+- 候选审阅以版本标记、过期提示、检查结果和代表帧证据建立层级；接受与最终输出各有明确操作区。
+- 蓝色、绿色与琥珀配合文字、轮廓和形状表达选择、进度与需要处理的状态。
+- 自托管窄体展示字、中文 UI sans 与等宽标签分别承担身份、内容和机器事实。
+- 本地内嵌纸张与胶片材料、受减少动态效果偏好控制的灯箱首现动效维持材料感。
 
 ## Colors
 
@@ -229,13 +213,13 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 ### Primary
 
-- **校片蓝** (`proof-blue`): 选中 Scene 的内描边、当前工作区下划线与 Agent 运行状态；它是操作反馈，不是大面积品牌填充。
-- **深校片蓝** (`proof-blue-deep`): Scene 边码、选择三角和纸面上的次级校片记号。
+- **校片蓝** (`proof-blue`): 选中 Scene 的内描边、当前工作区下划线与 Agent 运行状态及可用操作反馈；它是操作反馈，不是大面积品牌填充。
+- **深校片蓝** (`proof-blue-deep`): Scene 边码、选择三角、纸面校片记号，以及创作、接受、Render 等主要操作的实色底。
 
 ### Secondary
 
 - **只读琥珀** (`readonly-amber`): 胶片边码、只读标签、诊断代码、停止与不可用状态；稀少使用让边界保持可信。
-- **连接绿** (`connected-green`): 连接正常、控制文件有效、Speech 可用与宿主验证成功等肯定状态。
+- **连接绿** (`connected-green`): 连接正常、控制文件有效、Speech 可用与检查通过等肯定状态。
 
 ### Neutral
 
@@ -243,7 +227,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 - **机身黑** (`shell`): 工作台框体与稳定结构面。
 - **胶片黑** (`film`): 接触表外框，让边码与纸面亮度成立。
 - **舞台黑** (`stage`): 主工作区地面与 Agent 结果凭证单元。
-- **状态台黑** (`panel`): 项目检查、空/错误面与 Agent 验证框体。
+- **状态台黑** (`panel`): 项目检查、空/错误面与 Agent 创作框体。
 - **控件黑** (`control`): 休止态按钮、抽屉控件与锁定器件。
 - **结构线** (`line`): 暗色区域的边界与分隔。
 - **状态分隔** (`separator`): Agent 标题、任务、结果与操作区之间的结构分隔。
@@ -256,7 +240,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 ### Named Rules
 
-**The Proofing Blue Rule.** 校片蓝只表示当前工作区、焦点或显式选择；选中状态还必须拥有线框、位置标记或文字语义。
+**The Proofing Blue Rule.** 校片蓝用于当前工作区、焦点、显式选择、运行状态与主要操作；选中状态还必须拥有线框、位置标记或文字语义。
 
 **The Amber Boundary Rule.** 琥珀只说明胶片边码、只读边界与需要注意的诊断，不把整块面板染成警告色。
 
@@ -272,7 +256,7 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 **Label/Mono Font:** ui-monospace（回退到 monospace）
 
-**Character:** 展示字像胶片盒与校片章上的工业窄体，只出现在品牌、Scene 编号、校片边码和只读标签。中文 UI sans 承担叙事阅读，等宽体承担 Project ID、路径、表头、时长与机器状态；三者不能互换成装饰。
+**Character:** 展示字像胶片盒与校片章上的工业窄体，用于品牌、Scene 编号、校片边码、只读标签及部分面板标题。中文 UI sans 承担叙事阅读，等宽体承担 Project ID、路径、表头、时长与机器状态；三者不能互换成装饰。
 
 ### Hierarchy
 
@@ -287,18 +271,35 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 **The Three Voices Rule.** 展示字负责身份与校片，中文 UI sans 负责内容，等宽体负责机器事实；不要用展示字排中文长文，也不要用等宽体承担 Narration。
 
+## Layout
+
+工作台占满视口（`100dvh`），按项目身份、工作区导航、可滚动工作面、Composer 四段排列。桌面行高依次为 `68px / 54px / minmax(0,1fr) / 138px`；移动端为 `92px / 50px / minmax(0,1fr) / 164px`。内容区域独立滚动，底部输入与反馈保留在壳体内。
+
+桌面项目检查宽 `320px`，在 `900px` 以下收为 `280px`；`700px` 以下改为右侧抽屉（`min(88vw,360px)`），TTS 子视图为 `min(94vw,390px)`。Project ID 移到身份栏第二行，文件夹图标隐藏，项目名和连接文字保留。
+
+Scene 行高采用 `112px`。最终桌面列为 `80px / minmax(240px,1fr) / 150px / 154px`；`900px` 以下为 `70px / minmax(220px,1fr) / 120px / 146px`；`700px` 以下隐藏 Asset 列，保留 `52px / minmax(156px,1fr) / 138px` 的编号、Narration 与 Speech。行内编辑和 Speech 动作各自留位。操作轨在 `980px` 以下将次级动作收进菜单。
+
+外工作面使用紧凑间距，内容、检查与覆盖层逐级增加留白，常用间距以 frontmatter 的 spacing 为准。Agent 创作采用纵向任务与审阅分区；旧宿主验证分区仍有 `900px` 的双列转单列样式，但不是当前创作任务的布局模板。交付代表帧桌面三列、移动端单列，Scene 边界对照保留两列。
+
+启动页沿用胶片框中的步骤纸面与侧边入口，在 `760px` 以下顺序叠放。Brief 编辑层桌面最大 `1120px × 820px`，窄屏近全屏；修订历史从右侧覆盖，最大宽 `600px`，`680px` 以下全宽。
+
+**The Persistent Composer Rule.** 尺寸变化可以压缩标签和操作排布，但输入、状态说明和发送入口保持可达。
+
 ## Elevation & Depth
 
-系统通过灯箱明度、内嵌暗边和少量结构阴影建立深度。胶片框使用重环境阴影压入暗房；纸面使用柔和背光与内阴影模拟光箱玻璃；Agent 验证台与常驻导航、检查栏一样依赖色阶和分隔线，不为任务或结果制造漂浮卡片。移动端项目检查是唯一明显横向悬浮层。
+系统通过灯箱明度、内嵌暗边和少量结构阴影建立深度。胶片框使用重环境阴影压入暗房；纸面使用柔和背光与内阴影模拟光箱玻璃；Agent 创作台与常驻导航、检查栏一样依赖色阶和分隔线，不为任务或结果制造漂浮卡片。项目检查抽屉、独立媒体/Brief 编辑层和修订历史构成明确的覆盖层。
 
 ### Shadow Vocabulary
+
+- **状态台压暗** (`0 18px 54px rgba(0,0,0,.32), inset 0 1px rgba(255,255,255,.035)`): 用于 Agent 整体框体，不逐项套用。
+- **媒体覆盖层** (`0 28px 80px rgba(0,0,0,.7)`): 用于 Asset 预览；Brief 编辑层使用同形阴影，透明度为 `.72`。
 
 - **胶片压暗** (`0 26px 70px rgba(0,0,0,.58), inset 0 1px rgba(255,255,255,.045), inset 0 0 0 5px rgba(0,0,0,.18)`): 只用于整张接触印样框。
 - **纸面背光** (`0 0 34px rgba(241,243,235,.34), inset 0 0 36px rgba(68,76,72,.14)`): 只用于背光接触表。
 - **键盘焦点** (`0 0 0 5px rgba(78,136,223,.24)`): 与 `2px` 可见轮廓共同出现，不能代替轮廓。
 - **移动检查抽屉** (`-18px 0 45px rgba(0,0,0,.48)`): 仅在窄屏项目检查打开时出现。
 
-接触表在允许动效时以 `420ms`、`cubic-bezier(.16,1,.3,1)` 从稍暗状态亮起；`prefers-reduced-motion` 下完全不播放。除这一处首现材料反馈外，系统没有装饰性持续动画。
+接触表在允许动效时以 `420ms`、`cubic-bezier(.16,1,.3,1)` 从稍暗状态亮起；`prefers-reduced-motion` 下完全不播放。动画以 `both` 保留结束态；结束背光为 `0 0 22px rgba(241,243,235,.28), inset 0 0 28px rgba(68,76,72,.1)`，与无动画的静态背光不同。系统没有装饰性持续动画。
 
 **The One Lightbox Rule.** 每个工作区最多有一个背光主面；不要把普通面板、按钮或提示也做成发光玻璃。
 
@@ -308,27 +309,56 @@ Narracut 的高频 Operate 表面是一座数字暗房：深黑框体压低环�
 
 **The Cut Edge Rule.** 圆角用于可触控控件和整张材料框，不用于把每条 Scene、每项检查或每段文字包成卡片。
 
+## Components
+
+### Buttons
+
+操作按钮保持机械式紧凑轮廓。暗面次级按钮使用控件黑、结构描边与小圆角，主操作使用深校片蓝和白字；Agent 停止操作使用琥珀文字。通用 Agent 操作最小高度为 `44px`、最小宽度为 `126px`；这是最小尺寸，不是固定高度。悬停提高边框或背景明度，禁用同时降低明度并改变指针。
+
+纸面 Scene 工具使用浅底深字；桌面操作轨最小高度 `40px`，移动端增至 `44px`。Speech 动作保持至少 `44px` 的宽高。不同按钮族的禁用透明度与悬停样式按所在表面保留，不强行合并成一套数值。
+
+### Inputs / Fields
+
+Composer 使用暗色多行输入、细边框与 field 圆角；右侧发送按钮宽度见 frontmatter。空草稿或操作不可用时禁用，有效输入可显示“开始创作”或“发送”，下方说明承担错误、会话范围与编辑边界反馈。
+
+Narration 采用纸面原位编辑。Video Brief 原始 Markdown 使用暖白大编辑面、墨色等宽正文和校片蓝光标；冲突证据桌面并列，移动端以选项切换证据、顺序安排决策按钮。新目标接管表单采用暗面可调整高度文本框。
+
+全局输入和按钮的键盘焦点使用 `2px` 蓝色轮廓、`3px` 偏移及外圈；较新的检查、交付和接受区域使用 focus-blue，部分取消外圈。焦点与选中状态分别表达。
+
+### Navigation
+
+工作区标签是连续直角分区：默认灰字，选中用白字、浅蓝底和底部校片线。移动端标签均分剩余空间，项目检查入口与其同排。侧台通过返回按钮在检查、Asset 和 TTS 间转换；覆盖层提供明确关闭入口。
+
+### Cards / Containers
+
+Scene 使用连续行与列分隔，不逐行浮起。胶片框、Agent 框体和覆盖层采用 frame 圆角；候选、检查、交付与 Render 区域主要靠暗色面、标题和细分隔线建立层级。长路径和身份值允许折行，技术详情使用原生折叠结构。
+
+### Scene 接触印样
+
+Narration 为主阅读列，通常限制两行；编号以窄体显示。选择使用内描边（`3px`）、左侧三角和圈记边码；键盘聚焦不代替选择。Asset 用文件名、引用数量和异常标识提供摘要；Speech 用状态形状、文字、实际时长及贴近单元格的动作展示生成状态。
+
+### 创作、Preview 与交付
+
+当前创作指令以原文、任务状态和可用操作组织，较长原文与技术身份可展开。停止、等待批准、继续和接管以对应文字说明动作后果，不靠单一状态颜色传达。
+
+Preview 采用暗色完整比例舞台，当前修订与候选以具名按钮和“正在查看”文字区分；过期提示独立于临时操作反馈。候选检查、交付摘要、代表帧、接受确认与最终 Render 各自成段。代表帧可放大，修订历史使用右侧抽屉，已完成输出以位置与操作呈现。接受成功不能用视觉反馈冒充 Render 已完成。
+
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** 让项目身份先于工作区工具，并在移动端继续展示 Project ID 与连接文字。
-- **Do** 让 Narration 成为每条 Scene 的视觉主内容；Asset 只显示 identity、path 或 placeholder。
-- **Do** 用蓝色线框、位置标记和程序化状态共同表达选择，让焦点与选择保持独立。
-- **Do** 把琥珀限制在胶片边码、只读与诊断提醒，把绿色限制在真实有效状态。
-- **Do** 保持项目检查在桌面端为窄侧栏、移动端为抽屉，并让 Composer 在所有尺寸下可见。
-- **Do** 以内嵌本地字体与 raster 建立材料感，同时尊重 `prefers-reduced-motion`。
-- **Do** 把 Agent 宿主验证保持为单任务状态台，并在桌面双列、窄屏单列之间保留状态、结果与操作顺序。
-- **Do** 用文字与形状共同表达 Agent 状态，且只在有界状态变化时更新可见面板与隐藏播报。
+- **Do** 让 Narration 占据纸面主阅读列，让项目身份、连接文字和 Composer 在窄屏继续可达。
+- **Do** 用校片线、形状、文字及程序化状态共同表达选择、任务和检查结果。
+- **Do** 区分纸面编辑控件与暗面审阅控件，复用已有小圆角和结构描边。
+- **Do** 保持 Preview 的完整比例，过期提示和正在查看版本各自可见。
+- **Do** 让技术身份、完整证据与历史详情可展开，主面优先显示用户要处理的内容和下一步。
+- **Do** 尊重 `prefers-reduced-motion`，将材料动效限制在有界首现反馈。
 
 ### Don't:
 
-- **Don't** 把接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。
-- **Don't** 让表格工作区以外的 Agent、Preview、Render Program、Composer 或桥接层获得 Scene 写入口；不要加入 Asset 删除/重命名/转码/裁切、TTS、Render 或 Legacy 项目入口。
-- **Don't** 用颜色作为选择、连接、有效或只读状态的唯一信号。
-- **Don't** 让键盘焦点自动选中 Scene，或在工作区切换时丢失所选 Scene、历史、保存队列与会话草稿。
-- **Don't** 隐藏 Composer、禁用草稿输入或启用尚未接入的发送；会话保留范围与发送禁用原因必须同时可见且可被辅助技术读取。
-- **Don't** 把 Agent 工作区做成聊天，或展示 Render Program 源码、对话、推理、工具日志与历史。
-- **Don't** 自动替换正在查看的 Preview、用临时反馈覆盖过期提醒，或在 `FRAME` 确认前更新已提交时间与播放 Scene。
-- **Don't** 用 Agent 状态或验证结果暗示 Scene、Render Program 或任何项目文件已被写入。
-- **Don't** 引入霓虹 AI、玻璃拟态、渐变品牌面或大量圆角卡片，稀释暗房与接触印样的材料逻辑。
+- **Don't** 把连续接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。
+- **Don't** 用颜色作为选择、连接、有效或不可用的唯一信号。
+- **Don't** 把旧阶段的“发送尚未启用”或“只读验证”作为当前创作界面的固定文案。
+- **Don't** 用每项独立阴影、大量圆角卡片或聊天气泡替换当前的状态与审阅分区。
+- **Don't** 用短暂成功提示遮盖 Preview 的过期状态，或把接受完成表现为最终 Render 完成。
+- **Don't** 引入霓虹 AI、玻璃拟态或渐变品牌面，稀释暗房与接触印样的材料逻辑。
