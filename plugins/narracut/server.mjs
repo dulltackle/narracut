@@ -26043,6 +26043,7 @@ var checkpointSchema = external_exports.object({
   candidateBaseline: external_exports.string().nullable(),
   inputIdentity: external_exports.string().nullable(),
   pending: external_exports.string().max(4e3).nullable(),
+  waitingReason: external_exports.string().nullable().default(null),
   suggestions: external_exports.array(pendingSuggestion).max(100).default([]),
   briefProposal: briefProposal.nullable().default(null),
   pendingMessage: pendingMessage.nullable().default(null)
@@ -26094,6 +26095,17 @@ var CreationTask = class {
   delivery;
   #state = null;
   #driver = null;
+  #operation = null;
+  #interrupted = null;
+  #replacementThread = false;
+  #recovery = null;
+  get recovery() {
+    return this.#recovery ? { ...this.#recovery } : null;
+  }
+  async #invalid() {
+    const candidate = await this.opened.candidate({ action: "read" });
+    this.#recovery = { code: "TASK_CHECKPOINT_INVALID", candidateBaseline: candidate.baseline, candidatePath: candidate.candidate?.path ?? null, previousTaskId: this.#state?.taskId ?? null };
+  }
   #timer;
   #observing = false;
   #snapshotValue = null;
@@ -26110,10 +26122,13 @@ var CreationTask = class {
   #parentOrigin = "null";
   #pendingRun = Promise.resolve();
   get ownsCandidate() {
-    return this.#state?.status === "running";
+    return this.#state?.status === "running" && !this.#operation && !this.#recovery;
+  }
+  get blocksCandidateWrites() {
+    return this.ownsCandidate || this.#operation !== null;
   }
   async status() {
-    if (this.#state?.reason === "CANDIDATE_READY") {
+    if (!this.#operation && !this.#recovery && this.#state?.status === "waiting" && this.#state.reason === "CANDIDATE_READY") {
       const latest = await this.delivery.status(this.opened);
       if (!latest.delivery || latest.delivery.stale) {
         this.#state.reason = "USER_DECISION_REQUIRED";
@@ -26124,22 +26139,23 @@ var CreationTask = class {
     return this.value;
   }
   get value() {
-    return this.#state ? { ...structuredClone(this.#state), briefChange: this.#briefChange, discussion: this.#discussion } : null;
+    return this.#state ? { ...structuredClone(this.#state), briefChange: this.#briefChange, discussion: this.#discussion, operation: this.#operation, replacementThread: this.#replacementThread } : null;
   }
   async load() {
     try {
       const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 2e7)).toString()));
       if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error("\u4EFB\u52A1\u9879\u76EE\u8EAB\u4EFD\u4E0D\u5339\u914D");
+      this.#state = { ...checkpoint, externalBaseline: null, status: checkpoint.status === "terminated" ? "terminated" : "stopped", reason: checkpoint.status === "terminated" ? checkpoint.reason : "APP_RESTARTED", waitingReason: checkpoint.waitingReason ?? (checkpoint.status === "waiting" ? checkpoint.reason : null), stage: "read", divergence: "", preview: null, deliveryId: null };
       const candidate = await this.opened.candidate({ action: "read" });
       if (checkpoint.status !== "terminated" && checkpoint.candidateBaseline !== candidate.baseline) throw new Error("\u4EFB\u52A1\u5019\u9009\u68C0\u67E5\u70B9\u4E0D\u5339\u914D");
-      this.#state = { ...checkpoint, externalBaseline: null, status: checkpoint.status === "terminated" ? "terminated" : "stopped", reason: checkpoint.status === "terminated" ? checkpoint.reason : "APP_RESTARTED", stage: checkpoint.lastSafeStage ?? "read", divergence: "", preview: null, deliveryId: null };
       if (checkpoint.briefProposal?.status === "saved") {
         const proposal = checkpoint.briefProposal;
         this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: this.opened.inspection.videoBriefRevision };
       }
       await this.#save();
     } catch (error51) {
-      if (error51.code !== "ENOENT") throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u4EFB\u52A1\u68C0\u67E5\u70B9\u65E0\u6CD5\u6062\u590D\uFF1B\u5019\u9009\u4FDD\u7559\u3002");
+      if (error51.code === "ENOENT" && (await this.opened.candidate({ action: "read" })).status === "absent") return;
+      await this.#invalid();
     }
   }
   #path() {
@@ -26149,31 +26165,34 @@ var CreationTask = class {
     if (!this.#state) return;
     const { externalBaseline: _externalBaseline, stage: _stage, divergence: _divergence, preview: _preview, deliveryId: _delivery, ...checkpoint } = this.#state;
     const bytes = JSON.stringify(checkpointSchema.parse(checkpoint));
-    await this.opened.programTransaction(async () => {
-      const parent = join6(this.opened.inspection.projectDirectory, ".narracut");
-      const identity2 = await directory(parent), temporary = join6(parent, `task-${randomUUID4()}.tmp`);
+    await this.opened.programTransaction(() => this.#writeCheckpoint(bytes));
+  }
+  async #writeCheckpoint(bytes, validate) {
+    const parent = join6(this.opened.inspection.projectDirectory, ".narracut");
+    const identity2 = await directory(parent), temporary = join6(parent, `task-${randomUUID4()}.tmp`);
+    try {
+      const handle = await open2(temporary, "wx", 384);
       try {
-        const handle = await open2(temporary, "wx", 384);
-        try {
-          await handle.writeFile(bytes);
-          await handle.sync();
-        } finally {
-          await handle.close();
-        }
-        if (identity2 !== await directory(parent)) throw new Error("\u4EFB\u52A1\u76EE\u5F55\u5DF2\u66FF\u6362");
-        await rename3(temporary, this.#path());
-        const parentHandle = await open2(parent, "r");
-        try {
-          await parentHandle.sync();
-        } finally {
-          await parentHandle.close();
-        }
+        await handle.writeFile(bytes);
+        await handle.sync();
       } finally {
-        await rm5(temporary, { force: true });
+        await handle.close();
       }
-    });
+      if (identity2 !== await directory(parent)) throw new Error("\u4EFB\u52A1\u76EE\u5F55\u5DF2\u66FF\u6362");
+      await validate?.();
+      await rename3(temporary, this.#path());
+      const parentHandle = await open2(parent, "r");
+      try {
+        await parentHandle.sync();
+      } finally {
+        await parentHandle.close();
+      }
+    } finally {
+      await rm5(temporary, { force: true });
+    }
   }
   async start(instruction, parentOrigin = "null") {
+    if (this.#recovery) throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u8BF7\u660E\u786E\u7528\u65B0\u4EFB\u52A1\u63A5\u7BA1\u5019\u9009\u3002");
     if (this.#busy || this.#state && this.#state.status !== "terminated") throw new Error("\u5DF2\u6709\u521B\u4F5C\u4EFB\u52A1\uFF1B\u8FFD\u52A0\u8981\u6C42\u4E0E\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
     if (!instruction.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u586B\u5199 1\u20134000 \u5B57\u7684\u660E\u786E\u521B\u4F5C\u76EE\u6807\u3002");
     this.#parentOrigin = parentOrigin;
@@ -26193,6 +26212,7 @@ var CreationTask = class {
         candidateBaseline: null,
         inputIdentity: null,
         pending: null,
+        waitingReason: null,
         suggestions: [],
         briefProposal: null,
         pendingMessage: null,
@@ -26212,6 +26232,105 @@ var CreationTask = class {
       throw error51;
     } finally {
       this.#busy = false;
+    }
+  }
+  /** 接管只替换单一任务检查点；候选文件字节保持不变。 */
+  async takeover(instruction, baseline, parentOrigin = "null") {
+    if (this.#busy || this.#operation || this.ownsCandidate || !instruction?.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u505C\u6B62\u6D3B\u52A8\u4EFB\u52A1\u5E76\u586B\u5199 1\u20134000 \u5B57\u7684\u65B0\u76EE\u6807\u3002");
+    this.#busy = true;
+    const previous = this.#state;
+    try {
+      await this.#pendingRun;
+      await this.opened.programTransaction(async (manager) => {
+        let candidate = await manager({ action: "read" });
+        if (candidate.baseline !== baseline) throw new Error("\u5019\u9009\u518D\u6B21\u53D8\u5316\uFF0C\u8BF7\u6838\u5BF9\u5019\u9009\u5BF9\u8C61\u540E\u518D\u6B21\u660E\u786E\u63D0\u4EA4\u3002");
+        if (candidate.status === "external-change") candidate = await manager({ action: "adopt", baseline, confirmed: true });
+        if (candidate.status !== "saved") throw new Error(candidate.error?.message ?? "\u8BF7\u5148\u5728\u5019\u9009\u533A\u57DF\u5904\u7406\u5B8C\u6574\u6027\u95EE\u9898\u3002");
+        const checkpoint = {
+          taskId: randomUUID4(),
+          projectId: this.opened.inspection.manifest.projectId,
+          instruction,
+          status: "running",
+          reason: null,
+          threadPointer: null,
+          lastSafeStage: null,
+          candidateBaseline: candidate.baseline,
+          inputIdentity: null,
+          pending: null,
+          waitingReason: null,
+          suggestions: [],
+          briefProposal: null,
+          pendingMessage: null
+        };
+        await this.#writeCheckpoint(JSON.stringify(checkpoint), async () => {
+          if ((await manager({ action: "read" })).baseline !== candidate.baseline) throw new Error("\u5019\u9009\u518D\u6B21\u53D8\u5316\uFF0C\u8BF7\u6838\u5BF9\u5019\u9009\u5BF9\u8C61\u540E\u518D\u6B21\u660E\u786E\u63D0\u4EA4\u3002");
+        });
+        if (previous) {
+          previous.status = "terminated";
+          previous.reason = "TASK_SUPERSEDED";
+        }
+        this.#state = { ...checkpoint, externalBaseline: null, stage: "read", divergence: "", preview: null, deliveryId: null };
+      });
+      this.#recovery = null;
+      this.#parentOrigin = parentOrigin;
+      this.#messageMode = null;
+      this.#briefChange = null;
+      this.#discussion = "";
+      this.#replacementThread = false;
+      this.#pendingRun = this.#run("\u7528\u6237\u4EE5\u65B0\u76EE\u6807\u660E\u786E\u63A5\u7BA1\u73B0\u6709\u5019\u9009\u3002\u91CD\u65B0\u8BFB\u53D6\u5E76\u68C0\u67E5\u6700\u65B0\u5185\u5BB9\u3002").catch((error51) => this.#stop(error51));
+      return this.value;
+    } catch (error51) {
+      await this.#invalid();
+      throw error51;
+    } finally {
+      this.#busy = false;
+    }
+  }
+  async #validateCheckpoint() {
+    try {
+      const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 2e7)).toString()));
+      const candidate = await this.opened.candidate({ action: "read" });
+      const { externalBaseline, stage, divergence, preview, deliveryId, ...current } = this.#state;
+      if (JSON.stringify(checkpoint) !== JSON.stringify(checkpointSchema.parse(current)) || checkpoint.projectId !== this.opened.inspection.manifest.projectId || checkpoint.candidateBaseline !== candidate.baseline) throw new Error("\u68C0\u67E5\u70B9\u4E0D\u4E00\u81F4");
+    } catch {
+      await this.#invalid();
+      throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u4EFB\u52A1\u68C0\u67E5\u70B9\u7F3A\u5931\u3001\u635F\u574F\u6216\u4E0E\u5019\u9009\u4E0D\u4E00\u81F4\uFF0C\u65E0\u6CD5\u7EE7\u7EED\u539F\u4EFB\u52A1\u3002\u5019\u9009\u5DF2\u4FDD\u7559\uFF1B\u8FD9\u4E0D\u4EE3\u8868\u5019\u9009\u635F\u574F\u3002");
+    }
+  }
+  async #stopByUser() {
+    const state = this.#state;
+    if (state.status === "stopped" && !this.#operation) return this.value;
+    if (!this.#operation && state.status === "waiting") state.waitingReason = state.reason;
+    this.#operation = "stopping";
+    const driver = this.#driver;
+    this.#driver = null;
+    this.#messageMode = null;
+    if (driver?.turnId && state.threadPointer) this.#interrupted = { threadId: state.threadPointer, turnId: driver.turnId };
+    this.checks.invalidate();
+    this.delivery.invalidate();
+    try {
+      if (this.#interrupted) {
+        await this.host.interruptTurn(this.#interrupted);
+        this.#interrupted = null;
+      }
+      await this.#pendingRun;
+      if (this.#interrupted) {
+        await this.host.interruptTurn(this.#interrupted);
+        this.#interrupted = null;
+      }
+      const candidate = await this.opened.candidate({ action: "read" });
+      if (state.waitingReason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") {
+        state.candidateBaseline = candidate.baseline;
+        state.externalBaseline = candidate.baseline;
+      } else if (candidate.baseline !== state.candidateBaseline) await this.#invalid();
+      state.status = "stopped";
+      state.reason = "USER_STOPPED";
+      await this.#save();
+      this.#operation = null;
+      return this.value;
+    } catch (error51) {
+      this.#operation = "stop-uncertain";
+      throw new Error(`\u505C\u6B62\u7ED3\u679C\u5F85\u6838\u5BF9\uFF1A${error51.message}`);
     }
   }
   async #observe() {
@@ -26271,10 +26390,11 @@ var CreationTask = class {
     await this.#run("\u65E7\u8EAB\u4EFD\u4E0B\u7684\u7ED3\u679C\u5747\u5DF2\u4F5C\u5E9F\u3002\u8BF7\u4F9D\u636E\u6700\u65B0\u9879\u76EE\u5185\u5BB9\u91CD\u65B0\u68C0\u67E5\u5E76\u521B\u4F5C\u3002");
   }
   async continueExternal(baseline) {
-    if (this.#busy || this.#state?.status !== "waiting" || this.#state.reason !== "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") throw new Error("\u5F53\u524D\u4EFB\u52A1\u4E0D\u5728\u7B49\u5F85\u5916\u90E8\u5019\u9009\u786E\u8BA4\u3002");
+    if (this.#busy || this.#operation || this.#recovery || !this.#state || !["waiting", "stopped"].includes(this.#state.status) || (this.#state.waitingReason ?? this.#state.reason) !== "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") throw new Error("\u5F53\u524D\u4EFB\u52A1\u4E0D\u5728\u7B49\u5F85\u5916\u90E8\u5019\u9009\u786E\u8BA4\u3002");
     this.#busy = true;
     try {
       await this.#pendingRun;
+      if (this.#state.status === "stopped") await this.#validateCheckpoint();
       const candidate = await this.opened.candidate({ action: "read" });
       if (baseline !== candidate.baseline) {
         this.#state.externalBaseline = candidate.baseline;
@@ -26285,6 +26405,15 @@ var CreationTask = class {
       const adopted = await this.opened.candidate({ action: "adopt", baseline, confirmed: true });
       this.#state.candidateBaseline = adopted.baseline;
       this.#state.externalBaseline = null;
+      if (this.#state.status === "stopped" && this.#state.threadPointer) {
+        try {
+          this.#state.threadPointer = (await this.host.resumeThread({ threadId: this.#state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory })).threadId;
+        } catch {
+          this.#state.threadPointer = null;
+          this.#replacementThread = true;
+        }
+      }
+      this.#state.waitingReason = null;
       this.#state.status = "running";
       this.#state.reason = null;
       this.#state.preview = null;
@@ -26296,6 +26425,7 @@ var CreationTask = class {
       this.#pendingRun = this.#run().catch((error51) => this.#stop(error51));
       return this.value;
     } catch (error51) {
+      if (this.#recovery) throw error51;
       this.#state.pending = `${externalMessage} ${error51.message}`;
       await this.#save();
       throw error51;
@@ -26309,20 +26439,13 @@ var CreationTask = class {
     if (driver?.turnId && this.#state?.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId });
   }
   async respond(input) {
-    if (this.#busy || !this.#state || this.#state.status === "terminated") throw new Error("\u5F53\u524D\u6CA1\u6709\u53EF\u64CD\u4F5C\u4EFB\u52A1\u6216\u64CD\u4F5C\u5C1A\u672A\u5B8C\u6210");
+    if (this.#busy || !this.#state || this.#state.status === "terminated" || this.#operation && input.action !== "stop" || this.#recovery) throw new Error("\u5F53\u524D\u6CA1\u6709\u53EF\u64CD\u4F5C\u4EFB\u52A1\u6216\u64CD\u4F5C\u5C1A\u672A\u5B8C\u6210");
     this.#busy = true;
     try {
-      if (input.action === "stop") {
-        this.#messageMode = null;
-        this.#state.status = "stopped";
-        this.#state.reason = "USER_STOPPED";
-        await this.#interrupt();
-        await this.#pendingRun;
-        await this.#save();
-        return this.value;
-      }
+      if (input.action === "stop") return await this.#stopByUser();
       await this.#pendingRun;
       const state = this.#state;
+      if (state.status === "stopped") await this.#validateCheckpoint();
       if (input.action === "message") {
         const original = input.instruction;
         if (!original?.trim() || original.length > 4e3 || state.pendingMessage) throw new Error("\u8BF7\u5148\u5904\u7406\u62DF\u4FDD\u5B58\u7684\u539F\u6587\u7247\u6BB5\uFF0C\u6216\u586B\u5199 1\u20134000 \u5B57\u6D88\u606F");
@@ -26351,8 +26474,10 @@ var CreationTask = class {
         await this.#save();
         if (input.action === "confirm-message" && state.status !== "stopped") await this.#resume();
         else if (input.action !== "confirm-message") {
-          state.status = previous.previousStatus;
-          state.reason = previous.previousReason;
+          if (state.status !== "stopped") {
+            state.status = previous.previousStatus;
+            state.reason = previous.previousReason;
+          }
           if (state.status === "running") await this.#resume();
           else {
             await this.#save();
@@ -26391,7 +26516,7 @@ var CreationTask = class {
           }
         }
       } else if (input.action === "continue" || input.action === "regenerate-brief") {
-        if (state.status === "running" || state.pendingMessage || state.reason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") throw new Error("\u8BF7\u5148\u5904\u7406\u5F53\u524D\u5F85\u529E");
+        if (state.status === "running" || state.pendingMessage || state.reason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" || state.waitingReason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" || state.waitingReason === "TOOL_APPROVAL_REQUIRED" || state.reason === "TOOL_APPROVAL_REQUIRED") throw new Error("\u8BF7\u5148\u5904\u7406\u5F53\u524D\u5F85\u529E");
         if (input.action === "continue" && state.briefProposal?.status === "review") throw new Error("\u8BF7\u5148\u63A5\u53D7\u6216\u62D2\u7EDD Brief \u63D0\u6848");
         if (input.action === "regenerate-brief") state.briefProposal = null;
         await this.#resume(input.action === "regenerate-brief" ? "\u8BF7\u4F9D\u636E\u6700\u65B0 Brief \u91CD\u65B0\u751F\u6210\u5B8C\u6574\u63D0\u6848\uFF0C\u7B49\u5F85\u7528\u6237\u5BA1\u6838\u3002" : "\u7528\u6237\u660E\u786E\u9009\u62E9\u6309\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\u7EE7\u7EED\u3002\u5DF2\u62D2\u7EDD\u7684 Brief \u63D0\u6848\u4E0D\u5F97\u518D\u6B21\u81EA\u52A8\u4FDD\u5B58\u3002");
@@ -26408,15 +26533,20 @@ var CreationTask = class {
   }
   async #resume(feedback = "") {
     const state = this.#state;
+    if (state.status === "stopped") await this.#validateCheckpoint();
+    this.#operation = "reconciling";
     if (state.status === "stopped" && state.threadPointer) {
       try {
         state.threadPointer = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory })).threadId;
       } catch {
         state.threadPointer = null;
+        this.#replacementThread = true;
       }
     }
+    this.#operation = null;
     state.status = "running";
     state.reason = null;
+    state.waitingReason = null;
     state.pending = null;
     state.stage = "read";
     state.inputIdentity = null;
@@ -26443,7 +26573,12 @@ var CreationTask = class {
         `\u672C\u6B21\u6D88\u606F\uFF1A${JSON.stringify(original)}`,
         `verificationToken \u5FC5\u987B\u8FD4\u56DE\uFF1A${driver.token}`
       ].join("\n") });
-      this.#assert();
+      if (!this.ownsCandidate || this.#closed) {
+        this.#interrupted = { threadId: state.threadPointer, turnId: turn.turnId };
+        await this.host.interruptTurn(this.#interrupted);
+        this.#interrupted = null;
+        this.#assert();
+      }
       driver.turnId = turn.turnId;
     } finally {
       this.#starting = false;
@@ -26456,7 +26591,7 @@ var CreationTask = class {
     await this.#save();
   }
   #assert() {
-    if (this.#closed || this.#state?.status !== "running") throw new Error("\u5F53\u524D\u9A71\u52A8\u5DF2\u5931\u53BB\u5199\u6743\u3002");
+    if (this.#closed || !this.ownsCandidate) throw new Error("\u5F53\u524D\u9A71\u52A8\u5DF2\u5931\u53BB\u5199\u6743\u3002");
   }
   async #snapshot() {
     const candidate = await this.opened.candidate({ action: "read" });
@@ -26477,6 +26612,7 @@ var CreationTask = class {
     }
     state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
     await this.#save();
+    this.#assert();
     const driver = { token: randomUUID4(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
@@ -26496,6 +26632,8 @@ var CreationTask = class {
           "\u6574\u7406 Brief \u4F7F\u7528 action=brief \u5E76\u63D0\u4F9B brief={content:\u5B8C\u6574 Markdown,purpose:\u4FEE\u6539\u76EE\u7684}\u3002\u6CA1\u6709\u660E\u786E\u8981\u6C42\u5199 Brief \u65F6\u5E94\u7528\u53EA\u751F\u6210\u5BA1\u6838\u63D0\u6848\uFF1B\u4E0D\u53EF\u7528\u5019\u9009\u6587\u4EF6\u66FF\u4EE3 video.md\u3002",
           "Scene suggestions \u5FC5\u987B\u4F7F\u7528\u771F\u5B9E\u7A33\u5B9A Scene UUID\uFF1Brequired=true \u5FC5\u987B\u63D0\u4F9B condition\uFF1Anarration \u5B57\u6570\u8303\u56F4/anyOf \u53EF\u63A5\u53D7\u8BCD\u7EC4\u3001asset \u53EF\u7528\u7D20\u6750\uFF08anyOf \u7A7A\u5141\u8BB8\u4EFB\u4F55\u53EF\u7528\u66FF\u4EE3\u7D20\u6750\uFF09\u6216 deleted\u3002description \u7528\u4E2D\u6587\u89E3\u91CA\u7EED\u8DD1\u76EE\u6807\u3002\u4E0D\u53EF\u8BC1\u660E\u7684\u8BED\u4E49\u76EE\u6807\u8BF7\u6C42\u7528\u6237\u5224\u65AD\uFF0C\u4E0D\u4F2A\u9020\u6761\u4EF6\u3002\u53EF\u9009\u5EFA\u8BAE required=false\u3002",
           "\u5B9E\u8D28 Brief \u5206\u6B67\u586B\u5199 divergence\uFF0C\u5E76\u8BF4\u660E\u672C\u6B21\u9075\u5FAA\u7684\u7528\u6237\u539F\u6587\uFF1B\u5426\u5219\u7A7A\u5B57\u7B26\u4E32\u3002summary\u3001warnings\u3001suggestions \u7528\u4E2D\u6587\u3002",
+          "\u672C Turn \u4EC5\u4EE5\u5E94\u7528\u63D0\u4F9B\u7684\u68C0\u67E5\u70B9\u3001\u5F53\u524D\u5019\u9009\u548C\u6700\u65B0\u8F93\u5165\u4E3A\u4F9D\u636E\u3002\u4E22\u5F03\u65E7 Turn \u672A\u63D0\u4EA4\u4FEE\u6539\u3001\u5DE5\u5177\u8C03\u7528\u53CA\u4E2D\u95F4\u5224\u65AD\uFF0C\u4E0D\u4ECE\u5BF9\u8BDD\u6062\u590D\u5B83\u4EEC\u3002\u68C0\u67E5\u4E0E Preview \u8BC1\u636E\u7F3A\u5931\u6216\u8FC7\u671F\u65F6\u5FC5\u987B\u91CD\u8DD1\u3002",
+          `\u6700\u540E\u5B8C\u6210\u7684\u5B89\u5168\u9636\u6BB5\uFF1A${state.lastSafeStage ?? "\u5C1A\u65E0"}\uFF08\u4E0D\u4EE3\u8868\u68C0\u67E5\u8BC1\u636E\u4ECD\u6709\u6548\uFF09\u3002`,
           `\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\uFF08\u7CBE\u786E\u539F\u6587\uFF09\uFF1A${JSON.stringify(state.instruction)}`,
           `\u6700\u65B0 Runtime \u8F93\u5165\uFF1A${JSON.stringify(snapshot.input)}`,
           `\u5019\u9009\uFF1A${snapshot.candidate.candidate?.path}\uFF1B\u5B8C\u6574\u8EAB\u4EFD\uFF1A${snapshot.signature}`,
@@ -26503,7 +26641,12 @@ var CreationTask = class {
           feedback
         ].join("\n")
       });
-      this.#assert();
+      if (!this.ownsCandidate || this.#closed) {
+        this.#interrupted = { threadId: state.threadPointer, turnId: turn.turnId };
+        await this.host.interruptTurn(this.#interrupted);
+        this.#interrupted = null;
+        this.#assert();
+      }
       driver.turnId = turn.turnId;
     } finally {
       this.#starting = false;
@@ -26701,11 +26844,12 @@ var CreationTask = class {
     this.#driver = null;
     this.#state.status = "waiting";
     this.#state.reason = reason;
+    this.#state.waitingReason = reason;
     this.#state.pending = pending;
     await this.#save();
   }
   async #stop(error51) {
-    if (!this.#state || this.#closed) return;
+    if (!this.#state || this.#closed || this.#operation || this.#state.status === "stopped") return;
     if (this.ownsCandidate) {
       try {
         const snapshot = await this.#snapshot();
@@ -26738,12 +26882,17 @@ var CreationTask = class {
     await this.#save().catch(() => void 0);
   }
   async terminate(reason) {
-    if (!this.#state) return;
+    if (!this.#state) {
+      if (this.#recovery) await this.opened.programTransaction(() => rm5(this.#path(), { force: true }));
+      this.#recovery = null;
+      return;
+    }
     this.#driver = null;
     this.#state.status = "terminated";
     this.#state.reason = reason;
     this.#state.pending = null;
     await this.#save();
+    this.#recovery = null;
   }
   async close() {
     clearInterval(this.#timer);
@@ -31578,7 +31727,7 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
-  { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop"] }, id: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
+  { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop", "takeover"] }, id: { type: "string" }, baseline: { type: "string" }, parentOrigin: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "start_creation_task", description: "\u4ECE Composer \u539F\u6587\u53D1\u8D77\u4E13\u7528\u521B\u4F5C\u4EFB\u52A1\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "get_creation_task", description: "\u8BFB\u53D6\u5F53\u524D\u5355\u9879\u521B\u4F5C\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ["app"] } } },
   { name: "continue_creation_task", description: "\u660E\u786E\u57FA\u4E8E\u5F53\u524D\u5916\u90E8\u5019\u9009\u7EE7\u7EED\u540C\u4E00\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "baseline"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, baseline: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: false }, _meta: { ui: { visibility: ["app"] } } },
@@ -32201,9 +32350,9 @@ var ProjectWorkspaceSession = class {
     if (this.creationError) throw new Error(this.creationError);
     if (!this.creation) throw new Error("\u521B\u4F5C\u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002");
     if (!respond && input.action !== void 0) throw new Error("\u5F53\u524D\u5DE5\u5177\u4E0D\u63A5\u53D7\u4EFB\u52A1\u5199\u64CD\u4F5C");
-    const creationTask = respond ? await this.creation.respond(input) : resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? "null") : await this.creation.status();
+    const creationTask = respond ? input.action === "takeover" ? await this.creation.takeover(input.instruction, input.baseline, input.parentOrigin) : await this.creation.respond(input) : resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? "null") : await this.creation.status();
     const candidate = await this.candidate({ projectDirectory: input.projectDirectory, projectId: input.projectId, action: "read" });
-    return { creationTask, candidate };
+    return { creationTask, candidate, creationRecovery: this.creation.recovery };
   }
   preview = new ProjectPreview();
   checks = new ProjectChecks(this.preview);
@@ -32220,7 +32369,7 @@ var ProjectWorkspaceSession = class {
   }
   async acceptanceOperation(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
-    if (this.creation?.ownsCandidate && !["status", "history", "result"].includes(input.action)) throw new Error("\u521B\u4F5C\u4EFB\u52A1\u6B63\u5728\u8FD0\u884C\uFF0C\u8BF7\u7B49\u5F85\u5019\u9009\u4EA4\u4ED8\u3002");
+    if (this.creation?.blocksCandidateWrites && !["status", "history", "result"].includes(input.action)) throw new Error("\u521B\u4F5C\u4EFB\u52A1\u6B63\u5728\u8FD0\u884C\uFF0C\u8BF7\u7B49\u5F85\u5019\u9009\u4EA4\u4ED8\u3002");
     const result = await this.acceptance.operate(opened, input);
     if (result.status === "accepted") await this.creation?.terminate("CANDIDATE_ACCEPTED");
     this.#candidateStatus = await opened.candidate({ action: "read" });
@@ -32268,7 +32417,7 @@ var ProjectWorkspaceSession = class {
   }
   #candidateStatus = null;
   serialize(inspection, writable = true) {
-    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError };
+    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
   }
   async open(projectDirectory) {
     const next = await openProjectVNext(projectDirectory, {
@@ -32302,7 +32451,7 @@ var ProjectWorkspaceSession = class {
   async candidate(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const { projectDirectory: _directory, projectId: _id, ...request } = input;
-    if (this.creation?.ownsCandidate && request.action !== "read") throw new Error("\u53EA\u6709\u5F53\u524D\u521B\u4F5C\u9A71\u52A8\u53EF\u4EE5\u4FEE\u6539\u5019\u9009\uFF1B\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\u3002");
+    if (this.creation?.blocksCandidateWrites && request.action !== "read") throw new Error("\u53EA\u6709\u5F53\u524D\u521B\u4F5C\u9A71\u52A8\u53EF\u4EE5\u4FEE\u6539\u5019\u9009\uFF1B\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\u3002");
     this.#candidateStatus = await opened.candidate(request);
     if (request.action === "discard") await this.creation?.terminate("CANDIDATE_ABANDONED");
     return this.#candidateStatus;

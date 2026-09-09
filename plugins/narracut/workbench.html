@@ -78,6 +78,13 @@
 .creation-panel .agent-head h1 { font-size: 1.35rem; }
 .creation-instruction { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 72ch; }
 .creation-state { padding: 20px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+#workspace-agent [data-task-recovery] { flex: none; height: auto; display: block; overflow: visible; margin: 0 24px 24px; padding-top: 24px; }
+#workspace-agent [data-task-recovery][hidden] { display: none; }
+[data-takeover-form] textarea { display: block; box-sizing: border-box; width: 100%; min-height: 110px; padding: 12px; font: inherit; font-size: 16px; color: var(--paper); background: var(--control); border: 1px solid var(--line); border-radius: 6px; resize: vertical; }
+[data-takeover-form] label { display:block; margin-bottom:8px; }
+[data-takeover-form] p, .creation-saved p { max-width: 70ch; overflow-wrap:anywhere; }
+[data-task-recovery] h2 { font-size:1.1rem; }
+@media(max-width:700px) { [data-task-recovery] { margin-inline: 0; } [data-takeover-form] .todo-actions { flex-direction:column; } }
 .creation-state h2 { font-size: 1.1rem; margin: 0; }
 .creation-state p { color: #aab3b0; margin: 0; }
 .creation-details { margin: 0 24px 20px; }

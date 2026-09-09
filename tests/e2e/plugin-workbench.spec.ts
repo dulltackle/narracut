@@ -1639,3 +1639,80 @@ test('Composer 同任务混合消息确认精确片段、展示 Brief 分歧，�
   await page.getByRole('button', { name: '复制建议值', exact: true }).nth(1).click();
   expect(await page.evaluate(() => (window as any).copiedSuggestion)).toBe('第二条完整建议值');
 });
+
+for (const width of [1440, 390]) test(`停止与恢复在两个工作区可操作且保留草稿与焦点 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await loadWorkbench(page);
+  let task: any = { taskId: 'task-85', status: 'running', reason: null, instruction: '调整开场的节奏，保留现有旁白与素材', stage: 'modify', lastSafeStage: 'modify', candidateBaseline: 'safe', threadPointer: 'thread-original', pending: null };
+  let finish: (value: unknown) => void = () => {};
+  let stops = 0;
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'respond_creation_task' && args.action === 'stop') { stops++; return new Promise(resolve => { finish = resolve; }); }
+    if (name === 'respond_creation_task' && args.action === 'continue') task = { ...task, status: 'running', reason: null, replacementThread: true };
+    return { structuredContent: { creationTask: task } };
+  });
+  await sendResult(page, { ...validResult(), creationTask: task });
+  const draft = page.locator('#composer-draft');
+  await draft.fill('正在输入的中文草稿');
+  await page.locator('[data-task-notice] [data-task-action="stop"]').click();
+  await expect(page.locator('[data-task-notice]')).toContainText('正在停止…');
+  await expect(page.locator('[data-task-notice] [data-task-action="stop"]')).toBeDisabled();
+  expect(stops).toBe(1);
+  task = { ...task, status: 'stopped', reason: 'USER_STOPPED' };
+  finish({ structuredContent: { creationTask: task } });
+  await page.locator('[data-workspace="agent"]').click();
+  await expect(page.locator('.creation-state')).toContainText('已停止 · 你已停止任务');
+  await expect(page.locator('.creation-saved')).toContainText('已保存至：候选修改');
+  await expect(draft).toHaveValue('正在输入的中文草稿');
+  await page.locator('[data-agent-content]').screenshot({ path: `/tmp/issue85-stopped-${width}.png` });
+  await page.getByRole('button', { name: '继续任务', exact: true }).click();
+  await expect(page.locator('.creation-state')).toContainText('运行中');
+  await expect(page.locator('.creation-saved')).toContainText('仍是同一任务');
+  task = { ...task, status: 'waiting', reason: 'USER_DECISION_REQUIRED', pending: '请确认当前候选的开场效果' };
+  await sendResult(page, { creationTask: task });
+  await page.locator('[data-agent-content] [data-task-action="stop"]').click();
+  expect(stops).toBe(2);
+  task = { ...task, status: 'stopped', reason: 'USER_STOPPED' };
+  finish({ structuredContent: { creationTask: task } });
+  await expect(page.locator('.creation-state')).toContainText('已停止');
+  await expect(page.getByRole('button', { name: '继续任务', exact: true })).toBeFocused();
+  await expect(draft).toHaveValue('正在输入的中文草稿');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+for (const width of [1440, 390]) test(`检查点失效内联接管保留目标，候选变化须再次提交 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await loadWorkbench(page);
+  let recovery: any = { code: 'TASK_CHECKPOINT_INVALID', candidateBaseline: 'first', candidatePath: '.narracut/candidates/保留的候选/render-program' };
+  let task: any = null;
+  const submits: any[] = [];
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'respond_creation_task' && args.action === 'takeover') {
+      submits.push(args);
+      if (submits.length === 1) { recovery = { ...recovery, candidateBaseline: 'second', candidatePath: '.narracut/candidates/最新候选/render-program' }; return { isError: true, structuredContent: { error: { message: '候选再次变化，请核对后再次明确提交。' } } }; }
+      task = { taskId: 'new-task', status: 'running', instruction: args.instruction, reason: null, stage: 'read' }; recovery = null;
+    }
+    return { structuredContent: { creationTask: task, creationRecovery: recovery } };
+  });
+  await sendResult(page, { ...validResult(), creationTask: null, creationRecovery: recovery });
+  await page.locator('#composer-draft').fill('另一份 Composer 草稿');
+  await page.locator('[data-workspace="agent"]').click();
+  await expect(page.locator('[data-task-recovery]')).toContainText('这不代表候选损坏');
+  await page.getByRole('button', { name: '用新任务接管…' }).click();
+  const goal = page.getByLabel('新任务目标');
+  await goal.fill('  新目标\n保留完整中文  ');
+  await goal.dispatchEvent('compositionstart');
+  await page.waitForTimeout(2200);
+  await expect(goal).toBeFocused(); await expect(goal).toHaveValue('  新目标\n保留完整中文  ');
+  await goal.dispatchEvent('compositionend');
+  await page.getByRole('button', { name: '开始新任务并接管候选' }).click();
+  await expect(page.locator('[data-takeover-error]')).toContainText('候选再次变化');
+  await expect(page.locator('[data-takeover-path]')).toContainText('最新候选');
+  await expect(goal).toHaveValue('  新目标\n保留完整中文  ');
+  await page.locator('[data-task-recovery]').screenshot({ path: `/tmp/issue85-takeover-${width}.png` });
+  expect(submits).toHaveLength(1);
+  await page.getByRole('button', { name: '开始新任务并接管候选' }).press('Enter');
+  await expect(page.locator('[data-task-recovery]')).toBeHidden();
+  expect(submits[1].baseline).toBe('second'); expect(submits[1].instruction).toBe('  新目标\n保留完整中文  ');
+  await expect(page.locator('#composer-draft')).toHaveValue('另一份 Composer 草稿');
+});

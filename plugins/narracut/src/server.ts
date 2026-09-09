@@ -107,7 +107,7 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
-  { name: 'respond_creation_task', description: '用户处理同一任务的消息、Scene 待办与 Brief 审核。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'action'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['message','confirm-message','discuss-message','edit-message','accept-brief','ack-brief','reject-brief','regenerate-brief','continue','stop'] }, id: { type: 'string' }, instruction: { type: 'string', maxLength: 4000 } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
+  { name: 'respond_creation_task', description: '用户处理同一任务的消息、Scene 待办与 Brief 审核。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'action'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['message','confirm-message','discuss-message','edit-message','accept-brief','ack-brief','reject-brief','regenerate-brief','continue','stop','takeover'] }, id: { type: 'string' }, baseline: { type: 'string' }, parentOrigin: { type: 'string' }, instruction: { type: 'string', maxLength: 4000 } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'start_creation_task', description: '从 Composer 原文发起专用创作任务；只修改候选，不自动接受。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'instruction'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, instruction: { type: 'string', minLength: 1, maxLength: 4000 }, parentOrigin: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'get_creation_task', description: '读取当前单项创作任务。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ['app'] } } },
   { name: 'continue_creation_task', description: '明确基于当前外部候选继续同一任务。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'baseline'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, baseline: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: { ...taskToolAnnotations, readOnlyHint: false }, _meta: { ui: { visibility: ['app'] } } },
@@ -711,9 +711,9 @@ class ProjectWorkspaceSession {
     if (this.creationError) throw new Error(this.creationError);
     if (!this.creation) throw new Error('创作宿主不可用。');
     if (!respond && input.action !== undefined) throw new Error("当前工具不接受任务写操作");
-    const creationTask = respond ? await this.creation.respond(input) : resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? 'null') : await this.creation.status();
+    const creationTask = respond ? input.action === 'takeover' ? await this.creation.takeover(input.instruction, input.baseline, input.parentOrigin) : await this.creation.respond(input) : resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? 'null') : await this.creation.status();
     const candidate = await this.candidate({ projectDirectory: input.projectDirectory, projectId: input.projectId, action: 'read' });
-    return { creationTask, candidate };
+    return { creationTask, candidate, creationRecovery: this.creation.recovery };
   }
   preview = new ProjectPreview();
   checks = new ProjectChecks(this.preview);
@@ -730,7 +730,7 @@ class ProjectWorkspaceSession {
   }
   async acceptanceOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
-    if (this.creation?.ownsCandidate && !['status', 'history', 'result'].includes(input.action)) throw new Error('创作任务正在运行，请等待候选交付。');
+    if (this.creation?.blocksCandidateWrites && !['status', 'history', 'result'].includes(input.action)) throw new Error('创作任务正在运行，请等待候选交付。');
     const result = await this.acceptance.operate(opened, input);
     if (result.status === 'accepted') await this.creation?.terminate('CANDIDATE_ACCEPTED');
     this.#candidateStatus = await opened.candidate({ action: 'read' });
@@ -781,7 +781,7 @@ class ProjectWorkspaceSession {
   #candidateStatus: CandidateStatus | null = null;
 
   serialize(inspection: ProjectVNextInspection, writable = true): Record<string, unknown> {
-    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError };
+    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
   }
 
   async open(projectDirectory: string): Promise<ProjectVNextInspection> {
@@ -809,7 +809,7 @@ class ProjectWorkspaceSession {
   async candidate(input: CandidateRequest & { projectDirectory: string; projectId: string }) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const { projectDirectory: _directory, projectId: _id, ...request } = input;
-    if (this.creation?.ownsCandidate && request.action !== 'read') throw new Error('只有当前创作驱动可以修改候选；接管尚未接入。');
+    if (this.creation?.blocksCandidateWrites && request.action !== 'read') throw new Error('只有当前创作驱动可以修改候选；接管尚未接入。');
     this.#candidateStatus = await opened.candidate(request);
     if (request.action === 'discard') await this.creation?.terminate('CANDIDATE_ABANDONED');
     return this.#candidateStatus;

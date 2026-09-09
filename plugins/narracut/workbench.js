@@ -55,6 +55,12 @@
     dragged: null,
     operationMessage: null,
     creationTask: null,
+    creationRecovery: null,
+    taskOperation: null,
+    takeoverOpen: false,
+    takeoverDraft: "",
+    takeoverBusy: false,
+    takeoverError: "",
     externalBusy: false,
     composerRevision: 0,
     creationFocusPending: false,
@@ -543,9 +549,9 @@
     }).join('');
   }
   function taskInteractions(task) {
-    if (!task) return '';
+    if (!task || task.status === 'terminated' || state.creationRecovery) return '';
     const proposal = task.briefProposal, message = task.pendingMessage;
-    return `${suggestionMarkup(task.suggestions ?? [], true)}${proposal && ['review','stale','rejected'].includes(proposal.status) ? `<section class="creation-details"><h3>Brief 提案</h3><p>${escapeHtml(proposal.purpose)}</p>${proposal.status === 'rejected' ? '<p>已拒绝提案，原 Brief 保留。</p><button class="agent-action" data-task-action="continue">按当前创作指令继续</button>' : `<button class="agent-action" data-review-proposal>审核 Brief 提案</button>${proposal.status === 'stale' ? '<p>Brief 已变化，需要重新生成提案。</p><button class="agent-action" data-task-action="regenerate-brief">重新生成提案</button>' : ''}`}</section>` : ''}${message ? `<section class="creation-details"><h3>确认保存的创作意图</h3><p>${escapeHtml(message.reply)}</p>${message.fragments.map(fragment => `<blockquote class="creation-instruction">${escapeHtml(fragment)}</blockquote>`).join('')}<div class="todo-actions"><button class="agent-action" data-task-action="confirm-message" ${!message.fragments.length ? 'disabled' : ''}>确认追加</button><button class="agent-action" data-task-action="discuss-message">仅作讨论</button><button class="agent-action" data-task-action="edit-message">返回修改</button></div></section>` : ''}${task.discussion ? `<p class="creation-details creation-instruction">${escapeHtml(task.discussion)}</p>` : ''}${task.status === 'running' ? '<div class="creation-details"><button class="agent-action" data-task-action="stop">停止任务</button></div>' : !message && !['review','stale','rejected'].includes(proposal?.status) && !['terminated'].includes(task.status) && task.reason !== 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED' ? '<div class="creation-details"><button class="agent-action" data-task-action="continue">按当前创作指令继续</button></div>' : ''}`;
+    return `${suggestionMarkup(task.suggestions ?? [], true)}${proposal && ['review','stale','rejected'].includes(proposal.status) ? `<section class="creation-details"><h3>Brief 提案</h3><p>${escapeHtml(proposal.purpose)}</p>${proposal.status === 'rejected' ? '<p>已拒绝提案，原 Brief 保留。</p><button class="agent-action" data-task-action="continue">按当前创作指令继续</button>' : `<button class="agent-action" data-review-proposal>审核 Brief 提案</button>${proposal.status === 'stale' ? '<p>Brief 已变化，需要重新生成提案。</p><button class="agent-action" data-task-action="regenerate-brief">重新生成提案</button>' : ''}`}</section>` : ''}${message ? `<section class="creation-details"><h3>确认保存的创作意图</h3><p>${escapeHtml(message.reply)}</p>${message.fragments.map(fragment => `<blockquote class="creation-instruction">${escapeHtml(fragment)}</blockquote>`).join('')}<div class="todo-actions"><button class="agent-action" data-task-action="confirm-message" ${!message.fragments.length ? 'disabled' : ''}>确认追加</button><button class="agent-action" data-task-action="discuss-message">仅作讨论</button><button class="agent-action" data-task-action="edit-message">返回修改</button></div></section>` : ''}${task.discussion ? `<p class="creation-details creation-instruction">${escapeHtml(task.discussion)}</p>` : ''}${taskControls(task)}`;
   }
   function locateSuggestion(id, field = 'narration') {
     if (!state.project?.scenes.some(scene => scene.id === id)) { announce('目标 Scene 已删除，未定位其他 Scene。'); return; }
@@ -564,47 +570,104 @@
   async function respondTask(action) {
     if (taskActionBusy) return;
     const task = state.creationTask, project = state.result.project;
-    const original = task.pendingMessage?.original;
+    const original = task?.pendingMessage?.original;
     if (action === 'edit-message' && state.composerDraft && state.composerDraft !== original) { announce('Composer 已有新草稿，请先保留或清空后再返回修改。'); return; }
     if (action === 'accept-brief' && (state.brief.saveInFlight || state.brief.conflict || state.brief.version !== state.brief.savedVersion)) { announce('请先保存或处理本地 Brief 修改，再接受提案。'); return; }
     taskActionBusy = true;
+    state.taskOperation = action === 'stop' ? 'stopping' : action === 'continue' ? 'reconciling' : null;
+    updateTaskRegion();
     document.querySelectorAll('[data-task-action]').forEach(button => { button.disabled = true; });
     try {
       const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action, id: action.includes('message') ? task.pendingMessage?.id : task.briefProposal?.id });
-      if (response.isError) throw new Error(response.structuredContent?.error?.message ?? '任务操作失败，请重试');
+      if (state.result.project !== project) return;
+      if (response.isError || !response.structuredContent?.creationTask) throw new Error(response.structuredContent?.error?.message ?? '任务操作回执不完整，请重新核对');
       if (action === 'edit-message') { state.composerDraft = original; state.composerRevision++; document.getElementById('composer-draft').value = original; }
       if (action === 'regenerate-brief' || action === 'reject-brief' || action === 'accept-brief' && response.structuredContent.creationTask.briefProposal?.status === 'saved') { proposalView = null; state.brief.open = false; }
+      state.taskOperation = null;
+      state.creationRecovery = response.structuredContent.creationRecovery ?? null;
       applyCreation(response.structuredContent.creationTask);
       if (proposalView) proposalView = state.creationTask.briefProposal;
-      render();
+      if (!['stop','continue'].includes(action)) render();
       if (action === 'edit-message') document.getElementById('composer-draft')?.focus();
-    } catch (error) { state.agentError = error.message; updateTaskRegion(); announce(error.message); }
-    finally { taskActionBusy = false; bindings.abort(); bindings = new AbortController(); bind(); }
+    } catch (error) { state.taskOperation = action === 'stop' ? 'stop-uncertain' : null; state.agentError = error.message; updateTaskRegion(); announce(error.message); schedulePoll(); }
+    finally { taskActionBusy = false; updateTaskRegion(); bindings.abort(); bindings = new AbortController(); bind(); }
+  }
+  function taskControls(task) {
+    if (!task || task.status === 'terminated' || state.creationRecovery) return '';
+    const operation = state.taskOperation ?? task.operation;
+    if (operation === 'stopping' || operation === 'reconciling') return `<p class="creation-details" role="status" tabindex="-1" id="task-operation-status">${operation === 'stopping' ? '正在停止…' : '正在核对恢复条件…'}</p>`;
+    if (operation === 'stop-uncertain') return '<div class="creation-details"><p role="status">停止结果待核对</p><button class="agent-action" data-task-action="stop">重新核对停止结果</button></div>';
+    const stop = ['running', 'waiting'].includes(task.status) ? '<button class="agent-action" data-task-action="stop">停止任务</button>' : '';
+    const blocked = task.pendingMessage || ['review','stale','rejected'].includes(task.briefProposal?.status) || ['EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED','TOOL_APPROVAL_REQUIRED'].includes(task.waitingReason ?? task.reason);
+    const resume = task.status !== 'running' && !blocked ? '<button class="agent-action" data-task-action="continue">继续任务</button>' : '';
+    return `<div class="creation-details todo-actions">${stop}${resume}</div>`;
+  }
+  function updateRecoveryRegion() {
+    const region = document.querySelector('[data-task-recovery]');
+    if (!region) return;
+    region.hidden = !state.creationRecovery;
+    if (!state.creationRecovery) return;
+    if (!region.firstElementChild) {
+      region.innerHTML = `<div class="creation-details"><h2 tabindex="-1" id="task-recovery-title">原任务无法恢复</h2><p>任务检查点缺失、损坏或与候选不一致，无法继续原任务。候选已保留；这不代表候选损坏。</p><button class="agent-action" data-open-takeover>用新任务接管…</button><form data-takeover-form hidden><label for="takeover-goal">新任务目标</label><textarea id="takeover-goal" rows="4" maxlength="4000" required aria-describedby="takeover-description"></textarea><p id="takeover-description">新任务会保留候选字节，以新目标取代可识别的旧任务，并重新核对最新项目内容。</p><p>候选对象：<code data-takeover-path></code></p><p data-takeover-error role="status"></p><div class="todo-actions"><button class="agent-action" type="submit" data-submit-takeover>开始新任务并接管候选</button><button class="agent-action" type="button" data-cancel-takeover>取消</button></div></form></div>`;
+      region.querySelector('[data-open-takeover]').onclick = () => { state.takeoverOpen = true; updateRecoveryRegion(); region.querySelector('textarea').focus(); };
+      region.querySelector('[data-cancel-takeover]').onclick = () => { state.takeoverOpen = false; updateRecoveryRegion(); region.querySelector('[data-open-takeover]').focus(); };
+      region.querySelector('textarea').value = state.takeoverDraft;
+      region.querySelector('textarea').oninput = event => { state.takeoverDraft = event.target.value; };
+      region.querySelector('form').onsubmit = event => { event.preventDefault(); void takeoverTask(); };
+    }
+    region.querySelector('form').hidden = !state.takeoverOpen;
+    region.querySelector('[data-open-takeover]').hidden = state.takeoverOpen;
+    region.querySelector('[data-takeover-path]').textContent = state.creationRecovery.candidatePath ?? '候选暂不可用，请在候选区域处理完整性问题';
+    region.querySelector('[data-takeover-error]').textContent = state.takeoverError;
+    region.querySelectorAll('button').forEach(button => { button.disabled = state.takeoverBusy; });
+    region.querySelector('[data-submit-takeover]').textContent = state.takeoverBusy ? '正在核对并接管…' : '开始新任务并接管候选';
+  }
+  async function takeoverTask() {
+    if (state.takeoverBusy || !state.takeoverDraft.trim()) return;
+    const project = state.result.project;
+    state.takeoverBusy = true; state.takeoverError = ''; updateRecoveryRegion();
+    try {
+      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action: 'takeover', instruction: state.takeoverDraft, baseline: state.creationRecovery.candidateBaseline, parentOrigin: location.origin });
+      if (state.result.project !== project) return;
+      if (response?.isError || !response?.structuredContent?.creationTask) throw new Error(response?.structuredContent?.error?.message ?? '未收到接管成功回执，请重新核对任务');
+      state.creationRecovery = response.structuredContent.creationRecovery ?? null; state.takeoverOpen = false; state.takeoverDraft = '';
+      if (response.structuredContent.candidate) state.candidate = response.structuredContent.candidate;
+      applyCreation(response.structuredContent.creationTask);
+      document.getElementById('creation-task-title')?.focus();
+    } catch (error) {
+      state.takeoverError = error.message;
+      const latest = await callHostTool('get_creation_task', { projectDirectory: project.directory, projectId: project.projectId }).catch(() => null);
+      if (state.result.project !== project) return;
+      if (latest?.structuredContent?.creationRecovery) state.creationRecovery = latest.structuredContent.creationRecovery;
+      else if (latest?.structuredContent?.creationTask) { state.creationRecovery = null; state.takeoverOpen = false; applyCreation(latest.structuredContent.creationTask); }
+    } finally { state.takeoverBusy = false; updateRecoveryRegion(); }
   }
   const creationStages = { read: "读取项目", modify: "修改候选", check: "运行检查", preview: "构建 Preview", frames: "检查代表帧", deliver: "准备交付" };
   function agent(result) {
     const task = state.creationTask;
     const briefPending = result.currentRenderProgram?.briefReviewPending;
-    const label = state.agentBusy ? "正在创建创作任务" : !task ? "尚无任务" : { running: "运行中", waiting: "等待用户", stopped: "已停止", terminated: "已终结" }[task.status];
-    const reason = { EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED: "候选已被外部修改", CANDIDATE_READY: "候选已就绪", CANDIDATE_ACCEPTED: "候选已接受", CANDIDATE_ABANDONED: "候选已放弃", TASK_SUPERSEDED: "已被新目标取代", APP_RESTARTED: "应用已重启" }[task?.reason];
+    const label = state.taskOperation === "stopping" || task?.operation === "stopping" ? "正在停止…" : state.taskOperation === "stop-uncertain" || task?.operation === "stop-uncertain" ? "停止结果待核对" : state.taskOperation === "reconciling" || task?.operation === "reconciling" ? "正在核对恢复条件…" : state.creationRecovery ? "原任务无法恢复" : state.agentBusy ? "正在创建创作任务" : !task ? "尚无任务" : { running: "运行中", waiting: "等待用户", stopped: "已停止", terminated: "已终结" }[task.status];
+    const reason = { USER_STOPPED: "你已停止任务", CODEX_INTERRUPTED: "Codex 已中断", CODEX_THREAD_UNAVAILABLE: "原线程不可用", CODEX_UNAVAILABLE: "Codex 暂不可用", NO_PROGRESS: "连续多轮没有新的持久成果", EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED: "候选已被外部修改", CANDIDATE_READY: "候选已就绪", CANDIDATE_ACCEPTED: "候选已接受", CANDIDATE_ABANDONED: "候选已放弃", TASK_SUPERSEDED: "已被新目标取代", APP_RESTARTED: "应用已重启" }[task?.reason];
     return `<main class="stage"><section class="agent-panel creation-panel" aria-labelledby="creation-task-title">
       <header class="agent-head"><div><h1 id="creation-task-title" tabindex="-1">当前创作指令</h1>${task ? `<p class="creation-instruction">${escapeHtml(task.instruction.slice(0, 200))}${task.instruction.length > 200 ? "…" : ""}</p>${task.instruction.length > 200 ? `<details><summary>展开完整原文</summary><p class="creation-instruction">${escapeHtml(task.instruction)}</p></details>` : ""}` : '<p>在下方 Composer 描述这次希望如何调整成片表现。</p>'}</div></header>
-      <div class="creation-state"><span class="status-mark" data-status="${task?.status === "running" ? "running" : "idle"}" aria-hidden="true"></span><h2>${label}${task?.status === "running" && task.pending ? " · 正在跟进最新项目内容" : ""}${reason ? ` · ${reason}` : ""}</h2>${task?.status === "running" ? `<p>${creationStages[task.stage] ?? "读取项目"}</p>` : ""}</div>
+      <div class="creation-state"><span class="status-mark" data-status="${task?.status === "running" && !state.taskOperation && !task.operation ? "running" : task ? "stopped" : "idle"}" aria-hidden="true"></span><h2>${label}${task?.status === "running" && task.pending ? " · 正在跟进最新项目内容" : ""}${reason ? ` · ${reason}` : ""}</h2>${task?.status === "running" ? `<p>${creationStages[task.stage] ?? "读取项目"}</p>` : ""}</div>
       ${state.agentError ? `<p class="agent-diagnostic" role="alert">${escapeHtml(state.agentError)} · 草稿已保留，可重试。</p>` : ""}
-      ${task?.pending ? `<div class="agent-diagnostic"><h3>待处理事项</h3><p>${escapeHtml(task.pending)}</p>${task.reason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" ? `<button class="agent-action" data-continue-external ${state.externalBusy ? "disabled" : ""}>${state.externalBusy ? "正在核对候选" : "基于外部候选继续"}</button>` : ""}${task.reason === "SCENE_CHANGE_REQUIRED" ? '<button class="agent-action" data-scene-suggestion>前往表格工作区修改 Scene</button>' : ""}</div>` : ""}
+      ${task ? `<section class="creation-details creation-saved"><h3>已保存成果</h3><p>${task.lastSafeStage ? `已保存至：${{read:'项目读取',modify:'候选修改',check:'候选检查',preview:'候选 Preview',frames:'代表帧检查',deliver:'候选交付'}[task.lastSafeStage]}` : '尚无已完成的安全阶段'}</p>${task.status === 'stopped' ? '<p>未完成的修改、工具调用和中间判断不会恢复，必要时会重新执行。检查与 Preview 证据需要重新核对；应用不会自动继续。</p>' : ''}${task.replacementThread ? '<p>原线程不可用，已连接替代线程；仍是同一任务。</p>' : ''}</section>` : ''}
+      ${task?.pending ? `<div class="agent-diagnostic"><h3>待处理事项</h3><p>${escapeHtml(task.pending)}</p>${(task.waitingReason ?? task.reason) === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" ? `<button class="agent-action" data-continue-external ${state.externalBusy ? "disabled" : ""}>${state.externalBusy ? "正在核对候选" : "基于外部候选继续"}</button>` : ""}${task.reason === "SCENE_CHANGE_REQUIRED" ? '<button class="agent-action" data-scene-suggestion>前往表格工作区修改 Scene</button>' : ""}</div>` : ""}
       ${taskInteractions(task)}
       ${briefPending !== false ? `<div class="agent-diagnostic" data-brief-review="${briefPending === true}"><strong>${briefPending ? "Brief 待复核" : "Brief 关系未检查"}</strong><p>${briefPending ? "当前 Render Program 与既有 Preview 保持不变" : "打开可写项目后校验当前 Render Program 的 Brief 指纹"}</p></div>` : ""}
       ${task?.divergence ? `<div class="agent-diagnostic"><h3>与 Video Brief 的分歧</h3><div class="brief-divergence"><section><h4>Video Brief</h4><p class="creation-instruction">${escapeHtml(state.brief.base)}</p></section><section><h4>本次用户要求</h4><p class="creation-instruction">${escapeHtml(task.instruction)}</p></section></div><p>${escapeHtml(task.divergence)}</p><p>本次成片表现遵循上方用户原文；Scene、Speech、时间与安全硬约束保持有效。</p></div>` : ""}
-      ${task ? `<details class="creation-details"><summary>任务详情</summary><dl><dt>原因</dt><dd>${escapeHtml(task.reason ?? "无")}</dd><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>线程连接</dt><dd>${escapeHtml(task.threadPointer ?? "尚未连接")}</dd><dt>最后完成的安全阶段</dt><dd>${creationStages[task.lastSafeStage] ?? "尚无"}</dd><dt>已保存候选</dt><dd>${task.candidateBaseline ? "候选与原子检查点已保留" : "尚无"}</dd></dl></details>` : ""}
+      ${task ? `<details class="creation-details"><summary>任务详情</summary><dl><dt>原因</dt><dd>${escapeHtml(task.reason ?? "无")}</dd><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>线程连接</dt><dd>${escapeHtml(task.threadPointer ?? "尚未连接")}</dd><dt>最后完成的安全阶段</dt><dd>${creationStages[task.lastSafeStage] ?? "尚无"}</dd><dt>Agent 任务检查点</dt><dd>${state.creationRecovery ? "无法恢复；候选字节已保留" : task.candidateBaseline ? "已保留，用于继续此任务" : "尚无"}</dd></dl></details>` : ""}
       ${task?.reason === "CANDIDATE_READY" ? '<footer class="agent-actions"><button class="agent-action" data-show-delivery>查看候选交付</button></footer>' : ""}
     </section></main>`;
   }
 
   function taskNotice() {
     const task = state.creationTask;
-    return task ? `<span>${task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : escapeHtml(task.pending ?? '创作任务已保留')}</span><button class="agent-action" data-view-task>查看任务</button>` : '';
+    return task ? `<span>${state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${{USER_STOPPED:'你已停止任务',APP_RESTARTED:'应用已重启',CODEX_INTERRUPTED:'Codex 已中断'}[task.reason] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${["running","waiting"].includes(task.status) && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || task.operation === "stopping" ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
   }
   function updateTaskRegion() {
+    updateRecoveryRegion();
     const notice = document.querySelector('[data-task-notice]');
     if (notice) updateRegion(notice, taskNotice());
     const region = document.querySelector('[data-agent-content]');
@@ -614,12 +677,13 @@
     const summaries = [...region.querySelectorAll('summary')];
     const focusIndex = summaries.indexOf(focused);
     const focusId = focused?.id;
+    const focusAction = focused?.dataset.taskAction;
     updateRegion(region, agent(state.result));
     const optional = document.querySelector("[data-optional-suggestions]");
     if (optional) updateRegion(optional, suggestionMarkup(state.creationTask?.suggestions ?? [], false));
     [...region.querySelectorAll('details')].forEach((node, index) => { node.open = details[index] ?? false; });
     if (focused && !focused.isConnected) {
-      const next = focusId ? document.getElementById(focusId) : region.querySelectorAll('summary')[focusIndex];
+      const next = focusId ? document.getElementById(focusId) ?? region.querySelector('[data-task-action]') ?? document.getElementById('creation-task-title') : focusAction ? region.querySelector(`[data-task-action="${focusAction}"]`) ?? document.getElementById('task-operation-status') ?? region.querySelector('[data-task-action]') ?? document.getElementById('creation-task-title') : region.querySelectorAll('summary')[focusIndex];
       next?.focus({ preventScroll: true });
     }
   }
@@ -628,7 +692,7 @@
     const button = document.querySelector('.composer-send');
     const reason = document.getElementById('composer-draft-reason');
     if (reason) { reason.textContent = state.agentError ? `${state.agentError} · 草稿已保留。` : state.creationTask && state.creationTask.status !== 'terminated' ? '发送到同一任务；仅明确创作要求会保存为当前创作指令' : '输入明确目标后开始创作；草稿仅保留在本次会话'; reason.setAttribute('role', 'status'); }
-    if (button) { button.disabled = state.agentBusy || !state.composerDraft.trim() || !state.result?.writable; button.textContent = state.agentBusy ? state.creationTask && state.creationTask.status !== 'terminated' ? '正在发送' : '正在创建创作任务' : state.creationTask && state.creationTask.status !== 'terminated' ? '发送' : '开始创作'; }
+    if (button) { button.disabled = !!state.creationRecovery || !!state.taskOperation || !!state.creationTask?.operation || state.agentBusy || !state.composerDraft.trim() || !state.result?.writable; button.textContent = state.agentBusy ? state.creationTask && state.creationTask.status !== 'terminated' ? '正在发送' : '正在创建创作任务' : state.creationTask && state.creationTask.status !== 'terminated' ? '发送' : '开始创作'; }
   }
 
   function formatBytes(bytes) {
@@ -799,7 +863,7 @@
   });
 
   function valid(result) {
-    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="creation-optional" data-optional-suggestions></section><section class="delivery-panel" data-program-delivery aria-label="候选交付"></section><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><section class="preview-context" data-final-render aria-label="最终 Render"></section><div data-candidate-region></div><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section><section class="preview-context"><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
+    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="agent-panel" data-task-recovery hidden></section><section class="creation-optional" data-optional-suggestions></section><section class="delivery-panel" data-program-delivery aria-label="候选交付"></section><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><section class="preview-context" data-final-render aria-label="最终 Render"></section><div data-candidate-region></div><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section><section class="preview-context"><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
   }
 
   function invalid(result) {
@@ -2384,7 +2448,7 @@
 
   function schedulePoll(delay = 500) {
     clearTimeout(pollTimer);
-    if (!state.creationTask || state.creationTask.status === 'terminated') return;
+    if (!state.creationRecovery && (!state.creationTask || state.creationTask.status === 'terminated')) return;
     const project = state.result.project;
     pollTimer = setTimeout(async () => {
       try {
@@ -2392,9 +2456,11 @@
         if (state.result.project !== project) return;
         if (response?.isError) throw new Error(response.structuredContent?.error?.message ?? '无法读取任务');
         if (response.structuredContent?.candidate) { state.candidate = response.structuredContent.candidate; updateCandidate(); }
+        state.creationRecovery = response.structuredContent?.creationRecovery ?? null;
+        if (response.structuredContent?.creationTask?.status === 'stopped' && !response.structuredContent.creationTask.operation) state.taskOperation = null;
         applyCreation(response.structuredContent?.creationTask);
       } catch (error) { if (state.result?.project !== project) return; state.agentError = error.message; updateTaskRegion(); updateComposer(); schedulePoll(2000); }
-    }, state.creationTask.status === 'running' ? delay : Math.max(delay, 2000));
+    }, state.creationTask?.status === 'running' ? delay : Math.max(delay, 2000));
   }
   function applyCreation(task) {
     const changed = JSON.stringify(state.creationTask) !== JSON.stringify(task) || state.agentError !== null;
@@ -2414,6 +2480,7 @@
     }
     state.creationTask = task;
     if (task?.reason === 'BRIEF_SAVED' && change?.id === seenBriefChange) queueMicrotask(() => respondTask('ack-brief'));
+    updateRecoveryRegion();
     if (!changed) { schedulePoll(); return; }
     updateTaskRegion();
     if (task?.preview) previewWorkbench.receive(task.preview);
@@ -2541,6 +2608,7 @@
     state.focusTarget = focusEmpty ? "[data-empty-title]" : null;
     if (previousProjectId !== result?.project?.projectId) {
       state.creationTask = result?.creationTask ?? null;
+      state.creationRecovery = result?.creationRecovery ?? null; state.taskOperation = null; state.takeoverOpen = false; state.takeoverDraft = ''; state.takeoverError = '';
       state.agentBusy = false;
       state.creationFocusPending = false;
       state.agentError = result?.creationError ?? null;
@@ -2572,7 +2640,7 @@
         if (content.status === "identity-lost") state.autosaveStopped = true;
         updateCandidate();
       }
-      else if (content?.creationTask) applyCreation(content.creationTask);
+      else if (content?.status !== 'valid' && content && ('creationTask' in content || 'creationRecovery' in content)) { if ('creationRecovery' in content) state.creationRecovery = content.creationRecovery; applyCreation(content.creationTask); }
       else accept(content, content?.operation === "created" && content?.project?.sceneCount === 0);
     }
   }, { passive: true });
