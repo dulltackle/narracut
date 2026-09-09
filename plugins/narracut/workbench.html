@@ -60,6 +60,19 @@
 
 
 
+.scene-todo { margin:0 24px 24px; padding-block:18px; border-top:1px solid var(--separator); font-size:.84rem; line-height:1.7; overflow-wrap:anywhere; }
+.scene-todo header { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.scene-todo h3 { margin:0; font-size:1rem; color:var(--paper); }
+.scene-todo header span { color:#e1b36c; }
+.scene-todo code { color:#adb6b3; font-size:.74rem; }
+.todo-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.todo-actions button { padding:10px 14px; }
+.brief-proposal-main { display:flex; flex-direction:column; min-height:0; padding:20px; gap:12px; color:var(--paper); overflow:auto; }
+.brief-proposal-main p { margin:0; font-size:.85rem; }
+.brief-proposal-main textarea { flex:1; min-height:160px; resize:none; width:100%; padding:18px; color:var(--paper); background:var(--shell); border:1px solid var(--separator); font: .9rem/1.8 ui-monospace,monospace; }
+.brief-proposal-main [aria-pressed="true"] { border-color:var(--blue); color:var(--paper); background:#245da9; }
+.brief-divergence { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+@media(max-width:700px) { .scene-todo { margin-inline:16px; } .todo-actions { flex-direction:column; } .todo-actions button { width:100%; } .brief-proposal-main { padding:14px; } .brief-divergence { grid-template-columns:1fr; } }
 /* 创作任务沿用暗房 Operate 表面，原文与下一步优先，技术身份折叠。 */
 .creation-panel .agent-head { grid-template-columns: 1fr; }
 .creation-panel .agent-head h1 { font-size: 1.35rem; }

@@ -294,7 +294,7 @@
       <button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button>
       <h2>项目检查</h2><div class="rule"></div><div class="checks">${checks(result)}</div>
       ${scene ? `<section class="selected"><div class="rule"></div><h3>Scene ${pad(currentScenes().indexOf(scene) + 1)}</h3><p class="selected-copy" data-testid="scene-narration-detail">${escapeHtml(scene.narration.text)}</p><dl class="facts"><div class="fact"><dt>Scene ID</dt><dd>${escapeHtml(scene.id)}</dd></div><div class="fact"><dt>Asset</dt><dd>${scene.assetIds.length}</dd></div><div class="fact"><dt>Speech</dt><dd>${speechReady ? `已生成 · ${seconds(speech.durationMs)}` : "Draft Duration"}</dd></div>${time ? `<div class="fact"><dt>Time Window</dt><dd>帧 ${time.startFrame}–${time.startFrame + time.durationInFrames}（不含 ${time.startFrame + time.durationInFrames}）</dd></div>` : ""}</dl><p class="render-readiness" data-ready="${speechReady}">${speechReady ? "可用于最终 Render" : "仅供草稿 Preview · 阻断最终 Render"}</p></section>` : ""}
-      <div class="inspection-actions"><button class="inspection-action brief-entry" type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}" ${writable ? "" : "disabled"}><span class="brief-entry-copy"><strong>Video Brief</strong><small>原始 Markdown · video.md</small></span><span data-brief-entry-state>${briefEntryStatusLabel()}</span></button>${writable ? `<button class="inspection-action" type="button" data-open-tts>TTS 配置 <span>${result.tts?.status === "configured" ? "已配置" : "待配置"}</span></button><button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
+      <div class="inspection-actions"><button class="inspection-action brief-entry" type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}" ${state.result?.writable ? "" : "disabled"}><span class="brief-entry-copy"><strong>Video Brief</strong><small>原始 Markdown · video.md</small></span><span data-brief-entry-state>${briefEntryStatusLabel()}</span></button>${writable ? `<button class="inspection-action" type="button" data-open-tts>TTS 配置 <span>${result.tts?.status === "configured" ? "已配置" : "待配置"}</span></button><button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
       <section class="readonly"><strong data-writable="${writable}">${writable ? "内容写入边界" : "只读"}</strong><p>${writable ? "表格工作区可以修改 Scene、Narration 与 Asset 引用；预览只检查 Asset 本体，不改变 Scene 或 Player。" : "当前项目只提供检查。Scene、Narration、Asset 和 Speech 不会在这里被修改。"}</p></section>
     </aside>`;
   }
@@ -534,6 +534,53 @@
     </section>${expandedEditor()}</main>`;
   }
 
+  // 沿用暗房工作台：状态后呈现必要待办；所有内容写入由用户明确决定。
+  let taskActionBusy = false, proposalView = null, proposalTab = 'diff', seenBriefChange = null;
+  function suggestionMarkup(items, required) {
+    return items.filter(item => !!item.required === required).map(item => {
+      const index = state.project?.scenes?.findIndex(scene => scene.id === item.sceneId) ?? -1;
+      return `<article class="scene-todo"><header><h3>${index < 0 ? 'Scene 已删除' : `Scene ${pad(index + 1)}`} · ${escapeHtml(item.action)}</h3><span>${required ? item.satisfied ? '必要条件已满足' : '完成目标所必需' : '可选优化'}</span></header><code>${escapeHtml(item.sceneId)}</code><p>当前观察：${escapeHtml(item.observation)}</p><details><summary>建议值与理由</summary><p class="creation-instruction">${escapeHtml(item.content)}</p><p>理由：${escapeHtml(item.reason)}</p></details>${required ? `<p>继续条件：${escapeHtml(item.condition?.description ?? '等待用户判断')}${index < 0 ? '。目标已删除，继续后重新判断，不会定位其他 Scene。' : ''}</p>` : ''}<div class="todo-actions"><button class="agent-action" data-todo-scene="${escapeHtml(item.sceneId)}" data-todo-field="${escapeHtml(item.condition?.field ?? 'narration')}" ${index < 0 ? 'disabled' : ''}>定位 Scene</button><button class="agent-action" data-todo-copy="${state.creationTask.suggestions.indexOf(item)}">复制建议值</button></div></article>`;
+    }).join('');
+  }
+  function taskInteractions(task) {
+    if (!task) return '';
+    const proposal = task.briefProposal, message = task.pendingMessage;
+    return `${suggestionMarkup(task.suggestions ?? [], true)}${proposal && ['review','stale','rejected'].includes(proposal.status) ? `<section class="creation-details"><h3>Brief 提案</h3><p>${escapeHtml(proposal.purpose)}</p>${proposal.status === 'rejected' ? '<p>已拒绝提案，原 Brief 保留。</p><button class="agent-action" data-task-action="continue">按当前创作指令继续</button>' : `<button class="agent-action" data-review-proposal>审核 Brief 提案</button>${proposal.status === 'stale' ? '<p>Brief 已变化，需要重新生成提案。</p><button class="agent-action" data-task-action="regenerate-brief">重新生成提案</button>' : ''}`}</section>` : ''}${message ? `<section class="creation-details"><h3>确认保存的创作意图</h3><p>${escapeHtml(message.reply)}</p>${message.fragments.map(fragment => `<blockquote class="creation-instruction">${escapeHtml(fragment)}</blockquote>`).join('')}<div class="todo-actions"><button class="agent-action" data-task-action="confirm-message" ${!message.fragments.length ? 'disabled' : ''}>确认追加</button><button class="agent-action" data-task-action="discuss-message">仅作讨论</button><button class="agent-action" data-task-action="edit-message">返回修改</button></div></section>` : ''}${task.discussion ? `<p class="creation-details creation-instruction">${escapeHtml(task.discussion)}</p>` : ''}${task.status === 'running' ? '<div class="creation-details"><button class="agent-action" data-task-action="stop">停止任务</button></div>' : !message && !['review','stale','rejected'].includes(proposal?.status) && !['terminated'].includes(task.status) && task.reason !== 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED' ? '<div class="creation-details"><button class="agent-action" data-task-action="continue">按当前创作指令继续</button></div>' : ''}`;
+  }
+  function locateSuggestion(id, field = 'narration') {
+    if (!state.project?.scenes.some(scene => scene.id === id)) { announce('目标 Scene 已删除，未定位其他 Scene。'); return; }
+    state.selected = id;
+    const index = state.project.scenes.findIndex(scene => scene.id === id);
+    state.start = Math.max(0, index - 3);
+    if (field === 'asset') { state.inspectorMode = 'scene-assets'; state.inspectionOpen = true; state.focusTarget = '[data-import-assets]'; }
+    else { state.editing = id; state.focusTarget = '[data-narration-editor]'; }
+    switchWorkspace('table'); render();
+    requestAnimationFrame(() => { const scroll = document.querySelector('.scene-scroll'); if (scroll) scroll.scrollTop = index * ROW_HEIGHT; });
+  }
+  function unifiedBriefDiff(proposal) {
+    const before = proposal.base.split('\n'), after = proposal.content.split('\n');
+    return `--- 原 Brief\n+++ 提案结果\n@@ -1,${before.length} +1,${after.length} @@\n${before.map(line => '-'+line).join('\n')}\n${after.map(line => '+'+line).join('\n')}`;
+  }
+  async function respondTask(action) {
+    if (taskActionBusy) return;
+    const task = state.creationTask, project = state.result.project;
+    const original = task.pendingMessage?.original;
+    if (action === 'edit-message' && state.composerDraft && state.composerDraft !== original) { announce('Composer 已有新草稿，请先保留或清空后再返回修改。'); return; }
+    if (action === 'accept-brief' && (state.brief.saveInFlight || state.brief.conflict || state.brief.version !== state.brief.savedVersion)) { announce('请先保存或处理本地 Brief 修改，再接受提案。'); return; }
+    taskActionBusy = true;
+    document.querySelectorAll('[data-task-action]').forEach(button => { button.disabled = true; });
+    try {
+      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action, id: action.includes('message') ? task.pendingMessage?.id : task.briefProposal?.id });
+      if (response.isError) throw new Error(response.structuredContent?.error?.message ?? '任务操作失败，请重试');
+      if (action === 'edit-message') { state.composerDraft = original; state.composerRevision++; document.getElementById('composer-draft').value = original; }
+      if (action === 'regenerate-brief' || action === 'reject-brief' || action === 'accept-brief' && response.structuredContent.creationTask.briefProposal?.status === 'saved') { proposalView = null; state.brief.open = false; }
+      applyCreation(response.structuredContent.creationTask);
+      if (proposalView) proposalView = state.creationTask.briefProposal;
+      render();
+      if (action === 'edit-message') document.getElementById('composer-draft')?.focus();
+    } catch (error) { state.agentError = error.message; updateTaskRegion(); announce(error.message); }
+    finally { taskActionBusy = false; bindings.abort(); bindings = new AbortController(); bind(); }
+  }
   const creationStages = { read: "读取项目", modify: "修改候选", check: "运行检查", preview: "构建 Preview", frames: "检查代表帧", deliver: "准备交付" };
   function agent(result) {
     const task = state.creationTask;
@@ -545,8 +592,9 @@
       <div class="creation-state"><span class="status-mark" data-status="${task?.status === "running" ? "running" : "idle"}" aria-hidden="true"></span><h2>${label}${task?.status === "running" && task.pending ? " · 正在跟进最新项目内容" : ""}${reason ? ` · ${reason}` : ""}</h2>${task?.status === "running" ? `<p>${creationStages[task.stage] ?? "读取项目"}</p>` : ""}</div>
       ${state.agentError ? `<p class="agent-diagnostic" role="alert">${escapeHtml(state.agentError)} · 草稿已保留，可重试。</p>` : ""}
       ${task?.pending ? `<div class="agent-diagnostic"><h3>待处理事项</h3><p>${escapeHtml(task.pending)}</p>${task.reason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" ? `<button class="agent-action" data-continue-external ${state.externalBusy ? "disabled" : ""}>${state.externalBusy ? "正在核对候选" : "基于外部候选继续"}</button>` : ""}${task.reason === "SCENE_CHANGE_REQUIRED" ? '<button class="agent-action" data-scene-suggestion>前往表格工作区修改 Scene</button>' : ""}</div>` : ""}
+      ${taskInteractions(task)}
       ${briefPending !== false ? `<div class="agent-diagnostic" data-brief-review="${briefPending === true}"><strong>${briefPending ? "Brief 待复核" : "Brief 关系未检查"}</strong><p>${briefPending ? "当前 Render Program 与既有 Preview 保持不变" : "打开可写项目后校验当前 Render Program 的 Brief 指纹"}</p></div>` : ""}
-      ${task?.divergence ? `<div class="agent-diagnostic"><h3>与 Video Brief 的分歧</h3><p>${escapeHtml(task.divergence)}</p><p>本次成片表现遵循上方用户原文；Scene、Speech、时间与安全硬约束保持有效。</p></div>` : ""}
+      ${task?.divergence ? `<div class="agent-diagnostic"><h3>与 Video Brief 的分歧</h3><div class="brief-divergence"><section><h4>Video Brief</h4><p class="creation-instruction">${escapeHtml(state.brief.base)}</p></section><section><h4>本次用户要求</h4><p class="creation-instruction">${escapeHtml(task.instruction)}</p></section></div><p>${escapeHtml(task.divergence)}</p><p>本次成片表现遵循上方用户原文；Scene、Speech、时间与安全硬约束保持有效。</p></div>` : ""}
       ${task ? `<details class="creation-details"><summary>任务详情</summary><dl><dt>原因</dt><dd>${escapeHtml(task.reason ?? "无")}</dd><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>线程连接</dt><dd>${escapeHtml(task.threadPointer ?? "尚未连接")}</dd><dt>最后完成的安全阶段</dt><dd>${creationStages[task.lastSafeStage] ?? "尚无"}</dd><dt>已保存候选</dt><dd>${task.candidateBaseline ? "候选与原子检查点已保留" : "尚无"}</dd></dl></details>` : ""}
       ${task?.reason === "CANDIDATE_READY" ? '<footer class="agent-actions"><button class="agent-action" data-show-delivery>查看候选交付</button></footer>' : ""}
     </section></main>`;
@@ -567,6 +615,8 @@
     const focusIndex = summaries.indexOf(focused);
     const focusId = focused?.id;
     updateRegion(region, agent(state.result));
+    const optional = document.querySelector("[data-optional-suggestions]");
+    if (optional) updateRegion(optional, suggestionMarkup(state.creationTask?.suggestions ?? [], false));
     [...region.querySelectorAll('details')].forEach((node, index) => { node.open = details[index] ?? false; });
     if (focused && !focused.isConnected) {
       const next = focusId ? document.getElementById(focusId) : region.querySelectorAll('summary')[focusIndex];
@@ -577,8 +627,8 @@
   function updateComposer() {
     const button = document.querySelector('.composer-send');
     const reason = document.getElementById('composer-draft-reason');
-    if (reason) { reason.textContent = state.agentError ? `${state.agentError} · 草稿已保留。` : '输入明确目标后开始创作；草稿仅保留在本次会话'; reason.setAttribute('role', 'status'); }
-    if (button) { button.disabled = state.agentBusy || !state.composerDraft.trim() || !state.result?.writable; button.textContent = state.agentBusy ? '正在创建创作任务' : '开始创作'; }
+    if (reason) { reason.textContent = state.agentError ? `${state.agentError} · 草稿已保留。` : state.creationTask && state.creationTask.status !== 'terminated' ? '发送到同一任务；仅明确创作要求会保存为当前创作指令' : '输入明确目标后开始创作；草稿仅保留在本次会话'; reason.setAttribute('role', 'status'); }
+    if (button) { button.disabled = state.agentBusy || !state.composerDraft.trim() || !state.result?.writable; button.textContent = state.agentBusy ? state.creationTask && state.creationTask.status !== 'terminated' ? '正在发送' : '正在创建创作任务' : state.creationTask && state.creationTask.status !== 'terminated' ? '发送' : '开始创作'; }
   }
 
   function formatBytes(bytes) {
@@ -618,6 +668,10 @@
   function briefEditorLayer() {
     const brief = state.brief;
     if (!brief.open) return "";
+    if (proposalView) {
+      const proposal = state.creationTask?.briefProposal ?? proposalView;
+      return `<div class="brief-layer" role="dialog" aria-modal="true" aria-labelledby="brief-review-title"><section class="brief-sheet"><header class="brief-head"><div><h1 id="brief-review-title">审核 Brief 提案</h1><p>${escapeHtml(proposal.purpose)}</p></div><button type="button" data-close-brief>关闭</button></header><main class="brief-proposal-main"><div class="todo-actions"><button class="agent-action" data-proposal-tab="diff" aria-pressed="${proposalTab === 'diff'}">统一 diff</button><button class="agent-action" data-proposal-tab="full" aria-pressed="${proposalTab === 'full'}">完整结果</button></div><p>${proposalTab === 'diff' ? '− 表示删除，+ 表示新增；接受将保存下方完整变化。' : '提案的完整 Markdown 结果 · 只读'}</p><textarea readonly aria-label="${proposalTab === 'diff' ? '统一 diff' : '完整结果'}">${escapeHtml(proposalTab === 'diff' ? unifiedBriefDiff(proposal) : proposal.content)}</textarea>${proposal.status === 'stale' ? '<p role="alert">Brief 已变化，不能覆盖最新内容。请重新生成提案。</p>' : ''}<div class="todo-actions"><button class="agent-action" data-kind="primary" data-task-action="accept-brief" ${proposal.status !== 'review' ? 'disabled' : ''}>接受并保存 Brief</button><button class="agent-action" data-task-action="reject-brief">拒绝提案</button>${proposal.status === 'stale' ? '<button class="agent-action" data-task-action="regenerate-brief">重新生成提案</button>' : ''}</div></main></section></div>`;
+    }
     const conflict = brief.conflict;
     const status = briefStatusLabel();
     const byteCount = new TextEncoder().encode(brief.local).length;
@@ -716,7 +770,7 @@
   setInterval(() => { if (!document.hidden && state.candidate) candidateOperation("read", true); }, 4000);
 
   const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project, instanceId => deliveryWorkbench.candidateReady(instanceId));
-  const deliveryWorkbench = createDeliveryWorkbench((action, args) => callHostTool(action === "displayed" ? "project_delivery_display" : "project_delivery", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, ...(action === "displayed" ? {} : { action }), ...args }), () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate } : undefined, previewWorkbench, id => { if (state.result?.scenes.some(scene => scene.id === id)) { state.selected = id; switchWorkspace("table"); render(); } });
+  const deliveryWorkbench = createDeliveryWorkbench((action, args) => callHostTool(action === "displayed" ? "project_delivery_display" : "project_delivery", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, ...(action === "displayed" ? {} : { action }), ...args }), () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate, scenes: currentScenes() } : undefined, previewWorkbench, id => locateSuggestion(id));
   const finalRenderWorkbench = createRenderWorkbench(
     (action, args) => callHostTool('project_render', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
     () => state.result?.project,
@@ -745,7 +799,7 @@
   });
 
   function valid(result) {
-    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="delivery-panel" data-program-delivery aria-label="候选交付"></section><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><section class="preview-context" data-final-render aria-label="最终 Render"></section><div data-candidate-region></div><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section><section class="preview-context"><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
+    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="creation-optional" data-optional-suggestions></section><section class="delivery-panel" data-program-delivery aria-label="候选交付"></section><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><section class="preview-context" data-final-render aria-label="最终 Render"></section><div data-candidate-region></div><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section><section class="preview-context"><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
   }
 
   function invalid(result) {
@@ -2037,6 +2091,7 @@
       render();
     }, { signal: bindings.signal }));
     document.querySelector("[data-open-brief]")?.addEventListener("click", () => {
+      proposalView = null;
       state.brief.open = true;
       state.brief.error = null;
       state.focusTarget = state.brief.conflict ? "[data-brief-merge]" : "[data-brief-editor]";
@@ -2119,8 +2174,9 @@
     document.querySelector("[data-close-brief]")?.addEventListener("click", () => {
       state.brief.open = false;
       state.brief.editGroupOpen = false;
-      state.focusTarget = "[data-open-brief]";
-      saveVideoBrief();
+      state.focusTarget = proposalView ? "[data-review-proposal]" : "[data-open-brief]";
+      if (!proposalView) saveVideoBrief();
+      proposalView = null;
       render();
     }, { signal: bindings.signal });
     document.querySelector("[data-brief-undo]")?.addEventListener("click", () => moveBriefHistory(state.brief.undo, state.brief.redo), { signal: bindings.signal });
@@ -2161,6 +2217,14 @@
     }, { signal: bindings.signal }));
     document.querySelectorAll('[data-view-task]').forEach(button => button.addEventListener('click', () => switchWorkspace('agent'), { signal: bindings.signal }));
     document.querySelector('[data-continue-external]')?.addEventListener('click', continueExternal, { signal: bindings.signal });
+    document.querySelectorAll('[data-todo-scene]').forEach(button => button.addEventListener('click', () => locateSuggestion(button.dataset.todoScene, button.dataset.todoField), { signal: bindings.signal }));
+    document.querySelectorAll('[data-todo-copy]').forEach(button => button.addEventListener('click', async () => {
+      const item = state.creationTask?.suggestions[Number(button.dataset.todoCopy)];
+      try { await navigator.clipboard.writeText(item.content); announce('完整建议值已复制。'); } catch { announce('复制失败，请展开建议值并手工复制。'); }
+    }, { signal: bindings.signal }));
+    document.querySelectorAll('[data-task-action]').forEach(button => button.addEventListener('click', () => respondTask(button.dataset.taskAction), { signal: bindings.signal }));
+    document.querySelector('[data-review-proposal]')?.addEventListener('click', () => { proposalView = state.creationTask.briefProposal; proposalTab = 'diff'; state.brief.open = true; state.focusTarget = '[data-proposal-tab="diff"]'; render(); }, { signal: bindings.signal });
+    document.querySelectorAll('[data-proposal-tab]').forEach(button => button.addEventListener('click', () => { proposalTab = button.dataset.proposalTab; state.focusTarget = `[data-proposal-tab="${proposalTab}"]`; render(); }, { signal: bindings.signal }));
     document.querySelectorAll("[data-scene-suggestion]").forEach(button => button.addEventListener("click", () => switchWorkspace("table"), { signal: bindings.signal }));
     document.querySelectorAll("[data-workspace]").forEach((tab) => tab.addEventListener("keydown", (event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -2336,7 +2400,20 @@
     const changed = JSON.stringify(state.creationTask) !== JSON.stringify(task) || state.agentError !== null;
     state.agentError = null;
     const previousStatus = state.creationTask?.status, previousReason = state.creationTask?.reason;
+    const change = task?.briefChange, brief = state.brief;
+    if (change && change.id !== seenBriefChange && !brief.saveInFlight && !brief.conflict && brief.version === brief.savedVersion) {
+      if (brief.local === change.base || brief.local === change.content) {
+        pushBriefHistory(brief.undo, change.base); brief.redo = []; brief.editGroupOpen = false;
+        brief.base = change.content; brief.local = change.content; brief.baselineRevision = change.revision;
+        brief.version++; brief.savedVersion = brief.version; brief.status = 'saved';
+        state.result.videoBrief = { content: change.content, revision: change.revision, state: 'saved' };
+        if (state.result.currentRenderProgram) state.result.currentRenderProgram.briefReviewPending = state.result.currentRenderProgram.briefRevision !== change.revision;
+        updateBriefIndicator();
+        seenBriefChange = change.id;
+      } else { state.agentError = 'Brief 保存回执与本地内容不同，请在 Brief 编辑器处理本地内容后继续。'; }
+    }
     state.creationTask = task;
+    if (task?.reason === 'BRIEF_SAVED' && change?.id === seenBriefChange) queueMicrotask(() => respondTask('ack-brief'));
     if (!changed) { schedulePoll(); return; }
     updateTaskRegion();
     if (task?.preview) previewWorkbench.receive(task.preview);
@@ -2368,7 +2445,8 @@
       if (!await flushProjectBeforeAssetImport()) throw new Error('Scene 尚未安全保存，请先处理保存问题');
       if (state.brief.version !== state.brief.savedVersion || state.brief.saveInFlight || state.brief.conflict) throw new Error('Video Brief 尚未安全保存，请先处理后再开始创作');
       if (state.result?.project !== project) throw new Error('当前项目已变化，请在当前项目重试');
-      const response = await callHostTool('start_creation_task', { projectDirectory: project.directory, projectId: project.projectId, instruction, parentOrigin: location.origin });
+      const existing = state.creationTask && state.creationTask.status !== 'terminated';
+      const response = await callHostTool(existing ? 'respond_creation_task' : 'start_creation_task', { projectDirectory: project.directory, projectId: project.projectId, instruction, ...(existing ? { action: 'message' } : { parentOrigin: location.origin }) });
       if (response?.isError || !response?.structuredContent?.creationTask) throw new Error(response?.structuredContent?.error?.message ?? '未收到任务创建成功回执');
       if (state.result?.project !== project) return;
       state.agentBusy = false;
@@ -2402,6 +2480,7 @@
     state.candidateError = null;
     state.candidateConfirm = false;
     state.start = 0;
+    proposalView = null; seenBriefChange = null;
     state.inspectionOpen = false;
     state.inspectorMode = "project";
     state.assetSearch = "";

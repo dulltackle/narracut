@@ -1004,14 +1004,14 @@ var require_foldFlowLines = __commonJS({
     var FOLD_FLOW = "flow";
     var FOLD_BLOCK = "block";
     var FOLD_QUOTED = "quoted";
-    function foldFlowLines(text2, indent, mode = "flow", { indentAtStart, lineWidth = 80, minContentWidth = 20, onFold, onOverflow } = {}) {
+    function foldFlowLines(text3, indent, mode = "flow", { indentAtStart, lineWidth = 80, minContentWidth = 20, onFold, onOverflow } = {}) {
       if (!lineWidth || lineWidth < 0)
-        return text2;
+        return text3;
       if (lineWidth < minContentWidth)
         minContentWidth = 0;
       const endStep = Math.max(1 + minContentWidth, 1 + lineWidth - indent.length);
-      if (text2.length <= endStep)
-        return text2;
+      if (text3.length <= endStep)
+        return text3;
       const folds = [];
       const escapedFolds = {};
       let end = lineWidth - indent.length;
@@ -1028,14 +1028,14 @@ var require_foldFlowLines = __commonJS({
       let escStart = -1;
       let escEnd = -1;
       if (mode === FOLD_BLOCK) {
-        i = consumeMoreIndentedLines(text2, i, indent.length);
+        i = consumeMoreIndentedLines(text3, i, indent.length);
         if (i !== -1)
           end = i + endStep;
       }
-      for (let ch; ch = text2[i += 1]; ) {
+      for (let ch; ch = text3[i += 1]; ) {
         if (mode === FOLD_QUOTED && ch === "\\") {
           escStart = i;
-          switch (text2[i + 1]) {
+          switch (text3[i + 1]) {
             case "x":
               i += 3;
               break;
@@ -1052,12 +1052,12 @@ var require_foldFlowLines = __commonJS({
         }
         if (ch === "\n") {
           if (mode === FOLD_BLOCK)
-            i = consumeMoreIndentedLines(text2, i, indent.length);
+            i = consumeMoreIndentedLines(text3, i, indent.length);
           end = i + indent.length + endStep;
           split = void 0;
         } else {
           if (ch === " " && prev && prev !== " " && prev !== "\n" && prev !== "	") {
-            const next = text2[i + 1];
+            const next = text3[i + 1];
             if (next && next !== " " && next !== "\n" && next !== "	")
               split = i;
           }
@@ -1069,12 +1069,12 @@ var require_foldFlowLines = __commonJS({
             } else if (mode === FOLD_QUOTED) {
               while (prev === " " || prev === "	") {
                 prev = ch;
-                ch = text2[i += 1];
+                ch = text3[i += 1];
                 overflow = true;
               }
               const j = i > escEnd + 1 ? i - 2 : escStart - 1;
               if (escapedFolds[j])
-                return text2;
+                return text3;
               folds.push(j);
               escapedFolds[j] = true;
               end = j + endStep;
@@ -1089,39 +1089,39 @@ var require_foldFlowLines = __commonJS({
       if (overflow && onOverflow)
         onOverflow();
       if (folds.length === 0)
-        return text2;
+        return text3;
       if (onFold)
         onFold();
-      let res = text2.slice(0, folds[0]);
+      let res = text3.slice(0, folds[0]);
       for (let i2 = 0; i2 < folds.length; ++i2) {
         const fold = folds[i2];
-        const end2 = folds[i2 + 1] || text2.length;
+        const end2 = folds[i2 + 1] || text3.length;
         if (fold === 0)
           res = `
-${indent}${text2.slice(0, end2)}`;
+${indent}${text3.slice(0, end2)}`;
         else {
           if (mode === FOLD_QUOTED && escapedFolds[fold])
-            res += `${text2[fold]}\\`;
+            res += `${text3[fold]}\\`;
           res += `
-${indent}${text2.slice(fold + 1, end2)}`;
+${indent}${text3.slice(fold + 1, end2)}`;
         }
       }
       return res;
     }
-    function consumeMoreIndentedLines(text2, i, indent) {
+    function consumeMoreIndentedLines(text3, i, indent) {
       let end = i;
       let start = i + 1;
-      let ch = text2[start];
+      let ch = text3[start];
       while (ch === " " || ch === "	") {
         if (i < start + indent) {
-          ch = text2[++i];
+          ch = text3[++i];
         } else {
           do {
-            ch = text2[++i];
+            ch = text3[++i];
           } while (ch && ch !== "\n");
           end = i;
           start = i + 1;
-          ch = text2[start];
+          ch = text3[start];
         }
       }
       return end;
@@ -9360,11 +9360,6 @@ var require_semver2 = __commonJS({
   }
 });
 
-// plugins/narracut/src/creation-task.ts
-import { randomUUID as randomUUID4 } from "node:crypto";
-import { join as join6 } from "node:path";
-import { rename as rename3, rm as rm5, open as open2 } from "node:fs/promises";
-
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
@@ -17003,8 +16998,8 @@ function ko_default() {
 }
 
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/lt.js
-var capitalizeFirstCharacter = (text2) => {
-  return text2.charAt(0).toUpperCase() + text2.slice(1);
+var capitalizeFirstCharacter = (text3) => {
+  return text3.charAt(0).toUpperCase() + text3.slice(1);
 };
 function getUnitTypeFromNumber(number4) {
   const abs = Math.abs(number4);
@@ -23879,6 +23874,59 @@ function date4(params) {
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 config(en_default());
 
+// plugins/narracut/src/creation-interaction.ts
+var text = external_exports.string().min(1).max(4e3);
+var sceneCondition = external_exports.object({
+  field: external_exports.enum(["narration", "asset", "deleted"]),
+  description: text,
+  minLength: external_exports.number().int().min(0).max(1e5).default(1),
+  maxLength: external_exports.number().int().min(1).max(1e5).default(1e5),
+  anyOf: external_exports.array(text).max(40).default([])
+}).strict();
+var sceneSuggestion = external_exports.object({
+  sceneId: external_exports.string().uuid(),
+  observation: text,
+  action: text,
+  content: text,
+  reason: text,
+  required: external_exports.boolean().default(false),
+  condition: sceneCondition.nullable().default(null)
+}).strict();
+var pendingSuggestion = sceneSuggestion.extend({ satisfied: external_exports.boolean().default(false), missing: external_exports.boolean().default(false) });
+function evaluateSuggestion(item, input) {
+  const scene = input.scenes.find((entry) => entry.id === item.sceneId);
+  const condition = item.condition;
+  let satisfied = false;
+  if (condition?.field === "deleted") satisfied = !scene;
+  else if (scene && condition?.field === "narration") {
+    const value = scene.narration;
+    const length = [...value.trim()].length;
+    satisfied = length >= condition.minLength && length <= condition.maxLength && (!condition.anyOf.length || condition.anyOf.some((part) => value.includes(part)));
+  } else if (scene && condition?.field === "asset") {
+    satisfied = scene.assetIds.some((id) => input.assets.some((asset) => asset.id === id && asset.availability === "available" && asset.src && (!condition.anyOf.length || condition.anyOf.includes(id))));
+  }
+  return { ...item, satisfied, missing: !scene };
+}
+var briefProposal = external_exports.object({ id: external_exports.string().uuid(), base: external_exports.string().max(2097152), baseline: text, content: external_exports.string().max(2097152), purpose: text, status: external_exports.enum(["review", "stale", "rejected", "saved"]) }).strict();
+var messageDecision = external_exports.object({
+  verificationToken: external_exports.string(),
+  kind: external_exports.enum(["creation", "discussion", "mixed", "ambiguous"]),
+  fragments: external_exports.array(text).max(20),
+  reply: text,
+  divergence: external_exports.string().max(4e3)
+}).strict();
+var pendingMessage = external_exports.object({ id: external_exports.string().uuid(), original: text, fragments: external_exports.array(text).max(20), reply: text, previousStatus: external_exports.enum(["running", "waiting", "stopped"]).default("waiting"), previousReason: external_exports.string().nullable().default(null) }).strict();
+function authorizesBrief(instruction) {
+  const latest = instruction.split("\n\n").at(-1).trim();
+  if (/[?？]|不要|别|不必|无需|不能|是否|能否|批准|同意|确认后|解释|如何|保持|不变|如果|等我|先讨论|暂不|前先|之前|方案|建议|备份/.test(latest)) return false;
+  return /^(?:请\s*|帮我\s*|请帮我\s*)?(?:直接\s*)?(?:(?:更新|修改|重写|写入|保存|编写|补充)\s*(?:Video\s*Brief|Brief|video\.md)\s*(?:[。！!]?|[：:][\s\S]+|(?:为|成)[\s\S]+)|(?:将|把)?\s*(?:Video\s*Brief|Brief|video\.md)\s*(?:改为|改成|更新为|写成)[\s\S]+)$/i.test(latest);
+}
+
+// plugins/narracut/src/creation-task.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
+import { join as join6 } from "node:path";
+import { rename as rename3, rm as rm5, open as open2 } from "node:fs/promises";
+
 // src/server/project-revisions.ts
 import { randomUUID, createHash } from "node:crypto";
 import { join } from "node:path";
@@ -25994,19 +26042,23 @@ var checkpointSchema = external_exports.object({
   lastSafeStage: external_exports.enum(stages).nullable(),
   candidateBaseline: external_exports.string().nullable(),
   inputIdentity: external_exports.string().nullable(),
-  pending: external_exports.string().max(4e3).nullable()
+  pending: external_exports.string().max(4e3).nullable(),
+  suggestions: external_exports.array(pendingSuggestion).max(100).default([]),
+  briefProposal: briefProposal.nullable().default(null),
+  pendingMessage: pendingMessage.nullable().default(null)
 }).strict();
 var reportText = external_exports.string().min(1).max(4e3);
 var answerSchema = external_exports.object({
   verificationToken: external_exports.string(),
-  action: external_exports.enum(["apply", "dependencies", "deliver", "wait"]),
+  action: external_exports.enum(["apply", "dependencies", "deliver", "wait", "brief"]),
   changes: external_exports.array(external_exports.object({ path: external_exports.string().max(1024), content: external_exports.string().max(256e3).nullable() }).strict()).max(12),
   dependencies: external_exports.array(external_exports.object({ name: external_exports.string(), version: external_exports.string() }).strict()).max(100).default([]),
   packages: external_exports.array(external_exports.object({ name: external_exports.string(), version: external_exports.string(), integrity: external_exports.string() }).strict()).max(256).default([]),
   summary: reportText,
   divergence: external_exports.string().max(4e3),
   warnings: external_exports.array(reportText).max(100),
-  suggestions: external_exports.array(external_exports.object({ sceneId: reportText, observation: reportText, action: reportText, content: reportText, reason: reportText }).strict()).max(100),
+  suggestions: external_exports.array(sceneSuggestion).max(100),
+  brief: external_exports.object({ content: external_exports.string().max(2097152), purpose: reportText }).strict().nullable().default(null),
   reviews: external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), digest: reportText, observation: reportText }).strict()).max(12)
 }).strict();
 var externalMessage = "\u5DF2\u4FDD\u7559\u5916\u90E8\u4FEE\u6539\uFF0C\u5DF2\u4E22\u5F03 Agent \u672A\u63D0\u4EA4\u4FEE\u6539\u3002\u7EE7\u7EED\u540E\uFF0CAgent \u5C06\u57FA\u4E8E\u5916\u90E8\u5019\u9009\u548C\u6700\u65B0\u9879\u76EE\u5185\u5BB9\u91CD\u65B0\u68C0\u67E5\u5E76\u521B\u4F5C\u3002";
@@ -26051,6 +26103,10 @@ var CreationTask = class {
   #closed = false;
   #unsubscribe;
   #noProgress = 0;
+  #messageMode = null;
+  #briefChange = null;
+  #discussion = "";
+  #sceneSavePending = false;
   #parentOrigin = "null";
   #pendingRun = Promise.resolve();
   get ownsCandidate() {
@@ -26068,15 +26124,19 @@ var CreationTask = class {
     return this.value;
   }
   get value() {
-    return this.#state ? structuredClone(this.#state) : null;
+    return this.#state ? { ...structuredClone(this.#state), briefChange: this.#briefChange, discussion: this.#discussion } : null;
   }
   async load() {
     try {
-      const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 32e3)).toString()));
+      const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 2e7)).toString()));
       if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error("\u4EFB\u52A1\u9879\u76EE\u8EAB\u4EFD\u4E0D\u5339\u914D");
       const candidate = await this.opened.candidate({ action: "read" });
       if (checkpoint.status !== "terminated" && checkpoint.candidateBaseline !== candidate.baseline) throw new Error("\u4EFB\u52A1\u5019\u9009\u68C0\u67E5\u70B9\u4E0D\u5339\u914D");
       this.#state = { ...checkpoint, externalBaseline: null, status: checkpoint.status === "terminated" ? "terminated" : "stopped", reason: checkpoint.status === "terminated" ? checkpoint.reason : "APP_RESTARTED", stage: checkpoint.lastSafeStage ?? "read", divergence: "", preview: null, deliveryId: null };
+      if (checkpoint.briefProposal?.status === "saved") {
+        const proposal = checkpoint.briefProposal;
+        this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: this.opened.inspection.videoBriefRevision };
+      }
       await this.#save();
     } catch (error51) {
       if (error51.code !== "ENOENT") throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u4EFB\u52A1\u68C0\u67E5\u70B9\u65E0\u6CD5\u6062\u590D\uFF1B\u5019\u9009\u4FDD\u7559\u3002");
@@ -26133,6 +26193,9 @@ var CreationTask = class {
         candidateBaseline: null,
         inputIdentity: null,
         pending: null,
+        suggestions: [],
+        briefProposal: null,
+        pendingMessage: null,
         stage: "read",
         divergence: "",
         preview: null,
@@ -26152,10 +26215,29 @@ var CreationTask = class {
     }
   }
   async #observe() {
-    if (!this.ownsCandidate && this.#state?.reason !== "SCENE_CHANGE_REQUIRED") return;
+    if (!this.ownsCandidate || this.#messageMode) return;
     const snapshot = await this.#snapshot();
+    if (!this.ownsCandidate || this.#messageMode) return;
     if (snapshot.baseline !== this.#state.candidateBaseline) throw Object.assign(new Error(externalMessage), { code: "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" });
     if (this.#state.inputIdentity && snapshot.signature !== this.#state.inputIdentity) await this.#catchUp(snapshot);
+  }
+  /** 仅成功持久化后的项目事件核对待办；等待期间不启动模型、不轮询输入。 */
+  projectSaved() {
+    this.#sceneSavePending = true;
+    this.#pendingRun = this.#pendingRun.then(async () => {
+      const state = this.#state;
+      if (state?.status !== "waiting" || state.reason !== "SCENE_CHANGE_REQUIRED") return;
+      this.#sceneSavePending = false;
+      const snapshot = await this.#snapshot();
+      if (state.status !== "waiting" || state.reason !== "SCENE_CHANGE_REQUIRED") return;
+      const next = state.suggestions.map((item) => evaluateSuggestion(item, snapshot.input));
+      if (JSON.stringify(next) === JSON.stringify(state.suggestions)) return;
+      state.suggestions = next;
+      const remaining = next.filter((item) => item.required && !item.satisfied);
+      state.pending = remaining.length ? `\u8FD8\u6709 ${remaining.length} \u9879\u5FC5\u8981\u4FEE\u6539\u672A\u6EE1\u8DB3\u3002${remaining.some((item) => item.missing) ? "\u76EE\u6807 Scene \u5DF2\u5220\u9664\uFF0C\u8BF7\u7EE7\u7EED\u4EFB\u52A1\u91CD\u65B0\u5224\u65AD\u76EE\u6807\u3002" : ""}` : "\u5FC5\u8981\u4FEE\u6539\u5DF2\u4FDD\u5B58\uFF0C\u6B63\u5728\u7EE7\u7EED\u540C\u4E00\u4EFB\u52A1";
+      await this.#save();
+      if (!remaining.length && state.status === "waiting" && state.reason === "SCENE_CHANGE_REQUIRED") await this.#catchUp(snapshot);
+    }).catch((error51) => this.#stop(error51));
   }
   async #fresh() {
     this.#assert();
@@ -26174,6 +26256,7 @@ var CreationTask = class {
     if (!previous || JSON.stringify(previous.input.scenes) !== JSON.stringify(snapshot.input.scenes)) changes.push("Scene");
     if (!previous || JSON.stringify(previous.input.assets) !== JSON.stringify(snapshot.input.assets) || JSON.stringify([...previous.media.keys()]) !== JSON.stringify([...snapshot.media.keys()])) changes.push("Asset / Speech");
     const state = this.#state;
+    if (state.status === "stopped" || state.status === "terminated" || this.#closed) return;
     state.inputIdentity = snapshot.signature;
     state.status = "running";
     state.reason = null;
@@ -26220,6 +26303,153 @@ var CreationTask = class {
       this.#busy = false;
     }
   }
+  async #interrupt() {
+    const driver = this.#driver;
+    this.#driver = null;
+    if (driver?.turnId && this.#state?.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId });
+  }
+  async respond(input) {
+    if (this.#busy || !this.#state || this.#state.status === "terminated") throw new Error("\u5F53\u524D\u6CA1\u6709\u53EF\u64CD\u4F5C\u4EFB\u52A1\u6216\u64CD\u4F5C\u5C1A\u672A\u5B8C\u6210");
+    this.#busy = true;
+    try {
+      if (input.action === "stop") {
+        this.#messageMode = null;
+        this.#state.status = "stopped";
+        this.#state.reason = "USER_STOPPED";
+        await this.#interrupt();
+        await this.#pendingRun;
+        await this.#save();
+        return this.value;
+      }
+      await this.#pendingRun;
+      const state = this.#state;
+      if (input.action === "message") {
+        const original = input.instruction;
+        if (!original?.trim() || original.length > 4e3 || state.pendingMessage) throw new Error("\u8BF7\u5148\u5904\u7406\u62DF\u4FDD\u5B58\u7684\u539F\u6587\u7247\u6BB5\uFF0C\u6216\u586B\u5199 1\u20134000 \u5B57\u6D88\u606F");
+        const resume = state.status === "running";
+        await this.#interrupt();
+        state.pendingMessage = { id: randomUUID4(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
+        this.#messageMode = { original, resume, stopped: state.status === "stopped" };
+        state.status = "running";
+        await this.#save();
+        this.#pendingRun = this.#classify(original).catch((error51) => this.#stop(error51));
+      } else if (["confirm-message", "discuss-message", "edit-message"].includes(input.action)) {
+        if (!state.pendingMessage || state.pendingMessage.id !== input.id) throw new Error("\u6D88\u606F\u786E\u8BA4\u5DF2\u8FC7\u671F");
+        const previous = state.pendingMessage;
+        if (this.#messageMode) {
+          if (input.action === "confirm-message") throw new Error("\u6B63\u5728\u8BC6\u522B\u6D88\u606F\uFF0C\u8BF7\u7B49\u5F85\u62DF\u4FDD\u5B58\u7247\u6BB5");
+          const stopped = this.#messageMode.stopped;
+          this.#messageMode = null;
+          await this.#interrupt();
+          state.status = stopped ? "stopped" : "waiting";
+        }
+        if (input.action === "confirm-message") {
+          if (!state.pendingMessage.fragments.length) throw new Error("\u6CA1\u6709\u53EF\u8FFD\u52A0\u7684\u660E\u786E\u539F\u6587\u7247\u6BB5\uFF0C\u8BF7\u8FD4\u56DE\u4FEE\u6539");
+          this.#append(state.pendingMessage.fragments.join("\n"));
+        }
+        state.pendingMessage = null;
+        await this.#save();
+        if (input.action === "confirm-message" && state.status !== "stopped") await this.#resume();
+        else if (input.action !== "confirm-message") {
+          state.status = previous.previousStatus;
+          state.reason = previous.previousReason;
+          if (state.status === "running") await this.#resume();
+          else {
+            await this.#save();
+            if (this.#sceneSavePending) this.projectSaved();
+          }
+        }
+      } else if (input.action === "ack-brief") {
+        if (!state.briefProposal || state.briefProposal.id !== input.id || state.briefProposal.status !== "saved") throw new Error("Brief \u4FDD\u5B58\u56DE\u6267\u5DF2\u8FC7\u671F");
+        if (state.status === "waiting" && state.reason === "BRIEF_SAVED") await this.#resume("Brief \u5DF2\u4FDD\u5B58\u5E76\u5F62\u6210\u5B8C\u6574\u64A4\u9500\u9879\uFF0C\u8BF7\u7EE7\u7EED\u5019\u9009\u521B\u4F5C\u3002");
+      } else if (["accept-brief", "reject-brief"].includes(input.action)) {
+        const proposal = state.briefProposal;
+        if (!proposal || proposal.id !== input.id || !["review", "stale"].includes(proposal.status)) throw new Error("Brief \u63D0\u6848\u5DF2\u8FC7\u671F\u6216\u5DF2\u5904\u7406");
+        if (input.action === "reject-brief") {
+          proposal.status = "rejected";
+          state.pending = "\u5DF2\u4FDD\u7559\u539F Brief\u3002\u53EF\u6309\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\u7EE7\u7EED\u3002";
+          state.reason = "BRIEF_REJECTED";
+          await this.#save();
+        } else {
+          if (proposal.status === "stale") throw new Error("Brief \u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u751F\u6210\u63D0\u6848");
+          const saved = await this.opened.saveVideoBrief(proposal.content, proposal.baseline);
+          if (saved.status === "conflict") {
+            proposal.status = "stale";
+            state.pending = "Brief \u5DF2\u53D8\u5316\uFF0C\u539F\u63D0\u6848\u4E0D\u80FD\u8986\u76D6\u6700\u65B0\u5185\u5BB9\u3002\u8BF7\u91CD\u65B0\u751F\u6210\u63D0\u6848\u3002";
+            await this.#save();
+          } else {
+            this.opened.inspection = saved.inspection;
+            this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: saved.inspection.videoBriefRevision };
+            proposal.status = "saved";
+            await this.#save();
+            if (state.status !== "stopped") {
+              state.status = "waiting";
+              state.reason = "BRIEF_SAVED";
+              state.pending = "Brief \u5DF2\u4FDD\u5B58\uFF0C\u6B63\u5728\u540C\u6B65\u5B8C\u6574\u64A4\u9500\u9879\u3002";
+              await this.#save();
+            }
+          }
+        }
+      } else if (input.action === "continue" || input.action === "regenerate-brief") {
+        if (state.status === "running" || state.pendingMessage || state.reason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") throw new Error("\u8BF7\u5148\u5904\u7406\u5F53\u524D\u5F85\u529E");
+        if (input.action === "continue" && state.briefProposal?.status === "review") throw new Error("\u8BF7\u5148\u63A5\u53D7\u6216\u62D2\u7EDD Brief \u63D0\u6848");
+        if (input.action === "regenerate-brief") state.briefProposal = null;
+        await this.#resume(input.action === "regenerate-brief" ? "\u8BF7\u4F9D\u636E\u6700\u65B0 Brief \u91CD\u65B0\u751F\u6210\u5B8C\u6574\u63D0\u6848\uFF0C\u7B49\u5F85\u7528\u6237\u5BA1\u6838\u3002" : "\u7528\u6237\u660E\u786E\u9009\u62E9\u6309\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\u7EE7\u7EED\u3002\u5DF2\u62D2\u7EDD\u7684 Brief \u63D0\u6848\u4E0D\u5F97\u518D\u6B21\u81EA\u52A8\u4FDD\u5B58\u3002");
+      } else throw new Error("\u672A\u77E5\u4EFB\u52A1\u64CD\u4F5C");
+      return this.value;
+    } finally {
+      this.#busy = false;
+    }
+  }
+  #append(fragment) {
+    const instruction = this.#state.instruction + "\n\n" + fragment;
+    if (instruction.length > 4e3) throw new Error("\u7D2F\u8BA1\u521B\u4F5C\u6307\u4EE4\u8D85\u8FC7 4000 \u5B57\uFF0C\u539F\u6587\u7247\u6BB5\u5DF2\u4FDD\u7559");
+    this.#state.instruction = instruction;
+  }
+  async #resume(feedback = "") {
+    const state = this.#state;
+    if (state.status === "stopped" && state.threadPointer) {
+      try {
+        state.threadPointer = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory })).threadId;
+      } catch {
+        state.threadPointer = null;
+      }
+    }
+    state.status = "running";
+    state.reason = null;
+    state.pending = null;
+    state.stage = "read";
+    state.inputIdentity = null;
+    state.preview = null;
+    state.deliveryId = null;
+    this.#noProgress = 0;
+    await this.#save();
+    this.#pendingRun = this.#run(feedback).catch((error51) => this.#stop(error51));
+  }
+  async #classify(original) {
+    this.#assert();
+    const state = this.#state, snapshot = await this.#snapshot();
+    state.inputIdentity = snapshot.signature;
+    if (!state.threadPointer) state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
+    const driver = { token: randomUUID4(), turnId: null, signature: snapshot.signature };
+    this.#driver = driver;
+    this.#starting = true;
+    try {
+      const turn = await this.host.startTurn({ threadId: state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory, verificationToken: driver.token, outputSchema: external_exports.toJSONSchema(messageDecision), prompt: [
+        "\u53EA\u5206\u7C7B\u5E76\u56DE\u7B54\u5F53\u524D\u7528\u6237\u6D88\u606F\uFF0C\u4E0D\u521B\u4F5C\u3001\u4E0D\u5199\u6587\u4EF6\u3001\u4E0D\u6267\u884C\u5DE5\u5177\u3002creation \u4EC5\u7528\u4E8E\u6574\u6761\u6D88\u606F\u90FD\u662F\u660E\u786E\u521B\u4F5C\u547D\u4EE4\uFF1B\u95EE\u9898\u3001\u72B6\u6001\u8BE2\u95EE\u3001\u5BA1\u6279\u7B54\u590D\u548C\u95F2\u804A\u662F discussion\u3002\u6DF7\u5408\u6D88\u606F mixed\uFF1B\u4E0D\u786E\u5B9A ambiguous\u3002",
+        "fragments \u5FC5\u987B\u662F\u6309\u539F\u987A\u5E8F\u63D0\u53D6\u7684\u7CBE\u786E\u539F\u6587\u8FDE\u7EED\u7247\u6BB5\uFF0C\u4E0D\u5F97\u6539\u5B57\u6216\u6269\u5927\u6388\u6743\u3002creation \u8FD4\u56DE\u6574\u6761\u539F\u6587\uFF1Bdiscussion \u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002mixed/ambiguous \u62DF\u4FDD\u5B58\u90E8\u5206\u5148\u7B49\u5F85\u7528\u6237\u786E\u8BA4\u3002reply \u7528\u4E2D\u6587\u56DE\u7B54\u95EE\u9898\u6216\u8BF4\u660E\u5F85\u786E\u8BA4\u4E8B\u9879\u3002",
+        "divergence \u660E\u786E\u8BF4\u660E Brief \u5185\u5BB9\u3001\u672C\u6B21\u7528\u6237\u8981\u6C42\u53CA\u91C7\u7528\u65B9\u5411\uFF1B\u6CA1\u6709\u5B9E\u8D28\u5206\u6B67\u5219\u7A7A\u5B57\u7B26\u4E32\u3002",
+        `\u5F53\u524D\u6307\u4EE4\uFF1A${JSON.stringify(state.instruction)}\uFF1B\u4EFB\u52A1\u539F\u56E0\uFF1A${state.reason}\uFF1BBrief\uFF1A${JSON.stringify(snapshot.input.videoBrief)}`,
+        `\u672C\u6B21\u6D88\u606F\uFF1A${JSON.stringify(original)}`,
+        `verificationToken \u5FC5\u987B\u8FD4\u56DE\uFF1A${driver.token}`
+      ].join("\n") });
+      this.#assert();
+      driver.turnId = turn.turnId;
+    } finally {
+      this.#starting = false;
+      for (const event of this.#early.splice(0)) this.#pendingRun = this.#pendingRun.then(() => this.#event(event)).catch((error51) => this.#stop(error51));
+    }
+  }
   async #set(stage) {
     this.#assert();
     this.#state.stage = stage;
@@ -26263,6 +26493,8 @@ var CreationTask = class {
           "\u6BCF\u6279\u6700\u591A 12 \u4E2A\u6587\u4EF6\uFF0C\u6BCF\u6587\u4EF6\u6700\u591A 256000 \u5B57\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\u76F8\u5BF9\u8DEF\u5F84\u3002\u5148\u8BFB\u5F53\u524D\u5019\u9009\u6E90\u7801\u548C\u9879\u76EE\u5185\u5BB9\uFF1Bapply \u540E\u5E94\u7528\u4F1A\u68C0\u67E5\u5E76\u5C06\u8BCA\u65AD\u4EA4\u56DE\uFF0C\u5141\u8BB8\u4FEE\u590D\u3002\u4E0D\u8981\u590D\u5236 Scene \u5185\u5BB9\u4F5C\u4E3A\u7B2C\u4E8C\u6743\u5A01\u3002",
           "\u7F3A\u5C11\u79BB\u7EBF\u4F9D\u8D56\u65F6\u8FD4\u56DE action=dependencies\uFF0Cdependencies \u4E0E packages \u4E3A\u7A7A\u6570\u7EC4\u53EF\u6309\u65E2\u6709\u7CBE\u786E\u9501\u56FE\u8865\u9F50\u79BB\u7EBF\u5E93\uFF1B\u65B0\u589E\u4F9D\u8D56\u5FC5\u987B\u63D0\u4F9B\u516C\u5171 npm \u7CBE\u786E\u7248\u672C\u548C\u5B8C\u6574\u6027\u6458\u8981\uFF0C\u5E94\u7528\u53EA\u4ECE canonical registry \u4E0B\u8F7D\u3002",
           "action=deliver \u8BF7\u6C42\u6784\u5EFA Preview \u5E76\u91C7\u96C6\u4EE3\u8868\u5E27\u3002\u6536\u5230\u56FE\u50CF\u540E\u9010\u5E27\u68C0\u67E5\uFF0Creviews \u5FC5\u987B\u5F15\u7528\u6240\u7ED9\u5E27\u53F7\u4E0E digest\uFF0C\u4E0D\u80FD\u4EC5\u51ED\u6587\u672C\u58F0\u79F0\u68C0\u67E5\u3002\u65E0\u9700\u4FEE\u6539\u65F6 changes=[]\u3002\u5FC5\u987B\u7528\u6237\u5904\u7406\u65F6 action=wait \u5E76\u660E\u786E\u539F\u56E0\u3002",
+          "\u6574\u7406 Brief \u4F7F\u7528 action=brief \u5E76\u63D0\u4F9B brief={content:\u5B8C\u6574 Markdown,purpose:\u4FEE\u6539\u76EE\u7684}\u3002\u6CA1\u6709\u660E\u786E\u8981\u6C42\u5199 Brief \u65F6\u5E94\u7528\u53EA\u751F\u6210\u5BA1\u6838\u63D0\u6848\uFF1B\u4E0D\u53EF\u7528\u5019\u9009\u6587\u4EF6\u66FF\u4EE3 video.md\u3002",
+          "Scene suggestions \u5FC5\u987B\u4F7F\u7528\u771F\u5B9E\u7A33\u5B9A Scene UUID\uFF1Brequired=true \u5FC5\u987B\u63D0\u4F9B condition\uFF1Anarration \u5B57\u6570\u8303\u56F4/anyOf \u53EF\u63A5\u53D7\u8BCD\u7EC4\u3001asset \u53EF\u7528\u7D20\u6750\uFF08anyOf \u7A7A\u5141\u8BB8\u4EFB\u4F55\u53EF\u7528\u66FF\u4EE3\u7D20\u6750\uFF09\u6216 deleted\u3002description \u7528\u4E2D\u6587\u89E3\u91CA\u7EED\u8DD1\u76EE\u6807\u3002\u4E0D\u53EF\u8BC1\u660E\u7684\u8BED\u4E49\u76EE\u6807\u8BF7\u6C42\u7528\u6237\u5224\u65AD\uFF0C\u4E0D\u4F2A\u9020\u6761\u4EF6\u3002\u53EF\u9009\u5EFA\u8BAE required=false\u3002",
           "\u5B9E\u8D28 Brief \u5206\u6B67\u586B\u5199 divergence\uFF0C\u5E76\u8BF4\u660E\u672C\u6B21\u9075\u5FAA\u7684\u7528\u6237\u539F\u6587\uFF1B\u5426\u5219\u7A7A\u5B57\u7B26\u4E32\u3002summary\u3001warnings\u3001suggestions \u7528\u4E2D\u6587\u3002",
           `\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\uFF08\u7CBE\u786E\u539F\u6587\uFF09\uFF1A${JSON.stringify(state.instruction)}`,
           `\u6700\u65B0 Runtime \u8F93\u5165\uFF1A${JSON.stringify(snapshot.input)}`,
@@ -26290,13 +26522,83 @@ var CreationTask = class {
     if (!driver || event.turnId !== driver.turnId) return;
     this.#driver = null;
     if (event.status !== "completed" || !event.output) throw new Error("CODEX_INTERRUPTED");
+    if (this.#messageMode) {
+      const mode = this.#messageMode;
+      const answer2 = messageDecision.parse(JSON.parse(event.output));
+      if (answer2.verificationToken !== driver.token) throw new Error("\u6D88\u606F\u5206\u7C7B\u8EAB\u4EFD\u4E0D\u5339\u914D");
+      let cursor = 0;
+      for (const fragment of answer2.fragments) {
+        const offset = mode.original.indexOf(fragment, cursor);
+        if (offset < 0) throw new Error("\u62DF\u4FDD\u5B58\u7247\u6BB5\u4E0D\u662F\u6309\u987A\u5E8F\u63D0\u53D6\u7684\u7CBE\u786E\u7528\u6237\u539F\u6587");
+        cursor = offset + fragment.length;
+      }
+      this.#messageMode = null;
+      this.#discussion = answer2.reply;
+      this.#state.divergence = answer2.divergence;
+      if (answer2.kind === "creation") {
+        this.#append(mode.original);
+        this.#state.pendingMessage = null;
+        if (mode.stopped) {
+          this.#state.status = "stopped";
+          await this.#save();
+          return;
+        }
+        return this.#resume();
+      }
+      if (answer2.kind === "discussion") {
+        this.#state.pendingMessage = null;
+        if (mode.resume) return this.#resume();
+        if (mode.stopped) {
+          this.#state.status = "stopped";
+          await this.#save();
+          return;
+        }
+        await this.#wait(this.#state.reason ?? "USER_DECISION_REQUIRED", answer2.reply);
+        if (this.#sceneSavePending) this.projectSaved();
+        return;
+      }
+      this.#state.pendingMessage.fragments = answer2.fragments;
+      this.#state.pendingMessage.reply = answer2.reply;
+      if (mode.stopped) {
+        this.#state.status = "stopped";
+        this.#state.pending = "\u786E\u8BA4\u540E\u4FDD\u5B58\u539F\u6587\uFF0C\u4ECD\u9700\u660E\u786E\u7EE7\u7EED\u4EFB\u52A1\u3002";
+        await this.#save();
+        return;
+      }
+      return this.#wait("INSTRUCTION_CONFIRMATION_REQUIRED", "\u8BF7\u786E\u8BA4\u62DF\u4FDD\u5B58\u7684\u7CBE\u786E\u539F\u6587\u7247\u6BB5\uFF1B\u786E\u8BA4\u524D\u4E0D\u4F1A\u6267\u884C\u521B\u4F5C\u90E8\u5206\u3002");
+    }
     const answer = answerSchema.parse(JSON.parse(event.output));
     if (answer.verificationToken !== driver.token) throw new Error("\u521B\u4F5C\u7ED3\u679C\u9A71\u52A8\u8EAB\u4EFD\u4E0D\u5339\u914D");
     const snapshot = await this.#snapshot();
     if (snapshot.baseline !== this.#state.candidateBaseline) return this.#wait("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", externalMessage);
     if (snapshot.signature !== driver.signature) throw new InputsChanged("\u9879\u76EE\u8F93\u5165\u5DF2\u53D8\u5316");
     this.#state.divergence = answer.divergence;
-    if (answer.action === "wait") return this.#wait(answer.suggestions.length ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
+    this.#state.suggestions = answer.suggestions.map((item) => {
+      if (item.required && !item.condition) throw new Error("\u5FC5\u8981 Scene \u5EFA\u8BAE\u5FC5\u987B\u8BF4\u660E\u53EF\u6838\u5BF9\u7684\u76EE\u6807\u6761\u4EF6");
+      return evaluateSuggestion({ ...item, satisfied: false, missing: false }, snapshot.input);
+    });
+    if (this.#state.suggestions.some((item) => item.required && !item.satisfied)) return this.#wait("SCENE_CHANGE_REQUIRED", answer.summary);
+    if (answer.action === "wait" && answer.suggestions.length) {
+      if (++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
+      return this.#run("\u5EFA\u8BAE\u5747\u4E3A\u53EF\u9009\u6216\u5DF2\u6EE1\u8DB3\uFF0C\u4E0D\u5E94\u963B\u65AD\u4EFB\u52A1\u3002\u8BF7\u7EE7\u7EED\u5019\u9009\u521B\u4F5C\u6216\u4EA4\u4ED8\uFF1B\u4FDD\u7559\u53EF\u9009\u5EFA\u8BAE\u4F9B\u7528\u6237\u5224\u65AD\u3002");
+    }
+    if (answer.action === "wait") return this.#wait(this.#state.suggestions.some((item) => item.required && !item.satisfied) ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
+    if (answer.action === "brief") {
+      if (!answer.brief) throw new Error("Brief \u63D0\u6848\u7F3A\u5C11\u5B8C\u6574\u7ED3\u679C");
+      const proposal = { id: randomUUID4(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
+      this.#state.briefProposal = proposal;
+      if (!authorizesBrief(this.#state.instruction)) return this.#wait("BRIEF_REVIEW_REQUIRED", answer.brief.purpose);
+      const saved = await this.opened.saveVideoBrief(proposal.content, proposal.baseline, () => this.#assert());
+      if (saved.status === "conflict") {
+        this.#state.briefProposal.status = "stale";
+        return this.#wait("BRIEF_REVIEW_REQUIRED", "Brief \u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u751F\u6210\u63D0\u6848\u3002");
+      }
+      this.opened.inspection = saved.inspection;
+      this.#state.briefProposal.status = "saved";
+      this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: saved.inspection.videoBriefRevision };
+      this.#state.inputIdentity = null;
+      return this.#wait("BRIEF_SAVED", "\u5DF2\u6309\u660E\u786E\u6307\u4EE4\u4FDD\u5B58 Brief\uFF0C\u6B63\u5728\u540C\u6B65\u5B8C\u6574\u64A4\u9500\u9879\u3002");
+    }
     if (answer.action === "apply" || answer.action === "dependencies") {
       if (answer.action === "apply" && !answer.changes.length) {
         if (++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
@@ -26377,7 +26679,7 @@ var CreationTask = class {
     await this.delivery.operate(this.opened, {
       action: "describe",
       deliveryId: current.id,
-      report: { goal: this.#state.instruction, summary: answer.summary, warnings: [.../* @__PURE__ */ new Set([...answer.warnings, ...snapshot.input.scenes.length === 0 ? ["\u6CA1\u6709\u53EF\u64AD\u653E Scene\uFF1B\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u6DFB\u52A0 Scene\u3002"] : snapshot.input.scenes.some((scene) => scene.time.source === "draft") ? ["\u7F3A\u5C11 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u4E0D\u80FD\u7528\u4E8E\u6700\u7EC8 Render\u3002"] : []])], suggestions: answer.suggestions }
+      report: { goal: this.#state.instruction, summary: answer.summary, warnings: [.../* @__PURE__ */ new Set([...answer.warnings, ...snapshot.input.scenes.length === 0 ? ["\u6CA1\u6709\u53EF\u64AD\u653E Scene\uFF1B\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u6DFB\u52A0 Scene\u3002"] : snapshot.input.scenes.some((scene) => scene.time.source === "draft") ? ["\u7F3A\u5C11 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u4E0D\u80FD\u7528\u4E8E\u6700\u7EC8 Render\u3002"] : []])], suggestions: answer.suggestions.filter((item) => !item.required).map(({ sceneId, observation, action, content, reason }) => ({ sceneId, observation, action, content, reason })) }
     });
     await this.#fresh();
     this.#state.pending = null;
@@ -26744,15 +27046,15 @@ async function readProjectTtsConfig(projectDirectory) {
     }
     throw new ProjectTtsConfigError("\u65E0\u6CD5\u5B89\u5168\u8BFB\u53D6 tts.json\u3002", path, { cause });
   }
-  let text2;
+  let text3;
   try {
-    text2 = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    text3 = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (cause) {
     throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u4E25\u683C UTF-8\u3002", path, { cause });
   }
   let parsed;
   try {
-    parsed = parseStrictJson(text2, {
+    parsed = parseStrictJson(text3, {
       maxDepth: 3,
       maxArrayItems: 0,
       maxObjectFields: 8,
@@ -28567,9 +28869,9 @@ var CandidateDelivery = class {
 
 // src/server/project-delivery.ts
 var warningKey = (batch) => previewDigest(JSON.stringify([batch.id, batch.status, batch.identity, batch.diagnostics.filter((item) => item.severity === "warning"), batch.visualWarnings, batch.truncated, batch.warningsTruncated]));
-var text = external_exports.string().trim().min(1).max(4e3);
-var reportSchema = external_exports.object({ goal: text, summary: text, warnings: external_exports.array(text).max(100), suggestions: external_exports.array(external_exports.object({ sceneId: text, observation: text, action: text, content: text, reason: text }).strict()).max(100) }).strict();
-var supplementsSchema = external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), source: external_exports.enum(["transition", "motion"]), reason: text.max(2e3) }).strict()).max(1e3);
+var text2 = external_exports.string().trim().min(1).max(4e3);
+var reportSchema = external_exports.object({ goal: text2, summary: text2, warnings: external_exports.array(text2).max(100), suggestions: external_exports.array(external_exports.object({ sceneId: text2, observation: text2, action: text2, content: text2, reason: text2 }).strict()).max(100) }).strict();
+var supplementsSchema = external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), source: external_exports.enum(["transition", "motion"]), reason: text2.max(2e3) }).strict()).max(1e3);
 var ProjectDelivery = class {
   constructor(preview, checks) {
     this.preview = preview;
@@ -28621,7 +28923,7 @@ var ProjectDelivery = class {
     if (args.action === "retry") this.#collect(opened, current);
     else if (args.action === "describe") current.describe(reportSchema.parse(args.report));
     else if (args.action === "review") {
-      const records = external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), digest: text, observation: text }).strict()).min(1).max(12).parse(args.reviews);
+      const records = external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), digest: text2, observation: text2 }).strict()).min(1).max(12).parse(args.reviews);
       const view = current.view();
       if (records.some((item) => !view.frames.some((frame) => frame.frame === item.frame && frame.status === "captured" && frame.digest === item.digest))) throw new Error("\u68C0\u67E5\u5F15\u7528\u7684\u56FE\u50CF\u6216\u6458\u8981\u4E0D\u5339\u914D\u3002");
       if (records.some((item) => !this.#read.has(`${item.frame}:${item.digest}`))) throw new Error("\u8BF7\u5148\u8BFB\u53D6\u51C6\u786E\u5E27\u56FE\u50CF\uFF0C\u518D\u63D0\u4EA4\u68C0\u67E5\u89C2\u5BDF\u3002");
@@ -30443,7 +30745,7 @@ async function openProjectVNext(inputPath, options = {}) {
         saveQueue = operation.then(() => void 0, () => void 0);
         return operation;
       };
-      const saveVideoBrief = (content, baselineRevision) => {
+      const saveVideoBrief = (content, baselineRevision, authorize) => {
         if (closing) {
           return Promise.reject(new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -30455,6 +30757,7 @@ async function openProjectVNext(inputPath, options = {}) {
           const videoBriefPath = join11(projectDirectory, "video.md");
           try {
             await assertWritable();
+            authorize?.();
             const bytes = Buffer.from(content, "utf8");
             if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content) {
               throw new ProjectLifecycleError(
@@ -30476,6 +30779,7 @@ async function openProjectVNext(inputPath, options = {}) {
             if (nextRevision !== baselineRevision) {
               await replaceProjectFile(videoBriefPath, bytes, async () => {
                 await assertWritable();
+                authorize?.();
                 const current = await readVideoBriefVNext(videoBriefPath);
                 if (current.revision !== baselineRevision) {
                   throw new ProjectLifecycleError(
@@ -31274,6 +31578,7 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop"] }, id: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "start_creation_task", description: "\u4ECE Composer \u539F\u6587\u53D1\u8D77\u4E13\u7528\u521B\u4F5C\u4EFB\u52A1\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "get_creation_task", description: "\u8BFB\u53D6\u5F53\u524D\u5355\u9879\u521B\u4F5C\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ["app"] } } },
   { name: "continue_creation_task", description: "\u660E\u786E\u57FA\u4E8E\u5F53\u524D\u5916\u90E8\u5019\u9009\u7EE7\u7EED\u540C\u4E00\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "baseline"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, baseline: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: false }, _meta: { ui: { visibility: ["app"] } } },
@@ -31854,10 +32159,10 @@ function stringArgument(argumentsValue, name) {
   const value = argumentsValue[name];
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
-function hostValidationResult(hostValidation, text2) {
+function hostValidationResult(hostValidation, text3) {
   return {
     structuredContent: { hostValidation },
-    content: [{ type: "text", text: text2 }]
+    content: [{ type: "text", text: text3 }]
   };
 }
 var SpeechToolError = class extends Error {
@@ -31890,12 +32195,13 @@ function credentialState(value) {
 var ProjectWorkspaceSession = class {
   creation = null;
   creationError = null;
-  async creationOperation(input, start = false, resume = false) {
+  async creationOperation(input, start = false, resume = false, respond = false) {
     if (!input || typeof input.projectDirectory !== "string" || typeof input.projectId !== "string" || start && typeof input.instruction !== "string") throw new Error("\u521B\u4F5C\u4EFB\u52A1\u53C2\u6570\u65E0\u6548\u3002");
     this.#requireOpened(input.projectDirectory, input.projectId);
     if (this.creationError) throw new Error(this.creationError);
     if (!this.creation) throw new Error("\u521B\u4F5C\u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002");
-    const creationTask = resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? "null") : await this.creation.status();
+    if (!respond && input.action !== void 0) throw new Error("\u5F53\u524D\u5DE5\u5177\u4E0D\u63A5\u53D7\u4EFB\u52A1\u5199\u64CD\u4F5C");
+    const creationTask = respond ? await this.creation.respond(input) : resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? "null") : await this.creation.status();
     const candidate = await this.candidate({ projectDirectory: input.projectDirectory, projectId: input.projectId, action: "read" });
     return { creationTask, candidate };
   }
@@ -32012,6 +32318,7 @@ var ProjectWorkspaceSession = class {
     }
     const saved = await opened.saveProject(input.project, input.baselineRevision);
     opened.inspection = saved.inspection;
+    this.creation?.projectSaved();
     return saved.inspection;
   }
   async saveVideoBrief(input) {
@@ -32039,6 +32346,7 @@ var ProjectWorkspaceSession = class {
       baselineRevision: input.baselineRevision
     });
     opened.inspection = imported.inspection;
+    this.creation?.projectSaved();
     return imported;
   }
   async readAssetPreview(input) {
@@ -32289,9 +32597,9 @@ async function callTool(params, hostValidation, workspace) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
   const { name, arguments: argumentsValue } = params;
-  if (name === "start_creation_task" || name === "get_creation_task" || name === "continue_creation_task") {
+  if (name === "respond_creation_task" || name === "start_creation_task" || name === "get_creation_task" || name === "continue_creation_task") {
     try {
-      return { structuredContent: await workspace.creationOperation(argumentsValue, name === "start_creation_task", name === "continue_creation_task"), content: [] };
+      return { structuredContent: await workspace.creationOperation(argumentsValue, name === "start_creation_task", name === "continue_creation_task", name === "respond_creation_task"), content: [] };
     } catch (error51) {
       return { isError: true, structuredContent: { error: { code: "CREATION_TASK_FAILED", message: error51.message } }, content: [] };
     }

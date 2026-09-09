@@ -671,6 +671,7 @@ export type OpenedProjectVNext = {
   saveVideoBrief: (
     content: string,
     baselineRevision: string,
+    authorize?: () => void,
   ) => Promise<
     | { status: "saved"; inspection: ProjectVNextInspection }
     | { status: "conflict"; disk: { content: string; revision: string; bytes: number } }
@@ -1315,7 +1316,7 @@ export async function openProjectVNext(
         saveQueue = operation.then(() => undefined, () => undefined);
         return operation;
       };
-      const saveVideoBrief: OpenedProjectVNext["saveVideoBrief"] = (content, baselineRevision) => {
+      const saveVideoBrief: OpenedProjectVNext["saveVideoBrief"] = (content, baselineRevision, authorize) => {
         if (closing) {
           return Promise.reject(new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -1327,6 +1328,7 @@ export async function openProjectVNext(
           const videoBriefPath = join(projectDirectory, "video.md");
           try {
             await assertWritable();
+            authorize?.();
             const bytes = Buffer.from(content, "utf8");
             if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content) {
               throw new ProjectLifecycleError(
@@ -1348,6 +1350,7 @@ export async function openProjectVNext(
             if (nextRevision !== baselineRevision) {
               await replaceProjectFile(videoBriefPath, bytes, async () => {
                 await assertWritable();
+                authorize?.();
                 const current = await readVideoBriefVNext(videoBriefPath);
                 if (current.revision !== baselineRevision) {
                   throw new ProjectLifecycleError(

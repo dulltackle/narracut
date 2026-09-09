@@ -1,3 +1,4 @@
+import { sceneSuggestion, pendingSuggestion, evaluateSuggestion, briefProposal, pendingMessage, messageDecision, authorizesBrief } from './creation-interaction';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { rename, rm, open } from 'node:fs/promises';
@@ -18,16 +19,20 @@ const checkpointSchema = z.object({
   threadPointer: z.string().nullable(), lastSafeStage: z.enum(stages).nullable(),
   candidateBaseline: z.string().nullable(), inputIdentity: z.string().nullable(),
   pending: z.string().max(4000).nullable(),
+  suggestions: z.array(pendingSuggestion).max(100).default([]),
+  briefProposal: briefProposal.nullable().default(null),
+  pendingMessage: pendingMessage.nullable().default(null),
 }).strict();
 export type CreationCheckpoint = z.infer<typeof checkpointSchema>;
 const reportText = z.string().min(1).max(4000);
 const answerSchema = z.object({
-  verificationToken: z.string(), action: z.enum(['apply', 'dependencies', 'deliver', 'wait']),
+  verificationToken: z.string(), action: z.enum(['apply', 'dependencies', 'deliver', 'wait', 'brief']),
   changes: z.array(z.object({ path: z.string().max(1024), content: z.string().max(256_000).nullable() }).strict()).max(12),
   dependencies: z.array(z.object({ name: z.string(), version: z.string() }).strict()).max(100).default([]),
   packages: z.array(z.object({ name: z.string(), version: z.string(), integrity: z.string() }).strict()).max(256).default([]),
   summary: reportText, divergence: z.string().max(4000), warnings: z.array(reportText).max(100),
-  suggestions: z.array(z.object({ sceneId: reportText, observation: reportText, action: reportText, content: reportText, reason: reportText }).strict()).max(100),
+  suggestions: z.array(sceneSuggestion).max(100),
+  brief: z.object({ content: z.string().max(2097152), purpose: reportText }).strict().nullable().default(null),
   reviews: z.array(z.object({ frame: z.number().int().nonnegative(), digest: reportText, observation: reportText }).strict()).max(12),
 }).strict();
 export type CreationState = CreationCheckpoint & { externalBaseline: string | null; stage: typeof stages[number]; divergence: string; preview: unknown | null; deliveryId: string | null };
@@ -47,6 +52,10 @@ export class CreationTask {
   #closed = false;
   #unsubscribe: () => void;
   #noProgress = 0;
+  #messageMode: { original: string; resume: boolean; stopped: boolean } | null = null;
+  #briefChange: { id: string; base: string; content: string; revision: string } | null = null;
+  #discussion = '';
+  #sceneSavePending = false;
   #parentOrigin = 'null';
   #pendingRun: Promise<void> = Promise.resolve();
   constructor(private opened: OpenedProjectVNext, private host: CodexHostAdapter,
@@ -74,14 +83,15 @@ export class CreationTask {
     }
     return this.value;
   }
-  get value() { return this.#state ? structuredClone(this.#state) : null; }
+  get value() { return this.#state ? { ...structuredClone(this.#state), briefChange: this.#briefChange, discussion: this.#discussion } : null; }
   async load() {
     try {
-      const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 32_000)).toString()));
+      const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 20_000_000)).toString()));
       if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error('任务项目身份不匹配');
       const candidate = await this.opened.candidate({ action: 'read' });
       if (checkpoint.status !== 'terminated' && checkpoint.candidateBaseline !== candidate.baseline) throw new Error('任务候选检查点不匹配');
       this.#state = { ...checkpoint, externalBaseline: null, status: checkpoint.status === 'terminated' ? 'terminated' : 'stopped', reason: checkpoint.status === 'terminated' ? checkpoint.reason : 'APP_RESTARTED', stage: checkpoint.lastSafeStage ?? 'read', divergence: '', preview: null, deliveryId: null };
+      if (checkpoint.briefProposal?.status === 'saved') { const proposal = checkpoint.briefProposal; this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: this.opened.inspection.videoBriefRevision }; }
       await this.#save();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('TASK_CHECKPOINT_INVALID：任务检查点无法恢复；候选保留。');
@@ -115,7 +125,7 @@ export class CreationTask {
       if (candidate.status !== 'absent') throw new Error('已有候选；本次不会替换或接管，草稿已保留。');
       this.#state = { taskId: randomUUID(), projectId: this.opened.inspection.manifest.projectId, instruction,
         externalBaseline: null, status: 'running', reason: null, threadPointer: null, lastSafeStage: null, candidateBaseline: null,
-        inputIdentity: null, pending: null, stage: 'read', divergence: '', preview: null, deliveryId: null };
+        inputIdentity: null, pending: null, suggestions: [], briefProposal: null, pendingMessage: null, stage: 'read', divergence: '', preview: null, deliveryId: null };
       await this.#save();
       const created = await this.opened.candidate({ action: 'create' });
       this.#state.candidateBaseline = created.baseline;
@@ -128,10 +138,29 @@ export class CreationTask {
     } finally { this.#busy = false; }
   }
   async #observe() {
-    if (!this.ownsCandidate && this.#state?.reason !== 'SCENE_CHANGE_REQUIRED') return;
+    if (!this.ownsCandidate || this.#messageMode) return;
     const snapshot = await this.#snapshot();
+    if (!this.ownsCandidate || this.#messageMode) return;
     if (snapshot.baseline !== this.#state!.candidateBaseline) throw Object.assign(new Error(externalMessage), { code: 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED' });
     if (this.#state!.inputIdentity && snapshot.signature !== this.#state!.inputIdentity) await this.#catchUp(snapshot);
+  }
+  /** 仅成功持久化后的项目事件核对待办；等待期间不启动模型、不轮询输入。 */
+  projectSaved() {
+    this.#sceneSavePending = true;
+    this.#pendingRun = this.#pendingRun.then(async () => {
+      const state = this.#state;
+      if (state?.status !== 'waiting' || state.reason !== 'SCENE_CHANGE_REQUIRED') return;
+      this.#sceneSavePending = false;
+      const snapshot = await this.#snapshot();
+      if (state.status !== 'waiting' || state.reason !== 'SCENE_CHANGE_REQUIRED') return;
+      const next = state.suggestions.map(item => evaluateSuggestion(item, snapshot.input));
+      if (JSON.stringify(next) === JSON.stringify(state.suggestions)) return;
+      state.suggestions = next;
+      const remaining = next.filter(item => item.required && !item.satisfied);
+      state.pending = remaining.length ? `还有 ${remaining.length} 项必要修改未满足。${remaining.some(item => item.missing) ? '目标 Scene 已删除，请继续任务重新判断目标。' : ''}` : '必要修改已保存，正在继续同一任务';
+      await this.#save();
+      if (!remaining.length && state.status === 'waiting' && state.reason === 'SCENE_CHANGE_REQUIRED') await this.#catchUp(snapshot);
+    }).catch(error => this.#stop(error));
   }
   async #fresh() {
     this.#assert();
@@ -149,6 +178,7 @@ export class CreationTask {
     if (!previous || JSON.stringify(previous.input.scenes) !== JSON.stringify(snapshot.input.scenes)) changes.push('Scene');
     if (!previous || JSON.stringify(previous.input.assets) !== JSON.stringify(snapshot.input.assets) || JSON.stringify([...previous.media.keys()]) !== JSON.stringify([...snapshot.media.keys()])) changes.push('Asset / Speech');
     const state = this.#state!;
+    if (state.status === 'stopped' || state.status === 'terminated' || this.#closed) return;
     state.inputIdentity = snapshot.signature;
     state.status = 'running'; state.reason = null; state.stage = 'read'; state.preview = null; state.deliveryId = null;
     state.pending = `${changes.join('、') || '项目输入'} 已更新，正在重新检查`;
@@ -173,6 +203,119 @@ export class CreationTask {
       return this.value;
     } catch (error) { this.#state!.pending = `${externalMessage} ${(error as Error).message}`; await this.#save(); throw error; }
     finally { this.#busy = false; }
+  }
+  async #interrupt() {
+    const driver = this.#driver; this.#driver = null;
+    if (driver?.turnId && this.#state?.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId });
+  }
+  async respond(input: { action: string; id?: string; instruction?: string }) {
+    if (this.#busy || !this.#state || this.#state.status === 'terminated') throw new Error('当前没有可操作任务或操作尚未完成');
+    this.#busy = true;
+    try {
+      if (input.action === 'stop') {
+        this.#messageMode = null;
+        this.#state.status = 'stopped'; this.#state.reason = 'USER_STOPPED';
+        await this.#interrupt(); await this.#pendingRun; await this.#save(); return this.value;
+      }
+      await this.#pendingRun;
+      const state = this.#state;
+      if (input.action === 'message') {
+        const original = input.instruction;
+        if (!original?.trim() || original.length > 4000 || state.pendingMessage) throw new Error('请先处理拟保存的原文片段，或填写 1–4000 字消息');
+        const resume = state.status === 'running';
+        await this.#interrupt();
+        state.pendingMessage = { id: randomUUID(), original, fragments: [], reply: '正在识别本次消息；尚未追加创作指令。', previousStatus: state.status as 'running' | 'waiting' | 'stopped', previousReason: state.reason };
+        this.#messageMode = { original, resume, stopped: state.status === 'stopped' };
+        state.status = 'running';
+        await this.#save();
+        this.#pendingRun = this.#classify(original).catch(error => this.#stop(error));
+      } else if (['confirm-message', 'discuss-message', 'edit-message'].includes(input.action)) {
+        if (!state.pendingMessage || state.pendingMessage.id !== input.id) throw new Error('消息确认已过期');
+        const previous = state.pendingMessage;
+        if (this.#messageMode) {
+          if (input.action === 'confirm-message') throw new Error('正在识别消息，请等待拟保存片段');
+          const stopped = this.#messageMode.stopped; this.#messageMode = null; await this.#interrupt();
+          state.status = stopped ? 'stopped' : 'waiting';
+        }
+        if (input.action === 'confirm-message') {
+          if (!state.pendingMessage.fragments.length) throw new Error('没有可追加的明确原文片段，请返回修改');
+          this.#append(state.pendingMessage.fragments.join('\n'));
+        }
+        state.pendingMessage = null;
+        await this.#save();
+        if (input.action === 'confirm-message' && state.status !== 'stopped') await this.#resume();
+        else if (input.action !== 'confirm-message') {
+          state.status = previous.previousStatus; state.reason = previous.previousReason;
+          if (state.status === 'running') await this.#resume();
+          else { await this.#save(); if (this.#sceneSavePending) this.projectSaved(); }
+        }
+      } else if (input.action === 'ack-brief') {
+        if (!state.briefProposal || state.briefProposal.id !== input.id || state.briefProposal.status !== 'saved') throw new Error('Brief 保存回执已过期');
+        if (state.status === 'waiting' && state.reason === 'BRIEF_SAVED') await this.#resume('Brief 已保存并形成完整撤销项，请继续候选创作。');
+      } else if (['accept-brief', 'reject-brief'].includes(input.action)) {
+        const proposal = state.briefProposal;
+        if (!proposal || proposal.id !== input.id || !['review', 'stale'].includes(proposal.status)) throw new Error('Brief 提案已过期或已处理');
+        if (input.action === 'reject-brief') {
+          proposal.status = 'rejected'; state.pending = '已保留原 Brief。可按当前创作指令继续。';
+          state.reason = 'BRIEF_REJECTED'; await this.#save();
+        } else {
+          if (proposal.status === 'stale') throw new Error('Brief 已变化，请重新生成提案');
+          const saved = await this.opened.saveVideoBrief(proposal.content, proposal.baseline);
+          if (saved.status === 'conflict') {
+            proposal.status = 'stale'; state.pending = 'Brief 已变化，原提案不能覆盖最新内容。请重新生成提案。'; await this.#save();
+          } else {
+            this.opened.inspection = saved.inspection;
+            this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: saved.inspection.videoBriefRevision };
+            proposal.status = 'saved'; await this.#save();
+            if (state.status !== 'stopped') { state.status = 'waiting'; state.reason = 'BRIEF_SAVED'; state.pending = 'Brief 已保存，正在同步完整撤销项。'; await this.#save(); }
+          }
+        }
+      } else if (input.action === 'continue' || input.action === 'regenerate-brief') {
+        if (state.status === 'running' || state.pendingMessage || state.reason === 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED') throw new Error('请先处理当前待办');
+        if (input.action === 'continue' && state.briefProposal?.status === 'review') throw new Error('请先接受或拒绝 Brief 提案');
+        if (input.action === 'regenerate-brief') state.briefProposal = null;
+        await this.#resume(input.action === 'regenerate-brief' ? '请依据最新 Brief 重新生成完整提案，等待用户审核。' : '用户明确选择按当前创作指令继续。已拒绝的 Brief 提案不得再次自动保存。');
+      } else throw new Error('未知任务操作');
+      return this.value;
+    } finally { this.#busy = false; }
+  }
+  #append(fragment: string) {
+    const instruction = this.#state!.instruction + '\n\n' + fragment;
+    if (instruction.length > 4000) throw new Error('累计创作指令超过 4000 字，原文片段已保留');
+    this.#state!.instruction = instruction;
+  }
+  async #resume(feedback = '') {
+    const state = this.#state!;
+    if (state.status === 'stopped' && state.threadPointer) {
+      try { state.threadPointer = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory })).threadId; }
+      catch { state.threadPointer = null; }
+    }
+    state.status = 'running'; state.reason = null; state.pending = null; state.stage = 'read';
+    state.inputIdentity = null; state.preview = null; state.deliveryId = null; this.#noProgress = 0;
+    await this.#save();
+    this.#pendingRun = this.#run(feedback).catch(error => this.#stop(error));
+  }
+  async #classify(original: string) {
+    this.#assert();
+    const state = this.#state!, snapshot = await this.#snapshot();
+    state.inputIdentity = snapshot.signature;
+    if (!state.threadPointer) state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: 'creation' })).threadId;
+    const driver: Driver = { token: randomUUID(), turnId: null, signature: snapshot.signature };
+    this.#driver = driver; this.#starting = true;
+    try {
+      const turn = await this.host.startTurn({ threadId: state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory, verificationToken: driver.token, outputSchema: z.toJSONSchema(messageDecision), prompt: [
+        '只分类并回答当前用户消息，不创作、不写文件、不执行工具。creation 仅用于整条消息都是明确创作命令；问题、状态询问、审批答复和闲聊是 discussion。混合消息 mixed；不确定 ambiguous。',
+        'fragments 必须是按原顺序提取的精确原文连续片段，不得改字或扩大授权。creation 返回整条原文；discussion 返回空数组。mixed/ambiguous 拟保存部分先等待用户确认。reply 用中文回答问题或说明待确认事项。',
+        'divergence 明确说明 Brief 内容、本次用户要求及采用方向；没有实质分歧则空字符串。',
+        `当前指令：${JSON.stringify(state.instruction)}；任务原因：${state.reason}；Brief：${JSON.stringify(snapshot.input.videoBrief)}`,
+        `本次消息：${JSON.stringify(original)}`,
+        `verificationToken 必须返回：${driver.token}`,
+      ].join('\n') });
+      this.#assert(); driver.turnId = turn.turnId;
+    } finally {
+      this.#starting = false;
+      for (const event of this.#early.splice(0)) this.#pendingRun = this.#pendingRun.then(() => this.#event(event)).catch(error => this.#stop(error));
+    }
   }
   async #set(stage: CreationState['stage']) {
     this.#assert(); this.#state!.stage = stage;
@@ -208,6 +351,8 @@ export class CreationTask {
           '每批最多 12 个文件，每文件最多 256000 字；只修改候选相对路径。先读当前候选源码和项目内容；apply 后应用会检查并将诊断交回，允许修复。不要复制 Scene 内容作为第二权威。',
           '缺少离线依赖时返回 action=dependencies，dependencies 与 packages 为空数组可按既有精确锁图补齐离线库；新增依赖必须提供公共 npm 精确版本和完整性摘要，应用只从 canonical registry 下载。',
           'action=deliver 请求构建 Preview 并采集代表帧。收到图像后逐帧检查，reviews 必须引用所给帧号与 digest，不能仅凭文本声称检查。无需修改时 changes=[]。必须用户处理时 action=wait 并明确原因。',
+          '整理 Brief 使用 action=brief 并提供 brief={content:完整 Markdown,purpose:修改目的}。没有明确要求写 Brief 时应用只生成审核提案；不可用候选文件替代 video.md。',
+          'Scene suggestions 必须使用真实稳定 Scene UUID；required=true 必须提供 condition：narration 字数范围/anyOf 可接受词组、asset 可用素材（anyOf 空允许任何可用替代素材）或 deleted。description 用中文解释续跑目标。不可证明的语义目标请求用户判断，不伪造条件。可选建议 required=false。',
           '实质 Brief 分歧填写 divergence，并说明本次遵循的用户原文；否则空字符串。summary、warnings、suggestions 用中文。',
           `当前创作指令（精确原文）：${JSON.stringify(state.instruction)}`,
           `最新 Runtime 输入：${JSON.stringify(snapshot.input)}`,
@@ -233,13 +378,68 @@ export class CreationTask {
     if (!driver || event.turnId !== driver.turnId) return;
     this.#driver = null;
     if (event.status !== 'completed' || !event.output) throw new Error('CODEX_INTERRUPTED');
+    if (this.#messageMode) {
+      const mode = this.#messageMode;
+      const answer = messageDecision.parse(JSON.parse(event.output));
+      if (answer.verificationToken !== driver.token) throw new Error('消息分类身份不匹配');
+      let cursor = 0;
+      for (const fragment of answer.fragments) {
+        const offset = mode.original.indexOf(fragment, cursor);
+        if (offset < 0) throw new Error('拟保存片段不是按顺序提取的精确用户原文');
+        cursor = offset + fragment.length;
+      }
+      this.#messageMode = null;
+      this.#discussion = answer.reply; this.#state!.divergence = answer.divergence;
+      if (answer.kind === 'creation') {
+        this.#append(mode.original); this.#state!.pendingMessage = null;
+        if (mode.stopped) { this.#state!.status = 'stopped'; await this.#save(); return; }
+        return this.#resume();
+      }
+      if (answer.kind === 'discussion') {
+        this.#state!.pendingMessage = null;
+        if (mode.resume) return this.#resume();
+        if (mode.stopped) { this.#state!.status = 'stopped'; await this.#save(); return; }
+        await this.#wait(this.#state!.reason ?? 'USER_DECISION_REQUIRED', answer.reply);
+        if (this.#sceneSavePending) this.projectSaved();
+        return;
+      }
+      this.#state!.pendingMessage!.fragments = answer.fragments;
+      this.#state!.pendingMessage!.reply = answer.reply;
+      if (mode.stopped) { this.#state!.status = 'stopped'; this.#state!.pending = '确认后保存原文，仍需明确继续任务。'; await this.#save(); return; }
+      return this.#wait('INSTRUCTION_CONFIRMATION_REQUIRED', '请确认拟保存的精确原文片段；确认前不会执行创作部分。');
+    }
     const answer = answerSchema.parse(JSON.parse(event.output));
     if (answer.verificationToken !== driver.token) throw new Error('创作结果驱动身份不匹配');
     const snapshot = await this.#snapshot();
     if (snapshot.baseline !== this.#state!.candidateBaseline) return this.#wait('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', externalMessage);
     if (snapshot.signature !== driver.signature) throw new InputsChanged('项目输入已变化');
     this.#state!.divergence = answer.divergence;
-    if (answer.action === 'wait') return this.#wait(answer.suggestions.length ? 'SCENE_CHANGE_REQUIRED' : 'USER_DECISION_REQUIRED', answer.summary);
+    this.#state!.suggestions = answer.suggestions.map(item => {
+      if (item.required && !item.condition) throw new Error('必要 Scene 建议必须说明可核对的目标条件');
+      return evaluateSuggestion({ ...item, satisfied: false, missing: false }, snapshot.input);
+    });
+    if (this.#state!.suggestions.some(item => item.required && !item.satisfied)) return this.#wait('SCENE_CHANGE_REQUIRED', answer.summary);
+    if (answer.action === 'wait' && answer.suggestions.length) {
+      if (++this.#noProgress >= 3) throw new Error('NO_PROGRESS');
+      return this.#run('建议均为可选或已满足，不应阻断任务。请继续候选创作或交付；保留可选建议供用户判断。');
+    }
+    if (answer.action === 'wait') return this.#wait(this.#state!.suggestions.some(item => item.required && !item.satisfied) ? 'SCENE_CHANGE_REQUIRED' : 'USER_DECISION_REQUIRED', answer.summary);
+    if (answer.action === 'brief') {
+      if (!answer.brief) throw new Error('Brief 提案缺少完整结果');
+      const proposal = { id: randomUUID(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: 'review' as const };
+      this.#state!.briefProposal = proposal;
+      if (!authorizesBrief(this.#state!.instruction)) return this.#wait('BRIEF_REVIEW_REQUIRED', answer.brief.purpose);
+      const saved = await this.opened.saveVideoBrief(proposal.content, proposal.baseline, () => this.#assert());
+      if (saved.status === 'conflict') {
+        this.#state!.briefProposal.status = 'stale';
+        return this.#wait('BRIEF_REVIEW_REQUIRED', 'Brief 已变化，请重新生成提案。');
+      }
+      this.opened.inspection = saved.inspection;
+      this.#state!.briefProposal.status = 'saved';
+      this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: saved.inspection.videoBriefRevision };
+      this.#state!.inputIdentity = null;
+      return this.#wait('BRIEF_SAVED', '已按明确指令保存 Brief，正在同步完整撤销项。');
+    }
     if (answer.action === 'apply' || answer.action === 'dependencies') {
       if (answer.action === 'apply' && !answer.changes.length) { if (++this.#noProgress >= 3) throw new Error('NO_PROGRESS'); return this.#run('未产生持久成果，请提交修改或请求交付。'); }
       this.#state!.preview = null; this.#state!.deliveryId = null;
@@ -305,7 +505,7 @@ export class CreationTask {
     if (!batch || batch.stale || batch.status !== 'complete' || !sameIdentity(batch.identity, current.binding.identity)) throw new Error('交付与检查不属于同一完整状态身份');
     this.#state!.lastSafeStage = 'frames'; await this.#set('deliver');
     await this.delivery.operate(this.opened, { action: 'describe', deliveryId: current.id,
-      report: { goal: this.#state!.instruction, summary: answer.summary, warnings: [...new Set([...answer.warnings, ...(snapshot.input.scenes.length === 0 ? ['没有可播放 Scene；请在表格工作区添加 Scene。'] : snapshot.input.scenes.some(scene => scene.time.source === 'draft') ? ['缺少 Speech，当前使用 Draft Duration；不能用于最终 Render。'] : [])])], suggestions: answer.suggestions } });
+      report: { goal: this.#state!.instruction, summary: answer.summary, warnings: [...new Set([...answer.warnings, ...(snapshot.input.scenes.length === 0 ? ['没有可播放 Scene；请在表格工作区添加 Scene。'] : snapshot.input.scenes.some(scene => scene.time.source === 'draft') ? ['缺少 Speech，当前使用 Draft Duration；不能用于最终 Render。'] : [])])], suggestions: answer.suggestions.filter(item => !item.required).map(({ sceneId, observation, action, content, reason }) => ({ sceneId, observation, action, content, reason })) } });
     await this.#fresh();
     this.#state!.pending = null;
     this.#state!.lastSafeStage = 'deliver';

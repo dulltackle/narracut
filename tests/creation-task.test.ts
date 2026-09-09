@@ -58,7 +58,7 @@ test('MCP 原文创建单任务、唯一写权、专用线程；等待用户与�
     app.host.complete({ action: 'apply', changes: [{ path: 'resources/late.txt', content: '迟到' }] });
     expect((await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate.baseline).toBe(candidate.baseline);
     const checkpoint = JSON.parse(await readFile(join(app.projectDirectory, '.narracut/agent-task.json'), 'utf8'));
-    expect(Object.keys(checkpoint).sort()).toEqual(['candidateBaseline','inputIdentity','instruction','lastSafeStage','pending','projectId','reason','status','taskId','threadPointer'].sort());
+    expect(Object.keys(checkpoint).sort()).toEqual(['candidateBaseline','inputIdentity','instruction','lastSafeStage','pending','suggestions','briefProposal','pendingMessage','projectId','reason','status','taskId','threadPointer'].sort());
     expect(checkpoint.instruction).toBe(instruction);
     await app.handler.dispose();
     const reopened = createNarracutRequestHandler({ codexHost: app.host });
@@ -185,16 +185,26 @@ test('同一任务自动读取连续 Brief 更新，旧 Turn 迟到与普通等�
   } finally { await app.close(); }
 }, 30000);
 
-test('等待 Scene 修改后自动继续同一任务', async () => {
-  const app = await setup();
+test('必要 Scene 条件按保存事件核对：部分完成与无关修改不续跑，全部满足仅继续一次', async () => {
+  const app = await setup(1);
   try {
-    await app.call('start_creation_task', { instruction: '需要一句旁白' });
+    const started = (await app.call('start_creation_task', { instruction: '将开场旁白缩短到五字以内' })).structuredContent.creationTask;
     await expect.poll(() => app.host.turns.length).toBe(1);
-    app.host.complete({ suggestions: [{ sceneId: '新增', observation: '没有旁白', action: '新增', content: '你好', reason: '需要开场' }] });
+    const sceneId = '30000000-0000-4000-8000-000000000001';
+    app.host.complete({ suggestions: [{ sceneId, observation: '旁白需要调整', action: '编辑 Narration', content: '你好', reason: '开场紧凑', required: true, condition: { field: 'narration', minLength: 1, maxLength: 2, description: '旁白非空且不超过两字' } }] });
     await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('SCENE_CHANGE_REQUIRED');
-    await writeFile(join(app.projectDirectory, 'project.json'), JSON.stringify({ assets: [], scenes: [{ id: '30000000-0000-4000-8000-000000000001', narration: { text: '你好' }, assetIds: [] }] }));
-    await expect.poll(() => app.host.turns.length, { timeout: 10000 }).toBe(2);
-    expect(app.host.turns[1]!.prompt).toContain('你好');
+    const save = async (text: string) => {
+      const { createHash } = await import('node:crypto');
+      const baselineRevision = 'sha256:' + createHash('sha256').update(await readFile(join(app.projectDirectory, 'project.json'))).digest('hex');
+      return app.call('save_project_scenes', { baselineRevision, project: { assets: [], scenes: [{ id: sceneId, narration: { text }, assetIds: [] }] } });
+    };
+    await save('这段旁白仍然太长了');
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.suggestions[0].satisfied).toBe(false);
+    expect(app.host.turns).toHaveLength(1);
+    await save('欢迎');
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.taskId).toBe(started.taskId);
+    expect(app.host.turns[1]!.prompt).toContain('欢迎');
   } finally { await app.close(); }
 }, 20000);
 
@@ -266,3 +276,178 @@ test('Asset 原位替换与 Speech 成功持久化均由同一任务读取最新
     expect((await app.call('get_creation_task')).structuredContent.creationTask.taskId).toBe(initial.taskId);
   } finally { await app.close(); }
 }, 30000);
+
+test('Brief 提案拒绝不续跑、接受核对基线，明确写入指令才允许直写', async () => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '整理视频的表现方向' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({ action: 'brief', brief: { content: '# 新方向\n安静。', purpose: '整理方向' } });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('BRIEF_REVIEW_REQUIRED');
+    const proposal = (await app.call('get_creation_task')).structuredContent.creationTask.briefProposal;
+    expect(await readFile(join(app.projectDirectory, 'video.md'), 'utf8')).toBe('');
+    await writeFile(join(app.projectDirectory, 'video.md'), '用户的新内容');
+    const stale = await app.call('respond_creation_task', { action: 'accept-brief', id: proposal.id });
+    expect(stale.structuredContent.creationTask.briefProposal.status).toBe('stale');
+    expect(await readFile(join(app.projectDirectory, 'video.md'), 'utf8')).toBe('用户的新内容');
+    await app.call('respond_creation_task', { action: 'reject-brief', id: proposal.id });
+    expect(app.host.turns).toHaveLength(1);
+    await app.call('respond_creation_task', { action: 'continue' });
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    app.host.complete({ action: 'brief', brief: { content: '# 已审核', purpose: '重拟方向' } });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.briefProposal?.status).toBe('review');
+    const current = (await app.call('get_creation_task')).structuredContent.creationTask;
+    await app.call('respond_creation_task', { action: 'accept-brief', id: current.briefProposal.id });
+    expect(await readFile(join(app.projectDirectory, 'video.md'), 'utf8')).toBe('# 已审核');
+  } finally { await app.close(); }
+});
+
+test('同一任务只追加确认的混合消息原文，讨论不追加，明确授权 Brief 写入形成完整撤销项', async () => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '准备开场' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({});
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    await app.call('respond_creation_task', { action: 'message', instruction: '现在怎么样？请将 Brief 改为安静风格。' });
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    const finish = (answer: any) => {
+      const turn = app.host.turns.at(-1)!;
+      for (const listener of app.host.listeners) listener({ type: 'turn-completed', threadId: turn.threadId, turnId: turn.turnId, status: 'completed', output: JSON.stringify({ verificationToken: turn.verificationToken, ...answer }) });
+    };
+    finish({ kind: 'mixed', fragments: ['请将 Brief 改为安静风格。'], reply: '等待确认写入片段。', divergence: 'Brief 原文为空，本次采用安静风格。' });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('INSTRUCTION_CONFIRMATION_REQUIRED');
+    let task = (await app.call('get_creation_task')).structuredContent.creationTask;
+    expect(task.instruction).toBe('准备开场');
+    await app.call('respond_creation_task', { action: 'confirm-message', id: task.pendingMessage.id });
+    await expect.poll(() => app.host.turns.length).toBe(3);
+    task = (await app.call('get_creation_task')).structuredContent.creationTask;
+    expect(task.instruction).toBe('准备开场\n\n请将 Brief 改为安静风格。');
+    app.host.complete({ action: 'brief', brief: { content: '安静风格。', purpose: '按原文写入 Brief' } });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('BRIEF_SAVED');
+    task = (await app.call('get_creation_task')).structuredContent.creationTask;
+    expect(task.briefChange).toMatchObject({ base: '', content: '安静风格。' });
+    expect(await readFile(join(app.projectDirectory, 'video.md'), 'utf8')).toBe('安静风格。');
+    await app.call('respond_creation_task', { action: 'ack-brief', id: task.briefProposal.id });
+    await expect.poll(() => app.host.turns.length).toBe(4);
+    app.host.complete({});
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    await app.call('respond_creation_task', { action: 'message', instruction: '谢谢，现在状态如何？' });
+    await expect.poll(() => app.host.turns.length).toBe(5);
+    finish({ kind: 'discussion', fragments: [], reply: '正在等待用户决定。', divergence: '' });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.instruction).toBe(task.instruction);
+  } finally { await app.close(); }
+});
+
+test('Scene 无关保存、失败保存、重排删除和停止均不误恢复', async () => {
+  const app = await setup(1);
+  try {
+    const id = '30000000-0000-4000-8000-000000000001';
+    await app.call('start_creation_task', { instruction: '旁白用两字开场' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({ suggestions: [{ sceneId: id, observation: '旁白过长', action: '缩短', content: '欢迎', reason: '紧凑', required: true, condition: { field: 'narration', maxLength: 2, description: '最多两字' } }] });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('SCENE_CHANGE_REQUIRED');
+    const { createHash } = await import('node:crypto');
+    const save = async (scenes: any[], failed = false) => {
+      const baselineRevision = 'sha256:' + createHash('sha256').update(await readFile(join(app.projectDirectory, 'project.json'))).digest('hex');
+      return app.call('save_project_scenes', { baselineRevision: failed ? 'sha256:' + '0'.repeat(64) : baselineRevision, project: { assets: [], scenes } });
+    };
+    const other = { id: '30000000-0000-4000-8000-000000000002', narration: { text: '其他 Scene' }, assetIds: [] };
+    const target = { id, narration: { text: '你好。' }, assetIds: [] };
+    await save([other, target]);
+    await new Promise(resolve => setTimeout(resolve, 700)); expect(app.host.turns).toHaveLength(1);
+    expect((await save([{ ...target, narration: { text: '欢迎' } }], true)).isError).toBe(true);
+    await save([other]);
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.suggestions[0].missing).toBe(true);
+    expect(app.host.turns).toHaveLength(1);
+    await app.call('respond_creation_task', { action: 'stop' });
+    await save([{ ...target, narration: { text: '欢迎' } }, other]);
+    await new Promise(resolve => setTimeout(resolve, 700));
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('stopped');
+    expect(app.host.turns).toHaveLength(1);
+  } finally { await app.close(); }
+});
+
+for (const instruction of ['请修改候选，保持 Brief 原文不变。', '先整理方案，等我批准后再更新 Brief。', '请解释如何修改 Brief', '请修改 Brief 前先给我看方案。', '请修改 Brief 的建议发给我。']) test(`未明确授权 Brief 直写：${instruction}`, async () => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({ action: 'brief', brief: { content: '不能直写', purpose: '整理提案' } });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('BRIEF_REVIEW_REQUIRED');
+    const task = (await app.call('get_creation_task')).structuredContent.creationTask;
+    expect((await app.call('get_creation_task', { action: 'accept-brief', id: task.briefProposal.id })).isError).toBe(true);
+    expect(await readFile(join(app.projectDirectory, 'video.md'), 'utf8')).toBe('');
+  } finally { await app.close(); }
+});
+
+test('分类期间选择仅作讨论会丢弃迟到创作结果', async () => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '原目标' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({});
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    await app.call('respond_creation_task', { action: 'message', instruction: '开场更短' });
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    const task = (await app.call('get_creation_task')).structuredContent.creationTask;
+    await app.call('respond_creation_task', { action: 'discuss-message', id: task.pendingMessage.id });
+    const turn = app.host.turns.at(-1)!;
+    for (const listener of app.host.listeners) listener({ type: 'turn-completed', threadId: turn.threadId, turnId: turn.turnId, status: 'completed', output: JSON.stringify({ verificationToken: turn.verificationToken, kind: 'creation', fragments: ['开场更短'], reply: '开始', divergence: '' }) });
+    await new Promise(resolve => setTimeout(resolve, 700));
+    expect((await app.call('get_creation_task')).structuredContent.creationTask).toMatchObject({ instruction: '原目标', status: 'waiting', pendingMessage: null });
+    expect(app.host.turns).toHaveLength(2);
+  } finally { await app.close(); }
+});
+
+test('必要 Asset 目标允许用户保存不同的可用替代素材', async () => {
+  const app = await setup(1);
+  try {
+    const sceneId = '30000000-0000-4000-8000-000000000001', assetId = '20000000-0000-4000-8000-000000000001';
+    await writeFile(join(app.root, 'alternative.txt'), '用户选择的替代素材');
+    await app.call('start_creation_task', { instruction: '开场需要参考素材' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({ suggestions: [{ sceneId, observation: '尚无素材', action: '绑定 Asset', content: '建议选择主视觉素材', reason: '完成开场', required: true, condition: { field: 'asset', description: '绑定可用 Asset，可选其他合适素材', anyOf: [] } }] });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('SCENE_CHANGE_REQUIRED');
+    const { createHash } = await import('node:crypto');
+    const baselineRevision = 'sha256:' + createHash('sha256').update(await readFile(join(app.projectDirectory, 'project.json'))).digest('hex');
+    const saved = await app.call('import_project_asset', { baselineRevision, sourcePath: join(app.root, 'alternative.txt'), targetSceneId: sceneId });
+    expect(saved.isError, JSON.stringify(saved)).not.toBe(true);
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    expect(app.host.turns[1]!.prompt).toContain('alternative.txt');
+  } finally { await app.close(); }
+});
+
+test('可选 Scene 建议只展示，不阻断候选创作也不执行 Scene 修改', async () => {
+  const app = await setup(1);
+  try {
+    const project = await readFile(join(app.projectDirectory, 'project.json'), 'utf8');
+    await app.call('start_creation_task', { instruction: '调整开场表现' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({ suggestions: [{ sceneId: '30000000-0000-4000-8000-000000000001', observation: '可更简洁', action: '可选缩短', content: '欢迎', reason: '优化节奏', required: false }] });
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    const task = (await app.call('get_creation_task')).structuredContent.creationTask;
+    expect(task.status).toBe('running'); expect(task.suggestions[0].required).toBe(false);
+    expect(await readFile(join(app.projectDirectory, 'project.json'), 'utf8')).toBe(project);
+  } finally { await app.close(); }
+});
+
+test('混合消息仅作讨论后恢复原 Scene 等待，而非丢失待办', async () => {
+  const app = await setup(1);
+  try {
+    await app.call('start_creation_task', { instruction: '旁白两字以内' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({ suggestions: [{ sceneId: '30000000-0000-4000-8000-000000000001', observation: '长', action: '缩短', content: '欢迎', reason: '紧凑', required: true, condition: { field: 'narration', maxLength: 2, description: '两字以内' } }] });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('SCENE_CHANGE_REQUIRED');
+    await app.call('respond_creation_task', { action: 'message', instruction: '有建议吗？开场更短。' });
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    const turn = app.host.turns.at(-1)!;
+    for (const listener of app.host.listeners) listener({ type: 'turn-completed', threadId: turn.threadId, turnId: turn.turnId, status: 'completed', output: JSON.stringify({ verificationToken: turn.verificationToken, kind: 'mixed', fragments: ['开场更短。'], reply: '请确认片段', divergence: '' }) });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('INSTRUCTION_CONFIRMATION_REQUIRED');
+    const task = (await app.call('get_creation_task')).structuredContent.creationTask;
+    const result = await app.call('respond_creation_task', { action: 'discuss-message', id: task.pendingMessage.id });
+    expect(result.structuredContent.creationTask).toMatchObject({ reason: 'SCENE_CHANGE_REQUIRED', status: 'waiting', instruction: '旁白两字以内', pendingMessage: null });
+    expect(app.host.turns).toHaveLength(2);
+  } finally { await app.close(); }
+});

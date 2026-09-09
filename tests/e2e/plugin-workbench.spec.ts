@@ -1548,3 +1548,94 @@ test('自动跟进保留 Composer 与 Scene，外部候选直接继续且防止�
   await expect(page.getByRole('heading', { name: '运行中 · 正在跟进最新项目内容' })).toBeVisible();
   await expect(draft).toHaveValue('保留正在输入的文字');
 });
+
+test('Scene 待办按稳定 ID 定位并保留 Composer；Brief 提案提供只读 diff 和完整结果', async ({ page }) => {
+  await loadWorkbench(page); const result = validResult(3); await sendResult(page, result);
+  const task = { taskId: 'task-84', status: 'waiting', reason: 'SCENE_CHANGE_REQUIRED', instruction: '开场更简洁', pending: '请缩短旁白', stage: 'read', suggestions: [{ sceneId: result.scenes[1]!.id, observation: '旁白偏长', action: '缩短 Narration', content: '欢迎', reason: '让开场紧凑', required: true, satisfied: false, condition: { field: 'narration', description: '两字以内' } }] };
+  await installAppToolBridge(page, () => ({ structuredContent: { creationTask: task } }));
+  await sendResult(page, { creationTask: task });
+  const draft = page.getByRole('textbox', { name: 'Composer' }); await draft.fill('中文草稿'); const node = await draft.elementHandle();
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await expect(page.getByText('完成目标所必需', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '定位 Scene', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Scene 02 Narration', exact: true })).toBeFocused();
+  expect(await node!.evaluate(el => el.isConnected)).toBe(true); await expect(draft).toHaveValue('中文草稿');
+  await sendResult(page, { creationTask: { ...task, suggestions: task.suggestions.map(item => ({ ...item, condition: { field: 'asset', description: '绑定可用素材' } })) } });
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await page.getByRole('button', { name: '定位 Scene', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Scene 02 · Asset' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '导入并绑定' })).toBeFocused();
+  const proposal = { id: 'proposal-84', base: '旧方向\n', content: '新方向\n', baseline: result.videoBrief.revision, purpose: '明确创作方向', status: 'review' };
+  await sendResult(page, { creationTask: { ...task, reason: 'BRIEF_REVIEW_REQUIRED', suggestions: [], briefProposal: proposal } });
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await page.getByRole('button', { name: '审核 Brief 提案' }).click();
+  await expect(page.getByRole('textbox', { name: '统一 diff' })).toHaveValue(/-旧方向[\s\S]*\+新方向/);
+  await page.getByRole('button', { name: '完整结果', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '完整结果' })).toHaveValue('新方向\n');
+  await expect(page.getByRole('textbox', { name: '完整结果' })).toHaveAttribute('readonly', '');
+  await expect(page.getByRole('button', { name: '接受并保存 Brief' })).toBeVisible();
+});
+
+for (const width of [1440, 390]) test(`任务待办与 Brief 审核在 ${width}px 可用，独立 Brief 撤销与中文输入连续`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await loadWorkbench(page); const result = validResult(3); await sendResult(page, result);
+  let task: any = { taskId: 'task-84-visual', status: 'waiting', reason: 'SCENE_CHANGE_REQUIRED', instruction: '让开场简洁、安静，保留纸张与胶片的触感。', pending: '请完成下方必要修改；保存并满足条件后会继续同一任务。', stage: 'read', suggestions: [{ sceneId: result.scenes[1]!.id, observation: '开场旁白偏长，会分散对画面的注意。', action: '缩短 Narration', content: '欢迎来到日常。', reason: '给开场画面留下阅读空间。', required: true, satisfied: false, condition: { field: 'narration', description: '旁白非空且不超过十字；可以使用其他措辞。' } }] };
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'save_project_video_brief') return { structuredContent: { videoBrief: { content: args.content, revision: result.videoBrief.revision }, status: 'brief-saved' } };
+    if (name === 'respond_creation_task' && args.action === 'ack-brief') task = { ...task, status: 'running', reason: null };
+    return { structuredContent: { creationTask: task } };
+  });
+  await sendResult(page, { creationTask: task });
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  const draft = page.getByRole('textbox', { name: 'Composer' }); await draft.fill('保留输入中的中文草稿'); const node = await draft.elementHandle();
+  await draft.evaluate((el: HTMLTextAreaElement) => { el.focus(); el.setSelectionRange(2, 5); });
+  await draft.dispatchEvent('compositionstart');
+  task = { ...task, pending: '还有 1 项必要修改未满足。' }; await sendResult(page, { creationTask: task });
+  expect(await node!.evaluate(el => el.isConnected)).toBe(true);
+  expect(await draft.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd])).toEqual([2,5]);
+  await draft.dispatchEvent('compositionend');
+  await page.screenshot({ path: `.impeccable/review/issue84-todos-${width}.png`, fullPage: true });
+  task = { ...task, reason: 'BRIEF_REVIEW_REQUIRED', briefProposal: { id: 'brief-84', base: result.videoBrief.content, content: '# 产品演示\n\n开场安静、简洁，保留纸张与胶片的触感。\n', purpose: '把本次创作方向整理为共享 Brief', status: 'review' } };
+  await sendResult(page, { creationTask: task });
+  await page.getByRole('button', { name: '审核 Brief 提案' }).click();
+  await expect(page.getByRole('textbox', { name: '统一 diff' })).toBeVisible();
+  await page.screenshot({ path: `.impeccable/review/issue84-brief-${width}.png`, fullPage: true });
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  task = { ...task, reason: 'BRIEF_SAVED', briefProposal: { ...task.briefProposal, status: 'saved' }, briefChange: { id: 'brief-84', base: result.videoBrief.content, content: task.briefProposal.content, revision: `sha256:${'2'.repeat(64)}` } };
+  await sendResult(page, { creationTask: task });
+  if (await page.locator('[data-open-inspection]').isVisible()) await page.locator('[data-open-inspection]').click();
+  await page.locator('[data-open-brief]').click();
+  await page.getByRole('button', { name: 'Video Brief Undo' }).click();
+  await expect(page.getByRole('textbox', { name: 'Video Brief 原始 Markdown' })).toHaveValue(result.videoBrief.content);
+  await expect(draft).toHaveValue('保留输入中的中文草稿');
+});
+
+test('Composer 同任务混合消息确认精确片段、展示 Brief 分歧，同 Scene 建议复制各自值', async ({ page }) => {
+  await loadWorkbench(page); const result = validResult(2); await sendResult(page, result);
+  const fragment = '把开场改成明亮色彩。';
+  let task: any = { taskId: 'task-message', status: 'waiting', reason: 'USER_DECISION_REQUIRED', instruction: '原始目标', stage: 'read', pending: '等待要求' };
+  const calls: any[] = [];
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'respond_creation_task') {
+      calls.push(args);
+      if (args.action === 'message') task = { ...task, reason: 'INSTRUCTION_CONFIRMATION_REQUIRED', pendingMessage: { id: 'message-84', original: args.instruction, fragments: [fragment], reply: '仅保存创作要求，状态问题不追加。' }, divergence: 'Brief 希望保留胶片触感；本次要求明亮色彩，成片表现采用本次要求。' };
+      if (args.action === 'confirm-message') task = { ...task, instruction: task.instruction + '\n\n' + fragment, pendingMessage: null, status: 'running', reason: null };
+    }
+    return { structuredContent: { creationTask: task } };
+  });
+  await sendResult(page, { creationTask: task });
+  const draft = page.getByRole('textbox', { name: 'Composer' }); await draft.fill('现在进展怎样？' + fragment);
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '确认保存的创作意图' })).toBeVisible();
+  await expect(page.locator('blockquote')).toHaveText(fragment);
+  await expect(page.getByRole('heading', { name: '与 Video Brief 的分歧' })).toBeVisible();
+  await expect(page.locator('.brief-divergence')).toContainText('保留纸张与胶片的触感');
+  await page.getByRole('button', { name: '确认追加' }).click();
+  await expect(page.locator('.creation-instruction').first()).toHaveText('原始目标\n\n' + fragment);
+  expect(calls[0].instruction).toBe('现在进展怎样？' + fragment);
+  await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as any).copiedSuggestion = text; } } }); });
+  task = { ...task, status: 'waiting', suggestions: ['第一条完整建议值', '第二条完整建议值'].map(content => ({ sceneId: result.scenes[0]!.id, observation: '观察', action: '编辑', reason: '理由', content, required: true, condition: { description: '完成修改' } })) };
+  await sendResult(page, { creationTask: task });
+  await page.getByRole('button', { name: '复制建议值', exact: true }).nth(1).click();
+  expect(await page.evaluate(() => (window as any).copiedSuggestion)).toBe('第二条完整建议值');
+});
