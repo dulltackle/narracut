@@ -8,8 +8,9 @@ fixtures/
 !tests/fixtures/short-video.mp4.b64
 .playwright-cli/
 output/playwright/
-.claude/settings.local.json
-.claude/.cc-writes/
+.claude/
+.codex/
+.agents/
 .od-skills/
 design/
 project.json
