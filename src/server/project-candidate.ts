@@ -1,3 +1,4 @@
+import type { RecoveryCommit } from './project-recovery';
 import { createRevisionStore, readCurrentPointer, taskCheckpointFingerprint, cleanupEndedTask } from './project-revisions';
 import { buildProgramBundle, type ProgramBuildRequest } from './program-bundle';
 import { coordinateDependencies, verifyPackageBytes, type DependencyUpdate, type OfflinePackages } from './project-dependencies';
@@ -133,7 +134,7 @@ export async function syncDirectory(path: string) {
 }
 
 /** 所有调用由项目租约内的共享保存队列串行化；单一 rename 是批次提交点。 */
-export async function createCandidateManager(project: string, assertWritable: () => Promise<void>) {
+export async function createCandidateManager(project: string, assertWritable: () => Promise<void>, observeCommit?: RecoveryCommit) {
   const internal = join(project, '.narracut');
   const internalIdentity = await directory(internal);
   const pointer = join(internal, 'candidate.json');
@@ -146,7 +147,7 @@ export async function createCandidateManager(project: string, assertWritable: ()
     if (!/^[0-9a-f-]{36}$/i.test(value.revisionId)) throw new Error('当前修订身份无效');
     return value.revisionId as string;
   }
-  const revisions = createRevisionStore(project, assertCurrent);
+  const revisions = createRevisionStore(project, assertCurrent, observeCommit);
   async function pointerBytes() {
     try { return await regular(pointer, 4 * 1024 * 1024); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
@@ -211,7 +212,7 @@ export async function createCandidateManager(project: string, assertWritable: ()
         try { await writeBytes(temporary, tombstone); await assertCurrent();
           if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '候选指针已变化，未放弃。');
           if ((await inspect()).view.baseline !== before.view.baseline) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '候选字节已变化，请重新核对后明确放弃。');
-          await validate?.(); await rename(temporary, pointer); }
+          await validate?.(); observeCommit?.(pointer, tombstone, false); await rename(temporary, pointer); observeCommit?.(pointer, tombstone, true); }
         finally { await rm(temporary, { force: true }).catch(() => undefined); }
         await syncDirectory(internal).catch(() => undefined);
         await cleanupEndedTask(project).catch(() => undefined);
@@ -302,7 +303,9 @@ export async function createCandidateManager(project: string, assertWritable: ()
         await currentRevision() !== sourceRevision ||
         (request.action === 'create' && identity(await readTree(currentRoot)) !== treeId)) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '提交前发生外部变化；本批未保存，上一份候选已保留。');
       await validate?.();
+      observeCommit?.(pointer, bytes, false);
       await rename(join(root, 'state.json'), pointer);
+      observeCommit?.(pointer, bytes, true);
       committed = true;
       await syncDirectory(internal).catch(() => undefined);
       if (before.state?.candidate || before.state?.offline) await rm(dirname(join(project, before.state.candidate?.path ?? before.state.offline!)), { recursive: true, force: true }).catch(() => undefined);

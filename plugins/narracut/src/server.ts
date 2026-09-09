@@ -1,3 +1,4 @@
+import { RecoveryExportUncertain, RecoveryExports, type RecoveryCut, type RecoveryDraft } from '../../../src/server/project-recovery';
 import { changeProjectIdentity } from '../../../src/server/project-identity';
 import { copyProjectVNext } from '../../../src/server/project-copy';
 import { CreationTask } from './creation-task';
@@ -109,6 +110,7 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  { name: 'project_recovery', title: '项目恢复快照', description: '核对项目身份、封存未保存编辑并在项目外导出恢复快照。', inputSchema: { type: 'object', required: ['action', 'projectDirectory', 'projectId'], additionalProperties: false, properties: { action: { enum: ['check', 'seal', 'export', 'status', 'leave'] }, projectDirectory: { type: 'string' }, projectId: { type: 'string' }, draft: { type: 'object', additionalProperties: false, properties: { dsl: { type: 'string' }, briefLocal: { type: 'string' }, briefBase: { type: 'string' } } }, target: { type: 'string' }, operationId: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'copy_project', title: '复制项目', description: '安全停止并关闭来源，完整复制后打开独立副本；可查询阶段和在发布前取消。', inputSchema: { type: 'object', required: ['action'], additionalProperties: false, properties: { action: { enum: ['start', 'status', 'cancel'] }, projectDirectory: { type: 'string' }, projectId: { type: 'string' }, targetDirectory: { type: 'string' }, operationId: { type: 'string' }, confirmTemporaryCleanup: { type: 'boolean' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'respond_creation_task', description: '用户处理同一任务的消息、Scene 待办与 Brief 审核。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'action'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['message','confirm-message','discuss-message','edit-message','accept-brief','ack-brief','reject-brief','regenerate-brief','continue','stop','takeover','approve-tool','reject-tool'] }, id: { type: 'string' }, baseline: { type: 'string' }, parentOrigin: { type: 'string' }, instruction: { type: 'string', maxLength: 4000 } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'start_creation_task', description: '从 Composer 原文发起专用创作任务；只修改候选，不自动接受。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'instruction'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, instruction: { type: 'string', minLength: 1, maxLength: 4000 }, parentOrigin: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
@@ -706,6 +708,42 @@ function credentialState(value: string | undefined): TtsCredentialState {
 }
 
 class ProjectWorkspaceSession {
+  #recoveryCut: RecoveryCut | null = null;
+  #recoveryExports = new RecoveryExports();
+  async checkIdentity() {
+    if (!this.#opened || this.#transferred || this.#handoffPending) return;
+    try { await this.#opened.assertWritable(); }
+    catch (error) {
+      void this.creation?.close().catch(() => undefined); void this.render.close().catch(() => undefined);
+      for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
+      throw error;
+    }
+  }
+  async recoveryOperation(input: any) {
+    // 恢复只读取旧会话的内存；正常转移撤销旧租约后也必须能抢救和离开。
+    const opened = this.#opened;
+    if (!opened || opened.inspection.projectDirectory !== input.projectDirectory || opened.inspection.manifest.projectId !== input.projectId) throw new Error('恢复请求与原项目身份不匹配。');
+    if (input.action === 'check') {
+      try { await this.checkIdentity(); return { status: 'valid' }; }
+      catch (error) { return { status: 'identity-lost', error: { code: 'PROJECT_IDENTITY_LOST', message: (error as Error).message } }; }
+    }
+    if (input.action === 'seal') {
+      // 未发生身份失效时不能借恢复接口撤销一个健康项目的写权。
+      try { await opened.assertWritable(); } catch { /* 失效或已转移的旧租约仍允许封存与项目外导出。 */ }
+      if (!opened.identityLost) throw new Error('当前项目身份有效。');
+      const draft = input.draft as RecoveryDraft;
+      if (!draft || Object.entries(draft).some(([key, value]) => !['dsl', 'briefLocal', 'briefBase'].includes(key) || typeof value !== 'string')) throw new Error('恢复编辑内容无效。');
+      this.#recoveryCut = await opened.freezeRecovery(draft);
+      return { status: 'sealed', cut: this.#recoveryCut };
+    }
+    if (!opened.identityLost) throw new Error('当前项目没有身份阻断。');
+    if (input.action === 'leave') { await this.creation?.close(); await opened.release(); this.#opened = null; return { status: 'launcher', connection: launcherConnectionState() }; }
+    if (!this.#recoveryCut) throw new Error('没有已封存的未保存 Scene 或 Brief 改动。');
+    if (input.action === 'export') return { status: 'exported', ...await this.#recoveryExports.run(this.#recoveryCut, input.target, input.operationId, opened.recoveryRootIdentity) };
+    if (input.action === 'status') return { status: 'exported', ...await this.#recoveryExports.status(input.operationId) };
+    throw new Error('未知恢复操作。');
+  }
+
   static identityQueue: Promise<unknown> = Promise.resolve();
   #choosingIdentity = false;
   static readonly sessions = new Set<ProjectWorkspaceSession>();
@@ -1346,6 +1384,15 @@ async function callTool(
     throw new Error("tools/call 缺少参数。");
   }
   const { name, arguments: argumentsValue } = params as { name?: unknown; arguments?: unknown };
+  if (name === 'project_recovery') {
+    try { return { structuredContent: await workspace.recoveryOperation(argumentsValue), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { status: error instanceof RecoveryExportUncertain ? 'recovery-uncertain' : 'recovery-failed', error: { message: (error as Error).message } }, content: [] }; }
+  }
+  if (!['health_check', 'show_launcher', 'open_project', 'create_project', 'cancel_scene_speech_job'].includes(String(name))) {
+    try { await workspace.checkIdentity(); }
+    catch (error) { return { isError: true, structuredContent: { status: 'identity-lost', error: { code: 'PROJECT_IDENTITY_LOST', message: (error as Error).message } }, content: [] }; }
+  }
+
   if (name === 'copy_project') {
     try { return { structuredContent: await workspace.copyOperation(argumentsValue), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? 'PROJECT_COPY_FAILED', message: (error as Error).message } }, content: [] }; }

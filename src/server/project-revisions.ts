@@ -1,3 +1,4 @@
+import type { RecoveryCommit } from './project-recovery';
 import { randomUUID, createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { rename, rm, mkdir, lstat } from 'node:fs/promises';
@@ -35,7 +36,7 @@ export async function verifyRevision(project: string, id: string) {
   return { metadata, tree, ref: { revisionId: id, metadata: hash(bytes), program, requestId: metadata.requestId } };
 }
 /** current.json 同时选定修订、有限历史及已消费候选；清理不参与提交结果。 */
-export function createRevisionStore(project: string, assertWritable: () => Promise<void>) {
+export function createRevisionStore(project: string, assertWritable: () => Promise<void>, observeCommit?: RecoveryCommit) {
   const internal = join(project, '.narracut');
   async function history() {
     await assertWritable(); const pointer = await readCurrentPointer(project);
@@ -62,10 +63,14 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
           const state = JSON.parse(bytes.toString());
           const temp = join(internal, `consumed-${randomUUID()}.json`);
           try {
-            await writeBytes(temp, Buffer.from(JSON.stringify({ ...state, candidate: null, checkpoint: null })));
+            const next = Buffer.from(JSON.stringify({ ...state, candidate: null, checkpoint: null }));
+            await writeBytes(temp, next);
             await assertWritable();
             if (!bytes.equals(await regular(path, 4194304))) throw new Error('清理期间候选指针变化');
-            await rename(temp, path); await syncDirectory(internal);
+            observeCommit?.(path, next, false);
+            await rename(temp, path);
+            observeCommit?.(path, next, true);
+            await syncDirectory(internal);
           } finally { await rm(temp, { force: true }); }
         }
         let exists = true;
@@ -102,7 +107,9 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
       if (!beforeBytes.equals(await regular(join(internal, 'current.json'), 16384))) throw new Error('当前指针在提交前发生变化');
       await verifyRevision(project, before.revisionId);
       if (!(await regular(join(root, 'revision.json'), 1048576)).equals(bytes) || identity(await readTree(join(root, 'render-program'))) !== revision.programFingerprint) throw new Error('待提交修订在复核期间被改写');
+      observeCommit?.(join(internal, 'current.json'), Buffer.from(JSON.stringify(next)), false);
       await rename(temporary, join(internal, 'current.json')); committed = true;
+      observeCommit?.(join(internal, 'current.json'), Buffer.from(JSON.stringify(next)), true);
       const sync = await syncDirectory(internal).then(() => ({}), () => ({ cleanupPending: true, cleanupError: '当前指针已提交，目录同步待重试' }));
       return { status: 'accepted' as const, revision, ...await cleanup(), ...sync };
     } catch (error) {

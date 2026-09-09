@@ -1,3 +1,4 @@
+import { recoveryHash, recoveryBindings, recoveryBaseline, sealRecovery, type RecoveryCommit, type RecoveryDraft, type RecoveryCut } from './project-recovery';
 import { finishIdentityTransition } from './project-identity';
 import { listenForProjectHandoff, requestProjectHandoff } from './project-lease-handoff';
 import { readCurrentPointer, verifyRevision } from './project-revisions';
@@ -679,6 +680,10 @@ export async function publishProjectVNext(
 }
 
 export type OpenedProjectVNext = {
+  assertWritable: () => Promise<void>;
+  readonly identityLost: Error | null;
+  readonly recoveryRootIdentity: { dev: number; ino: number };
+  freezeRecovery: (draft: RecoveryDraft) => Promise<RecoveryCut | null>;
   transferred?: boolean;
   programTransaction: <T>(run: (manager: Awaited<ReturnType<typeof createCandidateManager>>) => Promise<T>) => Promise<T>;
   candidate: (request: CandidateRequest) => Promise<CandidateStatus>;
@@ -1097,10 +1102,11 @@ async function copyStableFile(
   }
 }
 
-async function replaceProjectFile(
+async function atomicProjectFile(
   projectFile: string,
   bytes: Buffer,
   assertWritable: () => Promise<void>,
+  observeCommit?: RecoveryCommit,
 ): Promise<void> {
   const temporaryFile = join(dirname(projectFile), `.${basename(projectFile)}.${randomUUID()}.tmp`);
   let committed = false;
@@ -1113,7 +1119,9 @@ async function replaceProjectFile(
       await handle.close();
     }
     await assertWritable();
+    observeCommit?.(projectFile, bytes, false);
     await rename(temporaryFile, projectFile);
+    observeCommit?.(projectFile, bytes, true);
     committed = true;
     try {
       const directory = await openFile(dirname(projectFile), "r");
@@ -1190,7 +1198,10 @@ export async function openProjectVNext(
       let saveQueue = Promise.resolve();
       let closing = false;
       let releasePromise: Promise<void> | null = null;
-      const assertWritable = async () => {
+      let identityLost: Error | null = null;
+      let frozenCut: Promise<RecoveryCut | null> | null = null;
+      let recoveryBase = await recoveryBaseline(projectDirectory, initialInspection.manifest.projectId);
+      const verifyWritable = async () => {
         await lease.assertCurrent();
         let facts;
         try {
@@ -1216,8 +1227,8 @@ export async function openProjectVNext(
           if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
             throw new Error("项目清单文件身份无效");
           }
-          const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { projectId?: unknown };
-          if (manifest.projectId !== initialInspection.manifest.projectId) {
+          const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { projectId?: unknown; kind?: unknown; formatVersion?: unknown };
+          if (manifest.projectId !== initialInspection.manifest.projectId || manifest.kind !== "narracut-project" || manifest.formatVersion !== 1) {
             throw new Error("项目清单中的 projectId 已变化");
           }
         } catch (cause) {
@@ -1229,11 +1240,34 @@ export async function openProjectVNext(
           );
         }
       };
-      const candidateManager = await createCandidateManager(projectDirectory, assertWritable);
+      const assertWritable = async () => {
+        if (identityLost) throw identityLost;
+        try { await verifyWritable(); }
+        catch (error) { identityLost = error as Error; throw error; }
+      };
+      const observe = async (result?: unknown) => {
+        if ((result as { code?: string })?.code === 'PROJECT_IDENTITY_LOST') identityLost ??= result as Error;
+        if (identityLost) return;
+        try { await assertWritable(); recoveryBase = await recoveryBaseline(projectDirectory, initialInspection.manifest.projectId, recoveryBase); }
+        catch { /* 只保留最后安全基线，绝不采纳替换项目的字节。 */ }
+      };
+      const briefCommits = new Map<string, string>();
+      const observeCommit: RecoveryCommit = (path, bytes, committed) => {
+        const component = path === join(projectDirectory, 'project.json') ? 'dsl' : path === join(projectDirectory, 'video.md') ? 'brief' : path.endsWith('/current.json') ? 'current' : path.endsWith('/candidate.json') ? 'candidate' : null;
+        if (!component) return;
+        const next = { path: relative(projectDirectory, path), fingerprint: recoveryHash(bytes), ...(['current', 'candidate'].includes(component) ? { bindings: recoveryBindings(path, bytes) } : {}) };
+        if (component === 'brief' && committed && recoveryBase.brief[0].fingerprint) {
+          briefCommits.set(recoveryBase.brief[0].fingerprint, next.fingerprint);
+          if (briefCommits.size > 2048) briefCommits.delete(briefCommits.keys().next().value!);
+        }
+        recoveryBase[component] = committed ? [next] : [...recoveryBase[component].slice(0, 1), next];
+      };
+      const replaceProjectFile = (path: string, bytes: Buffer, verify: () => Promise<void>) => atomicProjectFile(path, bytes, verify, observeCommit);
+      const candidateManager = await createCandidateManager(projectDirectory, assertWritable, observeCommit);
       const candidate: OpenedProjectVNext["candidate"] = (request) => {
         if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "项目正在关闭。"));
         const operation = saveQueue.then(() => candidateManager(request));
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       await candidate({ action: "read" });
@@ -1351,7 +1385,7 @@ export async function openProjectVNext(
             );
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const saveVideoBrief: OpenedProjectVNext["saveVideoBrief"] = (content, baselineRevision, authorize) => {
@@ -1428,7 +1462,7 @@ export async function openProjectVNext(
             );
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const exportVideoBriefLocal: OpenedProjectVNext["exportVideoBriefLocal"] = async (
@@ -1685,7 +1719,7 @@ export async function openProjectVNext(
             await source.close().catch(() => undefined);
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const saveTtsSettings: OpenedProjectVNext["saveTtsSettings"] = (input) => {
@@ -1804,7 +1838,7 @@ export async function openProjectVNext(
             );
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const probeSpeechAudio: OpenedProjectVNext["probeSpeechAudio"] = async (input) => {
@@ -2004,7 +2038,7 @@ export async function openProjectVNext(
             );
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const release = async () => {
@@ -2022,6 +2056,25 @@ export async function openProjectVNext(
         await releasePromise;
       };
       return {
+        assertWritable,
+        get identityLost() { return identityLost; },
+        recoveryRootIdentity: { ...directoryIdentity },
+        freezeRecovery: (draft) => {
+          if (frozenCut) return frozenCut.then(cut => structuredClone(cut));
+          const captured = structuredClone(draft);
+          identityLost ??= new ProjectLifecycleError('PROJECT_IDENTITY_LOST', projectDirectory, '项目身份已失效，编辑已停止。');
+          frozenCut = saveQueue.then(() => {
+            // 已确认的本会话保存链不是外部冲突，不把过时 BASE 作为冲突证据导出。
+            if (captured.briefBase !== undefined && recoveryBase.brief.length === 1) {
+              let base = recoveryHash(captured.briefBase);
+              const seen = new Set<string>();
+              while (briefCommits.has(base) && !seen.has(base)) { seen.add(base); base = briefCommits.get(base)!; }
+              if (base === recoveryBase.brief[0].fingerprint) delete captured.briefBase;
+            }
+            return sealRecovery(projectDirectory, initialInspection.manifest.projectId, recoveryBase, captured);
+          });
+          return frozenCut.then(cut => structuredClone(cut));
+        },
         transferred: lease.transferred,
         candidate,
         programTransaction: (run) => {
@@ -2036,7 +2089,7 @@ export async function openProjectVNext(
             }
             return result;
           });
-          saveQueue = operation.then(() => undefined, () => undefined);
+          saveQueue = operation.then(observe, observe);
           return operation;
         },
         readPreviewSource: async (target) => { await saveQueue; return candidateManager.previewSource(target); },

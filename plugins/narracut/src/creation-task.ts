@@ -169,6 +169,7 @@ export class CreationTask {
         try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
         if (identity !== await directory(parent)) throw new Error('任务目录已替换');
         await validate?.();
+        await this.opened.assertWritable();
         await rename(temporary, this.#path());
         await syncDirectory(parent).catch(() => undefined);
       } finally { await rm(temporary, { force: true }).catch(() => undefined); }

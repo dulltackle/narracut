@@ -4000,10 +4000,10 @@ var require_resolve_block_map = __commonJS({
       let offset = bm.offset;
       let commentEnd = null;
       for (const collItem of bm.items) {
-        const { start, key, sep: sep4, value } = collItem;
+        const { start, key, sep: sep5, value } = collItem;
         const keyProps = resolveProps.resolveProps(start, {
           indicator: "explicit-key-ind",
-          next: key ?? sep4?.[0],
+          next: key ?? sep5?.[0],
           offset,
           onError,
           parentIndent: bm.indent,
@@ -4017,7 +4017,7 @@ var require_resolve_block_map = __commonJS({
             else if ("indent" in key && key.indent !== bm.indent)
               onError(offset, "BAD_INDENT", startColMsg);
           }
-          if (!keyProps.anchor && !keyProps.tag && !sep4) {
+          if (!keyProps.anchor && !keyProps.tag && !sep5) {
             commentEnd = keyProps.end;
             if (keyProps.comment) {
               if (map2.comment)
@@ -4041,7 +4041,7 @@ var require_resolve_block_map = __commonJS({
         ctx.atKey = false;
         if (utilMapIncludes.mapIncludes(ctx, map2.items, keyNode))
           onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-        const valueProps = resolveProps.resolveProps(sep4 ?? [], {
+        const valueProps = resolveProps.resolveProps(sep5 ?? [], {
           indicator: "map-value-ind",
           next: value,
           offset: keyNode.range[2],
@@ -4057,7 +4057,7 @@ var require_resolve_block_map = __commonJS({
             if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
               onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep4, null, valueProps, onError);
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep5, null, valueProps, onError);
           if (ctx.schema.compat)
             utilFlowIndentCheck.flowIndentCheck(bm.indent, value, onError);
           offset = valueNode.range[2];
@@ -4148,7 +4148,7 @@ var require_resolve_end = __commonJS({
       let comment = "";
       if (end) {
         let hasSpace = false;
-        let sep4 = "";
+        let sep5 = "";
         for (const token of end) {
           const { source, type } = token;
           switch (type) {
@@ -4162,13 +4162,13 @@ var require_resolve_end = __commonJS({
               if (!comment)
                 comment = cb;
               else
-                comment += sep4 + cb;
-              sep4 = "";
+                comment += sep5 + cb;
+              sep5 = "";
               break;
             }
             case "newline":
               if (comment)
-                sep4 += source;
+                sep5 += source;
               hasSpace = true;
               break;
             default:
@@ -4211,18 +4211,18 @@ var require_resolve_flow_collection = __commonJS({
       let offset = fc.offset + fc.start.source.length;
       for (let i = 0; i < fc.items.length; ++i) {
         const collItem = fc.items[i];
-        const { start, key, sep: sep4, value } = collItem;
+        const { start, key, sep: sep5, value } = collItem;
         const props = resolveProps.resolveProps(start, {
           flow: fcName,
           indicator: "explicit-key-ind",
-          next: key ?? sep4?.[0],
+          next: key ?? sep5?.[0],
           offset,
           onError,
           parentIndent: fc.indent,
           startOnNewline: false
         });
         if (!props.found) {
-          if (!props.anchor && !props.tag && !sep4 && !value) {
+          if (!props.anchor && !props.tag && !sep5 && !value) {
             if (i === 0 && props.comma)
               onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
             else if (i < fc.items.length - 1)
@@ -4276,8 +4276,8 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap && !sep4 && !props.found) {
-          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep4, null, props, onError);
+        if (!isMap && !sep5 && !props.found) {
+          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep5, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
           if (isBlock(value))
@@ -4289,7 +4289,7 @@ var require_resolve_flow_collection = __commonJS({
           if (isBlock(key))
             onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
           ctx.atKey = false;
-          const valueProps = resolveProps.resolveProps(sep4 ?? [], {
+          const valueProps = resolveProps.resolveProps(sep5 ?? [], {
             flow: fcName,
             indicator: "map-value-ind",
             next: value,
@@ -4300,8 +4300,8 @@ var require_resolve_flow_collection = __commonJS({
           });
           if (valueProps.found) {
             if (!isMap && !props.found && ctx.options.strict) {
-              if (sep4)
-                for (const st of sep4) {
+              if (sep5)
+                for (const st of sep5) {
                   if (st === valueProps.found)
                     break;
                   if (st.type === "newline") {
@@ -4318,7 +4318,7 @@ var require_resolve_flow_collection = __commonJS({
             else
               onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep4, null, valueProps, onError) : null;
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep5, null, valueProps, onError) : null;
           if (valueNode) {
             if (isBlock(value))
               onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -4498,7 +4498,7 @@ var require_resolve_block_scalar = __commonJS({
           chompStart = i + 1;
       }
       let value = "";
-      let sep4 = "";
+      let sep5 = "";
       let prevMoreIndented = false;
       for (let i = 0; i < contentStart; ++i)
         value += lines[i][0].slice(trimIndent) + "\n";
@@ -4515,24 +4515,24 @@ var require_resolve_block_scalar = __commonJS({
           indent = "";
         }
         if (type === Scalar.Scalar.BLOCK_LITERAL) {
-          value += sep4 + indent.slice(trimIndent) + content;
-          sep4 = "\n";
+          value += sep5 + indent.slice(trimIndent) + content;
+          sep5 = "\n";
         } else if (indent.length > trimIndent || content[0] === "	") {
-          if (sep4 === " ")
-            sep4 = "\n";
-          else if (!prevMoreIndented && sep4 === "\n")
-            sep4 = "\n\n";
-          value += sep4 + indent.slice(trimIndent) + content;
-          sep4 = "\n";
+          if (sep5 === " ")
+            sep5 = "\n";
+          else if (!prevMoreIndented && sep5 === "\n")
+            sep5 = "\n\n";
+          value += sep5 + indent.slice(trimIndent) + content;
+          sep5 = "\n";
           prevMoreIndented = true;
         } else if (content === "") {
-          if (sep4 === "\n")
+          if (sep5 === "\n")
             value += "\n";
           else
-            sep4 = "\n";
+            sep5 = "\n";
         } else {
-          value += sep4 + content;
-          sep4 = " ";
+          value += sep5 + content;
+          sep5 = " ";
           prevMoreIndented = false;
         }
       }
@@ -4714,25 +4714,25 @@ var require_resolve_flow_scalar = __commonJS({
       if (!match)
         return source;
       let res = match[1];
-      let sep4 = " ";
+      let sep5 = " ";
       let pos = first.lastIndex;
       line.lastIndex = pos;
       while (match = line.exec(source)) {
         if (match[1] === "") {
-          if (sep4 === "\n")
-            res += sep4;
+          if (sep5 === "\n")
+            res += sep5;
           else
-            sep4 = "\n";
+            sep5 = "\n";
         } else {
-          res += sep4 + match[1];
-          sep4 = " ";
+          res += sep5 + match[1];
+          sep5 = " ";
         }
         pos = line.lastIndex;
       }
       const last = /[ \t]*(.*)/sy;
       last.lastIndex = pos;
       match = last.exec(source);
-      return res + sep4 + (match?.[1] ?? "");
+      return res + sep5 + (match?.[1] ?? "");
     }
     function doubleQuotedValue(source, onError) {
       let res = "";
@@ -5542,14 +5542,14 @@ var require_cst_stringify = __commonJS({
         }
       }
     }
-    function stringifyItem({ start, key, sep: sep4, value }) {
+    function stringifyItem({ start, key, sep: sep5, value }) {
       let res = "";
       for (const st of start)
         res += st.source;
       if (key)
         res += stringifyToken(key);
-      if (sep4)
-        for (const st of sep4)
+      if (sep5)
+        for (const st of sep5)
           res += st.source;
       if (value)
         res += stringifyToken(value);
@@ -6716,18 +6716,18 @@ var require_parser = __commonJS({
         if (this.type === "map-value-ind") {
           const prev = getPrevProps(this.peek(2));
           const start = getFirstKeyStartProps(prev);
-          let sep4;
+          let sep5;
           if (scalar.end) {
-            sep4 = scalar.end;
-            sep4.push(this.sourceToken);
+            sep5 = scalar.end;
+            sep5.push(this.sourceToken);
             delete scalar.end;
           } else
-            sep4 = [this.sourceToken];
+            sep5 = [this.sourceToken];
           const map2 = {
             type: "block-map",
             offset: scalar.offset,
             indent: scalar.indent,
-            items: [{ start, key: scalar, sep: sep4 }]
+            items: [{ start, key: scalar, sep: sep5 }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map2;
@@ -6880,15 +6880,15 @@ var require_parser = __commonJS({
                 } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                   const start2 = getFirstKeyStartProps(it.start);
                   const key = it.key;
-                  const sep4 = it.sep;
-                  sep4.push(this.sourceToken);
+                  const sep5 = it.sep;
+                  sep5.push(this.sourceToken);
                   delete it.key;
                   delete it.sep;
                   this.stack.push({
                     type: "block-map",
                     offset: this.offset,
                     indent: this.indent,
-                    items: [{ start: start2, key, sep: sep4 }]
+                    items: [{ start: start2, key, sep: sep5 }]
                   });
                 } else if (start.length > 0) {
                   it.sep = it.sep.concat(start, this.sourceToken);
@@ -7082,13 +7082,13 @@ var require_parser = __commonJS({
             const prev = getPrevProps(parent);
             const start = getFirstKeyStartProps(prev);
             fixFlowSeqItems(fc);
-            const sep4 = fc.end.splice(1, fc.end.length);
-            sep4.push(this.sourceToken);
+            const sep5 = fc.end.splice(1, fc.end.length);
+            sep5.push(this.sourceToken);
             const map2 = {
               type: "block-map",
               offset: fc.offset,
               indent: fc.indent,
-              items: [{ start, key: fc, sep: sep4 }]
+              items: [{ start, key: fc, sep: sep5 }]
             };
             this.onKeyLine = true;
             this.stack[this.stack.length - 1] = map2;
@@ -9360,10 +9360,10 @@ var require_semver2 = __commonJS({
   }
 });
 
-// src/server/project-revisions.ts
-import { randomUUID as randomUUID3, createHash as createHash6 } from "node:crypto";
-import { join as join5 } from "node:path";
-import { rename as rename2, rm as rm4, mkdir as mkdir4, lstat as lstat2 } from "node:fs/promises";
+// src/server/project-recovery.ts
+import { createHash as createHash7, randomUUID as randomUUID4 } from "node:crypto";
+import { link, lstat as lstat3, open as open2, realpath as realpath2, rm as rm5 } from "node:fs/promises";
+import { basename, dirname as dirname5, isAbsolute, join as join6, relative, sep } from "node:path";
 
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 var external_exports = {};
@@ -23879,6 +23879,189 @@ function date4(params) {
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 config(en_default());
 
+// src/server/project-revisions.ts
+import { randomUUID, createHash } from "node:crypto";
+import { join } from "node:path";
+import { rename, rm, mkdir, lstat } from "node:fs/promises";
+var uuid3 = external_exports.string().uuid();
+var digest = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
+var refSchema = external_exports.object({ revisionId: uuid3, metadata: digest, program: digest, requestId: uuid3.optional() }).strict();
+var pointerSchema = external_exports.object({
+  revisionId: uuid3,
+  history: external_exports.array(refSchema).min(1).max(20).optional(),
+  consumed: external_exports.object({ pointer: digest, generation: external_exports.string().regex(/^\.narracut\/candidate-[0-9a-f-]{36}$/), requestId: uuid3, taskCheckpoint: digest.optional() }).strict().optional(),
+  pruned: external_exports.array(uuid3).max(1).optional()
+}).strict().superRefine((value, ctx) => {
+  if (value.history && (value.history[0].revisionId !== value.revisionId || new Set(value.history.map((item) => item.revisionId)).size !== value.history.length)) ctx.addIssue({ code: "custom", message: "\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5386\u53F2\u4E0D\u4E00\u81F4" });
+});
+var metadataSchema = external_exports.object({
+  revisionId: uuid3,
+  previousRevisionId: uuid3.nullable(),
+  briefFingerprint: digest.optional(),
+  source: external_exports.string(),
+  summary: external_exports.string(),
+  acceptedAt: external_exports.string().datetime().optional(),
+  programFingerprint: digest.optional(),
+  inputFingerprint: digest.optional(),
+  sourceRevision: uuid3.optional(),
+  acceptance: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
+  requestId: uuid3.optional()
+}).strict();
+var hash2 = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+async function readCurrentPointer(project) {
+  await directory(join(project, ".narracut"));
+  return pointerSchema.parse(JSON.parse((await regular(join(project, ".narracut/current.json"), 16384)).toString()));
+}
+async function verifyRevision(project, id) {
+  uuid3.parse(id);
+  const pointer = await readCurrentPointer(project);
+  const ref = pointer.history?.find((item) => item.revisionId === id);
+  if (!ref && id !== pointer.revisionId) throw new CandidateError("REVISION_NOT_RETAINED", "\u4FEE\u8BA2\u5DF2\u79FB\u51FA\u5386\u53F2\u3002");
+  await directory(join(project, ".narracut/revisions"));
+  const root = join(project, ".narracut/revisions", id);
+  await directory(root);
+  const bytes = await regular(join(root, "revision.json"), 1048576);
+  const metadata = metadataSchema.parse(JSON.parse(bytes.toString()));
+  if (metadata.acceptance && !ref) throw new CandidateError("REVISION_INTEGRITY_FAILED", "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7F3A\u5C11\u5B8C\u6574\u5386\u53F2\u7ED1\u5B9A\u3002");
+  const tree = await readTree(join(root, "render-program")), program = identity(tree);
+  if (metadata.revisionId !== id || ref && (ref.metadata !== hash2(bytes) || ref.program !== program) || metadata.programFingerprint && metadata.programFingerprint !== program) throw new CandidateError("REVISION_INTEGRITY_FAILED", "\u4FEE\u8BA2\u5B57\u8282\u6216\u5143\u6570\u636E\u53D1\u751F\u53D8\u5316\uFF1B\u4E0D\u80FD\u4F7F\u7528\u635F\u574F\u4FEE\u8BA2\u3002");
+  return { metadata, tree, ref: { revisionId: id, metadata: hash2(bytes), program, requestId: metadata.requestId } };
+}
+function createRevisionStore(project, assertWritable, observeCommit) {
+  const internal = join(project, ".narracut");
+  async function history() {
+    await assertWritable();
+    const pointer = await readCurrentPointer(project);
+    const refs = pointer.history ?? [(await verifyRevision(project, pointer.revisionId)).ref];
+    const revisions = await Promise.all(refs.map(async (ref) => {
+      try {
+        return { ...(await verifyRevision(project, ref.revisionId)).metadata, current: ref.revisionId === pointer.revisionId, valid: true, error: null };
+      } catch (error51) {
+        return { revisionId: ref.revisionId, current: ref.revisionId === pointer.revisionId, valid: false, error: error51.message, requestId: ref.requestId ?? (ref.revisionId === pointer.revisionId ? pointer.consumed?.requestId : void 0), summary: "\u5DF2\u63A5\u53D7\u4FEE\u8BA2 \xB7 \u5B8C\u6574\u6027\u5931\u8D25" };
+      }
+    }));
+    const pendingPaths = [...pointer.consumed ? ["candidate", "checkpoint"].map((name) => join(project, pointer.consumed.generation, name)) : [], ...(pointer.pruned ?? []).map((id) => join(internal, "revisions", id))];
+    const taskCleanupPending = !!await endedTaskReason(project);
+    const cleanupPending = taskCleanupPending || (await Promise.all(pendingPaths.map((path) => lstat(path).then(() => true, (error51) => error51.code !== "ENOENT")))).some(Boolean);
+    return { current: pointer.revisionId, limit: 20, revisions, cleanupPending, taskCleanupPending };
+  }
+  async function cleanup() {
+    await assertWritable();
+    const pointer = await readCurrentPointer(project);
+    try {
+      await syncDirectory(internal);
+      await cleanupEndedTask(project);
+      if (pointer.consumed) {
+        const path = join(internal, "candidate.json");
+        let bytes;
+        try {
+          bytes = await regular(path, 4194304);
+        } catch (error51) {
+          if (error51.code !== "ENOENT") throw error51;
+        }
+        if (bytes && hash2(bytes) === pointer.consumed.pointer) {
+          const state = JSON.parse(bytes.toString());
+          const temp = join(internal, `consumed-${randomUUID()}.json`);
+          try {
+            const next = Buffer.from(JSON.stringify({ ...state, candidate: null, checkpoint: null }));
+            await writeBytes(temp, next);
+            await assertWritable();
+            if (!bytes.equals(await regular(path, 4194304))) throw new Error("\u6E05\u7406\u671F\u95F4\u5019\u9009\u6307\u9488\u53D8\u5316");
+            observeCommit?.(path, next, false);
+            await rename(temp, path);
+            observeCommit?.(path, next, true);
+            await syncDirectory(internal);
+          } finally {
+            await rm(temp, { force: true });
+          }
+        }
+        let exists = true;
+        try {
+          await directory(join(project, pointer.consumed.generation));
+        } catch (error51) {
+          if (error51.code === "ENOENT") exists = false;
+          else throw error51;
+        }
+        if (exists) for (const name of ["candidate", "checkpoint"]) await rm(join(project, pointer.consumed.generation, name), { recursive: true, force: true });
+      }
+      await directory(join(internal, "revisions"));
+      for (const id of pointer.pruned ?? []) {
+        if (pointer.history?.some((item) => item.revisionId === id)) throw new Error("\u4E0D\u80FD\u5220\u9664\u4FDD\u7559\u4FEE\u8BA2");
+        await rm(join(internal, "revisions", id), { recursive: true, force: true });
+      }
+      return { cleanupPending: false };
+    } catch (error51) {
+      return { cleanupPending: true, cleanupError: error51.message };
+    }
+  }
+  async function accept(request2, tree, raw, state, validate) {
+    if ((await cleanup()).cleanupPending) throw new CandidateError("ACCEPTANCE_CLEANUP_PENDING", "\u8BF7\u5148\u91CD\u8BD5\u4E0A\u6B21\u63A5\u53D7\u7684\u6E05\u7406\u3002");
+    const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project);
+    const previous = await verifyRevision(project, before.revisionId);
+    const id = randomUUID(), requestId = request2.requestId ?? randomUUID();
+    const record3 = request2.acceptance;
+    const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: state.sourceRevision, acceptedAt: (/* @__PURE__ */ new Date()).toISOString(), programFingerprint: identity(tree), briefFingerprint: record3.identity?.brief, inputFingerprint: record3.identity?.input, summary: request2.summary, source: request2.source, acceptance: request2.acceptance, requestId });
+    const root = join(internal, "revisions", id), temporary = join(internal, `accept-${id}.json`);
+    let committed = false;
+    try {
+      await assertWritable();
+      await mkdir(root);
+      await writeTree(join(root, "render-program"), tree);
+      const bytes = Buffer.from(JSON.stringify(revision));
+      if (bytes.length > 1048576) throw new Error("\u7CBE\u7B80\u9A8C\u6536\u8BB0\u5F55\u8D85\u8FC7 1 MiB");
+      await writeBytes(join(root, "revision.json"), bytes);
+      await syncDirectory(root);
+      await syncDirectory(join(internal, "revisions"));
+      if (identity(await readTree(join(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u53D1\u5E03\u4FEE\u8BA2\u6821\u9A8C\u5931\u8D25");
+      const all = [{ revisionId: id, metadata: hash2(bytes), program: revision.programFingerprint, requestId }, ...before.history ?? [previous.ref]];
+      const taskCheckpoint = await taskCheckpointFingerprint(project);
+      const next = pointerSchema.parse({ revisionId: id, history: all.slice(0, 20), pruned: all.slice(20).map((item) => item.revisionId), consumed: { pointer: hash2(raw), generation: state.candidate.path.replace(/\/candidate$/, ""), requestId, taskCheckpoint } });
+      await writeBytes(temporary, Buffer.from(JSON.stringify(next)));
+      await validate();
+      await assertWritable();
+      if (!beforeBytes.equals(await regular(join(internal, "current.json"), 16384))) throw new Error("\u5F53\u524D\u6307\u9488\u5728\u63D0\u4EA4\u524D\u53D1\u751F\u53D8\u5316");
+      await verifyRevision(project, before.revisionId);
+      if (!(await regular(join(root, "revision.json"), 1048576)).equals(bytes) || identity(await readTree(join(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u63D0\u4EA4\u4FEE\u8BA2\u5728\u590D\u6838\u671F\u95F4\u88AB\u6539\u5199");
+      observeCommit?.(join(internal, "current.json"), Buffer.from(JSON.stringify(next)), false);
+      await rename(temporary, join(internal, "current.json"));
+      committed = true;
+      observeCommit?.(join(internal, "current.json"), Buffer.from(JSON.stringify(next)), true);
+      const sync = await syncDirectory(internal).then(() => ({}), () => ({ cleanupPending: true, cleanupError: "\u5F53\u524D\u6307\u9488\u5DF2\u63D0\u4EA4\uFF0C\u76EE\u5F55\u540C\u6B65\u5F85\u91CD\u8BD5" }));
+      return { status: "accepted", revision, ...await cleanup(), ...sync };
+    } catch (error51) {
+      if (committed) return { status: "accepted", revision, cleanupPending: true, cleanupError: error51.message };
+      throw new CandidateError("ACCEPTANCE_NOT_COMMITTED", `\u672A\u63A5\u53D7\uFF0C\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5019\u9009\u5DF2\u4FDD\u7559\u3002${error51.message}`);
+    } finally {
+      await rm(temporary, { force: true }).catch(() => void 0);
+      if (!committed) await rm(root, { recursive: true, force: true }).catch(() => void 0);
+    }
+  }
+  return { history, cleanup, accept, verify: (id) => verifyRevision(project, id) };
+}
+async function taskCheckpointFingerprint(project) {
+  try {
+    return hash2(await regular(join(project, ".narracut/agent-task.json"), 2e7));
+  } catch (error51) {
+    if (error51.code === "ENOENT") return void 0;
+    throw error51;
+  }
+}
+async function endedTaskReason(project) {
+  const fingerprint3 = await taskCheckpointFingerprint(project);
+  if (!fingerprint3) return null;
+  if ((await readCurrentPointer(project)).consumed?.taskCheckpoint === fingerprint3) return "CANDIDATE_ACCEPTED";
+  try {
+    const candidate = JSON.parse((await regular(join(project, ".narracut/candidate.json"), 4194304)).toString());
+    if (candidate.candidate === null && candidate.checkpoint === null && candidate.taskCheckpoint === fingerprint3) return "CANDIDATE_ABANDONED";
+  } catch (error51) {
+    if (error51.code !== "ENOENT") throw error51;
+  }
+  return null;
+}
+async function cleanupEndedTask(project) {
+  if (await endedTaskReason(project)) await rm(join(project, ".narracut/agent-task.json"), { force: true });
+}
+
 // src/server/strict-json.ts
 var StrictJsonFailure = class extends Error {
   constructor(code, message, jsonPath, metric, actual, limit) {
@@ -24099,14 +24282,14 @@ function parseStrictJson(input, limits2) {
 }
 
 // src/server/program-bundle.ts
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 
 // src/server/execution-capsule.ts
 import { execFile as execFile2, spawn } from "node:child_process";
-import { createHash as createHash3, randomUUID } from "node:crypto";
-import { mkdir as mkdir2, mkdtemp as mkdtemp2, rm as rm2, writeFile as writeFile2 } from "node:fs/promises";
+import { createHash as createHash4, randomUUID as randomUUID2 } from "node:crypto";
+import { mkdir as mkdir3, mkdtemp as mkdtemp2, rm as rm3, writeFile as writeFile2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname2, join as join2 } from "node:path";
+import { dirname as dirname2, join as join3 } from "node:path";
 import { promisify as promisify2 } from "node:util";
 import { StringDecoder } from "node:string_decoder";
 
@@ -24193,10 +24376,10 @@ await writeFile('/output/proof.json', JSON.stringify({ denied, isolated: true })
 
 // src/server/capsule-toolchain.ts
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { createHash as createHash2 } from "node:crypto";
+import { chmod, copyFile, mkdir as mkdir2, mkdtemp, readFile, readdir, realpath, rm as rm2, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join as join2, resolve } from "node:path";
 import { arch, release } from "node:os";
 import { rmSync } from "node:fs";
 import { promisify } from "node:util";
@@ -24207,8 +24390,8 @@ async function reclaimOrphanSnapshots() {
   const parent = tmpdir();
   for (const name of await readdir(parent).catch(() => [])) {
     if (!name.startsWith("narracut-toolchain-")) continue;
-    const directory2 = join(parent, name);
-    const owner = Number(await readFile(join(directory2, "owner.pid"), "utf8").catch(() => ""));
+    const directory2 = join2(parent, name);
+    const owner = Number(await readFile(join2(directory2, "owner.pid"), "utf8").catch(() => ""));
     if (!Number.isInteger(owner) || owner <= 0) continue;
     try {
       process.kill(owner, 0);
@@ -24216,25 +24399,25 @@ async function reclaimOrphanSnapshots() {
     } catch (error51) {
       if (error51.code !== "ESRCH") continue;
     }
-    await rm(directory2, { recursive: true, force: true }).catch(() => {
+    await rm2(directory2, { recursive: true, force: true }).catch(() => {
     });
   }
 }
 async function snapshotCapsuleToolchain() {
   await reclaimOrphanSnapshots();
-  const root = await mkdtemp(join(tmpdir(), "narracut-toolchain-"));
+  const root = await mkdtemp(join2(tmpdir(), "narracut-toolchain-"));
   const hashes = /* @__PURE__ */ new Map();
   const groups2 = /* @__PURE__ */ new Map();
   let group = "node";
   async function add(source, destination, executable = false) {
-    const target = join(root, destination);
+    const target = join2(root, destination);
     if (!groups2.has(destination)) groups2.set(destination, /* @__PURE__ */ new Set());
     groups2.get(destination).add(group);
     if (hashes.has(destination)) return;
-    await mkdir(dirname(target), { recursive: true });
+    await mkdir2(dirname(target), { recursive: true });
     await copyFile(await realpath(source), target);
     await chmod(target, executable ? 365 : 292);
-    hashes.set(destination, createHash("sha256").update(await readFile(target)).digest("hex"));
+    hashes.set(destination, createHash2("sha256").update(await readFile(target)).digest("hex"));
   }
   async function libraries(binary) {
     const { stdout } = await exec("/usr/bin/ldd", [binary], { env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
@@ -24243,14 +24426,14 @@ async function snapshotCapsuleToolchain() {
   }
   async function tree(source, destination) {
     for (const item of await readdir(source, { withFileTypes: true })) {
-      const from = join(source, item.name), to = join(destination, item.name);
+      const from = join2(source, item.name), to = join2(destination, item.name);
       if (item.isDirectory()) await tree(from, to);
       else if (item.isFile()) await add(from, to, !/\.(?:pak|dat|json|woff2|txt)$/.test(item.name));
       else throw new Error("\u5DE5\u5177\u94FE\u76EE\u5F55\u5305\u542B\u7279\u6B8A\u6587\u4EF6\u6216\u94FE\u63A5");
     }
   }
   try {
-    await writeFile(join(root, "owner.pid"), String(process.pid), { mode: 292 });
+    await writeFile(join2(root, "owner.pid"), String(process.pid), { mode: 292 });
     await add(process.execPath, "/runtime/node", true);
     await libraries(process.execPath);
     group = "shell";
@@ -24258,48 +24441,48 @@ async function snapshotCapsuleToolchain() {
     await libraries(await realpath("/bin/sh"));
     group = "browser";
     const applicationRoot2 = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-    const browser = join(applicationRoot2, "node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64");
+    const browser = join2(applicationRoot2, "node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64");
     await tree(browser, "/runtime/browser");
-    await libraries(join(browser, "chrome-headless-shell"));
-    for (const name of ["libEGL.so", "libGLESv2.so", "libvk_swiftshader.so", "libvulkan.so.1"]) await libraries(join(browser, name));
-    await tree(join(applicationRoot2, "node_modules/@fontsource-variable/noto-sans-sc/files"), "/runtime/fonts");
+    await libraries(join2(browser, "chrome-headless-shell"));
+    for (const name of ["libEGL.so", "libGLESv2.so", "libvk_swiftshader.so", "libvulkan.so.1"]) await libraries(join2(browser, name));
+    await tree(join2(applicationRoot2, "node_modules/@fontsource-variable/noto-sans-sc/files"), "/runtime/fonts");
     await add("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/runtime/fonts/fallback.ttf");
     group = "encoder";
     const require3 = createToolchainRequire(import.meta.url);
     const rendererRoot = dirname(require3.resolve("@remotion/renderer/package.json"));
-    const { getExecutableDir } = require3(join(rendererRoot, "dist/compositor/get-executable-path.js"));
+    const { getExecutableDir } = require3(join2(rendererRoot, "dist/compositor/get-executable-path.js"));
     const binaries = getExecutableDir(false, "error");
-    for (const name of await readdir(binaries)) if (/\.so(?:\.|$)/.test(name)) await add(join(binaries, name), `/runtime/${name}`, true);
+    for (const name of await readdir(binaries)) if (/\.so(?:\.|$)/.test(name)) await add(join2(binaries, name), `/runtime/${name}`, true);
     for (const name of ["ffmpeg", "ffprobe"]) {
-      await add(join(binaries, name), `/runtime/${name}`, true);
-      await libraries(join(binaries, name));
+      await add(join2(binaries, name), `/runtime/${name}`, true);
+      await libraries(join2(binaries, name));
     }
-    for (const path of ["inputs", "output", "tmp", "proc", "dev/shm", "etc/fonts"]) await mkdir(join(root, path), { recursive: true });
-    await writeFile(join(root, "supervisor.mjs"), "", { mode: 292 });
+    for (const path of ["inputs", "output", "tmp", "proc", "dev/shm", "etc/fonts"]) await mkdir2(join2(root, path), { recursive: true });
+    await writeFile(join2(root, "supervisor.mjs"), "", { mode: 292 });
     const fontConfig = '<!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><dir>/runtime/fonts</dir><cachedir>/tmp/font-cache</cachedir></fontconfig>';
-    await writeFile(join(root, "etc/fonts/fonts.conf"), fontConfig, { mode: 292 });
-    hashes.set("/etc/fonts/fonts.conf", createHash("sha256").update(fontConfig).digest("hex"));
+    await writeFile(join2(root, "etc/fonts/fonts.conf"), fontConfig, { mode: 292 });
+    hashes.set("/etc/fonts/fonts.conf", createHash2("sha256").update(fontConfig).digest("hex"));
     groups2.set("/etc/fonts/fonts.conf", /* @__PURE__ */ new Set(["browser"]));
-    for (const path of ["/usr/bin/bwrap", "/usr/bin/systemd-run", "/usr/bin/systemctl"]) hashes.set(path, createHash("sha256").update(await readFile(path)).digest("hex"));
+    for (const path of ["/usr/bin/bwrap", "/usr/bin/systemd-run", "/usr/bin/systemctl"]) hashes.set(path, createHash2("sha256").update(await readFile(path)).digest("hex"));
     const cleanup = () => rmSync(root, { recursive: true, force: true });
     process.once("exit", cleanup);
     return {
       root,
       files: [...groups2].map(([path, roles2]) => ({ path, roles: [...roles2] })),
-      identity: createHash("sha256").update(JSON.stringify({ files: [...hashes].sort(), groups: [...groups2].map(([path, groups3]) => [path, [...groups3]]), kernel: release(), arch: arch() })).digest("hex"),
+      identity: createHash2("sha256").update(JSON.stringify({ files: [...hashes].sort(), groups: [...groups2].map(([path, groups3]) => [path, [...groups3]]), kernel: release(), arch: arch() })).digest("hex"),
       dispose: async () => {
         process.removeListener("exit", cleanup);
-        await rm(root, { recursive: true, force: true });
+        await rm2(root, { recursive: true, force: true });
       }
     };
   } catch (error51) {
-    await rm(root, { recursive: true, force: true });
+    await rm2(root, { recursive: true, force: true });
     throw error51;
   }
 }
 
 // src/server/dependency-integrity.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 var DependencyError = class extends Error {
   constructor(code, message) {
     super(message);
@@ -24317,7 +24500,7 @@ function integrityKey(integrity) {
   return bytes.toString("hex");
 }
 function verifyPackageBytes(key, bytes) {
-  if (createHash2("sha512").update(bytes).digest("hex") !== key) throw new DependencyError("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5305\u5B8C\u6574\u6027\u4E0D\u7B26\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\u3002");
+  if (createHash3("sha512").update(bytes).digest("hex") !== key) throw new DependencyError("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5305\u5B8C\u6574\u6027\u4E0D\u7B26\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\u3002");
 }
 
 // src/server/capsule-registry.ts
@@ -24337,8 +24520,8 @@ function registryURL(raw) {
   return url2.href;
 }
 async function fetchRegistryPackage(pin, cancellation) {
-  const basename6 = pin.name.split("/").at(-1);
-  let url2 = registryURL(`${REGISTRY}/${pin.name}/-/${basename6}-${pin.version}.tgz`);
+  const basename7 = pin.name.split("/").at(-1);
+  let url2 = registryURL(`${REGISTRY}/${pin.name}/-/${basename7}-${pin.version}.tgz`);
   const signal = AbortSignal.any([AbortSignal.timeout(3e4), ...cancellation ? [cancellation] : []]);
   for (let redirects = 0; redirects <= 4; redirects++) {
     let response;
@@ -24521,7 +24704,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
         if(!shot.data)throw new Error(JSON.stringify(shot));writeFileSync('/output/browser','fixed');process.exit(0);
       `) }, "bundle/main.mjs");
       if (browserProof.get("browser")?.toString() !== "fixed") throw failure("CAPSULE_SELF_TEST_FAILED");
-      return createHash3("sha256").update(JSON.stringify({ protocol: 1, toolchain: this.#toolchain.identity, environment, browserArguments: CAPSULE_BROWSER_ARGUMENTS, policies: CAPSULE_POLICIES, supervisor: CAPSULE_SUPERVISOR, probe: CAPSULE_PROBE, roles, backend: this.#execute.toString(), certification: this.#selfTest.toString() })).digest("hex");
+      return createHash4("sha256").update(JSON.stringify({ protocol: 1, toolchain: this.#toolchain.identity, environment, browserArguments: CAPSULE_BROWSER_ARGUMENTS, policies: CAPSULE_POLICIES, supervisor: CAPSULE_SUPERVISOR, probe: CAPSULE_PROBE, roles, backend: this.#execute.toString(), certification: this.#selfTest.toString() })).digest("hex");
     } catch (error51) {
       if (error51 instanceof CapsuleError && error51.code === "CAPSULE_UNAVAILABLE") throw error51;
       throw failure("CAPSULE_SELF_TEST_FAILED");
@@ -24556,25 +24739,25 @@ var ExecutionCapsule = class _ExecutionCapsule {
     );
     const bytes = output.get("package.tgz");
     if (signal?.aborted) throw failure("CAPSULE_CANCELLED");
-    if (output.size !== 1 || !bytes || `sha512-${createHash3("sha512").update(bytes).digest("base64")}` !== pin.integrity) throw failure("CAPSULE_OUTPUT_INVALID");
+    if (output.size !== 1 || !bytes || `sha512-${createHash4("sha512").update(bytes).digest("base64")}` !== pin.integrity) throw failure("CAPSULE_OUTPUT_INVALID");
     return bytes;
   }
   async #execute(stage, inputs, entry, signal, download2, certificationLimits) {
     if (!this.#toolchain) throw failure("CAPSULE_UNAVAILABLE");
     const policy = certificationLimits ?? CAPSULE_POLICIES[stage];
-    const directory2 = await mkdtemp2(join2(tmpdir2(), "narracut-capsule-"));
-    const unit = `narracut-capsule-${randomUUID()}.service`;
+    const directory2 = await mkdtemp2(join3(tmpdir2(), "narracut-capsule-"));
+    const unit = `narracut-capsule-${randomUUID2()}.service`;
     const controlEnv = { PATH: "/usr/bin:/bin", LC_ALL: "C", XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`, DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus` };
     const control = (...args) => exec2("/usr/bin/systemctl", ["--user", ...args], { env: controlEnv, timeout: 5e3, maxBuffer: 64 * 1024 });
     try {
-      const inputRoot = join2(directory2, "inputs");
-      await mkdir2(inputRoot);
+      const inputRoot = join3(directory2, "inputs");
+      await mkdir3(inputRoot);
       for (const [path, bytes2] of Object.entries(inputs)) {
-        const target = join2(inputRoot, path);
-        await mkdir2(dirname2(target), { recursive: true });
+        const target = join3(inputRoot, path);
+        await mkdir3(dirname2(target), { recursive: true });
         await writeFile2(target, bytes2, { mode: 292 });
       }
-      const supervisor = join2(directory2, "supervisor.mjs");
+      const supervisor = join3(directory2, "supervisor.mjs");
       await writeFile2(supervisor, CAPSULE_SUPERVISOR, { mode: 292 });
       const args = [
         "--user",
@@ -24617,7 +24800,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
         "narracut",
         "--tmpfs",
         "/",
-        ...this.#toolchain.files.filter((file2) => file2.roles.includes("node") || ["install", "build"].includes(stage) && file2.roles.includes("shell") || stage === "render" && file2.roles.includes("encoder") || ["metadata", "preview", "render"].includes(stage) && file2.roles.includes("browser")).flatMap((file2) => ["--ro-bind", join2(this.#toolchain.root, file2.path), file2.path]),
+        ...this.#toolchain.files.filter((file2) => file2.roles.includes("node") || ["install", "build"].includes(stage) && file2.roles.includes("shell") || stage === "render" && file2.roles.includes("encoder") || ["metadata", "preview", "render"].includes(stage) && file2.roles.includes("browser")).flatMap((file2) => ["--ro-bind", join3(this.#toolchain.root, file2.path), file2.path]),
         "--ro-bind",
         inputRoot,
         "/inputs",
@@ -24757,7 +24940,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
     } finally {
       await control("stop", unit).catch(() => void 0);
       await control("reset-failed", unit).catch(() => void 0);
-      await rm2(directory2, { recursive: true, force: true });
+      await rm3(directory2, { recursive: true, force: true });
     }
   }
 };
@@ -24986,20 +25169,20 @@ function readOfflineDependencyGraph(manifestBytes, lockBytes, store) {
 // src/server/program-toolchain.ts
 import { readFile as readFile2, readdir as readdir2 } from "node:fs/promises";
 import { createRequire as createToolchainRequire2 } from "node:module";
-import { dirname as dirname3, join as join3 } from "node:path";
+import { dirname as dirname3, join as join4 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var require2 = createToolchainRequire2(import.meta.url);
-var applicationRoot = join3(dirname3(fileURLToPath2(import.meta.url)), "../..");
+var applicationRoot = join4(dirname3(fileURLToPath2(import.meta.url)), "../..");
 async function programToolchain() {
   const files = /* @__PURE__ */ Object.create(null);
   const packages = /* @__PURE__ */ new Map();
-  async function readTree2(root, prefix, collected, relative5 = "") {
-    for (const item of await readdir2(join3(root, relative5), { withFileTypes: true })) {
+  async function readTree2(root, prefix, collected, relative6 = "") {
+    for (const item of await readdir2(join4(root, relative6), { withFileTypes: true })) {
       if (item.name === "node_modules" || item.name.endsWith(".map")) continue;
-      const path = relative5 ? `${relative5}/${item.name}` : item.name;
+      const path = relative6 ? `${relative6}/${item.name}` : item.name;
       if (item.isDirectory()) await readTree2(root, prefix, collected, path);
       else if (item.isFile()) {
-        const bytes = await readFile2(join3(root, path));
+        const bytes = await readFile2(join4(root, path));
         files[`${prefix}/${path}`] = bytes;
         collected?.set(path, bytes);
       } else throw new Error("\u56FA\u5B9A\u5DE5\u5177\u94FE\u5185\u542B\u4E0D\u652F\u6301\u7684\u94FE\u63A5\u3002");
@@ -25016,8 +25199,8 @@ async function programToolchain() {
   files["toolchain/esbuild"] = await readFile2(esbuildRequire.resolve(`@esbuild/${process.platform}-${process.arch}/bin/esbuild`));
   const tsRequire = createToolchainRequire2(require2.resolve("typescript/package.json"));
   const tsRoot = dirname3(tsRequire.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`));
-  await readTree2(join3(tsRoot, "lib"), "toolchain/tsc");
-  files["modules/@narracut/runtime/index.ts"] = await readFile2(join3(applicationRoot, "src/runtime/index.ts"));
+  await readTree2(join4(tsRoot, "lib"), "toolchain/tsc");
+  files["modules/@narracut/runtime/index.ts"] = await readFile2(join4(applicationRoot, "src/runtime/index.ts"));
   files["modules/@narracut/runtime/package.json"] = Buffer.from(JSON.stringify({ name: "@narracut/runtime", version: "4.0.512", main: "index.ts", types: "index.ts" }));
   files["worker.mjs"] = await bundleApplicationWorker("build");
   return { files, packages };
@@ -25025,7 +25208,7 @@ async function programToolchain() {
 async function bundleApplicationWorker(stage) {
   const { build } = require2("esbuild");
   const worker = await build({
-    entryPoints: [join3(applicationRoot, `src/server/program-${stage}-worker.ts`)],
+    entryPoints: [join4(applicationRoot, `src/server/program-${stage}-worker.ts`)],
     absWorkingDir: applicationRoot,
     bundle: true,
     platform: "node",
@@ -25178,7 +25361,7 @@ function checkProgramManifest(bytes) {
   };
 }
 function fingerprint(files) {
-  const hash4 = createHash4("sha256");
+  const hash4 = createHash5("sha256");
   for (const [path, bytes] of [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     hash4.update(JSON.stringify([path, bytes.byteLength]) + "\n");
     hash4.update(bytes);
@@ -25243,7 +25426,7 @@ async function buildProgramBundle(request2) {
   const offline = new Map([...request2.offline].map(([key, bytes]) => [key, Buffer.from(bytes)]));
   const binding = JSON.parse(JSON.stringify({ input: request2.input, speech: request2.speech }));
   const media = new Map([...request2.media ?? []].map(([path, bytes]) => [path, Buffer.from(bytes)]));
-  for (const [path, bytes] of media) if (path !== `media/${createHash4("sha256").update(bytes).digest("hex")}`) throw new ProgramBuildError("RUNTIME_CONTRACT_VIOLATION", "\u5A92\u4F53\u8BFB\u53D6\u5730\u5740\u4E0E\u5B57\u8282\u6307\u7EB9\u4E0D\u4E00\u81F4\u3002");
+  for (const [path, bytes] of media) if (path !== `media/${createHash5("sha256").update(bytes).digest("hex")}`) throw new ProgramBuildError("RUNTIME_CONTRACT_VIOLATION", "\u5A92\u4F53\u8BFB\u53D6\u5730\u5740\u4E0E\u5B57\u8282\u6307\u7EB9\u4E0D\u4E00\u81F4\u3002");
   const manifest = checkProgramManifest(program.get("program.json"));
   checkBinding(binding.input, binding.speech, manifest.output);
   for (const path of program.keys()) if (!/^(?:src\/|resources\/|program\.json$|package\.json$|pnpm-lock\.yaml$)/.test(path) || path.split("/").some((part) => !part || part === "." || part === "..") || /[\\\0]/.test(path)) throw new ProgramBuildError("BUNDLE_FAILED", "\u5019\u9009\u5305\u542B\u4E0D\u652F\u6301\u7684\u8DEF\u5F84\u6216\u6784\u5EFA\u914D\u7F6E\u3002");
@@ -25278,9 +25461,9 @@ async function buildProgramBundle(request2) {
     if (item.pin.version !== fixed.version) throw new ProgramBuildError("DEPENDENCY_LOCK_INVALID", "\u6838\u5FC3\u4F9D\u8D56\u5FC5\u987B\u4E0E\u56FA\u5B9A\u5DE5\u5177\u94FE\u7248\u672C\u4E00\u81F4\u3002");
     const actual = [...installed].filter(([path]) => path.startsWith(`packages/${i}/`));
     for (const [path, bytes] of actual) {
-      const relative5 = path.slice(`packages/${i}/`.length);
-      if (relative5.endsWith(".map")) continue;
-      if (!fixed.files.get(relative5)?.equals(bytes)) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u5B57\u8282\u4E0E\u56FA\u5B9A Runtime \u4E0D\u4E00\u81F4\u3002");
+      const relative6 = path.slice(`packages/${i}/`.length);
+      if (relative6.endsWith(".map")) continue;
+      if (!fixed.files.get(relative6)?.equals(bytes)) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u5B57\u8282\u4E0E\u56FA\u5B9A Runtime \u4E0D\u4E00\u81F4\u3002");
       trustedFiles.push(`/tmp/work/${path}`);
     }
     if ([...fixed.files.keys()].some((path) => !installed.has(`packages/${i}/${path}`))) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u7F3A\u5C11\u56FA\u5B9A Runtime \u6587\u4EF6\u3002");
@@ -25322,10 +25505,10 @@ async function buildProgramBundle(request2) {
 }
 
 // src/server/project-candidate.ts
-import { createHash as createHash5, randomUUID as randomUUID2 } from "node:crypto";
+import { createHash as createHash6, randomUUID as randomUUID3 } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir as mkdir3, open, readdir as readdir3, rename, rm as rm3 } from "node:fs/promises";
-import { dirname as dirname4, join as join4 } from "node:path";
+import { lstat as lstat2, mkdir as mkdir4, open, readdir as readdir3, rename as rename2, rm as rm4 } from "node:fs/promises";
+import { dirname as dirname4, join as join5 } from "node:path";
 var CandidateError = class extends Error {
   constructor(code, message) {
     super(message);
@@ -25333,14 +25516,14 @@ var CandidateError = class extends Error {
   }
   code;
 };
-var hash2 = (bytes) => `sha256:${createHash5("sha256").update(bytes).digest("hex")}`;
+var hash3 = (bytes) => `sha256:${createHash6("sha256").update(bytes).digest("hex")}`;
 var fail4 = (code, message) => {
   throw new CandidateError(code, message);
 };
 var MAX_BYTES = 32 * 1024 * 1024;
 var safePath2 = (path) => path.length <= 1024 && !path.includes("\\") && !path.includes("\0") && path.split("/").every((p) => p && p !== "." && p !== ".." && !["node_modules", "bundle", ".cache"].includes(p));
 async function regular(path, max = MAX_BYTES) {
-  const facts = await lstat(path);
+  const facts = await lstat2(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > max) throw new Error("\u6587\u4EF6\u7C7B\u578B\u6216\u5927\u5C0F\u65E0\u6548");
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
@@ -25352,7 +25535,7 @@ async function regular(path, max = MAX_BYTES) {
   }
 }
 async function directory(path) {
-  const stat = await lstat(path);
+  const stat = await lstat2(path);
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("\u76EE\u5F55\u5B8C\u6574\u6027\u65E0\u6548");
   return `${stat.dev}:${stat.ino}`;
 }
@@ -25363,18 +25546,18 @@ async function readTree(root) {
     if (depth > 24) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 24 \u5C42");
     const identity2 = await directory(path);
     for (const name of (await readdir3(path)).sort()) {
-      const relative5 = prefix ? `${prefix}/${name}` : name;
-      if (!safePath2(relative5) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
-      const full = join4(path, name);
-      const stat = await lstat(full);
+      const relative6 = prefix ? `${prefix}/${name}` : name;
+      if (!safePath2(relative6) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
+      const full = join5(path, name);
+      const stat = await lstat2(full);
       if (stat.isDirectory() && !stat.isSymbolicLink()) {
-        tree.set(relative5, null);
-        await walk2(full, relative5, depth + 1);
+        tree.set(relative6, null);
+        await walk2(full, relative6, depth + 1);
       } else {
         const content = await regular(full);
         bytes += content.length;
         if (bytes > MAX_BYTES) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 32 MiB");
-        tree.set(relative5, content);
+        tree.set(relative6, content);
       }
     }
     if (await directory(path) !== identity2) throw new Error("\u8BFB\u53D6\u671F\u95F4\u76EE\u5F55\u88AB\u66FF\u6362");
@@ -25391,8 +25574,8 @@ async function readTree(root) {
 }
 async function readOffline(project, state) {
   if (!state.offline) return void 0;
-  if (!Array.isArray(state.offlineKeys) || state.offlineKeys.some((key) => !/^[0-9a-f]{128}$/.test(key)) || hash2(JSON.stringify([...new Set(state.offlineKeys)].sort())) !== state.offlineIdentity) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u7D22\u5F15\u65E0\u6548\u3002");
-  const root = join4(project, state.offline);
+  if (!Array.isArray(state.offlineKeys) || state.offlineKeys.some((key) => !/^[0-9a-f]{128}$/.test(key)) || hash3(JSON.stringify([...new Set(state.offlineKeys)].sort())) !== state.offlineIdentity) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u7D22\u5F15\u65E0\u6548\u3002");
+  const root = join5(project, state.offline);
   await directory(dirname4(root));
   const store = /* @__PURE__ */ new Map();
   const rawStore = /* @__PURE__ */ new Map();
@@ -25400,14 +25583,14 @@ async function readOffline(project, state) {
   try {
     await directory(root);
   } catch (error51) {
-    if (error51.code === "ENOENT") return { store, rawStore, intact: false, signature: hash2("missing-directory") };
+    if (error51.code === "ENOENT") return { store, rawStore, intact: false, signature: hash3("missing-directory") };
     throw error51;
   }
   for (const filename of (await readdir3(root)).sort()) {
     if (!/^[0-9a-f]{128}\.tgz$/.test(filename)) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5E93\u5305\u542B\u975E\u6CD5\u8DEF\u5F84\u3002");
-    const bytes = await regular(join4(root, filename));
+    const bytes = await regular(join5(root, filename));
     const key = filename.slice(0, -4);
-    observed.push([key, hash2(bytes)]);
+    observed.push([key, hash3(bytes)]);
     rawStore.set(key, bytes);
     try {
       verifyPackageBytes(key, bytes);
@@ -25419,13 +25602,13 @@ async function readOffline(project, state) {
     store,
     rawStore,
     intact: offlineIdentity(store) === state.offlineIdentity && store.size === observed.length,
-    signature: hash2(JSON.stringify(observed))
+    signature: hash3(JSON.stringify(observed))
   };
 }
-var offlineIdentity = (store) => hash2(JSON.stringify([...store.keys()].sort()));
-var offlineSignature = (store) => hash2(JSON.stringify([...store].sort(([a], [b]) => a.localeCompare(b)).map(([key, bytes]) => [key, hash2(bytes)])));
+var offlineIdentity = (store) => hash3(JSON.stringify([...store.keys()].sort()));
+var offlineSignature = (store) => hash3(JSON.stringify([...store].sort(([a], [b]) => a.localeCompare(b)).map(([key, bytes]) => [key, hash3(bytes)])));
 function identity(tree) {
-  return hash2(JSON.stringify([...tree].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => [path, bytes === null ? "directory" : hash2(bytes)])));
+  return hash3(JSON.stringify([...tree].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => [path, bytes === null ? "directory" : hash3(bytes)])));
 }
 async function writeBytes(path, bytes) {
   const handle = await open(path, "wx", 384);
@@ -25437,12 +25620,12 @@ async function writeBytes(path, bytes) {
   }
 }
 async function writeTree(root, tree) {
-  await mkdir3(root);
+  await mkdir4(root);
   for (const [path, bytes] of [...tree].sort(([a], [b]) => a.length - b.length)) {
-    if (bytes === null) await mkdir3(join4(root, path));
-    else await writeBytes(join4(root, path), bytes);
+    if (bytes === null) await mkdir4(join5(root, path));
+    else await writeBytes(join5(root, path), bytes);
   }
-  for (const [path, bytes] of [...tree].reverse()) if (bytes === null) await syncDirectory(join4(root, path));
+  for (const [path, bytes] of [...tree].reverse()) if (bytes === null) await syncDirectory(join5(root, path));
   await syncDirectory(root);
 }
 async function syncDirectory(path) {
@@ -25453,10 +25636,10 @@ async function syncDirectory(path) {
     await handle.close();
   }
 }
-async function createCandidateManager(project, assertWritable) {
-  const internal = join4(project, ".narracut");
+async function createCandidateManager(project, assertWritable, observeCommit) {
+  const internal = join5(project, ".narracut");
   const internalIdentity = await directory(internal);
-  const pointer = join4(internal, "candidate.json");
+  const pointer = join5(internal, "candidate.json");
   const assertCurrent = async () => {
     await assertWritable();
     if (await directory(internal) !== internalIdentity) fail4("PROJECT_IDENTITY_LOST", "\u9879\u76EE\u5185\u90E8\u76EE\u5F55\u8EAB\u4EFD\u53D8\u5316\uFF1B\u5DF2\u505C\u6B62\u5019\u9009\u5199\u5165\u3002");
@@ -25466,7 +25649,7 @@ async function createCandidateManager(project, assertWritable) {
     if (!/^[0-9a-f-]{36}$/i.test(value.revisionId)) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u8EAB\u4EFD\u65E0\u6548");
     return value.revisionId;
   }
-  const revisions = createRevisionStore(project, assertCurrent);
+  const revisions = createRevisionStore(project, assertCurrent, observeCommit);
   async function pointerBytes() {
     try {
       return await regular(pointer, 4 * 1024 * 1024);
@@ -25483,31 +25666,31 @@ async function createCandidateManager(project, assertWritable) {
     let state = null;
     try {
       raw = await pointerBytes();
-      if (raw === null) return { view: { status: "absent", sourceRevision, baseline: hash2("absent"), candidate: null, checkpoint: null }, state: null, raw };
+      if (raw === null) return { view: { status: "absent", sourceRevision, baseline: hash3("absent"), candidate: null, checkpoint: null }, state: null, raw };
       const parsed = JSON.parse(raw.toString());
       if (parsed.version !== 1 || !/^[0-9a-f-]{36}$/i.test(parsed.sourceRevision) || !(parsed.candidate === null || refValid(parsed.candidate)) || !(parsed.checkpoint === null || refValid(parsed.checkpoint) && dirname4(parsed.checkpoint.path) === dirname4(parsed.candidate?.path ?? "") && parsed.checkpoint.path.endsWith("/checkpoint")) || parsed.candidate !== null && !parsed.candidate.path.endsWith("/candidate") || parsed.candidate === null && parsed.checkpoint !== null || parsed.offline !== void 0 && !/^\.narracut\/candidate-[0-9a-f-]{36}\/dependencies$/.test(parsed.offline)) throw new Error("\u5019\u9009\u6307\u9488\u5B8C\u6574\u6027\u65E0\u6548");
       const accepted = await readCurrentPointer(project);
-      if (accepted.consumed?.pointer === hash2(raw)) {
+      if (accepted.consumed?.pointer === hash3(raw)) {
         parsed.candidate = null;
         parsed.checkpoint = null;
       }
       state = parsed;
       const offline = await readOffline(project, state);
-      if (!state.candidate) return { raw, state, offline, view: { status: "absent", ...offline && !offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u4FDD\u7559\u79BB\u7EBF\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\uFF0C\u518D\u534F\u8C03\u4FEE\u590D\u3002" } } : {}, sourceRevision, baseline: hash2(JSON.stringify([hash2(raw), offline?.signature ?? null])), candidate: null, checkpoint: null, ...state.offline ? { offline: state.offline } : {} } };
-      await directory(dirname4(join4(project, state.candidate.path)));
-      const tree = await readTree(join4(project, state.candidate.path));
+      if (!state.candidate) return { raw, state, offline, view: { status: "absent", ...offline && !offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u4FDD\u7559\u79BB\u7EBF\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\uFF0C\u518D\u534F\u8C03\u4FEE\u590D\u3002" } } : {}, sourceRevision, baseline: hash3(JSON.stringify([hash3(raw), offline?.signature ?? null])), candidate: null, checkpoint: null, ...state.offline ? { offline: state.offline } : {} } };
+      await directory(dirname4(join5(project, state.candidate.path)));
+      const tree = await readTree(join5(project, state.candidate.path));
       const treeId = identity(tree);
       let checkpointId = null;
       if (state.checkpoint) {
-        await directory(dirname4(join4(project, state.checkpoint.path)));
-        checkpointId = identity(await readTree(join4(project, state.checkpoint.path)));
+        await directory(dirname4(join5(project, state.checkpoint.path)));
+        checkpointId = identity(await readTree(join5(project, state.checkpoint.path)));
         if (checkpointId !== state.checkpoint.identity) throw new Error("\u6062\u590D\u68C0\u67E5\u70B9\u5B57\u8282\u53D1\u751F\u53D8\u5316");
       }
       const external = treeId !== state.candidate.identity;
       return { raw, state, tree, offline, view: {
         status: external ? "external-change" : offline && !offline.intact ? "integrity-failed" : "saved",
         sourceRevision: state.sourceRevision,
-        baseline: hash2(JSON.stringify([hash2(raw), treeId, checkpointId, offline?.signature ?? null])),
+        baseline: hash3(JSON.stringify([hash3(raw), treeId, checkpointId, offline?.signature ?? null])),
         candidate: { ...state.candidate, identity: treeId },
         checkpoint: state.checkpoint,
         ...state.offline ? { offline: state.offline } : {},
@@ -25518,7 +25701,7 @@ async function createCandidateManager(project, assertWritable) {
       return { raw, state, view: {
         status: "integrity-failed",
         sourceRevision,
-        baseline: hash2(raw ?? "invalid"),
+        baseline: hash3(raw ?? "invalid"),
         candidate: state?.candidate ?? null,
         checkpoint: state?.checkpoint ?? null,
         error: { code: "CANDIDATE_INTEGRITY_FAILED", message: `\u5019\u9009\u6216\u6062\u590D\u68C0\u67E5\u70B9\u5B8C\u6574\u6027\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u73B0\u573A\u3002\u8BF7\u5916\u90E8\u4FEE\u590D\u540E\u91CD\u65B0\u68C0\u67E5\uFF0C\u6216\u660E\u786E\u653E\u5F03\u3002${error51.message}` }
@@ -25539,21 +25722,23 @@ async function createCandidateManager(project, assertWritable) {
       {
         const taskCheckpoint = await taskCheckpointFingerprint(project);
         const tombstone = Buffer.from(JSON.stringify({ version: 1, sourceRevision: before.view.sourceRevision, ...before.state, candidate: null, checkpoint: null, taskCheckpoint }));
-        const temporary = join4(internal, `discard-${randomUUID2()}.json`);
+        const temporary = join5(internal, `discard-${randomUUID3()}.json`);
         try {
           await writeBytes(temporary, tombstone);
           await assertCurrent();
           if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u6307\u9488\u5DF2\u53D8\u5316\uFF0C\u672A\u653E\u5F03\u3002");
           if ((await inspect()).view.baseline !== before.view.baseline) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u5B57\u8282\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6838\u5BF9\u540E\u660E\u786E\u653E\u5F03\u3002");
           await validate?.();
-          await rename(temporary, pointer);
+          observeCommit?.(pointer, tombstone, false);
+          await rename2(temporary, pointer);
+          observeCommit?.(pointer, tombstone, true);
         } finally {
-          await rm3(temporary, { force: true }).catch(() => void 0);
+          await rm4(temporary, { force: true }).catch(() => void 0);
         }
         await syncDirectory(internal).catch(() => void 0);
         await cleanupEndedTask(project).catch(() => void 0);
-        for (const ref of [before.state?.candidate, before.state?.checkpoint]) if (ref) await rm3(join4(project, ref.path), { recursive: true, force: true }).catch(() => void 0);
-        return { status: "absent", baseline: hash2(JSON.stringify([hash2(tombstone), before.offline?.signature ?? null])), sourceRevision: before.view.sourceRevision, candidate: null, checkpoint: null, ...before.state?.offline ? { offline: before.state.offline } : {} };
+        for (const ref of [before.state?.candidate, before.state?.checkpoint]) if (ref) await rm4(join5(project, ref.path), { recursive: true, force: true }).catch(() => void 0);
+        return { status: "absent", baseline: hash3(JSON.stringify([hash3(tombstone), before.offline?.signature ?? null])), sourceRevision: before.view.sourceRevision, candidate: null, checkpoint: null, ...before.state?.offline ? { offline: before.state.offline } : {} };
       }
     }
     if (request2.action === "adopt" && !request2.confirmed) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u9700\u8981\u660E\u786E\u786E\u8BA4\u5916\u90E8\u5019\u9009\u3002");
@@ -25563,25 +25748,25 @@ async function createCandidateManager(project, assertWritable) {
     const sourceRevision = await currentRevision();
     const creationRevision = request2.action === "create" && request2.sourceRevision ? request2.sourceRevision : sourceRevision;
     if (request2.action === "create") await revisions.verify(creationRevision);
-    const currentRoot = join4(internal, "revisions", creationRevision, "render-program");
+    const currentRoot = join5(internal, "revisions", creationRevision, "render-program");
     let next;
     let offline = request2.action === "create" ? before.offline?.rawStore : before.offline?.store;
     if (request2.action === "create") {
-      await directory(join4(internal, "revisions"));
+      await directory(join5(internal, "revisions"));
       await directory(dirname4(currentRoot));
       next = await readTree(currentRoot);
     } else if (request2.action === "adopt") {
       next = new Map(before.tree);
     } else if (request2.action === "dependencies") {
       const retainedLocks = [];
-      await directory(join4(internal, "revisions"));
-      for (const revision of await readdir3(join4(internal, "revisions"))) {
+      await directory(join5(internal, "revisions"));
+      for (const revision of await readdir3(join5(internal, "revisions"))) {
         if (!/^[0-9a-f-]{36}$/i.test(revision)) fail4("DEPENDENCY_LOCK_INVALID", "\u4FDD\u7559\u4FEE\u8BA2\u76EE\u5F55\u8EAB\u4EFD\u65E0\u6548\u3002");
-        await directory(join4(internal, "revisions", revision));
-        const retained = await readTree(join4(internal, "revisions", revision, "render-program"));
+        await directory(join5(internal, "revisions", revision));
+        const retained = await readTree(join5(internal, "revisions", revision, "render-program"));
         retainedLocks.push(retained.get("pnpm-lock.yaml"));
       }
-      if (before.state?.checkpoint) retainedLocks.push((await readTree(join4(project, before.state.checkpoint.path))).get("pnpm-lock.yaml"));
+      if (before.state?.checkpoint) retainedLocks.push((await readTree(join5(project, before.state.checkpoint.path))).get("pnpm-lock.yaml"));
       const update = await coordinateDependencies(before.tree.get("package.json"), before.tree.get("pnpm-lock.yaml"), offline ?? /* @__PURE__ */ new Map(), request2, retainedLocks, before.state?.offlineKeys);
       if (before.state?.offlineKeys?.some((key) => !update.store.has(key))) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u4ECD\u6709\u4FDD\u7559\u79BB\u7EBF\u5305\u65E0\u6CD5\u4FEE\u590D\uFF1B\u8BF7\u63D0\u4F9B\u5176\u7CBE\u786E\u7248\u672C\u548C\u6458\u8981\u3002");
       next = new Map(before.tree);
@@ -25610,20 +25795,20 @@ async function createCandidateManager(project, assertWritable) {
         }
       }
     }
-    const generation = `.narracut/candidate-${randomUUID2()}`;
-    const root = join4(project, generation);
+    const generation = `.narracut/candidate-${randomUUID3()}`;
+    const root = join5(project, generation);
     let committed = false;
     try {
       await assertCurrent();
-      await mkdir3(root);
-      await writeTree(join4(root, "candidate"), next);
+      await mkdir4(root);
+      await writeTree(join5(root, "candidate"), next);
       if (offline) {
-        await mkdir3(join4(root, "dependencies"));
-        for (const [key, bytes2] of offline) await writeBytes(join4(root, "dependencies", `${key}.tgz`), bytes2);
-        await syncDirectory(join4(root, "dependencies"));
+        await mkdir4(join5(root, "dependencies"));
+        for (const [key, bytes2] of offline) await writeBytes(join5(root, "dependencies", `${key}.tgz`), bytes2);
+        await syncDirectory(join5(root, "dependencies"));
       }
-      const treeId = identity(await readTree(join4(root, "candidate")));
-      if (before.tree) await writeTree(join4(root, "checkpoint"), before.tree);
+      const treeId = identity(await readTree(join5(root, "candidate")));
+      if (before.tree) await writeTree(join5(root, "checkpoint"), before.tree);
       const state = {
         version: 1,
         sourceRevision: request2.action === "create" ? creationRevision : before.state?.sourceRevision ?? sourceRevision,
@@ -25632,21 +25817,23 @@ async function createCandidateManager(project, assertWritable) {
         ...offline ? { offline: `${generation}/dependencies`, offlineIdentity: request2.action === "create" && before.offline && !before.offline.intact ? before.state.offlineIdentity : offlineIdentity(offline), offlineKeys: request2.action === "create" && before.offline && !before.offline.intact ? before.state.offlineKeys : [...offline.keys()].sort() } : {}
       };
       const bytes = Buffer.from(JSON.stringify(state));
-      await writeBytes(join4(root, "state.json"), bytes);
+      await writeBytes(join5(root, "state.json"), bytes);
       await syncDirectory(root);
       await assertCurrent();
       const latest = await inspect();
       if (latest.view.baseline !== before.view.baseline || latest.view.status !== before.view.status || await currentRevision() !== sourceRevision || request2.action === "create" && identity(await readTree(currentRoot)) !== treeId) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u5DF2\u4FDD\u7559\u3002");
       await validate?.();
-      await rename(join4(root, "state.json"), pointer);
+      observeCommit?.(pointer, bytes, false);
+      await rename2(join5(root, "state.json"), pointer);
+      observeCommit?.(pointer, bytes, true);
       committed = true;
       await syncDirectory(internal).catch(() => void 0);
-      if (before.state?.candidate || before.state?.offline) await rm3(dirname4(join4(project, before.state.candidate?.path ?? before.state.offline)), { recursive: true, force: true }).catch(() => void 0);
+      if (before.state?.candidate || before.state?.offline) await rm4(dirname4(join5(project, before.state.candidate?.path ?? before.state.offline)), { recursive: true, force: true }).catch(() => void 0);
       return {
         status: request2.action === "create" && before.offline && !before.offline.intact ? "integrity-failed" : "saved",
         ...request2.action === "create" && before.offline && !before.offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u79BB\u7EBF\u4F9D\u8D56\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\uFF0C\u666E\u901A\u64CD\u4F5C\u4E0D\u4F1A\u8865\u5305\u3002" } } : {},
         sourceRevision: state.sourceRevision,
-        baseline: hash2(JSON.stringify([hash2(bytes), treeId, state.checkpoint?.identity ?? null, offline ? offlineSignature(offline) : null])),
+        baseline: hash3(JSON.stringify([hash3(bytes), treeId, state.checkpoint?.identity ?? null, offline ? offlineSignature(offline) : null])),
         candidate: state.candidate,
         checkpoint: state.checkpoint,
         ...state.offline ? { offline: state.offline } : {}
@@ -25655,7 +25842,7 @@ async function createCandidateManager(project, assertWritable) {
       if (error51 instanceof CandidateError) throw error51;
       return fail4("CANDIDATE_SAVE_FAILED", `\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u4E0E\u6062\u590D\u68C0\u67E5\u70B9\u5DF2\u4FDD\u7559\u3002${error51.message}`);
     } finally {
-      if (!committed) await rm3(root, { recursive: true, force: true }).catch(() => void 0);
+      if (!committed) await rm4(root, { recursive: true, force: true }).catch(() => void 0);
     }
   };
   return Object.assign(operate, {
@@ -25674,7 +25861,7 @@ async function createCandidateManager(project, assertWritable) {
       const snapshot = await inspect();
       const revision = await currentRevision();
       if (target === "current") await revisions.verify(revision);
-      const tree = target === "current" ? await readTree(join4(internal, "revisions", revision, "render-program")) : snapshot.tree;
+      const tree = target === "current" ? await readTree(join5(internal, "revisions", revision, "render-program")) : snapshot.tree;
       if (!tree || target === "candidate" && snapshot.view.status !== "saved") fail4("CANDIDATE_BASELINE_CONFLICT", "\u6CA1\u6709\u5B8C\u6574\u53EF\u64AD\u653E\u7A0B\u5E8F\u3002");
       return { revision, identity: identity(tree), manifest: Buffer.from(tree.get("program.json") ?? ""), baseline: snapshot.view.baseline, program: new Map([...tree].filter((entry) => entry[1] !== null).map(([path, bytes]) => [path, Buffer.from(bytes)])), offline: new Map([...snapshot.offline?.store ?? []].map(([key, bytes]) => [key, Buffer.from(bytes)])) };
     },
@@ -25684,12 +25871,12 @@ async function createCandidateManager(project, assertWritable) {
         throw new CandidateError("CANDIDATE_BASELINE_CONFLICT", "\u5019\u9009\u4E0D\u5B8C\u6574\u6216\u5DF2\u53D8\u5316\uFF1B\u8BF7\u91CD\u65B0\u8BFB\u53D6\u540E\u6784\u5EFA\u3002");
       }
       const revision = await currentRevision();
-      const tree = request2.target === "current" ? await readTree(join4(internal, "revisions", revision, "render-program")) : before.tree;
+      const tree = request2.target === "current" ? await readTree(join5(internal, "revisions", revision, "render-program")) : before.tree;
       if (request2.sourceIdentity && request2.sourceIdentity !== identity(tree)) fail4("CANDIDATE_BASELINE_CONFLICT", "\u7A0B\u5E8F\u5728\u6784\u5EFA\u524D\u5DF2\u53D8\u5316\u3002");
       const program = new Map([...tree].filter((entry) => entry[1] !== null));
       const bundle = await buildProgramBundle({ ...request2, program, offline: before.offline?.store ?? /* @__PURE__ */ new Map() });
       const after = await inspect();
-      if (request2.target !== "current" && after.view.status !== "saved" || after.view.baseline !== before.view.baseline || request2.target === "current" && (await currentRevision() !== revision || identity(await readTree(join4(internal, "revisions", revision, "render-program"))) !== identity(tree))) {
+      if (request2.target !== "current" && after.view.status !== "saved" || after.view.baseline !== before.view.baseline || request2.target === "current" && (await currentRevision() !== revision || identity(await readTree(join5(internal, "revisions", revision, "render-program"))) !== identity(tree))) {
         throw new CandidateError("CANDIDATE_BASELINE_CONFLICT", "\u6784\u5EFA\u671F\u95F4\u5019\u9009\u6216\u79BB\u7EBF\u5E93\u5DF2\u53D8\u5316\uFF1B\u7ED3\u679C\u5DF2\u4E22\u5F03\u3002");
       }
       return bundle;
@@ -25697,192 +25884,239 @@ async function createCandidateManager(project, assertWritable) {
   });
 }
 
-// src/server/project-revisions.ts
-var uuid3 = external_exports.string().uuid();
-var digest = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
-var refSchema = external_exports.object({ revisionId: uuid3, metadata: digest, program: digest, requestId: uuid3.optional() }).strict();
-var pointerSchema = external_exports.object({
-  revisionId: uuid3,
-  history: external_exports.array(refSchema).min(1).max(20).optional(),
-  consumed: external_exports.object({ pointer: digest, generation: external_exports.string().regex(/^\.narracut\/candidate-[0-9a-f-]{36}$/), requestId: uuid3, taskCheckpoint: digest.optional() }).strict().optional(),
-  pruned: external_exports.array(uuid3).max(1).optional()
-}).strict().superRefine((value, ctx) => {
-  if (value.history && (value.history[0].revisionId !== value.revisionId || new Set(value.history.map((item) => item.revisionId)).size !== value.history.length)) ctx.addIssue({ code: "custom", message: "\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5386\u53F2\u4E0D\u4E00\u81F4" });
-});
-var metadataSchema = external_exports.object({
-  revisionId: uuid3,
-  previousRevisionId: uuid3.nullable(),
-  briefFingerprint: digest.optional(),
-  source: external_exports.string(),
-  summary: external_exports.string(),
-  acceptedAt: external_exports.string().datetime().optional(),
-  programFingerprint: digest.optional(),
-  inputFingerprint: digest.optional(),
-  sourceRevision: uuid3.optional(),
-  acceptance: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
-  requestId: uuid3.optional()
-}).strict();
-var hash3 = (bytes) => `sha256:${createHash6("sha256").update(bytes).digest("hex")}`;
-async function readCurrentPointer(project) {
-  await directory(join5(project, ".narracut"));
-  return pointerSchema.parse(JSON.parse((await regular(join5(project, ".narracut/current.json"), 16384)).toString()));
+// src/server/project-recovery.ts
+var recoveryHash = (bytes) => `sha256:${createHash7("sha256").update(bytes).digest("hex")}`;
+var digest2 = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
+var fingerprint2 = external_exports.object({ path: external_exports.string(), fingerprint: digest2.nullable(), bindings: external_exports.record(external_exports.string(), digest2.nullable()).optional() }).strict();
+var component = external_exports.object({ bytes: external_exports.number().int().nonnegative(), sha256: digest2, base64: external_exports.string() }).strict();
+var baseline = external_exports.object({ projectId: external_exports.uuid(), dsl: external_exports.array(fingerprint2).min(1).max(2), brief: external_exports.array(fingerprint2).min(1).max(2), current: external_exports.array(fingerprint2).min(1).max(2), candidate: external_exports.array(fingerprint2).min(1).max(2) }).strict();
+var cutSchema = external_exports.object({ recoveryCutId: external_exports.uuid(), capturedAt: external_exports.iso.datetime(), sourcePath: external_exports.string(), projectId: external_exports.uuid(), sourceFormatVersion: external_exports.literal(1), baseline, payload: external_exports.object({ dsl: component.optional(), briefLocal: component.optional(), briefBase: component.optional() }).strict() }).strict();
+var envelopeSchema = cutSchema.extend({ kind: external_exports.literal("narracut-recovery"), snapshotFormatVersion: external_exports.literal(1), snapshotId: external_exports.uuid(), exportedAt: external_exports.iso.datetime(), sha256: digest2 }).strict();
+var encode3 = (text3) => {
+  const bytes = Buffer.from(text3);
+  if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== text3) throw new Error("\u6062\u590D\u5185\u5BB9\u5FC5\u987B\u662F\u4E25\u683C UTF-8\u3002");
+  return { bytes: bytes.length, sha256: recoveryHash(bytes), base64: bytes.toString("base64") };
+};
+async function recoveryBaseline(root, projectId, previous) {
+  const read = async (path, optional3 = false) => {
+    try {
+      return [{ path, fingerprint: recoveryHash(await regular(join6(root, path), 32 * 1024 * 1024)) }];
+    } catch (error51) {
+      if (optional3 && error51.code === "ENOENT") return [{ path, fingerprint: null }];
+      throw error51;
+    }
+  };
+  const current = await read(".narracut/current.json"), candidate = await read(".narracut/candidate.json", true);
+  const bind = async (entries, old) => {
+    if (old?.length === 1 && old[0].fingerprint === entries[0].fingerprint) return old;
+    if (entries[0].fingerprint === null) return [{ ...entries[0], bindings: { candidate: null, checkpoint: null, dependencies: null } }];
+    const bytes = await regular(join6(root, entries[0].path));
+    if (recoveryHash(bytes) !== entries[0].fingerprint) throw new Error("\u8BFB\u53D6\u6062\u590D\u57FA\u7EBF\u65F6\u53D1\u751F\u5E76\u53D1\u4FEE\u6539\u3002");
+    const bindings = recoveryBindings(entries[0].path, bytes);
+    if (entries[0].path.endsWith("/current.json") && !Object.keys(bindings).length) {
+      const pointer = JSON.parse(bytes.toString());
+      if (!/^[0-9a-f-]{36}$/i.test(pointer.revisionId)) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u8EAB\u4EFD\u65E0\u6548\u3002");
+      const path = `.narracut/revisions/${pointer.revisionId}`;
+      bindings[`${path}/revision.json`] = recoveryHash(await regular(join6(root, path, "revision.json")));
+      bindings[`${path}/render-program`] = identity(await readTree(join6(root, path, "render-program")));
+    }
+    return [{ ...entries[0], bindings }];
+  };
+  return { projectId, dsl: await read("project.json"), brief: await read("video.md"), current: await bind(current, previous?.current), candidate: await bind(candidate, previous?.candidate) };
 }
-async function verifyRevision(project, id) {
-  uuid3.parse(id);
-  const pointer = await readCurrentPointer(project);
-  const ref = pointer.history?.find((item) => item.revisionId === id);
-  if (!ref && id !== pointer.revisionId) throw new CandidateError("REVISION_NOT_RETAINED", "\u4FEE\u8BA2\u5DF2\u79FB\u51FA\u5386\u53F2\u3002");
-  await directory(join5(project, ".narracut/revisions"));
-  const root = join5(project, ".narracut/revisions", id);
-  await directory(root);
-  const bytes = await regular(join5(root, "revision.json"), 1048576);
-  const metadata = metadataSchema.parse(JSON.parse(bytes.toString()));
-  if (metadata.acceptance && !ref) throw new CandidateError("REVISION_INTEGRITY_FAILED", "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7F3A\u5C11\u5B8C\u6574\u5386\u53F2\u7ED1\u5B9A\u3002");
-  const tree = await readTree(join5(root, "render-program")), program = identity(tree);
-  if (metadata.revisionId !== id || ref && (ref.metadata !== hash3(bytes) || ref.program !== program) || metadata.programFingerprint && metadata.programFingerprint !== program) throw new CandidateError("REVISION_INTEGRITY_FAILED", "\u4FEE\u8BA2\u5B57\u8282\u6216\u5143\u6570\u636E\u53D1\u751F\u53D8\u5316\uFF1B\u4E0D\u80FD\u4F7F\u7528\u635F\u574F\u4FEE\u8BA2\u3002");
-  return { metadata, tree, ref: { revisionId: id, metadata: hash3(bytes), program, requestId: metadata.requestId } };
+function recoveryBindings(path, bytes) {
+  const value = JSON.parse(bytes.toString()), bindings = {};
+  if (path.endsWith("/current.json")) {
+    for (const ref of value.history ?? []) {
+      bindings[`.narracut/revisions/${ref.revisionId}/revision.json`] = ref.metadata;
+      bindings[`.narracut/revisions/${ref.revisionId}/render-program`] = ref.program;
+    }
+  } else if (path.endsWith("/candidate.json")) {
+    bindings[value.candidate?.path ?? "candidate"] = value.candidate?.identity ?? null;
+    bindings[value.checkpoint?.path ?? "checkpoint"] = value.checkpoint?.identity ?? null;
+    bindings[value.offline ?? "dependencies"] = value.offlineIdentity ?? null;
+  }
+  return bindings;
 }
-function createRevisionStore(project, assertWritable) {
-  const internal = join5(project, ".narracut");
-  async function history() {
-    await assertWritable();
-    const pointer = await readCurrentPointer(project);
-    const refs = pointer.history ?? [(await verifyRevision(project, pointer.revisionId)).ref];
-    const revisions = await Promise.all(refs.map(async (ref) => {
+function sealRecovery(sourcePath, projectId, baseline2, draft) {
+  const payload = {};
+  if (draft.dsl !== void 0 && !(baseline2.dsl.length === 1 && baseline2.dsl[0].fingerprint === recoveryHash(draft.dsl))) payload.dsl = encode3(draft.dsl);
+  if (draft.briefLocal !== void 0 && !(baseline2.brief.length === 1 && baseline2.brief[0].fingerprint === recoveryHash(draft.briefLocal))) {
+    payload.briefLocal = encode3(draft.briefLocal);
+    if (draft.briefBase !== void 0 && baseline2.brief.some((item) => item.fingerprint !== recoveryHash(draft.briefBase))) payload.briefBase = encode3(draft.briefBase);
+  }
+  if (!payload.dsl && !payload.briefLocal) return null;
+  const cut = cutSchema.parse({ recoveryCutId: randomUUID4(), capturedAt: (/* @__PURE__ */ new Date()).toISOString(), sourcePath, projectId, sourceFormatVersion: 1, baseline: structuredClone(baseline2), payload });
+  validateRecovery(envelope(cut));
+  return cut;
+}
+function envelope(cut) {
+  const body = { ...cut, kind: "narracut-recovery", snapshotFormatVersion: 1, snapshotId: randomUUID4(), exportedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  return JSON.stringify({ ...body, sha256: recoveryHash(JSON.stringify(body)) });
+}
+function validateRecovery(text3) {
+  if (Buffer.byteLength(text3) > 52 * 1024 * 1024) throw new Error("\u6062\u590D\u5FEB\u7167\u8D85\u8FC7\u5927\u5C0F\u4E0A\u9650\u3002");
+  if (/"base64"\s*:\s*"[^"\n]*\\/.test(text3)) throw new Error("\u6062\u590D\u8F7D\u8377\u4E0D\u80FD\u5305\u542B JSON \u8F6C\u4E49\u3002");
+  const raw = parseStrictJson(text3, { maxDepth: 12, maxArrayItems: 64, maxObjectFields: 1024, maxNodes: 2048, maxStringScalars: 52 * 1024 * 1024, maxStringBytes: 52 * 1024 * 1024, maxNumberBytes: 32 });
+  const value = envelopeSchema.parse(raw);
+  const { sha256, ...body } = raw;
+  if (recoveryHash(JSON.stringify(body)) !== sha256 || !isAbsolute(value.sourcePath) || value.projectId !== value.baseline.projectId || !value.payload.dsl && !value.payload.briefLocal || value.payload.briefBase && !value.payload.briefLocal) throw new Error("\u6062\u590D\u4FE1\u5C01\u5185\u5BB9\u6216\u6458\u8981\u65E0\u6548\u3002");
+  const paths = { dsl: "project.json", brief: "video.md", current: ".narracut/current.json", candidate: ".narracut/candidate.json" };
+  for (const [key, path] of Object.entries(paths)) {
+    const entries = value.baseline[key];
+    if (entries.some((item) => item.path !== path || key !== "candidate" && item.fingerprint === null || ["dsl", "brief"].includes(key) && item.bindings !== void 0)) throw new Error("\u9010\u9879\u6062\u590D\u57FA\u7EBF\u4E0E\u7EC4\u4EF6\u4E0D\u5339\u914D\u3002");
+    for (const item of entries) {
+      if (key === "current") {
+        const bindings = item.bindings;
+        if (!bindings || !Object.keys(bindings).length || Object.keys(bindings).length > 40 || Object.entries(bindings).some(([path2, digest4]) => digest4 === null || !/^\.narracut\/revisions\/[0-9a-f-]{36}\/(revision\.json|render-program)$/.test(path2))) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5386\u53F2\u7F3A\u5C11\u7CBE\u786E\u8EAB\u4EFD\u7ED1\u5B9A\u3002");
+        for (const path2 of Object.keys(bindings)) {
+          const sibling = path2.endsWith("/revision.json") ? path2.replace(/revision\.json$/, "render-program") : path2.replace(/render-program$/, "revision.json");
+          if (!(sibling in bindings)) throw new Error("\u5386\u53F2\u4FEE\u8BA2\u7684\u7A0B\u5E8F\u4E0E\u5143\u6570\u636E\u7ED1\u5B9A\u4E0D\u5B8C\u6574\u3002");
+        }
+      }
+      if (key === "candidate") {
+        const bindings = item.bindings;
+        const entries2 = Object.entries(bindings ?? {});
+        const roles2 = entries2.map(([path2, digest4]) => {
+          if (["candidate", "checkpoint", "dependencies"].includes(path2) && digest4 === null) return path2;
+          if (/^\.narracut\/candidate-[0-9a-f-]{36}\/(candidate|checkpoint|dependencies)$/.test(path2) && digest4 !== null) return path2.split("/").at(-1);
+          throw new Error("\u5019\u9009\u3001\u6062\u590D\u68C0\u67E5\u70B9\u6216\u4F9D\u8D56\u57FA\u7EBF\u65E0\u6548\u3002");
+        });
+        if (entries2.length !== 3 || new Set(roles2).size !== 3 || item.fingerprint === null && entries2.some(([, digest4]) => digest4 !== null)) throw new Error("\u5019\u9009\u3001\u6062\u590D\u68C0\u67E5\u70B9\u4E0E\u4F9D\u8D56\u7ED1\u5B9A\u4E0D\u5B8C\u6574\u3002");
+      }
+    }
+  }
+  const encodedLiterals = [...text3.matchAll(/"base64"\s*:\s*"([^"\\]*)"/g)].map((match) => match[1]);
+  if (encodedLiterals.length !== Object.keys(value.payload).length || Object.values(value.payload).some((item) => !encodedLiterals.includes(item.base64))) throw new Error("\u6062\u590D\u8F7D\u8377\u5FC5\u987B\u4F7F\u7528\u672A\u8F6C\u4E49\u7684\u89C4\u8303 Base64 \u5B57\u9762\u91CF\u3002");
+  for (const [key, item] of Object.entries(value.payload)) {
+    const max = key === "dsl" ? 32 * 1024 * 1024 : 2 * 1024 * 1024;
+    if (item.bytes > max || item.base64.length !== 4 * Math.ceil(item.bytes / 3) || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.base64)) throw new Error("\u6062\u590D\u8F7D\u8377\u7F16\u7801\u6216\u957F\u5EA6\u65E0\u6548\u3002");
+    const bytes = Buffer.from(item.base64, "base64");
+    if (bytes.toString("base64") !== item.base64 || bytes.length !== item.bytes || recoveryHash(bytes) !== item.sha256) throw new Error("\u6062\u590D\u8F7D\u8377\u6458\u8981\u65E0\u6548\u3002");
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  }
+  return value;
+}
+var inside = (root, path) => {
+  const rel = relative(root, path);
+  return !rel || rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+};
+var RecoveryExportUncertain = class extends Error {
+  constructor(path, snapshotId, sha256) {
+    super("\u5BFC\u51FA\u5DF2\u8FDB\u5165\u63D0\u4EA4\u9636\u6BB5\uFF0C\u6B63\u5728\u6838\u5BF9\u6301\u4E45\u7ED3\u679C\u3002");
+    this.path = path;
+    this.snapshotId = snapshotId;
+    this.sha256 = sha256;
+  }
+  path;
+  snapshotId;
+  sha256;
+};
+var RecoveryExports = class {
+  #operations = /* @__PURE__ */ new Map();
+  async run(cut, target, operationId, rootIdentity) {
+    external_exports.uuid().parse(operationId);
+    const previous = this.#operations.get(operationId);
+    if (previous) {
+      if (previous.target !== target || previous.cutId !== cut.recoveryCutId) throw new Error("\u5BFC\u51FA\u64CD\u4F5C ID \u4E0E\u76EE\u6807\u4E0D\u5339\u914D\u3002");
+      return previous.result;
+    }
+    const result = this.#publish(structuredClone(cut), target, rootIdentity);
+    this.#operations.set(operationId, { target, cutId: cut.recoveryCutId, result });
+    return result;
+  }
+  async status(operationId) {
+    const operation = this.#operations.get(operationId);
+    if (!operation) throw new Error("\u5C1A\u672A\u6536\u5230\u8BE5\u5BFC\u51FA\u8BF7\u6C42\uFF1B\u53EF\u4EE5\u91CD\u8BD5\u539F\u64CD\u4F5C\u3002");
+    try {
+      return await operation.result;
+    } catch (error51) {
+      if (!(error51 instanceof RecoveryExportUncertain)) throw error51;
       try {
-        return { ...(await verifyRevision(project, ref.revisionId)).metadata, current: ref.revisionId === pointer.revisionId, valid: true, error: null };
+        const value = validateRecovery((await regular(error51.path, 52 * 1024 * 1024)).toString("utf8"));
+        if (value.snapshotId !== error51.snapshotId || value.sha256 !== error51.sha256) throw error51;
+        await syncDirectory(dirname5(error51.path));
+        return { path: error51.path, snapshotId: error51.snapshotId };
+      } catch (cause) {
+        if (cause.code === "ENOENT") throw new Error("\u5BFC\u51FA\u6587\u4EF6\u4E0D\u5B58\u5728\uFF0C\u672A\u786E\u8BA4\u4FDD\u5B58\uFF1B\u8BF7\u91CD\u65B0\u5BFC\u51FA\u3002");
+        throw error51;
+      }
+    }
+  }
+  async #publish(cut, target, rootIdentity) {
+    if (!isAbsolute(target) || !target.endsWith(".narracut-recovery.json")) throw new Error("\u8BF7\u9009\u62E9\u9879\u76EE\u5916\u7684\u65B0 .narracut-recovery.json \u6587\u4EF6\u3002");
+    const parent = await realpath2(dirname5(target));
+    const source = await realpath2(cut.sourcePath).catch(() => cut.sourcePath);
+    if (inside(cut.sourcePath, parent) || inside(source, parent)) throw new Error("\u6062\u590D\u5FEB\u7167\u5FC5\u987B\u4F4D\u4E8E\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002");
+    if (rootIdentity) {
+      for (let ancestor = parent; ; ancestor = dirname5(ancestor)) {
+        const facts = await lstat3(ancestor);
+        if (facts.dev === rootIdentity.dev && facts.ino === rootIdentity.ino) throw new Error("\u6062\u590D\u5FEB\u7167\u4E0D\u80FD\u5199\u5165\u5DF2\u79FB\u52A8\u7684\u539F\u9879\u76EE\u76EE\u5F55\u3002");
+        if (dirname5(ancestor) === ancestor) break;
+      }
+    }
+    const parentHandle = await open2(parent, "r");
+    const parentFacts = await parentHandle.stat();
+    const anchored = process.platform === "win32" ? parent : `/dev/fd/${parentHandle.fd}`;
+    const publishedPath = join6(parent, basename(target));
+    const path = join6(anchored, basename(target));
+    const verifyParent = async () => {
+      const current = await lstat3(parent);
+      if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== parentFacts.dev || current.ino !== parentFacts.ino) throw new Error("\u5BFC\u51FA\u76EE\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u9009\u62E9\u7A33\u5B9A\u7684\u76EE\u5F55\u540E\u91CD\u8BD5\u3002");
+    };
+    try {
+      await verifyParent();
+      try {
+        await lstat3(path);
+        throw new Error("\u76EE\u6807\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u6587\u4EF6\u3002");
       } catch (error51) {
-        return { revisionId: ref.revisionId, current: ref.revisionId === pointer.revisionId, valid: false, error: error51.message, requestId: ref.requestId ?? (ref.revisionId === pointer.revisionId ? pointer.consumed?.requestId : void 0), summary: "\u5DF2\u63A5\u53D7\u4FEE\u8BA2 \xB7 \u5B8C\u6574\u6027\u5931\u8D25" };
+        if (error51.code !== "ENOENT") throw error51;
       }
-    }));
-    const pendingPaths = [...pointer.consumed ? ["candidate", "checkpoint"].map((name) => join5(project, pointer.consumed.generation, name)) : [], ...(pointer.pruned ?? []).map((id) => join5(internal, "revisions", id))];
-    const taskCleanupPending = !!await endedTaskReason(project);
-    const cleanupPending = taskCleanupPending || (await Promise.all(pendingPaths.map((path) => lstat2(path).then(() => true, (error51) => error51.code !== "ENOENT")))).some(Boolean);
-    return { current: pointer.revisionId, limit: 20, revisions, cleanupPending, taskCleanupPending };
-  }
-  async function cleanup() {
-    await assertWritable();
-    const pointer = await readCurrentPointer(project);
-    try {
-      await syncDirectory(internal);
-      await cleanupEndedTask(project);
-      if (pointer.consumed) {
-        const path = join5(internal, "candidate.json");
-        let bytes;
+      const temporary = join6(anchored, `.recovery-${randomUUID4()}.tmp`);
+      const bytes = envelope(cut), verified = validateRecovery(bytes);
+      let publishing = false;
+      try {
+        const handle = await open2(temporary, "wx", 384);
         try {
-          bytes = await regular(path, 4194304);
-        } catch (error51) {
-          if (error51.code !== "ENOENT") throw error51;
+          await handle.writeFile(bytes);
+          await handle.chmod(384);
+          await handle.sync();
+        } finally {
+          await handle.close();
         }
-        if (bytes && hash3(bytes) === pointer.consumed.pointer) {
-          const state = JSON.parse(bytes.toString());
-          const temp = join5(internal, `consumed-${randomUUID3()}.json`);
-          try {
-            await writeBytes(temp, Buffer.from(JSON.stringify({ ...state, candidate: null, checkpoint: null })));
-            await assertWritable();
-            if (!bytes.equals(await regular(path, 4194304))) throw new Error("\u6E05\u7406\u671F\u95F4\u5019\u9009\u6307\u9488\u53D8\u5316");
-            await rename2(temp, path);
-            await syncDirectory(internal);
-          } finally {
-            await rm4(temp, { force: true });
-          }
-        }
-        let exists = true;
-        try {
-          await directory(join5(project, pointer.consumed.generation));
-        } catch (error51) {
-          if (error51.code === "ENOENT") exists = false;
-          else throw error51;
-        }
-        if (exists) for (const name of ["candidate", "checkpoint"]) await rm4(join5(project, pointer.consumed.generation, name), { recursive: true, force: true });
+        validateRecovery((await regular(temporary, 52 * 1024 * 1024)).toString("utf8"));
+        await verifyParent();
+        publishing = true;
+        await link(temporary, path);
+        await rm5(temporary);
+        await parentHandle.sync();
+        const persisted = validateRecovery((await regular(path, 52 * 1024 * 1024)).toString("utf8"));
+        if (persisted.snapshotId !== verified.snapshotId || persisted.sha256 !== verified.sha256) throw new Error("\u5BFC\u51FA\u7ED3\u679C\u5C1A\u4E0D\u80FD\u786E\u8BA4\uFF1B\u8BF7\u4FDD\u7559\u76EE\u6807\u6587\u4EF6\u3002");
+        return { path: publishedPath, snapshotId: persisted.snapshotId };
+      } catch (error51) {
+        if (error51.code === "EEXIST") throw new Error("\u76EE\u6807\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u6587\u4EF6\u3002");
+        if (publishing) throw new RecoveryExportUncertain(publishedPath, verified.snapshotId, verified.sha256);
+        throw error51;
+      } finally {
+        await rm5(temporary, { force: true }).catch(() => void 0);
       }
-      await directory(join5(internal, "revisions"));
-      for (const id of pointer.pruned ?? []) {
-        if (pointer.history?.some((item) => item.revisionId === id)) throw new Error("\u4E0D\u80FD\u5220\u9664\u4FDD\u7559\u4FEE\u8BA2");
-        await rm4(join5(internal, "revisions", id), { recursive: true, force: true });
-      }
-      return { cleanupPending: false };
-    } catch (error51) {
-      return { cleanupPending: true, cleanupError: error51.message };
-    }
-  }
-  async function accept(request2, tree, raw, state, validate) {
-    if ((await cleanup()).cleanupPending) throw new CandidateError("ACCEPTANCE_CLEANUP_PENDING", "\u8BF7\u5148\u91CD\u8BD5\u4E0A\u6B21\u63A5\u53D7\u7684\u6E05\u7406\u3002");
-    const beforeBytes = await regular(join5(internal, "current.json"), 16384), before = await readCurrentPointer(project);
-    const previous = await verifyRevision(project, before.revisionId);
-    const id = randomUUID3(), requestId = request2.requestId ?? randomUUID3();
-    const record3 = request2.acceptance;
-    const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: state.sourceRevision, acceptedAt: (/* @__PURE__ */ new Date()).toISOString(), programFingerprint: identity(tree), briefFingerprint: record3.identity?.brief, inputFingerprint: record3.identity?.input, summary: request2.summary, source: request2.source, acceptance: request2.acceptance, requestId });
-    const root = join5(internal, "revisions", id), temporary = join5(internal, `accept-${id}.json`);
-    let committed = false;
-    try {
-      await assertWritable();
-      await mkdir4(root);
-      await writeTree(join5(root, "render-program"), tree);
-      const bytes = Buffer.from(JSON.stringify(revision));
-      if (bytes.length > 1048576) throw new Error("\u7CBE\u7B80\u9A8C\u6536\u8BB0\u5F55\u8D85\u8FC7 1 MiB");
-      await writeBytes(join5(root, "revision.json"), bytes);
-      await syncDirectory(root);
-      await syncDirectory(join5(internal, "revisions"));
-      if (identity(await readTree(join5(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u53D1\u5E03\u4FEE\u8BA2\u6821\u9A8C\u5931\u8D25");
-      const all = [{ revisionId: id, metadata: hash3(bytes), program: revision.programFingerprint, requestId }, ...before.history ?? [previous.ref]];
-      const taskCheckpoint = await taskCheckpointFingerprint(project);
-      const next = pointerSchema.parse({ revisionId: id, history: all.slice(0, 20), pruned: all.slice(20).map((item) => item.revisionId), consumed: { pointer: hash3(raw), generation: state.candidate.path.replace(/\/candidate$/, ""), requestId, taskCheckpoint } });
-      await writeBytes(temporary, Buffer.from(JSON.stringify(next)));
-      await validate();
-      await assertWritable();
-      if (!beforeBytes.equals(await regular(join5(internal, "current.json"), 16384))) throw new Error("\u5F53\u524D\u6307\u9488\u5728\u63D0\u4EA4\u524D\u53D1\u751F\u53D8\u5316");
-      await verifyRevision(project, before.revisionId);
-      if (!(await regular(join5(root, "revision.json"), 1048576)).equals(bytes) || identity(await readTree(join5(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u63D0\u4EA4\u4FEE\u8BA2\u5728\u590D\u6838\u671F\u95F4\u88AB\u6539\u5199");
-      await rename2(temporary, join5(internal, "current.json"));
-      committed = true;
-      const sync = await syncDirectory(internal).then(() => ({}), () => ({ cleanupPending: true, cleanupError: "\u5F53\u524D\u6307\u9488\u5DF2\u63D0\u4EA4\uFF0C\u76EE\u5F55\u540C\u6B65\u5F85\u91CD\u8BD5" }));
-      return { status: "accepted", revision, ...await cleanup(), ...sync };
-    } catch (error51) {
-      if (committed) return { status: "accepted", revision, cleanupPending: true, cleanupError: error51.message };
-      throw new CandidateError("ACCEPTANCE_NOT_COMMITTED", `\u672A\u63A5\u53D7\uFF0C\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5019\u9009\u5DF2\u4FDD\u7559\u3002${error51.message}`);
     } finally {
-      await rm4(temporary, { force: true }).catch(() => void 0);
-      if (!committed) await rm4(root, { recursive: true, force: true }).catch(() => void 0);
+      await parentHandle.close();
     }
   }
-  return { history, cleanup, accept, verify: (id) => verifyRevision(project, id) };
-}
-async function taskCheckpointFingerprint(project) {
-  try {
-    return hash3(await regular(join5(project, ".narracut/agent-task.json"), 2e7));
-  } catch (error51) {
-    if (error51.code === "ENOENT") return void 0;
-    throw error51;
-  }
-}
-async function endedTaskReason(project) {
-  const fingerprint2 = await taskCheckpointFingerprint(project);
-  if (!fingerprint2) return null;
-  if ((await readCurrentPointer(project)).consumed?.taskCheckpoint === fingerprint2) return "CANDIDATE_ACCEPTED";
-  try {
-    const candidate = JSON.parse((await regular(join5(project, ".narracut/candidate.json"), 4194304)).toString());
-    if (candidate.candidate === null && candidate.checkpoint === null && candidate.taskCheckpoint === fingerprint2) return "CANDIDATE_ABANDONED";
-  } catch (error51) {
-    if (error51.code !== "ENOENT") throw error51;
-  }
-  return null;
-}
-async function cleanupEndedTask(project) {
-  if (await endedTaskReason(project)) await rm4(join5(project, ".narracut/agent-task.json"), { force: true });
-}
+};
 
 // src/server/project-identity.ts
-import { randomUUID as randomUUID4 } from "node:crypto";
-import { join as join6 } from "node:path";
-import { rename as rename3, rm as rm5 } from "node:fs/promises";
+import { randomUUID as randomUUID5 } from "node:crypto";
+import { join as join7 } from "node:path";
+import { rename as rename3, rm as rm6 } from "node:fs/promises";
 var markerName = "identity-transition.json";
 function copiedTask(bytes, oldId, newId, detached = false) {
   const task = JSON.parse(bytes.toString());
   if (task.projectId !== oldId || typeof task.taskId !== "string") throw new Error("\u4EFB\u52A1\u68C0\u67E5\u70B9\u9879\u76EE\u8EAB\u4EFD\u65E0\u6548\u3002");
   if (task.status === "terminated") return null;
   if (!["running", "waiting", "stopped"].includes(task.status) || !detached && task.status !== "stopped") throw new Error("\u6765\u6E90\u4EFB\u52A1\u5C1A\u672A\u5B89\u5168\u505C\u6B62\u3002");
-  return Buffer.from(JSON.stringify({ ...task, projectId: newId, taskId: randomUUID4(), status: "stopped", reason: "PROJECT_COPIED", threadPointer: null, inputIdentity: null, toolApproval: null, pendingMessage: null, ...task.waitingReason === "TOOL_APPROVAL_REQUIRED" || task.reason === "TOOL_APPROVAL_REQUIRED" ? { waitingReason: null, pending: null } : {} }));
+  return Buffer.from(JSON.stringify({ ...task, projectId: newId, taskId: randomUUID5(), status: "stopped", reason: "PROJECT_COPIED", threadPointer: null, inputIdentity: null, toolApproval: null, pendingMessage: null, ...task.waitingReason === "TOOL_APPROVAL_REQUIRED" || task.reason === "TOOL_APPROVAL_REQUIRED" ? { waitingReason: null, pending: null } : {} }));
 }
 async function optional2(path) {
   try {
@@ -25893,50 +26127,50 @@ async function optional2(path) {
   }
 }
 async function finishIdentityTransition(root, projectId) {
-  const marker = join6(root, ".narracut", markerName);
+  const marker = join7(root, ".narracut", markerName);
   const bytes = await optional2(marker);
   if (!bytes) return;
   const transition = JSON.parse(bytes.toString());
   if (transition.version !== 1 || typeof transition.oldId !== "string" || typeof transition.newId !== "string" || !(transition.task === null || typeof transition.task === "string")) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u8BB0\u5F55\u635F\u574F\u3002");
   if (projectId === transition.newId) {
-    const path = join6(root, ".narracut", "agent-task.json");
-    if (transition.task === null) await rm5(path, { force: true });
+    const path = join7(root, ".narracut", "agent-task.json");
+    if (transition.task === null) await rm6(path, { force: true });
     else {
       const task = JSON.parse(transition.task);
       if (task.projectId !== projectId || task.status !== "stopped" || task.threadPointer !== null) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u4EFB\u52A1\u8BB0\u5F55\u65E0\u6548\u3002");
-      const temporary = join6(root, ".narracut", `.task-${randomUUID4()}`);
+      const temporary = join7(root, ".narracut", `.task-${randomUUID5()}`);
       await writeBytes(temporary, Buffer.from(transition.task));
       await rename3(temporary, path);
     }
-    await syncDirectory(join6(root, ".narracut"));
+    await syncDirectory(join7(root, ".narracut"));
   } else if (projectId !== transition.oldId) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u8BB0\u5F55\u4E0E\u9879\u76EE\u4E0D\u5339\u914D\u3002");
-  await rm5(marker);
+  await rm6(marker);
 }
 async function changeProjectIdentity(root, oldId, assertWritable) {
-  const newId = randomUUID4(), internal = join6(root, ".narracut");
-  const checkpoint = await optional2(join6(internal, "agent-task.json"));
+  const newId = randomUUID5(), internal = join7(root, ".narracut");
+  const checkpoint = await optional2(join7(internal, "agent-task.json"));
   const task = checkpoint && !await endedTaskReason(root) ? copiedTask(checkpoint, oldId, newId, true)?.toString() ?? null : null;
-  const marker = join6(internal, markerName);
+  const marker = join7(internal, markerName);
   await writeBytes(marker, Buffer.from(JSON.stringify({ version: 1, oldId, newId, task })));
   await syncDirectory(internal);
-  const temporary = join6(root, `.narracut.json.${randomUUID4()}.tmp`);
+  const temporary = join7(root, `.narracut.json.${randomUUID5()}.tmp`);
   try {
     await writeBytes(temporary, Buffer.from(JSON.stringify({ kind: "narracut-project", formatVersion: 1, projectId: newId })));
     await assertWritable();
-    await rename3(temporary, join6(root, "narracut.json"));
+    await rename3(temporary, join7(root, "narracut.json"));
     await syncDirectory(root);
     await finishIdentityTransition(root, newId);
     return newId;
   } finally {
-    await rm5(temporary, { force: true });
+    await rm6(temporary, { force: true });
   }
 }
 
 // src/server/project-copy.ts
-import { createHash as createHash10 } from "node:crypto";
+import { createHash as createHash11 } from "node:crypto";
 import { constants as constants2 } from "node:fs";
-import { lstat as lstat6, mkdir as mkdir6, open as open4, readdir as readdir6, readFile as readFile6, rm as rm8, realpath as realpath4 } from "node:fs/promises";
-import { join as join10, relative as relative3, resolve as resolve4, sep as sep3, dirname as dirname7, basename as basename2 } from "node:path";
+import { lstat as lstat7, mkdir as mkdir6, open as open5, readdir as readdir6, readFile as readFile6, rm as rm9, realpath as realpath5 } from "node:fs/promises";
+import { join as join11, relative as relative4, resolve as resolve4, sep as sep4, dirname as dirname8, basename as basename3 } from "node:path";
 
 // src/server/project-lease-handoff.ts
 import { createServer, request } from "node:http";
@@ -25979,36 +26213,36 @@ async function requestProjectHandoff(port, token) {
 }
 
 // src/server/project-lifecycle.ts
-import { createHash as createHash9, randomUUID as randomUUID6 } from "node:crypto";
+import { createHash as createHash10, randomUUID as randomUUID7 } from "node:crypto";
 import { constants as fsConstants2 } from "node:fs";
 import {
   access,
-  link,
-  lstat as lstat5,
+  link as link2,
+  lstat as lstat6,
   mkdir as mkdir5,
   open as openFile,
   readFile as readFile5,
   readdir as readdir5,
-  realpath as realpath3,
+  realpath as realpath4,
   rename as rename5,
   rmdir,
-  rm as rm7,
+  rm as rm8,
   unlink,
   writeFile as writeFile3
 } from "node:fs/promises";
-import { basename, dirname as dirname6, isAbsolute as isAbsolute2, join as join9, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
+import { basename as basename2, dirname as dirname7, isAbsolute as isAbsolute3, join as join10, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
 
 // src/server/project-vnext-inspection.ts
-import { createHash as createHash8 } from "node:crypto";
-import { lstat as lstat4, open as open3, readdir as readdir4, realpath as realpath2 } from "node:fs/promises";
-import { isAbsolute, join as join8, relative, resolve as resolve2, sep } from "node:path";
+import { createHash as createHash9 } from "node:crypto";
+import { lstat as lstat5, open as open4, readdir as readdir4, realpath as realpath3 } from "node:fs/promises";
+import { isAbsolute as isAbsolute2, join as join9, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
 
 // src/server/project-speech-vnext.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash7, randomUUID as randomUUID5 } from "node:crypto";
+import { createHash as createHash8, randomUUID as randomUUID6 } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { lstat as lstat3, open as open2, readFile as readFile4, rename as rename4, rm as rm6 } from "node:fs/promises";
-import { dirname as dirname5, join as join7 } from "node:path";
+import { lstat as lstat4, open as open3, readFile as readFile4, rename as rename4, rm as rm7 } from "node:fs/promises";
+import { dirname as dirname6, join as join8 } from "node:path";
 import { promisify as promisify3 } from "node:util";
 var execFileAsync = promisify3(execFile3);
 var DRAFT_DURATION_MS = 5e3;
@@ -26080,13 +26314,13 @@ function ttsProfileId(config2) {
     pitch: config2.pitch,
     audio: TTS_CAPABILITIES.audio
   });
-  return `sha256:${createHash7("sha256").update(stable, "utf8").digest("hex")}`;
+  return `sha256:${createHash8("sha256").update(stable, "utf8").digest("hex")}`;
 }
 async function readProjectTtsConfig(projectDirectory) {
-  const path = join7(projectDirectory, "tts.json");
+  const path = join8(projectDirectory, "tts.json");
   let bytes;
   try {
-    const facts = await lstat3(path);
+    const facts = await lstat4(path);
     if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 16 * 1024) {
       throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u5C0F\u4E8E 16 KiB \u7684\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002", path);
     }
@@ -26124,11 +26358,11 @@ async function readProjectTtsConfig(projectDirectory) {
 }
 async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
   const config2 = validateProjectTtsConfig(input);
-  const path = join7(projectDirectory, "tts.json");
-  const temporaryPath = join7(projectDirectory, `.tts.json.${randomUUID5()}.tmp`);
+  const path = join8(projectDirectory, "tts.json");
+  const temporaryPath = join8(projectDirectory, `.tts.json.${randomUUID6()}.tmp`);
   let committed = false;
   try {
-    const handle = await open2(temporaryPath, "wx", 384);
+    const handle = await open3(temporaryPath, "wx", 384);
     try {
       await handle.writeFile(Buffer.from(JSON.stringify(config2), "utf8"));
       await handle.sync();
@@ -26139,7 +26373,7 @@ async function writeProjectTtsConfig(projectDirectory, input, assertWritable = a
     await rename4(temporaryPath, path);
     committed = true;
     try {
-      const directory2 = await open2(dirname5(path), "r");
+      const directory2 = await open3(dirname6(path), "r");
       try {
         await directory2.sync();
       } finally {
@@ -26148,7 +26382,7 @@ async function writeProjectTtsConfig(projectDirectory, input, assertWritable = a
     } catch {
     }
   } finally {
-    if (!committed) await rm6(temporaryPath, { force: true }).catch(() => void 0);
+    if (!committed) await rm7(temporaryPath, { force: true }).catch(() => void 0);
   }
   return { status: "configured", config: config2, profileId: ttsProfileId(config2) };
 }
@@ -26188,9 +26422,9 @@ async function probeSpeechDurationMs(path) {
   return Math.round(duration3 * 1e3);
 }
 async function speechContentHash(path) {
-  const handle = await open2(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  const handle = await open3(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
   try {
-    const hash4 = createHash7("sha256");
+    const hash4 = createHash8("sha256");
     const chunk = Buffer.allocUnsafe(64 * 1024);
     let position = 0;
     while (true) {
@@ -26215,7 +26449,7 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
       durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
       continue;
     }
-    const currentSourceTextHash = `sha256:${createHash7("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
+    const currentSourceTextHash = `sha256:${createHash8("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
     if (speech.sourceTextHash !== currentSourceTextHash) {
       states.push({
         sceneId: scene.id,
@@ -26236,10 +26470,10 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
       durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
       continue;
     }
-    const absolutePath = join7(projectDirectory, speech.path);
+    const absolutePath = join8(projectDirectory, speech.path);
     let before;
     try {
-      before = await lstat3(absolutePath);
+      before = await lstat4(absolutePath);
       if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) throw new Error("not ordinary");
     } catch {
       states.push({
@@ -26280,7 +26514,7 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
     }
     let after;
     try {
-      after = await lstat3(absolutePath);
+      after = await lstat4(absolutePath);
     } catch {
       after = void 0;
     }
@@ -26636,7 +26870,7 @@ function validateProjectDsl(value) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.durationMs`, "durationMs \u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002"));
         }
         const narrationText = isRecord2(scene.narration) && typeof scene.narration.text === "string" ? scene.narration.text : void 0;
-        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash8("sha256").update(narrationText, "utf8").digest("hex")}`;
+        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash9("sha256").update(narrationText, "utf8").digest("hex")}`;
         if (typeof scene.speech.sourceTextHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.sourceTextHash) || expectedHash !== void 0 && scene.speech.sourceTextHash !== expectedHash) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SPEECH_MISMATCH", `${path}.speech.sourceTextHash`, "sourceTextHash \u5FC5\u987B\u5339\u914D\u5F53\u524D Narration \u7684\u539F\u59CB UTF-8 \u5B57\u8282\u3002"));
         }
@@ -26706,12 +26940,12 @@ function validateProjectVNextForSave(value, projectPath = "project.json") {
   }), "utf8");
   return { project, bytes };
 }
-function decodeUtf8(bytes, path, component, allowBom) {
+function decodeUtf8(bytes, path, component2, allowBom) {
   if (!allowBom && bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) {
     throw invalidControlFile(path, {
       code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
-      component,
-      message: `${component} \u4E0D\u5F97\u5305\u542B UTF-8 BOM\uFF1B\u8BF7\u79FB\u9664 BOM \u540E\u91CD\u8BD5\u3002`
+      component: component2,
+      message: `${component2} \u4E0D\u5F97\u5305\u542B UTF-8 BOM\uFF1B\u8BF7\u79FB\u9664 BOM \u540E\u91CD\u8BD5\u3002`
     });
   }
   try {
@@ -26719,8 +26953,8 @@ function decodeUtf8(bytes, path, component, allowBom) {
   } catch (cause) {
     throw invalidControlFile(path, {
       code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
-      component,
-      message: `${component} \u4E0D\u662F\u4E25\u683C UTF-8\uFF1B\u8BF7\u4EE5 UTF-8 \u91CD\u65B0\u4FDD\u5B58\u540E\u91CD\u8BD5\u3002`
+      component: component2,
+      message: `${component2} \u4E0D\u662F\u4E25\u683C UTF-8\uFF1B\u8BF7\u4EE5 UTF-8 \u91CD\u65B0\u4FDD\u5B58\u540E\u91CD\u8BD5\u3002`
     }, { cause });
   }
 }
@@ -26743,14 +26977,14 @@ var PROJECT_JSON_LIMITS = {
   maxStringBytes: 256 * 1024,
   maxNumberBytes: 64
 };
-function parseControlJson(input, path, component, limits2) {
+function parseControlJson(input, path, component2, limits2) {
   try {
     return parseStrictJson(input, limits2);
   } catch (cause) {
     if (!(cause instanceof StrictJsonFailure)) throw cause;
     throw invalidControlFile(path, {
       code: cause.code,
-      component,
+      component: component2,
       message: cause.message,
       jsonPath: cause.jsonPath,
       ...cause.metric === void 0 ? {} : { metric: cause.metric },
@@ -26759,30 +26993,30 @@ function parseControlJson(input, path, component, limits2) {
     }, { cause });
   }
 }
-async function readBoundedControlFile(path, component, limit) {
-  const pathFacts = await lstat4(path);
+async function readBoundedControlFile(path, component2, limit) {
+  const pathFacts = await lstat5(path);
   if (!pathFacts.isFile() || pathFacts.isSymbolicLink() || pathFacts.nlink !== 1) {
     throw invalidControlFile(path, {
       code: "PROJECT_REQUIRED_CONTENT_INVALID",
-      component,
-      message: `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
+      component: component2,
+      message: `${component2} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
     });
   }
-  const handle = await open3(path, "r");
+  const handle = await open4(path, "r");
   try {
     const facts = await handle.stat();
     if (!facts.isFile() || facts.dev !== pathFacts.dev || facts.ino !== pathFacts.ino) {
       throw invalidControlFile(path, {
         code: "PROJECT_REQUIRED_CONTENT_INVALID",
-        component,
-        message: `${component} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
+        component: component2,
+        message: `${component2} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
       });
     }
     if (facts.size > limit) {
       throw invalidControlFile(path, {
         code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-        component,
-        message: `${component} \u4E3A ${facts.size} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
+        component: component2,
+        message: `${component2} \u4E3A ${facts.size} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
         metric: "bytes",
         actual: facts.size,
         limit
@@ -26798,8 +27032,8 @@ async function readBoundedControlFile(path, component, limit) {
     if (total > limit) {
       throw invalidControlFile(path, {
         code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-        component,
-        message: `${component} \u5728\u8BFB\u53D6\u671F\u95F4\u8D85\u8FC7 ${limit} \u5B57\u8282\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u5E76\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
+        component: component2,
+        message: `${component2} \u5728\u8BFB\u53D6\u671F\u95F4\u8D85\u8FC7 ${limit} \u5B57\u8282\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u5E76\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`,
         metric: "bytes",
         actual: total,
         limit
@@ -26812,22 +27046,22 @@ async function readBoundedControlFile(path, component, limit) {
 }
 async function readProjectVNextRevision(projectPath) {
   const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
-  return `sha256:${createHash8("sha256").update(bytes).digest("hex")}`;
+  return `sha256:${createHash9("sha256").update(bytes).digest("hex")}`;
 }
 async function readVideoBriefVNext(videoBriefPath) {
   const buffer = await readBoundedControlFile(videoBriefPath, "video.md", 2 * 1024 * 1024);
   return {
     content: decodeUtf8(buffer, videoBriefPath, "video.md", true),
-    revision: `sha256:${createHash8("sha256").update(buffer).digest("hex")}`,
+    revision: `sha256:${createHash9("sha256").update(buffer).digest("hex")}`,
     bytes: buffer.length
   };
 }
 async function requireDirectory(path) {
-  const facts = await lstat4(path);
+  const facts = await lstat5(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
 }
 async function requireFile(path) {
-  const facts = await lstat4(path);
+  const facts = await lstat5(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1) {
     throw new Error(`\u5FC5\u9700\u6587\u4EF6\u65E0\u6548\uFF1A${path}`);
   }
@@ -26835,29 +27069,29 @@ async function requireFile(path) {
 function isFileSystemError(error51) {
   return error51 instanceof Error && "code" in error51;
 }
-function missingContent(path, component) {
+function missingContent(path, component2) {
   return invalidContent(path, [{
     code: "PROJECT_REQUIRED_CONTENT_MISSING",
-    component,
-    message: `\u7F3A\u5C11\u5FC5\u9700\u7684 ${component}\uFF1B\u8BF7\u6062\u590D\u5B8C\u6574 Project VNext \u5185\u5BB9\u540E\u91CD\u8BD5\u3002`
+    component: component2,
+    message: `\u7F3A\u5C11\u5FC5\u9700\u7684 ${component2}\uFF1B\u8BF7\u6062\u590D\u5B8C\u6574 Project VNext \u5185\u5BB9\u540E\u91CD\u8BD5\u3002`
   }]);
 }
-function invalidResource(path, component, message) {
-  return invalidContent(path, [{ code: "PROJECT_RESOURCE_INVALID", component, message }]);
+function invalidResource(path, component2, message) {
+  return invalidContent(path, [{ code: "PROJECT_RESOURCE_INVALID", component: component2, message }]);
 }
 async function validateOrdinaryResource(projectDirectory, relativePath, required2) {
   const parts = relativePath.split("/");
   const directoryIdentities = [];
   for (let index = 0; index < parts.length; index += 1) {
-    const component = parts.slice(0, index + 1).join("/");
-    const path = join8(projectDirectory, component);
+    const component2 = parts.slice(0, index + 1).join("/");
+    const path = join9(projectDirectory, component2);
     let facts;
     try {
-      facts = await lstat4(path);
+      facts = await lstat5(path);
     } catch (cause) {
       if (isFileSystemError(cause) && cause.code === "ENOENT" && !required2) return;
       if (isFileSystemError(cause) && cause.code === "ENOENT") {
-        throw missingContent(path, component);
+        throw missingContent(path, component2);
       }
       throw new ProjectInspectionError(
         "PROJECT_PATH_UNAVAILABLE",
@@ -26871,8 +27105,8 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
     if (!isLeaf && (!facts.isDirectory() || facts.isSymbolicLink())) {
       throw invalidResource(
         path,
-        component,
-        `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u7684\u666E\u901A\u76EE\u5F55\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u3002`
+        component2,
+        `${component2} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u7684\u666E\u901A\u76EE\u5F55\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u3002`
       );
     }
     if (!isLeaf) directoryIdentities.push({ path, dev: facts.dev, ino: facts.ino });
@@ -26884,11 +27118,11 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
       );
     }
   }
-  const resourcePath = join8(projectDirectory, relativePath);
-  const allowedRoot = await realpath2(join8(projectDirectory, parts[0]));
-  const resolvedResource = await realpath2(resourcePath);
-  const relation = relative(allowedRoot, resolvedResource);
-  if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+  const resourcePath = join9(projectDirectory, relativePath);
+  const allowedRoot = await realpath3(join9(projectDirectory, parts[0]));
+  const resolvedResource = await realpath3(resourcePath);
+  const relation = relative2(allowedRoot, resolvedResource);
+  if (relation === ".." || relation.startsWith(`..${sep2}`) || isAbsolute2(relation)) {
     throw invalidResource(
       resourcePath,
       relativePath,
@@ -26896,12 +27130,12 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
     );
   }
   for (const identity2 of directoryIdentities) {
-    const current = await lstat4(identity2.path);
+    const current = await lstat5(identity2.path);
     if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity2.dev || current.ino !== identity2.ino) {
       throw invalidResource(
         identity2.path,
-        relative(projectDirectory, identity2.path),
-        `${relative(projectDirectory, identity2.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
+        relative2(projectDirectory, identity2.path),
+        `${relative2(projectDirectory, identity2.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
       );
     }
   }
@@ -26909,11 +27143,11 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
 async function validateProjectVNextResources(projectDirectory, project, options = {}) {
   const assetStates = [];
   for (const asset of project.assets) {
-    const path = join8(projectDirectory, asset.path);
+    const path = join9(projectDirectory, asset.path);
     await validateOrdinaryResource(projectDirectory, asset.path, false);
     let facts;
     try {
-      facts = await lstat4(path);
+      facts = await lstat5(path);
     } catch (cause) {
       assetStates.push({
         id: asset.id,
@@ -26924,7 +27158,7 @@ async function validateProjectVNextResources(projectDirectory, project, options 
       continue;
     }
     try {
-      const handle = await open3(path, "r");
+      const handle = await open4(path, "r");
       await handle.close();
       assetStates.push({
         id: asset.id,
@@ -26983,14 +27217,14 @@ async function readStableDirectory(directory2) {
 var MAX_DIRECTORY_TREE_DEPTH = 32;
 var MAX_DIRECTORY_TREE_DIRECTORIES = 4096;
 function directoryTreeLimit(projectDirectory, path, metric, actual, limit) {
-  const component = relative(projectDirectory, path) || ".";
+  const component2 = relative2(projectDirectory, path) || ".";
   return invalidControlFile(path, {
     code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
-    component,
+    component: component2,
     metric,
     actual,
     limit,
-    message: `${component} \u7684${metric === "directoryDepth" ? "\u76EE\u5F55\u6DF1\u5EA6" : "\u5DF2\u68C0\u67E5\u76EE\u5F55\u6570"}\u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7CBE\u7B80\u9879\u76EE\u5185\u90E8\u6811\u540E\u91CD\u8BD5\u3002`
+    message: `${component2} \u7684${metric === "directoryDepth" ? "\u76EE\u5F55\u6DF1\u5EA6" : "\u5DF2\u68C0\u67E5\u76EE\u5F55\u6570"}\u4E3A ${actual}\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7CBE\u7B80\u9879\u76EE\u5185\u90E8\u6811\u540E\u91CD\u8BD5\u3002`
   });
 }
 async function discoverRenderProgramDirectories(projectDirectory) {
@@ -27019,8 +27253,8 @@ async function discoverRenderProgramDirectories(projectDirectory) {
     for (const entry of [...entries].reverse()) {
       if (directory2 === projectDirectory && excludedRoots.has(entry.name)) continue;
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
-      const path = join8(directory2, entry.name);
-      const facts = await lstat4(path);
+      const path = join9(directory2, entry.name);
+      const facts = await lstat5(path);
       if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
       const childDepth = depth + 1;
       if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
@@ -27037,13 +27271,13 @@ async function discoverRenderProgramDirectories(projectDirectory) {
   return programs;
 }
 async function validateRenderProgramDirectory(projectDirectory, programDirectory) {
-  const projectRoot = await realpath2(projectDirectory);
-  const resolvedProgram = await realpath2(programDirectory);
-  const programRelation = relative(projectRoot, resolvedProgram);
-  if (programRelation === ".." || programRelation.startsWith(`..${sep}`) || isAbsolute(programRelation)) {
+  const projectRoot = await realpath3(projectDirectory);
+  const resolvedProgram = await realpath3(programDirectory);
+  const programRelation = relative2(projectRoot, resolvedProgram);
+  if (programRelation === ".." || programRelation.startsWith(`..${sep2}`) || isAbsolute2(programRelation)) {
     throw invalidResource(
       programDirectory,
-      relative(projectDirectory, programDirectory),
+      relative2(projectDirectory, programDirectory),
       "Render Program \u89E3\u6790\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u7236\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002"
     );
   }
@@ -27056,13 +27290,13 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
     ["resources", "directory"]
   ];
   for (const [entry, kind] of requiredEntries) {
-    const path = join8(programDirectory, ...entry.split("/"));
+    const path = join9(programDirectory, ...entry.split("/"));
     let facts;
     try {
-      facts = await lstat4(path);
+      facts = await lstat5(path);
     } catch (cause) {
       if (isFileSystemError(cause) && cause.code === "ENOENT") {
-        throw missingContent(path, relative(projectDirectory, path));
+        throw missingContent(path, relative2(projectDirectory, path));
       }
       throw new ProjectInspectionError(
         "PROJECT_PATH_UNAVAILABLE",
@@ -27076,8 +27310,8 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
     if (!valid2) {
       throw invalidResource(
         path,
-        relative(projectDirectory, path),
-        `${relative(projectDirectory, path)} \u5FC5\u987B\u662F\u65E0\u94FE\u63A5\u7684\u666E\u901A${kind === "directory" ? "\u76EE\u5F55" : "\u6587\u4EF6"}\u3002`
+        relative2(projectDirectory, path),
+        `${relative2(projectDirectory, path)} \u5FC5\u987B\u662F\u65E0\u94FE\u63A5\u7684\u666E\u901A${kind === "directory" ? "\u76EE\u5F55" : "\u6587\u4EF6"}\u3002`
       );
     }
   }
@@ -27090,14 +27324,14 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
       throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
     }
     for (const entry of [...await readStableDirectory(directory2)].reverse()) {
-      const path = join8(directory2, entry.name);
-      const component = relative(projectDirectory, path);
+      const path = join9(directory2, entry.name);
+      const component2 = relative2(projectDirectory, path);
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
-        throw invalidResource(path, component, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
+        throw invalidResource(path, component2, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
       }
-      const facts = await lstat4(path);
+      const facts = await lstat5(path);
       if (facts.isSymbolicLink()) {
-        throw invalidResource(path, component, `${component} \u662F\u7B26\u53F7\u94FE\u63A5\uFF1BRender Program \u6811\u53EA\u5141\u8BB8\u666E\u901A\u6587\u4EF6\u548C\u76EE\u5F55\u3002`);
+        throw invalidResource(path, component2, `${component2} \u662F\u7B26\u53F7\u94FE\u63A5\uFF1BRender Program \u6811\u53EA\u5141\u8BB8\u666E\u901A\u6587\u4EF6\u548C\u76EE\u5F55\u3002`);
       }
       if (facts.isDirectory()) {
         const childDepth = depth + 1;
@@ -27106,14 +27340,14 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
         }
         stack.push({ directory: path, depth: childDepth });
       } else if (!facts.isFile() || facts.nlink !== 1) {
-        throw invalidResource(path, component, `${component} \u4E0D\u662F\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`);
+        throw invalidResource(path, component2, `${component2} \u4E0D\u662F\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8D44\u6E90\u3002`);
       }
     }
   }
-  if (await realpath2(programDirectory) !== resolvedProgram) {
+  if (await realpath3(programDirectory) !== resolvedProgram) {
     throw invalidResource(
       programDirectory,
-      relative(projectDirectory, programDirectory),
+      relative2(projectDirectory, programDirectory),
       "Render Program \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002"
     );
   }
@@ -27131,7 +27365,7 @@ async function inspectProjectVNext(inputPath, options = {}) {
       { cause }
     );
   }
-  const manifestPath = join8(projectDirectory, "narracut.json");
+  const manifestPath = join9(projectDirectory, "narracut.json");
   let manifestBuffer;
   try {
     manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
@@ -27179,11 +27413,11 @@ async function inspectProjectVNext(inputPath, options = {}) {
   const manifestDiagnostics = validateProjectManifest(manifest);
   if (manifestDiagnostics.length > 0) throw invalidContent(manifestPath, manifestDiagnostics);
   const requiredEntries = [
-    [join8(projectDirectory, "assets"), "assets/", "directory"],
-    [join8(projectDirectory, "speech"), "speech/", "directory"],
-    [join8(projectDirectory, "renders"), "renders/", "directory"]
+    [join9(projectDirectory, "assets"), "assets/", "directory"],
+    [join9(projectDirectory, "speech"), "speech/", "directory"],
+    [join9(projectDirectory, "renders"), "renders/", "directory"]
   ];
-  for (const [path, component, kind] of requiredEntries) {
+  for (const [path, component2, kind] of requiredEntries) {
     try {
       if (kind === "directory") await requireDirectory(path);
       else await requireFile(path);
@@ -27197,7 +27431,7 @@ async function inspectProjectVNext(inputPath, options = {}) {
           { cause }
         );
       }
-      throw missingContent(path, component);
+      throw missingContent(path, component2);
     }
   }
   const renderProgramDirectories = await discoverRenderProgramDirectories(projectDirectory);
@@ -27213,7 +27447,7 @@ async function inspectProjectVNext(inputPath, options = {}) {
   } catch {
   }
   for (const programDirectory of renderProgramDirectories) {
-    const retained = relative(projectDirectory, programDirectory).match(/^\.narracut\/revisions\/([0-9a-f-]{36})\/render-program$/);
+    const retained = relative2(projectDirectory, programDirectory).match(/^\.narracut\/revisions\/([0-9a-f-]{36})\/render-program$/);
     if (currentRevision && retained && retained[1] !== currentRevision) continue;
     await validateRenderProgramDirectory(projectDirectory, programDirectory);
   }
@@ -27222,12 +27456,12 @@ async function inspectProjectVNext(inputPath, options = {}) {
   try {
     [projectBuffer, videoBuffer] = await Promise.all([
       readBoundedControlFile(
-        join8(projectDirectory, "project.json"),
+        join9(projectDirectory, "project.json"),
         "project.json",
         10 * 1024 * 1024
       ),
       readBoundedControlFile(
-        join8(projectDirectory, "video.md"),
+        join9(projectDirectory, "video.md"),
         "video.md",
         2 * 1024 * 1024
       )
@@ -27235,9 +27469,9 @@ async function inspectProjectVNext(inputPath, options = {}) {
   } catch (cause) {
     if (cause instanceof ProjectInspectionError) throw cause;
     const path = isFileSystemError(cause) && typeof cause.path === "string" ? cause.path : projectDirectory;
-    const component = path.startsWith(`${projectDirectory}/`) ? path.slice(projectDirectory.length + 1) : path;
+    const component2 = path.startsWith(`${projectDirectory}/`) ? path.slice(projectDirectory.length + 1) : path;
     if (isFileSystemError(cause) && cause.code === "ENOENT") {
-      throw missingContent(path, component);
+      throw missingContent(path, component2);
     }
     throw new ProjectInspectionError(
       "PROJECT_PATH_UNAVAILABLE",
@@ -27249,17 +27483,17 @@ async function inspectProjectVNext(inputPath, options = {}) {
   }
   const projectBytes = decodeUtf8(
     projectBuffer,
-    join8(projectDirectory, "project.json"),
+    join9(projectDirectory, "project.json"),
     "project.json",
     false
   );
   const videoBytes = decodeUtf8(
     videoBuffer,
-    join8(projectDirectory, "video.md"),
+    join9(projectDirectory, "video.md"),
     "video.md",
     true
   );
-  const projectPath = join8(projectDirectory, "project.json");
+  const projectPath = join9(projectDirectory, "project.json");
   const parsedProject = parseControlJson(
     projectBytes,
     projectPath,
@@ -27296,9 +27530,9 @@ async function inspectProjectVNext(inputPath, options = {}) {
     projectDirectory,
     manifest,
     project: projectValidation.project,
-    projectRevision: `sha256:${createHash8("sha256").update(projectBuffer).digest("hex")}`,
+    projectRevision: `sha256:${createHash9("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
-    videoBriefRevision: `sha256:${createHash8("sha256").update(videoBuffer).digest("hex")}`,
+    videoBriefRevision: `sha256:${createHash9("sha256").update(videoBuffer).digest("hex")}`,
     renderPrograms: { directories: renderProgramDirectories },
     assetStates,
     tts,
@@ -27339,7 +27573,7 @@ function isCreateOperationMarker(value, projectDirectory, operationToken, operat
 }
 async function pathExists(path) {
   try {
-    await lstat5(path);
+    await lstat6(path);
     return true;
   } catch (error51) {
     if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return false;
@@ -27347,7 +27581,7 @@ async function pathExists(path) {
   }
 }
 async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory, confirmed, operation = "create") {
-  const facts = await lstat5(temporaryDirectory);
+  const facts = await lstat6(temporaryDirectory);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -27355,10 +27589,10 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u8DEF\u5F84\u4E0D\u662F\u53EF\u786E\u8BA4\u5F52\u5C5E\u7684\u666E\u901A\u76EE\u5F55\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  const markerPath = join9(temporaryDirectory, OPERATION_MARKER);
+  const markerPath = join10(temporaryDirectory, OPERATION_MARKER);
   let marker;
   try {
-    const markerFacts = await lstat5(markerPath);
+    const markerFacts = await lstat6(markerPath);
     if (!markerFacts.isFile() || markerFacts.isSymbolicLink() || markerFacts.nlink !== 1 || markerFacts.size > 4096) {
       throw new Error("invalid marker");
     }
@@ -27384,7 +27618,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u53D1\u73B0\u4E0E\u672C\u6B21\u76EE\u6807\u5339\u914D\u7684\u521B\u5EFA\u6B8B\u7559\uFF1A${temporaryDirectory}\u3002\u8BF7\u786E\u8BA4\u6E05\u7406\u540E\u4ECE\u5934\u91CD\u8BD5\u3002`
     );
   }
-  const currentFacts = await lstat5(temporaryDirectory);
+  const currentFacts = await lstat6(temporaryDirectory);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino || !currentFacts.isDirectory()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -27392,7 +27626,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u76EE\u5F55\u5728\u786E\u8BA4\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  await rm7(temporaryDirectory, { recursive: true });
+  await rm8(temporaryDirectory, { recursive: true });
 }
 function starterLockfile() {
   return `lockfileVersion: '9.0'
@@ -27484,7 +27718,7 @@ function starterSource() {
   return 'import { AbsoluteFill } from "remotion";\n\ntype RenderProgramInputV1 = Readonly<{ apiVersion: 1 }>;\n\nexport function RenderProgram(input: RenderProgramInputV1) {\n  void input;\n  return <AbsoluteFill style={{ backgroundColor: "#090d0e" }} />;\n}\n';
 }
 async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join9(
+  const renderProgramDirectory = join10(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -27492,29 +27726,29 @@ async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
     "render-program"
   );
   await Promise.all([
-    mkdir5(join9(temporaryDirectory, "assets"), { recursive: true }),
-    mkdir5(join9(temporaryDirectory, "speech"), { recursive: true }),
-    mkdir5(join9(temporaryDirectory, "renders"), { recursive: true }),
-    mkdir5(join9(renderProgramDirectory, "src"), { recursive: true }),
-    mkdir5(join9(renderProgramDirectory, "resources"), { recursive: true })
+    mkdir5(join10(temporaryDirectory, "assets"), { recursive: true }),
+    mkdir5(join10(temporaryDirectory, "speech"), { recursive: true }),
+    mkdir5(join10(temporaryDirectory, "renders"), { recursive: true }),
+    mkdir5(join10(renderProgramDirectory, "src"), { recursive: true }),
+    mkdir5(join10(renderProgramDirectory, "resources"), { recursive: true })
   ]);
   await Promise.all([
-    writeFile3(join9(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
-    writeFile3(join9(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
-    writeFile3(join9(temporaryDirectory, "video.md"), ""),
-    writeFile3(join9(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
+    writeFile3(join10(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
+    writeFile3(join10(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
+    writeFile3(join10(temporaryDirectory, "video.md"), ""),
+    writeFile3(join10(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
     writeFile3(
-      join9(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
+      join10(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
       starterRevision(revisionId)
     ),
-    writeFile3(join9(renderProgramDirectory, "program.json"), starterProgramManifest()),
-    writeFile3(join9(renderProgramDirectory, "package.json"), starterPackageManifest()),
-    writeFile3(join9(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
-    writeFile3(join9(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
+    writeFile3(join10(renderProgramDirectory, "program.json"), starterProgramManifest()),
+    writeFile3(join10(renderProgramDirectory, "package.json"), starterPackageManifest()),
+    writeFile3(join10(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
+    writeFile3(join10(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
   ]);
 }
 async function validateStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join9(
+  const renderProgramDirectory = join10(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -27534,15 +27768,15 @@ async function validateStarterProject(temporaryDirectory, projectId, revisionId)
     source
   ] = await Promise.all([
     inspectProjectVNext(temporaryDirectory),
-    readFile5(join9(temporaryDirectory, "narracut.json"), "utf8"),
-    readFile5(join9(temporaryDirectory, "project.json"), "utf8"),
-    readFile5(join9(temporaryDirectory, "video.md"), "utf8"),
-    readFile5(join9(temporaryDirectory, ".narracut", "current.json"), "utf8"),
-    readFile5(join9(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
-    readFile5(join9(renderProgramDirectory, "program.json"), "utf8"),
-    readFile5(join9(renderProgramDirectory, "package.json"), "utf8"),
-    readFile5(join9(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
-    readFile5(join9(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
+    readFile5(join10(temporaryDirectory, "narracut.json"), "utf8"),
+    readFile5(join10(temporaryDirectory, "project.json"), "utf8"),
+    readFile5(join10(temporaryDirectory, "video.md"), "utf8"),
+    readFile5(join10(temporaryDirectory, ".narracut", "current.json"), "utf8"),
+    readFile5(join10(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
+    readFile5(join10(renderProgramDirectory, "program.json"), "utf8"),
+    readFile5(join10(renderProgramDirectory, "package.json"), "utf8"),
+    readFile5(join10(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
+    readFile5(join10(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
   ]);
   if (inspection.manifest.projectId !== projectId || inspection.project.assets.length !== 0 || inspection.project.scenes.length !== 0 || inspection.videoBrief !== "" || manifest !== starterManifest(projectId) || projectDsl !== '{"assets":[],"scenes":[]}' || videoBrief !== "" || current !== starterCurrent(revisionId) || revision !== starterRevision(revisionId) || programManifest !== starterProgramManifest() || packageManifest2 !== starterPackageManifest() || lockfile !== starterLockfile() || source !== starterSource()) {
     throw new Error("starter \u9879\u76EE\u590D\u6838\u7ED3\u679C\u4E0E\u521B\u5EFA\u8F93\u5165\u4E0D\u4E00\u81F4\u3002");
@@ -27562,7 +27796,7 @@ function isPlainRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 async function readRegularUtf8(path, maxBytes) {
-  const facts = await lstat5(path);
+  const facts = await lstat6(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > maxBytes) {
     throw new Error(`\u4E0D\u662F\u53D7\u652F\u6301\u7684\u666E\u901A\u6587\u4EF6\uFF1A${path}`);
   }
@@ -27570,23 +27804,23 @@ async function readRegularUtf8(path, maxBytes) {
 }
 async function validateCurrentProjectState(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const currentPath = join9(projectDirectory, ".narracut", "current.json");
+  const currentPath = join10(projectDirectory, ".narracut", "current.json");
   let briefRevision = null;
   try {
     const current = await readCurrentPointer(projectDirectory);
     await verifyRevision(projectDirectory, current.revisionId);
     const revisionId = current.revisionId;
-    const revisionDirectory = join9(projectDirectory, ".narracut", "revisions", revisionId);
-    const renderProgramDirectory = join9(revisionDirectory, "render-program");
+    const revisionDirectory = join10(projectDirectory, ".narracut", "revisions", revisionId);
+    const renderProgramDirectory = join10(revisionDirectory, "render-program");
     if (!inspection.renderPrograms.directories.includes(renderProgramDirectory)) {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6CA1\u6709\u53EF\u68C0\u67E5\u7684 Render Program\u3002");
     }
     const [revision, program, packageJson, lockfile, source] = await Promise.all([
-      readRegularUtf8(join9(revisionDirectory, "revision.json"), 1048576).then((value) => JSON.parse(value)),
-      readRegularUtf8(join9(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join9(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join9(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
-      readRegularUtf8(join9(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
+      readRegularUtf8(join10(revisionDirectory, "revision.json"), 1048576).then((value) => JSON.parse(value)),
+      readRegularUtf8(join10(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join10(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join10(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
+      readRegularUtf8(join10(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
     ]);
     if (!isPlainRecord(revision) || Object.keys(revision).some(
       (key) => !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary", "programFingerprint", "acceptedAt", "inputFingerprint", "sourceRevision", "acceptance", "requestId"].includes(key)
@@ -27625,7 +27859,7 @@ async function validateCurrentProjectState(inspection) {
   return briefRevision;
 }
 async function captureDirectoryIdentity(path) {
-  const facts = await lstat5(path);
+  const facts = await lstat6(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new Error(`\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u76EE\u5F55\uFF1A${path}`);
   }
@@ -27637,7 +27871,7 @@ function hasIdentity(facts, identity2) {
 async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, markerWritten, projectDirectory, operationToken, operation = "create") {
   let facts;
   try {
-    facts = await lstat5(temporaryDirectory);
+    facts = await lstat6(temporaryDirectory);
   } catch (error51) {
     if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return;
     throw error51;
@@ -27647,19 +27881,19 @@ async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, mar
   }
   if (markerWritten) {
     const marker = JSON.parse(await readRegularUtf8(
-      join9(temporaryDirectory, OPERATION_MARKER),
+      join10(temporaryDirectory, OPERATION_MARKER),
       4096
     ));
     if (!isCreateOperationMarker(marker, projectDirectory, operationToken, operation)) {
       throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u5DF2\u53D8\u5316\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
     }
   }
-  await rm7(temporaryDirectory, { recursive: true });
+  await rm8(temporaryDirectory, { recursive: true });
 }
 async function cleanupTargetReservation(projectDirectory, identity2) {
   let facts;
   try {
-    facts = await lstat5(projectDirectory);
+    facts = await lstat6(projectDirectory);
   } catch (error51) {
     if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return;
     throw error51;
@@ -27680,7 +27914,7 @@ async function createProjectVNext(inputPath, options = {}) {
 }
 async function publishProjectVNext(inputPath, options, operation, prepare) {
   const projectDirectory = resolve3(inputPath);
-  const projectName = basename(projectDirectory);
+  const projectName = basename2(projectDirectory);
   if (projectName === "" || projectName === "." || projectName === "..") {
     throw new ProjectLifecycleError(
       "PROJECT_CREATE_TARGET_INVALID",
@@ -27688,11 +27922,11 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
       "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
     );
   }
-  const temporaryDirectory = join9(dirname6(projectDirectory), `.${projectName}.narracut-tmp`);
-  const createId = options.createId ?? randomUUID6;
+  const temporaryDirectory = join10(dirname7(projectDirectory), `.${projectName}.narracut-tmp`);
+  const createId = options.createId ?? randomUUID7;
   const projectId = createId();
   const revisionId = createId();
-  const operationToken = randomUUID6();
+  const operationToken = randomUUID7();
   let temporaryIdentity = null;
   let markerWritten = false;
   let targetReservationIdentity = null;
@@ -27714,7 +27948,7 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
     }
     await mkdir5(temporaryDirectory);
     temporaryIdentity = await captureDirectoryIdentity(temporaryDirectory);
-    await writeFile3(join9(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
+    await writeFile3(join10(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
       kind: "narracut-operation",
       version: 1,
       operation,
@@ -27746,7 +27980,7 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
       );
     }
     if (targetReservationIdentity !== null) {
-      const currentReservation = await lstat5(projectDirectory);
+      const currentReservation = await lstat6(projectDirectory);
       if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir5(projectDirectory)).length !== 0) {
         throw new ProjectLifecycleError(
           "PROJECT_CREATE_TARGET_EXISTS",
@@ -27758,7 +27992,7 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
     await rename5(temporaryDirectory, projectDirectory);
     temporaryIdentity = null;
     targetReservationIdentity = null;
-    await unlink(join9(projectDirectory, OPERATION_MARKER)).catch(() => void 0);
+    await unlink(join10(projectDirectory, OPERATION_MARKER)).catch(() => void 0);
     return { projectDirectory, projectId, revisionId };
   } catch (cause) {
     try {
@@ -27824,21 +28058,21 @@ async function clearStaleLease(leasePath) {
   let facts;
   let marker;
   try {
-    facts = await lstat5(leasePath);
+    facts = await lstat6(leasePath);
     if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 4096) return false;
     marker = JSON.parse(await readFile5(leasePath, "utf8"));
   } catch {
     return false;
   }
   if (!isLeaseMarker(marker) || await leaseHolderIsAlive(marker)) return false;
-  const currentFacts = await lstat5(leasePath);
+  const currentFacts = await lstat6(leasePath);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino) return false;
   await unlink(leasePath);
   return true;
 }
 async function acquireProjectLease(inspection, onHandoff) {
   const projectDirectory = inspection.projectDirectory;
-  const leasePath = join9(projectDirectory, ".narracut", "workspace.lease");
+  const leasePath = join10(projectDirectory, ".narracut", "workspace.lease");
   let transferred = false;
   if (onHandoff) {
     const existing = await readFile5(leasePath, "utf8").then((bytes) => JSON.parse(bytes)).catch(() => null);
@@ -27865,7 +28099,7 @@ async function acquireProjectLease(inspection, onHandoff) {
     projectId: inspection.manifest.projectId,
     pid: process.pid,
     processIdentity: await readProcessIdentity(process.pid),
-    token: randomUUID6()
+    token: randomUUID7()
   };
   let handle;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -27901,7 +28135,7 @@ async function acquireProjectLease(inspection, onHandoff) {
   } catch (cause) {
     endpoint?.close();
     await handle.close();
-    await rm7(leasePath, { force: true });
+    await rm8(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
       projectDirectory,
@@ -27912,10 +28146,10 @@ async function acquireProjectLease(inspection, onHandoff) {
   await handle.close();
   let leaseDirectoryHandle;
   try {
-    leaseDirectoryHandle = await openFile(dirname6(leasePath), "r");
+    leaseDirectoryHandle = await openFile(dirname7(leasePath), "r");
   } catch (cause) {
     endpoint?.close();
-    await rm7(leasePath, { force: true });
+    await rm8(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
       projectDirectory,
@@ -27963,7 +28197,7 @@ async function acquireProjectLease(inspection, onHandoff) {
   return { assertCurrent, release: release2, transferred };
 }
 function revisionOf(bytes) {
-  return `sha256:${createHash9("sha256").update(bytes).digest("hex")}`;
+  return `sha256:${createHash10("sha256").update(bytes).digest("hex")}`;
 }
 async function currentProjectRevision(projectFile, message) {
   try {
@@ -28024,7 +28258,7 @@ function truncateUtf8(value, maxBytes) {
   return result;
 }
 function safeAssetFilename(sourcePath) {
-  const original = basename(sourcePath).replace(/[\u0000-\u001f\u007f]/gu, "_");
+  const original = basename2(sourcePath).replace(/[\u0000-\u001f\u007f]/gu, "_");
   const fallback = original === "" || original === "." || original === ".." ? "asset" : original;
   if (Buffer.byteLength(fallback, "utf8") <= MAX_ASSET_FILENAME_BYTES) return fallback;
   const extensionIndex = fallback.lastIndexOf(".");
@@ -28049,19 +28283,19 @@ async function uniqueAssetPath(assetsDirectory, sourcePath) {
     const candidate = suffixedAssetFilename(filename, suffix);
     const relativePath = `assets/${candidate}`;
     try {
-      await access(join9(assetsDirectory, candidate));
+      await access(join10(assetsDirectory, candidate));
     } catch (error51) {
       if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return relativePath;
       throw error51;
     }
   }
-  return `assets/${randomUUID6()}`;
+  return `assets/${randomUUID7()}`;
 }
 async function isProjectControlFile(projectDirectory, sourcePath, sourceFacts) {
   for (const name of ["narracut.json", "project.json", "video.md"]) {
-    const controlPath = join9(projectDirectory, name);
+    const controlPath = join10(projectDirectory, name);
     if (resolve3(sourcePath) === controlPath) return true;
-    const controlFacts = await lstat5(controlPath);
+    const controlFacts = await lstat6(controlPath);
     if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
   }
   return false;
@@ -28092,8 +28326,8 @@ async function copyStableFile(source, opened, temporaryPath, assertDestinationCu
     await destination?.close().catch(() => void 0);
   }
 }
-async function replaceProjectFile(projectFile, bytes, assertWritable) {
-  const temporaryFile = join9(dirname6(projectFile), `.${basename(projectFile)}.${randomUUID6()}.tmp`);
+async function atomicProjectFile(projectFile, bytes, assertWritable, observeCommit) {
+  const temporaryFile = join10(dirname7(projectFile), `.${basename2(projectFile)}.${randomUUID7()}.tmp`);
   let committed = false;
   try {
     const handle = await openFile(temporaryFile, "wx", 384);
@@ -28104,10 +28338,12 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
       await handle.close();
     }
     await assertWritable();
+    observeCommit?.(projectFile, bytes, false);
     await rename5(temporaryFile, projectFile);
+    observeCommit?.(projectFile, bytes, true);
     committed = true;
     try {
-      const directory2 = await openFile(dirname6(projectFile), "r");
+      const directory2 = await openFile(dirname7(projectFile), "r");
       try {
         await directory2.sync();
       } finally {
@@ -28116,11 +28352,11 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
     } catch {
     }
   } finally {
-    if (!committed) await rm7(temporaryFile, { force: true }).catch(() => void 0);
+    if (!committed) await rm8(temporaryFile, { force: true }).catch(() => void 0);
   }
 }
 async function openProjectVNext(inputPath, options = {}) {
-  const projectDirectory = await realpath3(resolve3(inputPath)).catch(() => resolve3(inputPath));
+  const projectDirectory = await realpath4(resolve3(inputPath)).catch(() => resolve3(inputPath));
   try {
     const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
@@ -28144,7 +28380,7 @@ async function openProjectVNext(inputPath, options = {}) {
           `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
         );
       }
-      const assetsDirectory = join9(projectDirectory, "assets");
+      const assetsDirectory = join10(projectDirectory, "assets");
       const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
       assetsDirectoryHandle = await openFile(assetsDirectory, "r");
       const openedAssetsDirectory = await assetsDirectoryHandle.stat();
@@ -28156,7 +28392,7 @@ async function openProjectVNext(inputPath, options = {}) {
         );
       }
       const anchoredAssetsDirectory = process.platform === "win32" ? assetsDirectory : `/dev/fd/${assetsDirectoryHandle.fd}`;
-      const speechDirectory = join9(projectDirectory, "speech");
+      const speechDirectory = join10(projectDirectory, "speech");
       const speechDirectoryIdentity = await captureDirectoryIdentity(speechDirectory);
       speechDirectoryHandle = await openFile(speechDirectory, "r");
       const openedSpeechDirectory = await speechDirectoryHandle.stat();
@@ -28172,11 +28408,14 @@ async function openProjectVNext(inputPath, options = {}) {
       let saveQueue = Promise.resolve();
       let closing = false;
       let releasePromise = null;
-      const assertWritable = async () => {
+      let identityLost = null;
+      let frozenCut = null;
+      let recoveryBase = await recoveryBaseline(projectDirectory, initialInspection.manifest.projectId);
+      const verifyWritable = async () => {
         await lease.assertCurrent();
         let facts;
         try {
-          facts = await lstat5(projectDirectory);
+          facts = await lstat6(projectDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -28193,13 +28432,13 @@ async function openProjectVNext(inputPath, options = {}) {
           );
         }
         try {
-          const manifestPath = join9(projectDirectory, "narracut.json");
-          const manifestFacts = await lstat5(manifestPath);
+          const manifestPath = join10(projectDirectory, "narracut.json");
+          const manifestFacts = await lstat6(manifestPath);
           if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
             throw new Error("\u9879\u76EE\u6E05\u5355\u6587\u4EF6\u8EAB\u4EFD\u65E0\u6548");
           }
           const manifest = JSON.parse(await readFile5(manifestPath, "utf8"));
-          if (manifest.projectId !== initialInspection.manifest.projectId) {
+          if (manifest.projectId !== initialInspection.manifest.projectId || manifest.kind !== "narracut-project" || manifest.formatVersion !== 1) {
             throw new Error("\u9879\u76EE\u6E05\u5355\u4E2D\u7684 projectId \u5DF2\u53D8\u5316");
           }
         } catch (cause) {
@@ -28211,11 +28450,41 @@ async function openProjectVNext(inputPath, options = {}) {
           );
         }
       };
-      const candidateManager = await createCandidateManager(projectDirectory, assertWritable);
+      const assertWritable = async () => {
+        if (identityLost) throw identityLost;
+        try {
+          await verifyWritable();
+        } catch (error51) {
+          identityLost = error51;
+          throw error51;
+        }
+      };
+      const observe = async (result) => {
+        if (result?.code === "PROJECT_IDENTITY_LOST") identityLost ??= result;
+        if (identityLost) return;
+        try {
+          await assertWritable();
+          recoveryBase = await recoveryBaseline(projectDirectory, initialInspection.manifest.projectId, recoveryBase);
+        } catch {
+        }
+      };
+      const briefCommits = /* @__PURE__ */ new Map();
+      const observeCommit = (path, bytes, committed) => {
+        const component2 = path === join10(projectDirectory, "project.json") ? "dsl" : path === join10(projectDirectory, "video.md") ? "brief" : path.endsWith("/current.json") ? "current" : path.endsWith("/candidate.json") ? "candidate" : null;
+        if (!component2) return;
+        const next = { path: relative3(projectDirectory, path), fingerprint: recoveryHash(bytes), ...["current", "candidate"].includes(component2) ? { bindings: recoveryBindings(path, bytes) } : {} };
+        if (component2 === "brief" && committed && recoveryBase.brief[0].fingerprint) {
+          briefCommits.set(recoveryBase.brief[0].fingerprint, next.fingerprint);
+          if (briefCommits.size > 2048) briefCommits.delete(briefCommits.keys().next().value);
+        }
+        recoveryBase[component2] = committed ? [next] : [...recoveryBase[component2].slice(0, 1), next];
+      };
+      const replaceProjectFile = (path, bytes, verify) => atomicProjectFile(path, bytes, verify, observeCommit);
+      const candidateManager = await createCandidateManager(projectDirectory, assertWritable, observeCommit);
       const candidate = (request2) => {
         if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002"));
         const operation = saveQueue.then(() => candidateManager(request2));
-        saveQueue = operation.then(() => void 0, () => void 0);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       await candidate({ action: "read" });
@@ -28223,7 +28492,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await assertWritable();
         let facts;
         try {
-          facts = await lstat5(assetsDirectory);
+          facts = await lstat6(assetsDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -28244,7 +28513,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await assertWritable();
         let facts;
         try {
-          facts = await lstat5(speechDirectory);
+          facts = await lstat6(speechDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -28270,7 +28539,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join9(projectDirectory, "project.json");
+          const projectFile = join10(projectDirectory, "project.json");
           try {
             await assertWritable();
             if (await currentProjectRevision(
@@ -28331,7 +28600,7 @@ async function openProjectVNext(inputPath, options = {}) {
             );
           }
         });
-        saveQueue = operation.then(() => void 0, () => void 0);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const saveVideoBrief = (content, baselineRevision, authorize) => {
@@ -28343,7 +28612,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const videoBriefPath = join9(projectDirectory, "video.md");
+          const videoBriefPath = join10(projectDirectory, "video.md");
           try {
             await assertWritable();
             authorize?.();
@@ -28406,7 +28675,7 @@ async function openProjectVNext(inputPath, options = {}) {
             );
           }
         });
-        saveQueue = operation.then(() => void 0, () => void 0);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const exportVideoBriefLocal = async (content, targetDirectory) => {
@@ -28419,7 +28688,7 @@ async function openProjectVNext(inputPath, options = {}) {
             "Video Brief LOCAL \u5FC5\u987B\u662F\u6700\u591A 2 MiB \u7684\u4E25\u683C UTF-8\uFF1BNarracut \u62D2\u7EDD\u5BFC\u51FA\u3002"
           );
         }
-        const destinationDirectory = await realpath3(resolve3(targetDirectory)).catch((cause) => {
+        const destinationDirectory = await realpath4(resolve3(targetDirectory)).catch((cause) => {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
             resolve3(targetDirectory),
@@ -28427,15 +28696,15 @@ async function openProjectVNext(inputPath, options = {}) {
             { cause }
           );
         });
-        const relation = relative2(projectDirectory, destinationDirectory);
-        if (relation === "" || !relation.startsWith(`..${sep2}`) && relation !== ".." && !isAbsolute2(relation)) {
+        const relation = relative3(projectDirectory, destinationDirectory);
+        if (relation === "" || !relation.startsWith(`..${sep3}`) && relation !== ".." && !isAbsolute3(relation)) {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
             destinationDirectory,
             "Video Brief LOCAL \u53EA\u80FD\u5BFC\u51FA\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002"
           );
         }
-        const facts = await lstat5(destinationDirectory);
+        const facts = await lstat6(destinationDirectory);
         if (!facts.isDirectory() || facts.isSymbolicLink()) {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
@@ -28445,7 +28714,7 @@ async function openProjectVNext(inputPath, options = {}) {
         }
         for (let suffix = 1; suffix <= 1e4; suffix += 1) {
           const filename = suffix === 1 ? "video-brief-local.md" : `video-brief-local-${suffix}.md`;
-          const path = join9(destinationDirectory, filename);
+          const path = join10(destinationDirectory, filename);
           let handle = null;
           try {
             handle = await openFile(path, "wx", 384);
@@ -28456,7 +28725,7 @@ async function openProjectVNext(inputPath, options = {}) {
             if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") continue;
             if (handle !== null) {
               const openedFacts = await handle.stat().catch(() => null);
-              const currentFacts = await lstat5(path).catch(() => null);
+              const currentFacts = await lstat6(path).catch(() => null);
               if (openedFacts !== null && currentFacts !== null && openedFacts.dev === currentFacts.dev && openedFacts.ino === currentFacts.ino) await unlink(path).catch(() => void 0);
             }
             throw new ProjectLifecycleError(
@@ -28484,7 +28753,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join9(projectDirectory, "project.json");
+          const projectFile = join10(projectDirectory, "project.json");
           const sourcePath = resolve3(input.sourcePath);
           await assertWritable();
           if (await currentProjectRevision(
@@ -28499,7 +28768,7 @@ async function openProjectVNext(inputPath, options = {}) {
           }
           let pathFacts;
           try {
-            pathFacts = await lstat5(sourcePath);
+            pathFacts = await lstat6(sourcePath);
           } catch (cause) {
             return {
               status: "failed",
@@ -28560,24 +28829,24 @@ async function openProjectVNext(inputPath, options = {}) {
             }
             await assertAssetsDirectoryCurrent();
             const asset = {
-              id: randomUUID6(),
+              id: randomUUID7(),
               path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath)
             };
-            const temporaryPath = join9(anchoredAssetsDirectory, `.import-${randomUUID6()}.tmp`);
-            let finalPath = join9(anchoredAssetsDirectory, basename(asset.path));
+            const temporaryPath = join10(anchoredAssetsDirectory, `.import-${randomUUID7()}.tmp`);
+            let finalPath = join10(anchoredAssetsDirectory, basename2(asset.path));
             let published = false;
             try {
               await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
               for (let attempt = 0; attempt < 1e4; attempt += 1) {
                 try {
                   await assertAssetsDirectoryCurrent();
-                  await link(temporaryPath, finalPath);
+                  await link2(temporaryPath, finalPath);
                   published = true;
                   break;
                 } catch (cause) {
                   if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
                   asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
-                  finalPath = join9(anchoredAssetsDirectory, basename(asset.path));
+                  finalPath = join10(anchoredAssetsDirectory, basename2(asset.path));
                 }
               }
               if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
@@ -28643,7 +28912,7 @@ async function openProjectVNext(inputPath, options = {}) {
             await source.close().catch(() => void 0);
           }
         });
-        saveQueue = operation.then(() => void 0, () => void 0);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const saveTtsSettings = (input) => {
@@ -28655,7 +28924,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join9(projectDirectory, "project.json");
+          const projectFile = join10(projectDirectory, "project.json");
           await assertWritable();
           if (await currentProjectRevision(
             projectFile,
@@ -28754,19 +29023,19 @@ async function openProjectVNext(inputPath, options = {}) {
             if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
             throw new ProjectLifecycleError(
               "PROJECT_SAVE_FAILED",
-              join9(projectDirectory, "tts.json"),
+              join10(projectDirectory, "tts.json"),
               "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1BNarracut \u5DF2\u4FDD\u7559\u539F\u914D\u7F6E\u4E0E Scene \u5185\u5BB9\u3002",
               { cause }
             );
           }
         });
-        saveQueue = operation.then(() => void 0, () => void 0);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const probeSpeechAudio = async (input) => {
         await assertSpeechDirectoryCurrent();
-        const probeFile = join9(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
-        const decoderPath = process.platform === "linux" ? join9(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join9(speechDirectory, `.probe-${input.jobId}.mp3`);
+        const probeFile = join10(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
+        const decoderPath = process.platform === "linux" ? join10(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join10(speechDirectory, `.probe-${input.jobId}.mp3`);
         let created = false;
         try {
           const handle = await openFile(probeFile, "wx", 384);
@@ -28785,7 +29054,7 @@ async function openProjectVNext(inputPath, options = {}) {
           await assertSpeechDirectoryCurrent();
           return durationMs;
         } finally {
-          if (created) await rm7(probeFile, { force: true }).catch(() => void 0);
+          if (created) await rm8(probeFile, { force: true }).catch(() => void 0);
         }
       };
       const commitSpeech = (input) => {
@@ -28832,9 +29101,9 @@ async function openProjectVNext(inputPath, options = {}) {
               inspection: currentInspection
             };
           }
-          const finalFile = join9(anchoredSpeechDirectory, `${scene.id}.mp3`);
-          const temporaryFile = join9(anchoredSpeechDirectory, `.speech-${randomUUID6()}.tmp`);
-          const backupFile = join9(anchoredSpeechDirectory, `.speech-${randomUUID6()}.previous`);
+          const finalFile = join10(anchoredSpeechDirectory, `${scene.id}.mp3`);
+          const temporaryFile = join10(anchoredSpeechDirectory, `.speech-${randomUUID7()}.tmp`);
+          const backupFile = join10(anchoredSpeechDirectory, `.speech-${randomUUID7()}.previous`);
           let previousFile = false;
           let published = false;
           try {
@@ -28846,7 +29115,7 @@ async function openProjectVNext(inputPath, options = {}) {
               await handle.close();
             }
             try {
-              const finalFacts = await lstat5(finalFile);
+              const finalFacts = await lstat6(finalFile);
               if (!finalFacts.isFile() || finalFacts.isSymbolicLink()) {
                 throw new ProjectLifecycleError(
                   "PROJECT_IDENTITY_LOST",
@@ -28854,8 +29123,8 @@ async function openProjectVNext(inputPath, options = {}) {
                   "\u65E2\u6709 Speech \u4E0D\u518D\u662F\u666E\u901A\u6587\u4EF6\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
                 );
               }
-              await link(finalFile, backupFile);
-              const backupFacts = await lstat5(backupFile);
+              await link2(finalFile, backupFile);
+              const backupFacts = await lstat6(backupFile);
               if (!backupFacts.isFile() || backupFacts.isSymbolicLink() || !hasIdentity(backupFacts, finalFacts)) {
                 throw new ProjectLifecycleError(
                   "PROJECT_IDENTITY_LOST",
@@ -28876,11 +29145,11 @@ async function openProjectVNext(inputPath, options = {}) {
             target.speech = {
               path: `speech/${scene.id}.mp3`,
               durationMs: input.durationMs,
-              sourceTextHash: `sha256:${createHash9("sha256").update(input.narrationText, "utf8").digest("hex")}`,
+              sourceTextHash: `sha256:${createHash10("sha256").update(input.narrationText, "utf8").digest("hex")}`,
               ttsProfileId: input.ttsProfileId,
-              audioContentHash: `sha256:${createHash9("sha256").update(input.audio).digest("hex")}`
+              audioContentHash: `sha256:${createHash10("sha256").update(input.audio).digest("hex")}`
             };
-            const projectFile = join9(projectDirectory, "project.json");
+            const projectFile = join10(projectDirectory, "project.json");
             const baselineRevision = currentInspection.projectRevision;
             const validated = validateProjectVNextForSave(project, projectFile);
             const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
@@ -28919,7 +29188,7 @@ async function openProjectVNext(inputPath, options = {}) {
               timeline,
               warnings
             };
-            await rm7(backupFile, { force: true }).catch(() => void 0);
+            await rm8(backupFile, { force: true }).catch(() => void 0);
             return {
               status: "applied",
               code: "SPEECH_APPLIED",
@@ -28931,15 +29200,15 @@ async function openProjectVNext(inputPath, options = {}) {
             if (published) {
               try {
                 if (previousFile) {
-                  if (process.platform === "win32") await rm7(finalFile, { force: true });
+                  if (process.platform === "win32") await rm8(finalFile, { force: true });
                   await rename5(backupFile, finalFile);
-                } else await rm7(finalFile, { force: true });
+                } else await rm8(finalFile, { force: true });
               } catch (rollbackCause) {
                 rollbackFailure = rollbackCause;
               }
             }
-            await rm7(temporaryFile, { force: true }).catch(() => void 0);
-            if (rollbackFailure === void 0) await rm7(backupFile, { force: true }).catch(() => void 0);
+            await rm8(temporaryFile, { force: true }).catch(() => void 0);
+            if (rollbackFailure === void 0) await rm8(backupFile, { force: true }).catch(() => void 0);
             if (rollbackFailure !== void 0) {
               throw new ProjectLifecycleError(
                 "PROJECT_SAVE_FAILED",
@@ -28957,7 +29226,7 @@ async function openProjectVNext(inputPath, options = {}) {
             );
           }
         });
-        saveQueue = operation.then(() => void 0, () => void 0);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const release2 = async () => {
@@ -28975,6 +29244,29 @@ async function openProjectVNext(inputPath, options = {}) {
         await releasePromise;
       };
       return {
+        assertWritable,
+        get identityLost() {
+          return identityLost;
+        },
+        recoveryRootIdentity: { ...directoryIdentity },
+        freezeRecovery: (draft) => {
+          if (frozenCut) return frozenCut.then((cut) => structuredClone(cut));
+          const captured = structuredClone(draft);
+          identityLost ??= new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "\u9879\u76EE\u8EAB\u4EFD\u5DF2\u5931\u6548\uFF0C\u7F16\u8F91\u5DF2\u505C\u6B62\u3002");
+          frozenCut = saveQueue.then(() => {
+            if (captured.briefBase !== void 0 && recoveryBase.brief.length === 1) {
+              let base = recoveryHash(captured.briefBase);
+              const seen = /* @__PURE__ */ new Set();
+              while (briefCommits.has(base) && !seen.has(base)) {
+                seen.add(base);
+                base = briefCommits.get(base);
+              }
+              if (base === recoveryBase.brief[0].fingerprint) delete captured.briefBase;
+            }
+            return sealRecovery(projectDirectory, initialInspection.manifest.projectId, recoveryBase, captured);
+          });
+          return frozenCut.then((cut) => structuredClone(cut));
+        },
         transferred: lease.transferred,
         candidate,
         programTransaction: (run) => {
@@ -28990,7 +29282,7 @@ async function openProjectVNext(inputPath, options = {}) {
             }
             return result;
           });
-          saveQueue = operation.then(() => void 0, () => void 0);
+          saveQueue = operation.then(observe, observe);
           return operation;
         },
         readPreviewSource: async (target) => {
@@ -29036,7 +29328,7 @@ async function openProjectVNext(inputPath, options = {}) {
 // src/server/project-copy.ts
 var excluded = (path) => path === ".narracut-operation.json" || path === ".narracut/workspace.lease" || /^\.narracut\/(cache|bundles|previews|node_modules|logs|tmp)(\/|$)/.test(path) || path.split("/").some((name) => name === ".DS_Store" || name === "Thumbs.db" || name.endsWith(".narracut-tmp")) || /^((assets|speech)\/\.(import|speech|probe)-|\.narracut\/\.task-)/.test(path) || /^\.(project\.json|narracut\.json|tts\.json|video\.md)\.[0-9a-f-]+\.tmp$/.test(path) || /^\.narracut\/(task-[0-9a-f-]+\.tmp|(accept|discard|consumed)-[0-9a-f-]+\.json)$/.test(path) || /^(node_modules|bundle|\.cache)(\/|$)/.test(path);
 async function rewrite(path, bytes) {
-  const file2 = await open4(path, "w");
+  const file2 = await open5(path, "w");
   try {
     await file2.writeFile(bytes);
     await file2.sync();
@@ -29048,23 +29340,23 @@ async function walk(root, destination, signal, keep = () => true) {
   const entries = /* @__PURE__ */ new Map();
   async function visit(path) {
     signal?.throwIfAborted();
-    const full = join10(root, path), before = await lstat6(full);
+    const full = join11(root, path), before = await lstat7(full);
     if (before.isSymbolicLink()) throw new Error(`\u4E0D\u80FD\u590D\u5236\u7B26\u53F7\u94FE\u63A5\uFF1A${full}`);
     if (before.isDirectory()) {
       entries.set(path, "directory");
-      if (destination && path) await mkdir6(join10(destination, path));
+      if (destination && path) await mkdir6(join11(destination, path));
       for (const name of (await readdir6(full)).sort()) {
         const child = path ? `${path}/${name}` : name;
         if (!excluded(child) && keep(child)) await visit(child);
       }
     } else {
       if (!before.isFile() || before.nlink !== 1) throw new Error(`\u4E0D\u80FD\u590D\u5236\u975E\u72EC\u7ACB\u666E\u901A\u6587\u4EF6\uFF1A${full}`);
-      const source = await open4(full, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
-      const target = destination ? await open4(join10(destination, path), "wx", 384) : null;
+      const source = await open5(full, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
+      const target = destination ? await open5(join11(destination, path), "wx", 384) : null;
       try {
         const anchored = await source.stat();
         if (anchored.dev !== before.dev || anchored.ino !== before.ino || !anchored.isFile() || anchored.nlink !== 1) throw new Error(`\u590D\u5236\u6587\u4EF6\u8EAB\u4EFD\u53D8\u5316\uFF1A${full}`);
-        const hash4 = createHash10("sha256"), buffer = Buffer.alloc(1024 * 1024);
+        const hash4 = createHash11("sha256"), buffer = Buffer.alloc(1024 * 1024);
         for (; ; ) {
           signal?.throwIfAborted();
           const { bytesRead } = await source.read(buffer, 0, buffer.length, null);
@@ -29080,7 +29372,7 @@ async function walk(root, destination, signal, keep = () => true) {
         await target?.close();
       }
     }
-    const after = await lstat6(full);
+    const after = await lstat7(full);
     if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.size !== after.size) throw new Error(`\u590D\u5236\u671F\u95F4\u6765\u6E90\u53D1\u751F\u53D8\u5316\uFF1A${full}`);
   }
   await visit("");
@@ -29090,10 +29382,10 @@ function assertSame(a, b) {
   if (a.size !== b.size || [...a].some(([path, hash4]) => b.get(path) !== hash4)) throw new Error("\u590D\u5236\u671F\u95F4\u6301\u4E45\u5185\u5BB9\u53D1\u751F\u53D8\u5316\uFF0C\u5DF2\u53D6\u6D88\u53D1\u5E03\u3002");
 }
 async function copyProjectVNext(sourcePath, targetPath, options = {}) {
-  const source = await realpath4(resolve4(sourcePath));
-  const target = join10(await realpath4(dirname7(resolve4(targetPath))), basename2(resolve4(targetPath)));
-  const rel = relative3(source, target);
-  if (!rel || !rel.startsWith(`..${sep3}`) && rel !== ".." && !rel.startsWith(sep3)) throw new Error("\u590D\u5236\u76EE\u6807\u5FC5\u987B\u4F4D\u4E8E\u6765\u6E90\u9879\u76EE\u4E4B\u5916\u3002");
+  const source = await realpath5(resolve4(sourcePath));
+  const target = join11(await realpath5(dirname8(resolve4(targetPath))), basename3(resolve4(targetPath)));
+  const rel = relative4(source, target);
+  if (!rel || !rel.startsWith(`..${sep4}`) && rel !== ".." && !rel.startsWith(sep4)) throw new Error("\u590D\u5236\u76EE\u6807\u5FC5\u987B\u4F4D\u4E8E\u6765\u6E90\u9879\u76EE\u4E4B\u5916\u3002");
   const opened = await openProjectVNext(source);
   let published = null;
   try {
@@ -29116,8 +29408,8 @@ async function copyProjectVNext(sourcePath, targetPath, options = {}) {
       const copied = await walk(temporary, null, options.signal);
       copied.delete(".narracut-operation.json");
       assertSame(before, copied);
-      await rewrite(join10(temporary, "narracut.json"), JSON.stringify({ ...opened.inspection.manifest, projectId }));
-      const taskPath = join10(temporary, ".narracut", "agent-task.json");
+      await rewrite(join11(temporary, "narracut.json"), JSON.stringify({ ...opened.inspection.manifest, projectId }));
+      const taskPath = join11(temporary, ".narracut", "agent-task.json");
       let taskBytes = null;
       try {
         taskBytes = await readFile6(taskPath, "utf8");
@@ -29127,11 +29419,11 @@ async function copyProjectVNext(sourcePath, targetPath, options = {}) {
       if (taskBytes !== null) {
         const task = await endedTaskReason(source) ? null : copiedTask(Buffer.from(taskBytes), opened.inspection.manifest.projectId, projectId);
         if (task) await rewrite(taskPath, task);
-        else await rm8(taskPath);
+        else await rm9(taskPath);
       }
       const inspection = await inspectProjectVNext(temporary);
       if (inspection.manifest.projectId !== projectId) throw new Error("\u526F\u672C\u8EAB\u4EFD\u6821\u9A8C\u5931\u8D25\u3002");
-      for (const [path, value] of [...before].reverse()) if (value === "directory") await syncDirectory(join10(temporary, path));
+      for (const [path, value] of [...before].reverse()) if (value === "directory") await syncDirectory(join11(temporary, path));
       assertSame(before, await walk(source, null, options.signal, keep));
       options.signal?.throwIfAborted();
       options.onPhase?.("publishing");
@@ -29146,7 +29438,7 @@ async function copyProjectVNext(sourcePath, targetPath, options = {}) {
       await opened.release();
     } catch (error51) {
       if (!published) throw error51;
-      published.cleanupWarning = { path: join10(source, ".narracut/workspace.lease"), message: `\u526F\u672C\u5DF2\u521B\u5EFA\uFF1B\u6765\u6E90\u79DF\u7EA6\u6536\u5C3E\u5931\u8D25\uFF1A${error51 instanceof Error ? error51.message : error51}` };
+      published.cleanupWarning = { path: join11(source, ".narracut/workspace.lease"), message: `\u526F\u672C\u5DF2\u521B\u5EFA\uFF1B\u6765\u6E90\u79DF\u7EA6\u6536\u5C3E\u5931\u8D25\uFF1A${error51 instanceof Error ? error51.message : error51}` };
     }
   }
 }
@@ -29200,12 +29492,12 @@ function authorizesBrief(instruction) {
 }
 
 // plugins/narracut/src/creation-task.ts
-import { randomUUID as randomUUID8 } from "node:crypto";
-import { join as join11 } from "node:path";
-import { rename as rename6, rm as rm9, open as open5 } from "node:fs/promises";
+import { randomUUID as randomUUID9 } from "node:crypto";
+import { join as join12 } from "node:path";
+import { rename as rename6, rm as rm10, open as open6 } from "node:fs/promises";
 
 // plugins/narracut/src/codex-host.ts
-import { randomUUID as randomUUID7 } from "node:crypto";
+import { randomUUID as randomUUID8 } from "node:crypto";
 var CodexThreadUnavailableError = class extends Error {
   code = "CODEX_THREAD_UNAVAILABLE";
   threadId;
@@ -29276,7 +29568,7 @@ var AgentHostValidationService = class {
   #unsubscribe;
   constructor(host, options = {}) {
     this.#host = host;
-    this.#idFactory = options.idFactory ?? randomUUID7;
+    this.#idFactory = options.idFactory ?? randomUUID8;
     this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
   }
   async start(request2) {
@@ -29826,7 +30118,7 @@ var CreationTask = class {
     }
   }
   #path() {
-    return join11(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
+    return join12(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
   }
   async #save() {
     if (!this.#state || this.#state.status === "terminated") return;
@@ -29835,10 +30127,10 @@ var CreationTask = class {
     await this.opened.programTransaction(() => this.#writeCheckpoint(bytes));
   }
   async #writeCheckpoint(bytes, validate) {
-    const parent = join11(this.opened.inspection.projectDirectory, ".narracut");
-    const identity2 = await directory(parent), temporary = join11(parent, `task-${randomUUID8()}.tmp`);
+    const parent = join12(this.opened.inspection.projectDirectory, ".narracut");
+    const identity2 = await directory(parent), temporary = join12(parent, `task-${randomUUID9()}.tmp`);
     try {
-      const handle = await open5(temporary, "wx", 384);
+      const handle = await open6(temporary, "wx", 384);
       try {
         await handle.writeFile(bytes);
         await handle.sync();
@@ -29847,10 +30139,11 @@ var CreationTask = class {
       }
       if (identity2 !== await directory(parent)) throw new Error("\u4EFB\u52A1\u76EE\u5F55\u5DF2\u66FF\u6362");
       await validate?.();
+      await this.opened.assertWritable();
       await rename6(temporary, this.#path());
       await syncDirectory(parent).catch(() => void 0);
     } finally {
-      await rm9(temporary, { force: true }).catch(() => void 0);
+      await rm10(temporary, { force: true }).catch(() => void 0);
     }
   }
   async start(instruction, parentOrigin = "null") {
@@ -29864,7 +30157,7 @@ var CreationTask = class {
       const candidate = await this.opened.candidate({ action: "read" });
       if (candidate.status !== "absent") throw new Error("\u5DF2\u6709\u5019\u9009\uFF1B\u672C\u6B21\u4E0D\u4F1A\u66FF\u6362\u6216\u63A5\u7BA1\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
       this.#state = {
-        taskId: randomUUID8(),
+        taskId: randomUUID9(),
         projectId: this.opened.inspection.manifest.projectId,
         instruction,
         externalBaseline: null,
@@ -29899,7 +30192,7 @@ var CreationTask = class {
     }
   }
   /** 接管只替换单一任务检查点；候选文件字节保持不变。 */
-  async takeover(instruction, baseline, parentOrigin = "null", requestId) {
+  async takeover(instruction, baseline2, parentOrigin = "null", requestId) {
     if (this.#closed || this.#transferred) throw new Error("\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B");
     if (requestId && this.#state?.taskId === requestId && this.#state.instruction === instruction) return this.value;
     if (requestId) external_exports.string().uuid().parse(requestId);
@@ -29910,11 +30203,11 @@ var CreationTask = class {
       await this.#pendingRun;
       await this.opened.programTransaction(async (manager) => {
         let candidate = await manager({ action: "read" });
-        if (candidate.baseline !== baseline) throw new Error("\u5019\u9009\u518D\u6B21\u53D8\u5316\uFF0C\u8BF7\u6838\u5BF9\u5019\u9009\u5BF9\u8C61\u540E\u518D\u6B21\u660E\u786E\u63D0\u4EA4\u3002");
-        if (candidate.status === "external-change") candidate = await manager({ action: "adopt", baseline, confirmed: true });
+        if (candidate.baseline !== baseline2) throw new Error("\u5019\u9009\u518D\u6B21\u53D8\u5316\uFF0C\u8BF7\u6838\u5BF9\u5019\u9009\u5BF9\u8C61\u540E\u518D\u6B21\u660E\u786E\u63D0\u4EA4\u3002");
+        if (candidate.status === "external-change") candidate = await manager({ action: "adopt", baseline: baseline2, confirmed: true });
         if (candidate.status !== "saved") throw new Error(candidate.error?.message ?? "\u8BF7\u5148\u5728\u5019\u9009\u533A\u57DF\u5904\u7406\u5B8C\u6574\u6027\u95EE\u9898\u3002");
         const checkpoint = {
-          taskId: requestId ?? randomUUID8(),
+          taskId: requestId ?? randomUUID9(),
           projectId: this.opened.inspection.manifest.projectId,
           instruction,
           status: "running",
@@ -30060,7 +30353,7 @@ var CreationTask = class {
     this.checks.invalidate();
     await this.#run("\u65E7\u8EAB\u4EFD\u4E0B\u7684\u7ED3\u679C\u5747\u5DF2\u4F5C\u5E9F\u3002\u8BF7\u4F9D\u636E\u6700\u65B0\u9879\u76EE\u5185\u5BB9\u91CD\u65B0\u68C0\u67E5\u5E76\u521B\u4F5C\u3002");
   }
-  async continueExternal(baseline) {
+  async continueExternal(baseline2) {
     if (this.#closed || this.#transferred) throw new Error("\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B");
     if (this.#busy || this.#operation || this.#recovery || !this.#state || !["waiting", "stopped"].includes(this.#state.status) || (this.#state.waitingReason ?? this.#state.reason) !== "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") throw new Error("\u5F53\u524D\u4EFB\u52A1\u4E0D\u5728\u7B49\u5F85\u5916\u90E8\u5019\u9009\u786E\u8BA4\u3002");
     this.#busy = true;
@@ -30068,13 +30361,13 @@ var CreationTask = class {
       await this.#pendingRun;
       if (this.#state.status === "stopped") await this.#validateCheckpoint();
       const candidate = await this.opened.candidate({ action: "read" });
-      if (baseline !== candidate.baseline) {
+      if (baseline2 !== candidate.baseline) {
         this.#state.externalBaseline = candidate.baseline;
         this.#state.pending = `\u5019\u9009\u518D\u6B21\u53D8\u5316\u3002${externalMessage}`;
         await this.#save();
         return this.value;
       }
-      const adopted = await this.opened.candidate({ action: "adopt", baseline, confirmed: true });
+      const adopted = await this.opened.candidate({ action: "adopt", baseline: baseline2, confirmed: true });
       this.#state.candidateBaseline = adopted.baseline;
       this.#state.externalBaseline = null;
       if (this.#state.status === "stopped") await this.#bindThread();
@@ -30139,7 +30432,7 @@ var CreationTask = class {
         if (!original?.trim() || original.length > 4e3 || state.pendingMessage) throw new Error("\u8BF7\u5148\u5904\u7406\u62DF\u4FDD\u5B58\u7684\u539F\u6587\u7247\u6BB5\uFF0C\u6216\u586B\u5199 1\u20134000 \u5B57\u6D88\u606F");
         const resume = state.status === "running";
         await this.#interrupt();
-        state.pendingMessage = { id: randomUUID8(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
+        state.pendingMessage = { id: randomUUID9(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
         this.#messageMode = { original, resume, stopped: state.status === "stopped" };
         state.status = "running";
         await this.#save();
@@ -30287,7 +30580,7 @@ var CreationTask = class {
     const state = this.#state, snapshot = await this.#snapshot();
     state.inputIdentity = snapshot.signature;
     if (!state.threadPointer) state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
-    const driver = { token: randomUUID8(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID9(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -30339,7 +30632,7 @@ var CreationTask = class {
     state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
     await this.#save();
     this.#assert();
-    const driver = { token: randomUUID8(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID9(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -30488,7 +30781,7 @@ var CreationTask = class {
     if (answer.action === "wait") return this.#wait(this.#state.suggestions.some((item) => item.required && !item.satisfied) ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
     if (answer.action === "brief") {
       if (!answer.brief) throw new Error("Brief \u63D0\u6848\u7F3A\u5C11\u5B8C\u6574\u7ED3\u679C");
-      const proposal = { id: randomUUID8(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
+      const proposal = { id: randomUUID9(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
       this.#state.briefProposal = proposal;
       if (!authorizesBrief(this.#state.instruction)) return this.#wait("BRIEF_REVIEW_REQUIRED", answer.brief.purpose);
       const saved = await this.opened.saveVideoBrief(proposal.content, proposal.baseline, () => this.#assert());
@@ -30676,12 +30969,12 @@ var CreationTask = class {
 };
 
 // src/server/project-acceptance.ts
-import { randomUUID as randomUUID10 } from "node:crypto";
+import { randomUUID as randomUUID11 } from "node:crypto";
 
 // src/server/preview-origin.ts
 import { createServer as createServer2 } from "node:http";
-import { createHash as createHash11, randomBytes, randomUUID as randomUUID9 } from "node:crypto";
-var previewDigest = (value) => `sha256:${createHash11("sha256").update(value).digest("hex")}`;
+import { createHash as createHash12, randomBytes, randomUUID as randomUUID10 } from "node:crypto";
+var previewDigest = (value) => `sha256:${createHash12("sha256").update(value).digest("hex")}`;
 var CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
 var PreviewOrigin = class {
   #server;
@@ -30744,7 +31037,7 @@ var PreviewOrigin = class {
     const boundIdentity = previewDigest(Buffer.concat([Buffer.from(JSON.stringify(["binding", bindingBytes.length]) + "\n"), bindingBytes]));
     if (boundIdentity !== args.bundle.inputIdentity) throw new Error("Preview \u8F93\u5165\u4E0E Bundle \u6784\u5EFA\u7ED1\u5B9A\u4E0D\u4E00\u81F4\u3002");
     const identity2 = { bundle: args.bundle.identity, input: args.bundle.inputIdentity, media: previewDigest(JSON.stringify([...args.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())), environment: args.bundle.environmentIdentity };
-    const instanceId = randomUUID9(), token = randomBytes(32).toString("hex");
+    const instanceId = randomUUID10(), token = randomBytes(32).toString("hex");
     if (!/^[a-f0-9]{48}$/.test(args.key) || this.#instances.has(args.key)) throw new Error("Preview \u5B9E\u4F8B\u4E0D\u80FD\u91CD\u590D\u7ED1\u5B9A\u3002");
     const files = /* @__PURE__ */ new Map([["bundle.js", args.bundle.files().get("bundle.js")]]);
     for (const [path, bytes] of args.media) {
@@ -30807,13 +31100,13 @@ var ProjectAcceptance = class {
       batchId: batch.id,
       stages: batch.stages.map(({ id, status }) => ({ id, status })),
       warnings: [...delivery.report.warnings, ...batch.diagnostics.filter((item) => item.severity === "warning").map((item) => `${item.code}\uFF1A${item.message} ${item.suggestion}`), ...batch.visualWarnings.map((item) => `${item.message} ${item.suggestion}`)],
-      frames: delivery.frames.map(({ frame, reasons, digest: digest3 }) => ({ frame, reasons, digest: digest3 })),
+      frames: delivery.frames.map(({ frame, reasons, digest: digest4 }) => ({ frame, reasons, digest: digest4 })),
       zeroScenes: delivery.zeroScenes,
       gates: [{ operation: gate.operation, status: gate.status, reason: gate.reason }]
     };
     const summary = delivery.report.summary;
     const key = previewDigest(JSON.stringify([delivery, batch, history.current, history.revisions.map((item) => item.revisionId), record3]));
-    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID10() };
+    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID11() };
   }
   async operate(opened, args) {
     if (args.action === "review") return { confirmation: await this.review(opened) };
@@ -30854,16 +31147,16 @@ var ProjectAcceptance = class {
 };
 
 // src/server/project-render.ts
-import { randomUUID as randomUUID11, randomBytes as randomBytes3 } from "node:crypto";
+import { randomUUID as randomUUID12, randomBytes as randomBytes3 } from "node:crypto";
 import { constants as constants4, watch } from "node:fs";
-import { open as open7, realpath as realpath6, link as link2, unlink as unlink2, lstat as lstat8 } from "node:fs/promises";
-import { basename as basename3, dirname as dirname8, isAbsolute as isAbsolute4, join as join13 } from "node:path";
+import { open as open8, realpath as realpath7, link as link3, unlink as unlink2, lstat as lstat9 } from "node:fs/promises";
+import { basename as basename4, dirname as dirname9, isAbsolute as isAbsolute5, join as join14 } from "node:path";
 
 // src/server/project-preview.ts
 import { constants as constants3 } from "node:fs";
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { lstat as lstat7, open as open6, realpath as realpath5 } from "node:fs/promises";
-import { join as join12, relative as relative4, isAbsolute as isAbsolute3 } from "node:path";
+import { lstat as lstat8, open as open7, realpath as realpath6 } from "node:fs/promises";
+import { join as join13, relative as relative5, isAbsolute as isAbsolute4 } from "node:path";
 
 // src/server/render-program-input.ts
 function deepFreeze(value) {
@@ -30921,16 +31214,16 @@ function createRenderProgramInput(state, output, assetSources) {
 
 // src/server/project-preview.ts
 async function snapshotFile(root, path, limit) {
-  const full = join12(root, path), resolved = await realpath5(full), rel = relative4(await realpath5(root), resolved);
-  if (rel.startsWith("..") || isAbsolute3(rel) || (await lstat7(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
-  const expected = await lstat7(resolved);
-  const file2 = await open6(full, constants3.O_RDONLY | constants3.O_NOFOLLOW | constants3.O_NONBLOCK);
+  const full = join13(root, path), resolved = await realpath6(full), rel = relative5(await realpath6(root), resolved);
+  if (rel.startsWith("..") || isAbsolute4(rel) || (await lstat8(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
+  const expected = await lstat8(resolved);
+  const file2 = await open7(full, constants3.O_RDONLY | constants3.O_NOFOLLOW | constants3.O_NONBLOCK);
   try {
     const before = await file2.stat();
-    if (!before.isFile() || before.nlink !== 1 || before.dev !== expected.dev || before.ino !== expected.ino || await realpath5(full) !== resolved || before.size > limit) throw new Error("Preview \u6587\u4EF6\u4E0D\u53EF\u7528\u6216\u8D85\u8FC7\u5185\u5B58\u4E0A\u9650\u3002");
+    if (!before.isFile() || before.nlink !== 1 || before.dev !== expected.dev || before.ino !== expected.ino || await realpath6(full) !== resolved || before.size > limit) throw new Error("Preview \u6587\u4EF6\u4E0D\u53EF\u7528\u6216\u8D85\u8FC7\u5185\u5B58\u4E0A\u9650\u3002");
     const bytes = await file2.readFile();
     const after = await file2.stat();
-    if (await realpath5(full) !== resolved || bytes.length > limit || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("Preview \u8BFB\u53D6\u671F\u95F4\u5A92\u4F53\u53D1\u751F\u53D8\u5316\u3002");
+    if (await realpath6(full) !== resolved || bytes.length > limit || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("Preview \u8BFB\u53D6\u671F\u95F4\u5A92\u4F53\u53D1\u751F\u53D8\u5316\u3002");
     return bytes;
   } finally {
     await file2.close();
@@ -30953,9 +31246,9 @@ var ProjectPreview = class {
       const bytes = await snapshotFile(root, path, 256 * 1024 * 1024);
       total += bytes.length;
       if (total > 512 * 1024 * 1024) throw new Error("Preview \u5A92\u4F53\u8D85\u8FC7 512 MiB\uFF0C\u8BF7\u7F29\u5C0F\u7D20\u6750\u540E\u91CD\u8BD5\u3002");
-      const digest3 = previewDigest(bytes), key = `media/${digest3.slice(7)}`;
+      const digest4 = previewDigest(bytes), key = `media/${digest4.slice(7)}`;
       media.set(key, bytes);
-      mediaPaths.set(path, digest3);
+      mediaPaths.set(path, digest4);
       return key;
     }
     const referenced = new Set(state.project.scenes.flatMap((scene) => scene.assetIds));
@@ -31112,7 +31405,7 @@ async function renderAcceptedProgram(descriptor, files, speech, signal, progress
   const capsule = await localExecutionCapsule(), driver = await bundleApplicationWorker("encode");
   const segments = [];
   let segmentBytes = 0;
-  async function encode3(config2, media2, final) {
+  async function encode4(config2, media2, final) {
     const output = await capsule.run({ stage: "render", entry: "bundle/encode.mjs", signal, inputs: {
       "bundle/encode.mjs": driver,
       "input/encode.json": Buffer.from(JSON.stringify(config2)),
@@ -31133,7 +31426,7 @@ async function renderAcceptedProgram(descriptor, files, speech, signal, progress
     const captured = await capturePreviewFrames(descriptor, files, frames, signal, "render");
     const failed = captured.find((item) => item.error || !item.image);
     if (failed) throw new FinalRenderError(failed.errorCode === "RUNTIME_FRAME_FAILED" ? "RENDER_FRAME_FAILED" : "CAPSULE_EXECUTION_FAILED", failed.errorCode === "RUNTIME_FRAME_FAILED" ? "\u6B64\u5E27\u5185\u5BB9\u6267\u884C\u5931\u8D25\uFF0C\u8BF7\u4FEE\u590D\u5019\u9009\u5E76\u91CD\u65B0\u9A8C\u6536\u3002" : `\u5E27\u91C7\u96C6\u64CD\u4F5C\u5931\u8D25\uFF1B\u6062\u590D\u6D4F\u89C8\u5668\u6216\u6267\u884C\u80F6\u56CA\u6761\u4EF6\u540E\u53EF\u91CD\u8BD5\u3002${failed.error?.slice(0, 256) ?? ""}`, { frame: failed.frame });
-    const segment = await encode3({ mode: "segment", fps: descriptor.input.output.fps, frames: frames.length }, Object.fromEntries(captured.map((item, i) => [`media/${i}.png`, item.image])), false);
+    const segment = await encode4({ mode: "segment", fps: descriptor.input.output.fps, frames: frames.length }, Object.fromEntries(captured.map((item, i) => [`media/${i}.png`, item.image])), false);
     segmentBytes += segment.length;
     if (segmentBytes > 256 * 1024 * 1024) throw new FinalRenderError("CAPSULE_RESOURCE_EXCEEDED", "\u65E0\u635F\u5E27\u6BB5\u8D85\u8FC7\u5355\u6B21\u6267\u884C\u5185\u5B58\u9884\u7B97\uFF0C\u672A\u751F\u6210\u5B8C\u6574\u4EA7\u7269\u3002");
     segments.push(segment);
@@ -31146,17 +31439,17 @@ async function renderAcceptedProgram(descriptor, files, speech, signal, progress
     if (!bytes) throw new FinalRenderError("RENDER_MEDIA_CHANGED", "Speech \u5B57\u8282\u7F3A\u5931\uFF0C\u8BF7\u6062\u590D\u539F\u5B57\u8282\u540E\u91CD\u65B0\u68C0\u67E5\u3002");
     media[track.src] = bytes;
   }
-  return encode3({ mode: "final", output: descriptor.input.output, frames: descriptor.input.durationInFrames, segments: segments.length, speech }, media, true);
+  return encode4({ mode: "final", output: descriptor.input.output, frames: descriptor.input.durationInFrames, segments: segments.length, speech }, media, true);
 }
 
 // src/server/project-render.ts
-var digest2 = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
+var digest3 = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
 var recordSchema = external_exports.object({
   protocolVersion: external_exports.literal(1),
   checkerVersion: external_exports.literal(1),
   bridgeVersion: external_exports.literal(1),
-  bundle: digest2,
-  identity: external_exports.object({ project: external_exports.string(), program: digest2, brief: digest2, input: digest2, media: digest2, environment: digest2 }),
+  bundle: digest3,
+  identity: external_exports.object({ project: external_exports.string(), program: digest3, brief: digest3, input: digest3, media: digest3, environment: digest3 }),
   gates: external_exports.array(external_exports.object({ operation: external_exports.string(), status: external_exports.string() }))
 });
 var contentCodes = /* @__PURE__ */ new Set(["RENDER_FRAME_FAILED", "RUNTIME_FRAME_FAILED", "RUNTIME_CONTRACT_VIOLATION", "STATIC_NONDETERMINISTIC_API", "STATIC_FORBIDDEN_CAPABILITY"]);
@@ -31224,7 +31517,7 @@ var ProjectRender = class {
     const known = [...this.#jobs.values()].find((job) => job.requestId === args.requestId);
     if (known) return { job: structuredClone(known) };
     if (this.#abort) throw new FinalRenderError("RENDER_BUSY", "\u5F53\u524D\u9879\u76EE\u5DF2\u6709\u6700\u7EC8 Render\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210\u6216\u53D6\u6D88\u3002");
-    if (!isAbsolute4(args.outputPath) || !args.outputPath.endsWith(".mp4") || /[\0\r\n]/.test(args.outputPath)) throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8BF7\u901A\u8FC7\u7CFB\u7EDF\u9009\u62E9\u5668\u6307\u5B9A\u65B0\u7684 MP4 \u8F93\u51FA\u4F4D\u7F6E\u3002");
+    if (!isAbsolute5(args.outputPath) || !args.outputPath.endsWith(".mp4") || /[\0\r\n]/.test(args.outputPath)) throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8BF7\u901A\u8FC7\u7CFB\u7EDF\u9009\u62E9\u5668\u6307\u5B9A\u65B0\u7684 MP4 \u8F93\u51FA\u4F4D\u7F6E\u3002");
     const abort = this.#abort = new AbortController();
     let preparedDone;
     this.#preparing = new Promise((resolve5) => {
@@ -31234,16 +31527,16 @@ var ProjectRender = class {
     try {
       const prepared = await this.#inspect(opened);
       if (!prepared.source.ready || prepared.source.key !== args.key || !prepared.capture || !prepared.record || !prepared.program) throw new FinalRenderError("RENDER_NOT_READY", prepared.source.issues.map((issue2) => issue2.message).join("\uFF1B") || "\u51C6\u5907\u671F\u95F4\u63A5\u53D7\u72B6\u6001\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
-      const parent = await realpath6(dirname8(args.outputPath));
-      const outputPath = join13(parent, basename3(args.outputPath));
+      const parent = await realpath7(dirname9(args.outputPath));
+      const outputPath = join14(parent, basename4(args.outputPath));
       try {
-        await lstat8(outputPath);
+        await lstat9(outputPath);
         throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8F93\u51FA\u6587\u4EF6\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u4F4D\u7F6E\uFF1B\u4E0D\u4F1A\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002");
       } catch (error51) {
         if (error51.code !== "ENOENT") throw error51;
       }
       abort.signal.throwIfAborted();
-      const job = { id: randomUUID11(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
+      const job = { id: randomUUID12(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
       this.#jobs.set(job.id, job);
       this.#running = this.#run(opened, prepared, job, abort);
       this.#pending.delete(args.requestId);
@@ -31294,9 +31587,9 @@ var ProjectRender = class {
       abort.abort();
     };
     const verifyMedia = async () => {
-      for (const [path, digest3] of capture.mediaPaths) {
+      for (const [path, digest4] of capture.mediaPaths) {
         try {
-          if (previewDigest(await snapshotFile(opened.inspection.projectDirectory, path, 256 * 1024 * 1024)) !== digest3) changed(path);
+          if (previewDigest(await snapshotFile(opened.inspection.projectDirectory, path, 256 * 1024 * 1024)) !== digest4) changed(path);
         } catch {
           changed(path);
         }
@@ -31307,13 +31600,13 @@ var ProjectRender = class {
     try {
       const parents = /* @__PURE__ */ new Map();
       for (const path of capture.mediaPaths.keys()) {
-        const parent2 = dirname8(path);
+        const parent2 = dirname9(path);
         if (!parents.has(parent2)) parents.set(parent2, /* @__PURE__ */ new Set());
-        parents.get(parent2).add(basename3(path));
+        parents.get(parent2).add(basename4(path));
       }
       for (const [parent2, names] of parents) {
-        const watcher = watch(join13(opened.inspection.projectDirectory, parent2), (_event, file3) => {
-          if (!file3 || names.has(String(file3))) changed(join13(parent2, String(file3 ?? "")));
+        const watcher = watch(join14(opened.inspection.projectDirectory, parent2), (_event, file3) => {
+          if (!file3 || names.has(String(file3))) changed(join14(parent2, String(file3 ?? "")));
         });
         watcher.on("error", () => changed(parent2));
         watchers.push(watcher);
@@ -31332,8 +31625,8 @@ var ProjectRender = class {
       job.stage = "publishing";
       await verifyMedia();
       if (await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("CAPSULE_UNAVAILABLE", "\u6267\u884C\u73AF\u5883\u5728 Render \u671F\u95F4\u53D8\u5316\uFF0C\u672A\u751F\u6210\u4EA7\u7269\u3002");
-      temporary = join13(dirname8(job.outputPath), `.narracut-render-${randomUUID11()}.tmp`);
-      const file2 = await open7(temporary, constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | constants4.O_NOFOLLOW, 384);
+      temporary = join14(dirname9(job.outputPath), `.narracut-render-${randomUUID12()}.tmp`);
+      const file2 = await open8(temporary, constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | constants4.O_NOFOLLOW, 384);
       try {
         await file2.writeFile(bytes);
         await file2.sync();
@@ -31341,10 +31634,10 @@ var ProjectRender = class {
         await file2.close();
       }
       await verifyMedia();
-      await link2(temporary, job.outputPath);
+      await link3(temporary, job.outputPath);
       published = true;
       await verifyMedia();
-      const parent = await open7(dirname8(job.outputPath), constants4.O_RDONLY | constants4.O_DIRECTORY);
+      const parent = await open8(dirname9(job.outputPath), constants4.O_RDONLY | constants4.O_DIRECTORY);
       try {
         await parent.sync();
       } finally {
@@ -31355,7 +31648,7 @@ var ProjectRender = class {
       outcome = { status: "succeeded", stage: "completed" };
     } catch (error51) {
       if (published && temporary) {
-        const [own, target] = await Promise.all([lstat8(temporary), lstat8(job.outputPath)]).catch(() => []);
+        const [own, target] = await Promise.all([lstat9(temporary), lstat9(job.outputPath)]).catch(() => []);
         if (own && target && own.dev === target.dev && own.ino === target.ino) await unlink2(job.outputPath).catch(() => {
         });
       }
@@ -31378,7 +31671,7 @@ var ProjectRender = class {
 };
 
 // src/server/project-delivery.ts
-import { randomUUID as randomUUID12 } from "node:crypto";
+import { randomUUID as randomUUID13 } from "node:crypto";
 
 // src/shared/representative-frames.ts
 function representativePlan(input, supplemental = []) {
@@ -31435,10 +31728,10 @@ var CandidateDelivery = class {
     if (!item) throw new Error("\u5E27\u4E0D\u5C5E\u4E8E\u5B8C\u6574\u8BA1\u5212\u3002");
     return item;
   }
-  capture(frame, digest3) {
+  capture(frame, digest4) {
     const item = this.#frame(frame);
     item.status = "captured";
-    item.digest = digest3;
+    item.digest = digest4;
     delete item.error;
     delete item.observation;
   }
@@ -31449,9 +31742,9 @@ var CandidateDelivery = class {
     delete item.digest;
     delete item.observation;
   }
-  review(frame, digest3, observation) {
+  review(frame, digest4, observation) {
     const item = this.#frame(frame);
-    if (item.status !== "captured" || item.digest !== digest3 || !observation.trim() || observation.length > 4e3) throw new Error("\u68C0\u67E5\u5FC5\u987B\u5F15\u7528\u5DF2\u91C7\u96C6\u56FE\u50CF\u7684\u51C6\u786E\u6458\u8981\u5E76\u63D0\u4F9B\u89C2\u5BDF\u3002");
+    if (item.status !== "captured" || item.digest !== digest4 || !observation.trim() || observation.length > 4e3) throw new Error("\u68C0\u67E5\u5FC5\u987B\u5F15\u7528\u5DF2\u91C7\u96C6\u56FE\u50CF\u7684\u51C6\u786E\u6458\u8981\u5E76\u63D0\u4F9B\u89C2\u5BDF\u3002");
     item.observation = observation;
   }
   describe(report) {
@@ -31519,7 +31812,7 @@ var ProjectDelivery = class {
       if (this.#current && this.#current.binding.instanceId === args.instanceId && !args.supplements && await this.#fresh(opened, this.#current)) return this.status(opened);
       const supplements = supplementsSchema.parse(args.supplements ?? []);
       this.clear();
-      const current2 = new CandidateDelivery(randomUUID12(), snapshot.binding, snapshot.descriptor.input, supplements);
+      const current2 = new CandidateDelivery(randomUUID13(), snapshot.binding, snapshot.descriptor.input, supplements);
       this.#current = current2;
       this.#output = snapshot.descriptor.input.output;
       if (!await this.#fresh(opened, current2)) throw new Error("\u5019\u9009 Preview \u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6784\u5EFA\u3002");
@@ -31628,7 +31921,7 @@ var ProjectDelivery = class {
 };
 
 // src/server/project-checks.ts
-import { randomUUID as randomUUID13 } from "node:crypto";
+import { randomUUID as randomUUID14 } from "node:crypto";
 var ProjectChecks = class {
   constructor(preview) {
     this.preview = preview;
@@ -31724,7 +32017,7 @@ var ProjectChecks = class {
           }
         } }
       ];
-      const batch = new CheckBatch(randomUUID13(), identity2, checks);
+      const batch = new CheckBatch(randomUUID14(), identity2, checks);
       this.#batches.push(batch);
       this.#batches = this.#batches.slice(-2);
       void batch.run().then(async () => {
@@ -31769,9 +32062,9 @@ var ProjectChecks = class {
 };
 
 // plugins/narracut/src/server.ts
-import { randomUUID as randomUUID14 } from "node:crypto";
+import { randomUUID as randomUUID15 } from "node:crypto";
 import { readFile as readFile7 } from "node:fs/promises";
-import { basename as basename5, isAbsolute as isAbsolute5 } from "node:path";
+import { basename as basename6, isAbsolute as isAbsolute6 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -32094,8 +32387,8 @@ var CodexAppServerHost = class {
 
 // src/server/project-asset-preview.ts
 import { constants as fsConstants3 } from "node:fs";
-import { lstat as lstat9, open as openFile2 } from "node:fs/promises";
-import { basename as basename4, join as join14 } from "node:path";
+import { lstat as lstat10, open as openFile2 } from "node:fs/promises";
+import { basename as basename5, join as join15 } from "node:path";
 var MAX_INLINE_PREVIEW_BYTES = 32 * 1024 * 1024;
 function startsWith(bytes, signature) {
   return signature.every((byte, index) => bytes[index] === byte);
@@ -32134,7 +32427,7 @@ async function readProjectAssetPreview(inspection, assetId) {
   if (asset === void 0) {
     return { status: "dangling", id: assetId, reason: "\u672A\u627E\u5230\u767B\u8BB0\u7684 Asset\u3002" };
   }
-  const absolutePath = join14(inspection.projectDirectory, asset.path);
+  const absolutePath = join15(inspection.projectDirectory, asset.path);
   try {
     const { assetStates: [runtime] } = await validateProjectVNextResources(
       inspection.projectDirectory,
@@ -32148,7 +32441,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         reason: runtime?.reason ?? "Asset \u6587\u4EF6\u4E0D\u53EF\u7528\u3002"
       };
     }
-    const before = await lstat9(absolutePath);
+    const before = await lstat10(absolutePath);
     const handle = await openFile2(absolutePath, fsConstants3.O_RDONLY | (fsConstants3.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
@@ -32162,7 +32455,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         status: "available",
         id: asset.id,
         path: asset.path,
-        filename: basename4(asset.path),
+        filename: basename5(asset.path),
         size: opened.size,
         ...detected
       };
@@ -32227,6 +32520,7 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  { name: "project_recovery", title: "\u9879\u76EE\u6062\u590D\u5FEB\u7167", description: "\u6838\u5BF9\u9879\u76EE\u8EAB\u4EFD\u3001\u5C01\u5B58\u672A\u4FDD\u5B58\u7F16\u8F91\u5E76\u5728\u9879\u76EE\u5916\u5BFC\u51FA\u6062\u590D\u5FEB\u7167\u3002", inputSchema: { type: "object", required: ["action", "projectDirectory", "projectId"], additionalProperties: false, properties: { action: { enum: ["check", "seal", "export", "status", "leave"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, draft: { type: "object", additionalProperties: false, properties: { dsl: { type: "string" }, briefLocal: { type: "string" }, briefBase: { type: "string" } } }, target: { type: "string" }, operationId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "copy_project", title: "\u590D\u5236\u9879\u76EE", description: "\u5B89\u5168\u505C\u6B62\u5E76\u5173\u95ED\u6765\u6E90\uFF0C\u5B8C\u6574\u590D\u5236\u540E\u6253\u5F00\u72EC\u7ACB\u526F\u672C\uFF1B\u53EF\u67E5\u8BE2\u9636\u6BB5\u548C\u5728\u53D1\u5E03\u524D\u53D6\u6D88\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["start", "status", "cancel"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, targetDirectory: { type: "string" }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop", "takeover", "approve-tool", "reject-tool"] }, id: { type: "string" }, baseline: { type: "string" }, parentOrigin: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "start_creation_task", description: "\u4ECE Composer \u539F\u6587\u53D1\u8D77\u4E13\u7528\u521B\u4F5C\u4EFB\u52A1\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
@@ -32691,7 +32985,7 @@ function serializeInspection(inspection, writable = false, credential = { status
     timeline: inspection.timeline,
     project: {
       directory: inspection.projectDirectory,
-      folderName: basename5(inspection.projectDirectory),
+      folderName: basename6(inspection.projectDirectory),
       projectId: inspection.manifest.projectId,
       sceneCount: inspection.project.scenes.length,
       assetCount: inspection.project.assets.length
@@ -32721,9 +33015,9 @@ function serializeInspection(inspection, writable = false, credential = { status
   };
 }
 function diagnosticSummary(diagnostics) {
-  return diagnostics.map(({ code, component, message, metric, actual, limit, jsonPath }) => ({
+  return diagnostics.map(({ code, component: component2, message, metric, actual, limit, jsonPath }) => ({
     code,
-    component,
+    component: component2,
     message,
     ...metric === void 0 ? {} : { metric },
     ...actual === void 0 ? {} : { actual },
@@ -32760,7 +33054,7 @@ async function inspectProject(argumentsValue) {
     };
   }
   const projectDirectory = argumentsValue.projectDirectory;
-  if (!isAbsolute5(projectDirectory)) {
+  if (!isAbsolute6(projectDirectory)) {
     return {
       isError: true,
       structuredContent: {
@@ -32778,7 +33072,7 @@ async function inspectProject(argumentsValue) {
       structuredContent,
       content: [{
         type: "text",
-        text: `${basename5(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
+        text: `${basename6(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
       }]
     };
   } catch (error51) {
@@ -32788,7 +33082,7 @@ async function inspectProject(argumentsValue) {
         structuredContent: {
           status: "invalid",
           connection: connectedState(),
-          project: { directory: projectDirectory, folderName: basename5(projectDirectory) },
+          project: { directory: projectDirectory, folderName: basename6(projectDirectory) },
           error: {
             code: error51.code,
             path: error51.path,
@@ -32843,6 +33137,53 @@ function credentialState(value) {
   return { status: "available", storage: "session", masked: `\u2022\u2022\u2022\u2022${value.slice(-4)}` };
 }
 var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
+  #recoveryCut = null;
+  #recoveryExports = new RecoveryExports();
+  async checkIdentity() {
+    if (!this.#opened || this.#transferred || this.#handoffPending) return;
+    try {
+      await this.#opened.assertWritable();
+    } catch (error51) {
+      void this.creation?.close().catch(() => void 0);
+      void this.render.close().catch(() => void 0);
+      for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
+      throw error51;
+    }
+  }
+  async recoveryOperation(input) {
+    const opened = this.#opened;
+    if (!opened || opened.inspection.projectDirectory !== input.projectDirectory || opened.inspection.manifest.projectId !== input.projectId) throw new Error("\u6062\u590D\u8BF7\u6C42\u4E0E\u539F\u9879\u76EE\u8EAB\u4EFD\u4E0D\u5339\u914D\u3002");
+    if (input.action === "check") {
+      try {
+        await this.checkIdentity();
+        return { status: "valid" };
+      } catch (error51) {
+        return { status: "identity-lost", error: { code: "PROJECT_IDENTITY_LOST", message: error51.message } };
+      }
+    }
+    if (input.action === "seal") {
+      try {
+        await opened.assertWritable();
+      } catch {
+      }
+      if (!opened.identityLost) throw new Error("\u5F53\u524D\u9879\u76EE\u8EAB\u4EFD\u6709\u6548\u3002");
+      const draft = input.draft;
+      if (!draft || Object.entries(draft).some(([key, value]) => !["dsl", "briefLocal", "briefBase"].includes(key) || typeof value !== "string")) throw new Error("\u6062\u590D\u7F16\u8F91\u5185\u5BB9\u65E0\u6548\u3002");
+      this.#recoveryCut = await opened.freezeRecovery(draft);
+      return { status: "sealed", cut: this.#recoveryCut };
+    }
+    if (!opened.identityLost) throw new Error("\u5F53\u524D\u9879\u76EE\u6CA1\u6709\u8EAB\u4EFD\u963B\u65AD\u3002");
+    if (input.action === "leave") {
+      await this.creation?.close();
+      await opened.release();
+      this.#opened = null;
+      return { status: "launcher", connection: launcherConnectionState() };
+    }
+    if (!this.#recoveryCut) throw new Error("\u6CA1\u6709\u5DF2\u5C01\u5B58\u7684\u672A\u4FDD\u5B58 Scene \u6216 Brief \u6539\u52A8\u3002");
+    if (input.action === "export") return { status: "exported", ...await this.#recoveryExports.run(this.#recoveryCut, input.target, input.operationId, opened.recoveryRootIdentity) };
+    if (input.action === "status") return { status: "exported", ...await this.#recoveryExports.status(input.operationId) };
+    throw new Error("\u672A\u77E5\u6062\u590D\u64CD\u4F5C\u3002");
+  }
   static identityQueue = Promise.resolve();
   #choosingIdentity = false;
   static sessions = /* @__PURE__ */ new Set();
@@ -32867,8 +33208,8 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     }
     if (this.copying || this.#opening || this.#choosingIdentity || this.#resolvingCandidate) throw new Error("\u9879\u76EE\u64CD\u4F5C\u5C1A\u672A\u7ED3\u675F\u3002");
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
-    if (typeof input.targetDirectory !== "string" || !isAbsolute5(input.targetDirectory)) throw new Error("\u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
-    this.#copy = { operationId: typeof input.operationId === "string" && /^[0-9a-f-]{36}$/i.test(input.operationId) ? input.operationId : randomUUID14(), status: "running", phase: "stopping", sourceDirectory: input.projectDirectory, targetDirectory: input.targetDirectory, sourceClosed: false };
+    if (typeof input.targetDirectory !== "string" || !isAbsolute6(input.targetDirectory)) throw new Error("\u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
+    this.#copy = { operationId: typeof input.operationId === "string" && /^[0-9a-f-]{36}$/i.test(input.operationId) ? input.operationId : randomUUID15(), status: "running", phase: "stopping", sourceDirectory: input.projectDirectory, targetDirectory: input.targetDirectory, sourceClosed: false };
     const operation = this.#copy;
     const controller = this.#copyController = new AbortController();
     this.#copyPromise = (async () => {
@@ -33235,7 +33576,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const job = {
-      id: randomUUID14(),
+      id: randomUUID15(),
       sceneId: scene.id,
       status: "queued",
       stage: "\u6392\u961F",
@@ -33433,6 +33774,20 @@ async function callTool(params, hostValidation, workspace) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
   const { name, arguments: argumentsValue } = params;
+  if (name === "project_recovery") {
+    try {
+      return { structuredContent: await workspace.recoveryOperation(argumentsValue), content: [] };
+    } catch (error51) {
+      return { isError: true, structuredContent: { status: error51 instanceof RecoveryExportUncertain ? "recovery-uncertain" : "recovery-failed", error: { message: error51.message } }, content: [] };
+    }
+  }
+  if (!["health_check", "show_launcher", "open_project", "create_project", "cancel_scene_speech_job"].includes(String(name))) {
+    try {
+      await workspace.checkIdentity();
+    } catch (error51) {
+      return { isError: true, structuredContent: { status: "identity-lost", error: { code: "PROJECT_IDENTITY_LOST", message: error51.message } }, content: [] };
+    }
+  }
   if (name === "copy_project") {
     try {
       return { structuredContent: await workspace.copyOperation(argumentsValue), content: [] };
@@ -33505,7 +33860,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "create_project" || name === "open_project") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute5(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute6(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {
@@ -33536,7 +33891,7 @@ async function callTool(params, hostValidation, workspace) {
         structuredContent: { ...workspace.serialize(inspection), operation },
         content: [{
           type: "text",
-          text: operation === "created" ? `${basename5(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename5(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
+          text: operation === "created" ? `${basename6(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename6(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
         }]
       };
     } catch (error51) {
@@ -33547,7 +33902,7 @@ async function callTool(params, hostValidation, workspace) {
           structuredContent: {
             status: "created-not-opened",
             connection: launcherConnectionState(),
-            project: { directory: projectDirectory, folderName: basename5(projectDirectory) },
+            project: { directory: projectDirectory, folderName: basename6(projectDirectory) },
             error: {
               code: "PROJECT_CREATED_NOT_OPENED",
               causeCode,
@@ -33569,7 +33924,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "coordinate_project_dependencies") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
       return { isError: true, structuredContent: { status: "dependency-failed", error: { code: "DEPENDENCY_SOURCE_UNSUPPORTED", message: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" } }, content: [{ type: "text", text: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" }] };
     }
     try {
@@ -33584,7 +33939,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "manage_project_candidate") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
       return { isError: true, structuredContent: { status: "candidate-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" } }, content: [{ type: "text", text: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" }] };
     }
     try {
@@ -33609,7 +33964,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
       return {
         isError: true,
         structuredContent: {
@@ -33658,7 +34013,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -33711,7 +34066,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute5(input.targetDirectory) || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute6(input.targetDirectory) || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -33755,7 +34110,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute5(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute6(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -33806,7 +34161,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
       return {
         isError: true,
         structuredContent: { assetPreview: { status: "dangling", id: "", reason: "\u9879\u76EE\u8EAB\u4EFD\u6216 Asset ID \u65E0\u6548\u3002" } },
@@ -33849,7 +34204,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
       return {
         isError: true,
         structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u914D\u7F6E\u6216\u51ED\u636E\u64CD\u4F5C\u65E0\u6548\u3002" } },
@@ -33906,7 +34261,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
       return {
         isError: true,
         structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u6216 Scene ID \u65E0\u6548\u3002" } },
@@ -33970,7 +34325,7 @@ async function callTool(params, hostValidation, workspace) {
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute5(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute6(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {

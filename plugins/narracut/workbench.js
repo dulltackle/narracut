@@ -123,6 +123,117 @@
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
 
+  let recovery = null;
+  let identityCheckBusy = false;
+  function recoveryArgs(action, extra = {}) {
+    return { action, projectDirectory: recovery.project.directory, projectId: recovery.project.projectId, ...extra };
+  }
+  async function recoveryCall(action, extra) {
+    const response = await callHostTool('project_recovery', recoveryArgs(action, extra));
+    const content = response?.structuredContent ?? response;
+    if (response?.isError) throw new Error(content?.error?.message ?? '恢复操作失败，请重试。');
+    return content;
+  }
+  function freezeIdentity(reason) {
+    if (recovery || !state.project) return;
+    const draft = {};
+    if (state.version !== state.savedVersion) draft.dsl = JSON.stringify(state.project);
+    if (state.brief.version !== state.brief.savedVersion || state.brief.conflict) {
+      draft.briefLocal = state.brief.conflict ? state.brief.merge : state.brief.local;
+      draft.briefBase = state.brief.conflict?.base ?? state.brief.base;
+    }
+    recovery = { project: clone(state.result.project), reason, draft, phase: 'sealing', cut: null, target: '', message: '', exported: [], operationId: null };
+    state.autosaveStopped = true;
+    clearTimeout(saveTimer); clearTimeout(briefSaveTimer); clearTimeout(pollTimer); clearTimeout(speechPollTimer);
+    bindings.abort(); composing = false;
+    document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
+    app.inert = true;
+    const dialog = document.createElement('dialog');
+    dialog.id = 'recovery-page'; dialog.setAttribute('aria-labelledby', 'recovery-title');
+    dialog.innerHTML = `<main class="recovery-surface"><header><span class="status-mark" data-status="unavailable" aria-hidden="true"></span><h1 id="recovery-title" tabindex="-1">项目身份已失效，编辑已停止</h1><p data-recovery-reason></p><p class="recovery-path" data-recovery-source></p></header><section aria-label="核对状态"><h2>保存与恢复状态</h2><p data-recovery-status role="status" aria-live="polite"></p><dl class="recovery-list"><div><dt>Scene 与素材引用（DSL）</dt><dd data-recovery-dsl></dd></div><div><dt>Video Brief</dt><dd data-recovery-brief></dd></div></dl></section><section><h2>导出未保存编辑</h2><p>快照只保存未落盘编辑，恢复仍需要匹配的项目持久内容。DSL 内的素材引用不表示包含素材文件。</p><p class="recovery-note">不携带 Render Program、Asset、Speech、离线依赖、Preview、诊断、聊天或未提交 Agent 修改。</p><label class="recovery-target">项目外的新文件路径<input data-recovery-target placeholder="/恢复目录/未保存编辑.narracut-recovery.json" spellcheck="false"></label><div class="recovery-actions"><button class="agent-action" data-recovery-pick>选择导出文件夹…</button><button class="agent-action" data-primary="true" data-recovery-export>导出恢复快照…</button><button class="agent-action" data-recovery-check hidden>核对导出结果</button><button class="agent-action" data-recovery-seal hidden>重新核对保存</button></div><p data-recovery-message role="status" aria-live="polite"></p><ul data-recovery-exports></ul></section><details><summary>项目身份、恢复基线与提交证据</summary><pre data-recovery-details></pre></details><footer><button class="agent-action" data-recovery-leave>返回启动器</button><div data-recovery-leave-confirm hidden><p>尚未成功导出。离开将丢失只保存在内存中的 Scene 或 Brief 改动。</p><div class="recovery-actions"><button class="agent-action" data-recovery-cancel-leave>继续保留并导出</button><button class="agent-action" data-recovery-confirm-leave>确认丢失改动并离开</button></div></div></footer></main>`;
+    document.body.append(dialog);
+    dialog.addEventListener('cancel', event => event.preventDefault());
+    dialog.querySelector('[data-recovery-reason]').textContent = reason;
+    dialog.querySelector('[data-recovery-source]').textContent = recovery.project.directory;
+    dialog.querySelector('[data-recovery-target]').addEventListener('input', event => { recovery.target = event.target.value; });
+    dialog.querySelector('[data-recovery-pick]').addEventListener('click', async () => {
+      const picker = window.openai?.selectDirectory ?? window.openai?.pickDirectory ?? window.openai?.requestDirectoryPicker;
+      try {
+        if (!picker) throw new Error('当前宿主没有目录选择能力。请在上方填写项目外的新文件完整路径。');
+        const directory = directoryPath(await picker.call(window.openai));
+        if (!directory) { recovery.message = '已取消选择；未保存编辑仍然保留。'; updateRecovery(); return; }
+        recovery.target = `${directory.replace(/[\\/]$/, '')}/恢复-${createUuid()}.narracut-recovery.json`;
+        dialog.querySelector('[data-recovery-target]').value = recovery.target;
+        recovery.message = ''; updateRecovery();
+      } catch (error) { recovery.message = error.message; updateRecovery(); }
+    });
+    dialog.querySelector('[data-recovery-export]').addEventListener('click', () => exportRecovery(false));
+    dialog.querySelector('[data-recovery-check]').addEventListener('click', () => exportRecovery(true));
+    dialog.querySelector('[data-recovery-seal]').addEventListener('click', sealRecoveryDraft);
+    dialog.querySelector('[data-recovery-leave]').addEventListener('click', () => {
+      if (!recovery.exported.length && (recovery.cut || Object.keys(recovery.draft).length) && recovery.phase !== 'empty') {
+        dialog.querySelector('[data-recovery-leave-confirm]').hidden = false;
+        dialog.querySelector('[data-recovery-cancel-leave]').focus();
+      } else leaveRecovery();
+    });
+    dialog.querySelector('[data-recovery-confirm-leave]').addEventListener('click', leaveRecovery);
+    dialog.querySelector('[data-recovery-cancel-leave]').addEventListener('click', () => { dialog.querySelector('[data-recovery-leave-confirm]').hidden = true; dialog.querySelector('[data-recovery-leave]').focus(); });
+    updateRecovery(); dialog.showModal(); dialog.querySelector('h1').focus();
+    void sealRecoveryDraft();
+  }
+  function updateRecovery() {
+    const dialog = document.getElementById('recovery-page'); if (!dialog || !recovery) return;
+    const { phase, cut } = recovery;
+    const busy = ['sealing', 'exporting', 'checking'].includes(phase);
+    const ambiguous = cut && Object.values(cut.baseline).some(value => Array.isArray(value) && value.length > 1);
+    dialog.querySelector('[data-recovery-status]').textContent = phase === 'sealing' ? '正在核对已开始的保存' : phase === 'seal-failed' ? '尚未完成核对；内存编辑已冻结并保留' : phase === 'empty' ? '没有需要导出的未保存 Scene 或 Brief 改动' : ambiguous ? '恢复截面已封存；部分提交结果仍待确认，恢复时需要验证两种精确基线。' : '恢复截面已封存；之后的后台结果不会改变此份内容。';
+    dialog.querySelector('[data-recovery-dsl]').textContent = cut?.payload.dsl ? `${count(cut.payload.dsl.bytes)} 字节未保存编辑` : ['sealing', 'seal-failed'].includes(phase) ? '正在核对' : '没有待抢救改动';
+    dialog.querySelector('[data-recovery-brief]').textContent = cut?.payload.briefLocal ? `${count(cut.payload.briefLocal.bytes)} 字节 LOCAL${cut.payload.briefBase ? '；附带必要 BASE 冲突证据' : ''}` : ['sealing', 'seal-failed'].includes(phase) ? '正在核对' : '没有待抢救改动';
+    dialog.querySelector('[data-recovery-export]').disabled = busy || !cut || phase === 'uncertain';
+    dialog.querySelector('[data-recovery-export]').textContent = phase === 'exporting' ? '正在导出…' : recovery.exported.length ? '再导出一份' : '导出恢复快照…';
+    dialog.querySelector('[data-recovery-check]').hidden = !['uncertain', 'checking'].includes(phase);
+    dialog.querySelector('[data-recovery-check]').disabled = busy;
+    dialog.querySelector('[data-recovery-seal]').hidden = phase !== 'seal-failed';
+    for (const selector of ['[data-recovery-target]', '[data-recovery-pick]']) dialog.querySelector(selector).disabled = busy || phase === 'uncertain' || !cut;
+    dialog.querySelector('[data-recovery-leave]').disabled = busy || phase === 'uncertain';
+    dialog.querySelector('[data-recovery-message]').textContent = phase === 'uncertain' || phase === 'checking' ? '正在核对导出结果。核对完成前不会重复提交。' : recovery.message;
+    dialog.querySelector('[data-recovery-exports]').innerHTML = recovery.exported.map(path => `<li>已确认导出：<code>${escapeHtml(path)}</code></li>`).join('');
+    dialog.querySelector('[data-recovery-details]').textContent = JSON.stringify({ projectId: recovery.project.projectId, recoveryCutId: cut?.recoveryCutId, capturedAt: cut?.capturedAt, baseline: cut?.baseline }, null, 2);
+  }
+  async function sealRecoveryDraft() {
+    recovery.phase = 'sealing'; updateRecovery();
+    try {
+      const result = await recoveryCall('seal', { draft: recovery.draft });
+      recovery.cut = result.cut; recovery.phase = result.cut ? 'sealed' : 'empty'; recovery.message = '';
+    } catch (error) { recovery.phase = 'seal-failed'; recovery.message = error.message; }
+    updateRecovery();
+  }
+  async function exportRecovery(check) {
+    if (!check) recovery.operationId = createUuid();
+    recovery.phase = check ? 'checking' : 'exporting'; updateRecovery();
+    try {
+      const response = await callHostTool('project_recovery', recoveryArgs(check ? 'status' : 'export', { target: recovery.target, operationId: recovery.operationId }));
+      const result = response?.structuredContent ?? response;
+      if (result?.status === 'recovery-uncertain') { recovery.phase = 'uncertain'; }
+      else if (response?.isError) { recovery.phase = 'failed'; recovery.message = result.error?.message ?? '导出失败，请更换位置或重试。'; }
+      else if (result?.status !== 'exported' || !result.path) { recovery.phase = 'uncertain'; }
+      else { recovery.phase = 'exported'; recovery.exported.push(result.path); recovery.message = '恢复快照已安全导出。原文件保持不变，再导出时请选择新文件。'; }
+    } catch { recovery.phase = 'uncertain'; }
+    updateRecovery();
+  }
+  async function leaveRecovery() {
+    try {
+      const result = await recoveryCall('leave');
+      document.getElementById('recovery-page').remove(); app.inert = false; recovery = null; accept(result);
+    } catch (error) { recovery.message = error.message; updateRecovery(); }
+  }
+  setInterval(async () => {
+    if (recovery || identityCheckBusy || !state.project || document.hidden) return;
+    identityCheckBusy = true;
+    try { await callHostTool('project_recovery', { action: 'check', projectDirectory: state.result.project.directory, projectId: state.result.project.projectId }); } catch { /* 宿主断连不等于项目身份失效。 */ }
+    finally { identityCheckBusy = false; }
+  }, 1500);
+
   function rail(result) {
     const project = result?.project ?? {};
     const connected = result?.connection?.status === "connected";
@@ -956,6 +1067,7 @@
   }
 
   function render() {
+    if (recovery) return;
     if (composing) {
       renderPending = true;
       return;
@@ -2514,8 +2626,13 @@
   }
 
   async function callHostTool(name, args) {
-    if (typeof window.openai?.callTool === "function") return window.openai.callTool(name, args);
-    return request("tools/call", { name, arguments: args });
+    if (recovery && name !== 'project_recovery') throw new Error('项目身份已失效，编辑已停止。');
+    const response = typeof window.openai?.callTool === 'function'
+      ? await window.openai.callTool(name, args) : await request('tools/call', { name, arguments: args });
+    const content = response?.structuredContent ?? response;
+    if (content?.status === 'identity-lost' || content?.error?.code === 'PROJECT_IDENTITY_LOST') freezeIdentity(content.error?.message ?? '项目目录、清单或租约已变化。');
+    if (recovery && name !== 'project_recovery') throw new Error('项目身份已失效；迟到的结果不会改变恢复截面。');
+    return response;
   }
 
   function directoryPath(value) {
@@ -2616,6 +2733,7 @@
   }
 
   function schedulePoll(delay = 500) {
+    if (recovery) return;
     clearTimeout(pollTimer);
     if (!state.creationRecovery && (!state.creationTask || state.creationTask.status === 'terminated')) return;
     const project = state.result.project;
@@ -2706,6 +2824,7 @@
   }
 
   function accept(result, focusEmpty = false, fromCopy = false) {
+    if (recovery) return;
     if (result?.status === 'identity-conflict') { showIdentityConflict(result); return; }
     if (result?.status === 'open-cancelled') return;
     if (projectCopy?.busy && !fromCopy) return;
@@ -2806,6 +2925,8 @@
     }
     if (message.method === "ui/notifications/tool-result") {
       const content = message.params?.structuredContent;
+      if (content?.status === 'identity-lost' || content?.error?.code === 'PROJECT_IDENTITY_LOST') freezeIdentity(content.error?.message ?? '项目身份已变化。');
+      if (recovery) return;
       if (content?.status === "candidate-state") { state.candidate = content.candidate; state.candidateError = null; updateCandidate(); }
       else if (content?.status === "candidate-failed" || (content?.status === "identity-lost" && content?.error)) {
         state.candidateError = content.error;
