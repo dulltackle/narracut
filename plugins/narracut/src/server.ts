@@ -707,6 +707,7 @@ class ProjectWorkspaceSession {
   #handoffPending = false;
   #opening = false;
   creation: CreationTask | null = null;
+  #resolvingCandidate = false;
   creationError: string | null = null;
   async creationOperation(input: any, start = false, resume = false, respond = false) {
     if (!input || typeof input.projectDirectory !== 'string' || typeof input.projectId !== 'string' || start && typeof input.instruction !== 'string') throw new Error('创作任务参数无效。');
@@ -715,7 +716,11 @@ class ProjectWorkspaceSession {
     if (this.creationError) throw new Error(this.creationError);
     if (!this.creation) throw new Error('创作宿主不可用。');
     if (!respond && input.action !== undefined) throw new Error("当前工具不接受任务写操作");
-    const creationTask = respond ? input.action === 'takeover' ? await this.creation.takeover(input.instruction, input.baseline, input.parentOrigin) : await this.creation.respond(input) : resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? 'null') : await this.creation.status();
+    if (this.#resolvingCandidate) {
+      if (respond || resume || start) throw new Error('正在核对操作结果，请稍候。');
+      return { creationTask: this.creation.value, candidate: this.#candidateStatus, creationRecovery: this.creation.recovery };
+    }
+    const creationTask = respond ? input.action === 'takeover' ? await this.creation.takeover(input.instruction, input.baseline, input.parentOrigin, input.id) : await this.creation.respond(input) : resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? 'null') : await this.creation.status();
     const candidate = await this.candidate({ projectDirectory: input.projectDirectory, projectId: input.projectId, action: 'read' });
     return { creationTask, candidate, creationRecovery: this.creation.recovery };
   }
@@ -735,11 +740,19 @@ class ProjectWorkspaceSession {
   async acceptanceOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     if (this.creation?.blocksCandidateWrites && !['status', 'history', 'result'].includes(input.action)) throw new Error('创作任务正在运行，请等待候选交付。');
-    const result = await this.acceptance.operate(opened, input);
-    if (result.status === 'accepted') await this.creation?.terminate('CANDIDATE_ACCEPTED');
-    this.#candidateStatus = await opened.candidate({ action: 'read' });
-    return result;
+    if (this.#resolvingCandidate) throw new Error('正在核对操作结果，请稍候。');
+    this.#resolvingCandidate = true;
+    try {
+      const result = await this.acceptance.operate(opened, input);
+      this.#candidateStatus = await opened.candidate({ action: 'read' });
+      if (result.status === 'accepted' && result.revision.current !== false && this.#candidateStatus.status === 'absent') {
+        try { await this.creation?.terminate('CANDIDATE_ACCEPTED'); }
+        catch { result.taskCleanupPending = true; }
+      }
+      return { ...result, creationTask: this.creation?.value ?? null };
+    } finally { this.#resolvingCandidate = false; }
   }
+
   async deliveryOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     return this.delivery.operate(opened, input);
@@ -789,7 +802,7 @@ class ProjectWorkspaceSession {
   }
 
   async open(projectDirectory: string): Promise<ProjectVNextInspection> {
-    if (this.#opening) throw new Error('线程连接结果待核对');
+    if (this.#opening || this.#resolvingCandidate) throw new Error('线程连接或候选操作结果待核对');
     if (!this.#transferred && !this.#handoffPending && this.#opened?.inspection.projectDirectory === projectDirectory) return this.#opened.inspection;
     this.#opening = true;
     try { return await this.#open(projectDirectory); }
@@ -799,7 +812,7 @@ class ProjectWorkspaceSession {
     const next = await openProjectVNext(projectDirectory, {
       probeSpeechDurationMs: this.#probeSpeechDurationMs,
       onHandoff: async () => {
-        if (this.#opening) throw new Error('线程连接结果待核对');
+        if (this.#opening || this.#resolvingCandidate) throw new Error('线程连接或候选操作结果待核对');
         this.#handoffPending = true;
         await this.creation?.transfer();
         await this.render.close();
@@ -831,9 +844,18 @@ class ProjectWorkspaceSession {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const { projectDirectory: _directory, projectId: _id, ...request } = input;
     if (this.creation?.blocksCandidateWrites && request.action !== 'read') throw new Error('只有当前创作驱动可以修改候选；接管尚未接入。');
-    this.#candidateStatus = await opened.candidate(request);
-    if (request.action === 'discard') await this.creation?.terminate('CANDIDATE_ABANDONED');
-    return this.#candidateStatus;
+    if (this.#resolvingCandidate && request.action !== 'read') throw new Error('正在核对操作结果，请稍候。');
+    if (request.action !== 'discard') {
+      this.#candidateStatus = await opened.candidate(request);
+      return this.#candidateStatus;
+    }
+    this.#resolvingCandidate = true;
+    try {
+      this.#candidateStatus = await opened.candidate(request);
+      await this.creation?.terminate('CANDIDATE_ABANDONED').catch(() => undefined);
+      this.delivery.clear(); this.checks.invalidate(); this.preview.invalidate();
+      return this.#candidateStatus;
+    } finally { this.#resolvingCandidate = false; }
   }
 
   async save(input: {

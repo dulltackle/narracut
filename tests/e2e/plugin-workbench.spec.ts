@@ -1456,7 +1456,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('button', { name: '放弃候选', exact: true })).toBeFocused();
     expect(await readFile(join(directory, saved.structuredContent.candidate.candidate.path, 'resources/说明.txt'), 'utf8')).toBe('第二批原子保存');
     await page.getByRole('button', { name: '放弃候选', exact: true }).click();
-    await page.getByRole('button', { name: '确认永久放弃' }).click();
+    await page.getByRole('button', { name: '放弃候选并终结任务' }).click();
     await expect(page.getByRole('button', { name: '从当前修订创建候选' })).toBeVisible();
     await expect(composer).toHaveValue('保留这份创作草稿');
     await handler.dispose();
@@ -1690,7 +1690,7 @@ for (const width of [1440, 390]) test(`检查点失效内联接管保留目标�
     if (name === 'respond_creation_task' && args.action === 'takeover') {
       submits.push(args);
       if (submits.length === 1) { recovery = { ...recovery, candidateBaseline: 'second', candidatePath: '.narracut/candidates/最新候选/render-program' }; return { isError: true, structuredContent: { error: { message: '候选再次变化，请核对后再次明确提交。' } } }; }
-      task = { taskId: 'new-task', status: 'running', instruction: args.instruction, reason: null, stage: 'read' }; recovery = null;
+      task = { taskId: args.id, status: 'running', instruction: args.instruction, reason: null, stage: 'read' }; recovery = null;
     }
     return { structuredContent: { creationTask: task, creationRecovery: recovery } };
   });
@@ -1698,7 +1698,7 @@ for (const width of [1440, 390]) test(`检查点失效内联接管保留目标�
   await page.locator('#composer-draft').fill('另一份 Composer 草稿');
   await page.locator('[data-workspace="agent"]').click();
   await expect(page.locator('[data-task-recovery]')).toContainText('这不代表候选损坏');
-  await page.getByRole('button', { name: '用新任务接管…' }).click();
+  await page.getByRole('button', { name: '用新目标接管…' }).click();
   const goal = page.getByLabel('新任务目标');
   await goal.fill('  新目标\n保留完整中文  ');
   await goal.dispatchEvent('compositionstart');
@@ -1755,4 +1755,89 @@ for (const width of [1440, 390]) test(`外部停止指引与线程转移保留�
   await page.locator('[data-workspace="table"]').click();
   await expect(page.locator('[data-task-notice]')).toContainText('任务已转移到另一线程');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+for (const width of [1440, 390]) test(`正常任务显式接管，失败保留目标和焦点 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 }); await loadWorkbench(page);
+  const candidate = { status: 'saved', baseline: 'first', candidate: { path: '.narracut/candidate-123/candidate', identity: 'tree' }, checkpoint: null };
+  let task: any = { taskId: 'old-task', status: 'stopped', instruction: '旧目标', reason: 'USER_STOPPED', stage: 'read' };
+  const submissions: any[] = [];
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'respond_creation_task' && args.action === 'takeover') {
+      submissions.push(args);
+      if (submissions.length === 1) return { isError: true, structuredContent: { error: { message: '提交失败，请重试' } } };
+      task = { ...task, taskId: args.id, instruction: args.instruction, reason: 'CODEX_UNAVAILABLE' };
+    }
+    return { structuredContent: { creationTask: task, candidate } };
+  });
+  await sendResult(page, { ...validResult(), creationTask: task, candidate });
+  await page.locator('#composer-draft').fill('保留 Composer');
+  await page.locator('[data-workspace="agent"]').click();
+  await page.getByRole('button', { name: '用新目标接管…' }).click();
+  const goal = page.getByLabel('新任务目标'); await goal.fill('  新目标\n保留中文全文  ');
+  await sendResult(page, { creationTask: task, candidate });
+  await expect(goal).toBeFocused(); await expect(goal).toHaveValue('  新目标\n保留中文全文  ');
+  await page.locator('[data-task-recovery]').screenshot({ path: `/tmp/issue87-takeover-${width}.png` });
+  await page.getByRole('button', { name: '开始新任务并接管候选' }).click();
+  await expect(page.locator('[data-takeover-error]')).toContainText('提交失败');
+  await expect(goal).toHaveValue('  新目标\n保留中文全文  ');
+  await page.getByRole('button', { name: '开始新任务并接管候选' }).click();
+  await expect(page.locator('.creation-instruction').first()).toContainText('新目标');
+  expect(submissions).toHaveLength(2); expect(submissions[1].baseline).toBe('first');
+  await expect(page.locator('#composer-draft')).toHaveValue('保留 Composer');
+});
+
+test('接管回执丢失时锁住重复提交，核对后显示新任务停止', async ({ page }) => {
+  await loadWorkbench(page);
+  const candidate = { status: 'saved', baseline: 'first', candidate: { path: '.narracut/candidate-123/candidate', identity: 'tree' }, checkpoint: null };
+  let task: any = { taskId: 'old-task', status: 'stopped', instruction: '旧目标', reason: 'USER_STOPPED' };
+  let offline = false, submits = 0;
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'respond_creation_task' && args.action === 'takeover') {
+      submits++; task = { ...task, taskId: args.id, instruction: args.instruction, reason: 'CODEX_UNAVAILABLE' }; offline = true;
+      throw new Error('回执丢失');
+    }
+    if (name === 'get_creation_task' && offline) throw new Error('连接中断');
+    return { structuredContent: { creationTask: task, candidate } };
+  });
+  await sendResult(page, { ...validResult(), creationTask: task, candidate });
+  await page.locator('[data-workspace="agent"]').click();
+  await page.getByRole('button', { name: '用新目标接管…' }).click();
+  await page.getByLabel('新任务目标').fill('新目标全文');
+  await page.getByRole('button', { name: '开始新任务并接管候选' }).click();
+  await expect(page.getByRole('button', { name: '开始新任务并接管候选' })).toBeDisabled();
+  await expect(page.locator('[data-takeover-error]')).toContainText('连接中断');
+  await expect(page.getByRole('button', { name: '审阅并接受' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '放弃候选', exact: true })).toBeDisabled();
+  expect(submits).toBe(1); offline = false;
+  await page.locator('[data-takeover-reconcile]').click();
+  await expect(page.locator('.creation-state')).toContainText('已停止');
+  await expect(page.locator('.creation-instruction').first()).toContainText('新目标全文');
+  expect(submits).toBe(1);
+});
+
+test('放弃确认默认取消，回执不明先核对且不重复删除', async ({ page }) => {
+  await loadWorkbench(page);
+  let candidate: any = { status: 'saved', baseline: 'first', candidate: { path: '.narracut/candidate-123/candidate', identity: 'tree' }, checkpoint: { path: '.narracut/candidate-123/checkpoint', identity: 'previous' } };
+  let task: any = { taskId: 'old-task', status: 'stopped', instruction: '旧目标', reason: 'USER_STOPPED' };
+  let submits = 0;
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'manage_project_candidate' && args.action === 'discard') {
+      submits++; candidate = { ...candidate, status: 'absent', baseline: 'absent', candidate: null, checkpoint: null };
+      task = { ...task, status: 'terminated', reason: 'CANDIDATE_ABANDONED' };
+      throw new Error('删除回执丢失');
+    }
+    return { structuredContent: { creationTask: task, candidate } };
+  });
+  await sendResult(page, { ...validResult(), creationTask: task, candidate });
+  await page.locator('[data-workspace="agent"]').click();
+  await page.getByRole('button', { name: '放弃候选', exact: true }).click();
+  await expect(page.locator('[data-candidate-cancel]')).toBeFocused();
+  await expect(page.getByRole('alertdialog')).toContainText('Agent 任务检查点');
+  await page.getByRole('button', { name: '放弃候选并终结任务', exact: true }).click();
+  await expect(page.getByRole('button', { name: '审阅并接受' })).toBeDisabled();
+  await page.locator('[data-candidate-region]').getByRole('button', { name: '核对操作结果' }).click();
+  await expect(page.locator('.creation-state')).toContainText('已终结');
+  await expect(page.locator('[data-candidate-region]')).toContainText('尚无候选');
+  expect(submits).toBe(1);
 });

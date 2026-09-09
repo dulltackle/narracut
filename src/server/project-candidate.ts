@@ -1,4 +1,4 @@
-import { createRevisionStore, readCurrentPointer } from './project-revisions';
+import { createRevisionStore, readCurrentPointer, taskCheckpointFingerprint, cleanupEndedTask } from './project-revisions';
 import { buildProgramBundle, type ProgramBuildRequest } from './program-bundle';
 import { coordinateDependencies, verifyPackageBytes, type DependencyUpdate, type OfflinePackages } from './project-dependencies';
 import { createHash, randomUUID } from 'node:crypto';
@@ -17,7 +17,7 @@ export type CandidateRequest = DependencyUpdate & {
   changes?: Array<{ path: string; content: string | null }>;
 };
 type TreeRef = { path: string; identity: string };
-type State = { version: 1; sourceRevision: string; candidate: TreeRef | null; checkpoint: TreeRef | null; offline?: string; offlineIdentity?: string; offlineKeys?: string[] };
+type State = { version: 1; sourceRevision: string; candidate: TreeRef | null; checkpoint: TreeRef | null; offline?: string; offlineIdentity?: string; offlineKeys?: string[]; taskCheckpoint?: string };
 export type CandidateStatus = {
   status: 'absent' | 'saved' | 'external-change' | 'integrity-failed';
   baseline: string;
@@ -204,18 +204,20 @@ export async function createCandidateManager(project: string, assertWritable: ()
       if (before.view.status === 'absent') return before.view;
       await assertCurrent();
       if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '候选指针已变化，未放弃。');
-      if (before.state?.offline) {
-        const tombstone = Buffer.from(JSON.stringify({ ...before.state, candidate: null, checkpoint: null }));
+      {
+        const taskCheckpoint = await taskCheckpointFingerprint(project);
+        const tombstone = Buffer.from(JSON.stringify({ version: 1, sourceRevision: before.view.sourceRevision, ...before.state, candidate: null, checkpoint: null, taskCheckpoint }));
         const temporary = join(internal, `discard-${randomUUID()}.json`);
-        try { await writeBytes(temporary, tombstone); await rename(temporary, pointer); }
-        finally { await rm(temporary, { force: true }); }
+        try { await writeBytes(temporary, tombstone); await assertCurrent();
+          if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '候选指针已变化，未放弃。');
+          if ((await inspect()).view.baseline !== before.view.baseline) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '候选字节已变化，请重新核对后明确放弃。');
+          await validate?.(); await rename(temporary, pointer); }
+        finally { await rm(temporary, { force: true }).catch(() => undefined); }
         await syncDirectory(internal).catch(() => undefined);
-        for (const ref of [before.state.candidate, before.state.checkpoint]) if (ref) await rm(join(project, ref.path), { recursive: true, force: true }).catch(() => undefined);
-        return { status: 'absent', baseline: hash(JSON.stringify([hash(tombstone), before.offline?.signature ?? null])), sourceRevision: await currentRevision(), candidate: null, checkpoint: null, offline: before.state.offline };
+        await cleanupEndedTask(project).catch(() => undefined);
+        for (const ref of [before.state?.candidate, before.state?.checkpoint]) if (ref) await rm(join(project, ref.path), { recursive: true, force: true }).catch(() => undefined);
+        return { status: 'absent', baseline: hash(JSON.stringify([hash(tombstone), before.offline?.signature ?? null])), sourceRevision: before.view.sourceRevision, candidate: null, checkpoint: null, ...(before.state?.offline ? { offline: before.state.offline } : {}) };
       }
-      await rm(pointer);
-      if (before.state?.candidate) await rm(dirname(join(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => undefined);
-      return { status: 'absent', baseline: hash('absent'), sourceRevision: await currentRevision(), candidate: null, checkpoint: null };
     }
     if (request.action === 'adopt' && !request.confirmed) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '需要明确确认外部候选。');
     if (request.action !== 'create' && ((before.view.status !== 'saved' && !(request.action === 'adopt' && before.view.status === 'external-change') && !(request.action === 'dependencies' && before.view.error?.code === 'DEPENDENCY_INTEGRITY_FAILED')) || !before.tree)) {

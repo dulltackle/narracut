@@ -9360,6 +9360,11 @@ var require_semver2 = __commonJS({
   }
 });
 
+// src/server/project-revisions.ts
+import { randomUUID as randomUUID3, createHash as createHash6 } from "node:crypto";
+import { join as join5 } from "node:path";
+import { rename as rename2, rm as rm4, mkdir as mkdir4, lstat as lstat2 } from "node:fs/promises";
+
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
@@ -23874,507 +23879,6 @@ function date4(params) {
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 config(en_default());
 
-// plugins/narracut/src/creation-interaction.ts
-var text = external_exports.string().min(1).max(4e3);
-var sceneCondition = external_exports.object({
-  field: external_exports.enum(["narration", "asset", "deleted"]),
-  description: text,
-  minLength: external_exports.number().int().min(0).max(1e5).default(1),
-  maxLength: external_exports.number().int().min(1).max(1e5).default(1e5),
-  anyOf: external_exports.array(text).max(40).default([])
-}).strict();
-var sceneSuggestion = external_exports.object({
-  sceneId: external_exports.string().uuid(),
-  observation: text,
-  action: text,
-  content: text,
-  reason: text,
-  required: external_exports.boolean().default(false),
-  condition: sceneCondition.nullable().default(null)
-}).strict();
-var pendingSuggestion = sceneSuggestion.extend({ satisfied: external_exports.boolean().default(false), missing: external_exports.boolean().default(false) });
-function evaluateSuggestion(item, input) {
-  const scene = input.scenes.find((entry) => entry.id === item.sceneId);
-  const condition = item.condition;
-  let satisfied = false;
-  if (condition?.field === "deleted") satisfied = !scene;
-  else if (scene && condition?.field === "narration") {
-    const value = scene.narration;
-    const length = [...value.trim()].length;
-    satisfied = length >= condition.minLength && length <= condition.maxLength && (!condition.anyOf.length || condition.anyOf.some((part) => value.includes(part)));
-  } else if (scene && condition?.field === "asset") {
-    satisfied = scene.assetIds.some((id) => input.assets.some((asset) => asset.id === id && asset.availability === "available" && asset.src && (!condition.anyOf.length || condition.anyOf.includes(id))));
-  }
-  return { ...item, satisfied, missing: !scene };
-}
-var briefProposal = external_exports.object({ id: external_exports.string().uuid(), base: external_exports.string().max(2097152), baseline: text, content: external_exports.string().max(2097152), purpose: text, status: external_exports.enum(["review", "stale", "rejected", "saved"]) }).strict();
-var messageDecision = external_exports.object({
-  verificationToken: external_exports.string(),
-  kind: external_exports.enum(["creation", "discussion", "mixed", "ambiguous"]),
-  fragments: external_exports.array(text).max(20),
-  reply: text,
-  divergence: external_exports.string().max(4e3)
-}).strict();
-var pendingMessage = external_exports.object({ id: external_exports.string().uuid(), original: text, fragments: external_exports.array(text).max(20), reply: text, previousStatus: external_exports.enum(["running", "waiting", "stopped"]).default("waiting"), previousReason: external_exports.string().nullable().default(null) }).strict();
-function authorizesBrief(instruction) {
-  const latest = instruction.split("\n\n").at(-1).trim();
-  if (/[?？]|不要|别|不必|无需|不能|是否|能否|批准|同意|确认后|解释|如何|保持|不变|如果|等我|先讨论|暂不|前先|之前|方案|建议|备份/.test(latest)) return false;
-  return /^(?:请\s*|帮我\s*|请帮我\s*)?(?:直接\s*)?(?:(?:更新|修改|重写|写入|保存|编写|补充)\s*(?:Video\s*Brief|Brief|video\.md)\s*(?:[。！!]?|[：:][\s\S]+|(?:为|成)[\s\S]+)|(?:将|把)?\s*(?:Video\s*Brief|Brief|video\.md)\s*(?:改为|改成|更新为|写成)[\s\S]+)$/i.test(latest);
-}
-
-// plugins/narracut/src/creation-task.ts
-import { randomUUID as randomUUID5 } from "node:crypto";
-import { join as join6 } from "node:path";
-import { rename as rename3, rm as rm5, open as open2 } from "node:fs/promises";
-
-// plugins/narracut/src/codex-host.ts
-import { randomUUID } from "node:crypto";
-var CodexThreadUnavailableError = class extends Error {
-  code = "CODEX_THREAD_UNAVAILABLE";
-  threadId;
-  constructor(threadId) {
-    super(`Codex \u521B\u4F5C\u7EBF\u7A0B ${threadId} \u4E0D\u53EF\u7528\u3002`);
-    this.name = "CodexThreadUnavailableError";
-    this.threadId = threadId;
-  }
-};
-function codexStopReason(error51) {
-  const value = error51;
-  const codes = ["CODEX_USAGE_LIMIT", "CODEX_AUTH_REQUIRED", "CODEX_UNAVAILABLE", "CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "NO_PROGRESS", "PROJECT_IDENTITY_LOST"];
-  return codes.find((code) => value?.code === code || value?.message === code) ?? "CODEX_INTERRUPTED";
-}
-var validationOutputSchema = {
-  type: "object",
-  required: ["verificationToken", "projectId", "sceneCount", "summary"],
-  properties: {
-    verificationToken: { type: "string" },
-    projectId: { type: "string" },
-    sceneCount: { type: "integer", minimum: 0 },
-    summary: { type: "string", maxLength: 240 }
-  },
-  additionalProperties: false
-};
-function checkpointFor(task) {
-  if (task.state.status === "succeeded") return null;
-  return {
-    taskId: task.state.taskId,
-    status: task.state.status,
-    reason: task.state.reason,
-    threadPointer: task.state.connection.threadId
-  };
-}
-function availableActions(status) {
-  if (status === "running") return ["stop"];
-  if (status === "stopped") return ["continue"];
-  return [];
-}
-function publicState(task) {
-  return {
-    ...task.state,
-    connection: { ...task.state.connection },
-    result: task.state.result === null ? null : { ...task.state.result, verification: { ...task.state.result.verification } },
-    diagnostic: task.state.diagnostic === null ? null : { ...task.state.diagnostic },
-    checkpoint: checkpointFor(task),
-    availableActions: [...task.state.availableActions]
-  };
-}
-function boundedMessage(message, fallback) {
-  if (typeof message !== "string" || message.trim() === "") return fallback;
-  return message.trim().slice(0, 240);
-}
-function validationPrompt(task, verificationToken) {
-  return [
-    "\u8FD9\u662F Narracut \u7684\u4E00\u6B21\u56FA\u5B9A Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\uFF0C\u4E0D\u662F\u521B\u4F5C\u4EFB\u52A1\u3002",
-    "\u53EA\u8BFB\u68C0\u67E5\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\u4E2D\u7684 narracut.json \u4E0E project.json\uFF1B\u4E0D\u8981\u521B\u5EFA\u3001\u4FEE\u6539\u6216\u5220\u9664\u4EFB\u4F55\u6587\u4EF6\uFF0C\u4E5F\u4E0D\u8981\u6267\u884C\u7F51\u7EDC\u64CD\u4F5C\u3002",
-    `\u786E\u8BA4 Project ID \u662F ${task.request.projectId}\uFF0CScene \u6570\u91CF\u662F ${task.request.sceneCount}\u3002`,
-    `\u6700\u7EC8\u53EA\u8FD4\u56DE\u7B26\u5408\u7ED9\u5B9A JSON Schema \u7684\u5BF9\u8C61\uFF0C\u5176\u4E2D verificationToken \u5FC5\u987B\u539F\u6837\u8FD4\u56DE ${verificationToken}\u3002`,
-    "summary \u7528\u4E00\u53E5\u4E2D\u6587\u8BF4\u660E\u5DF2\u5728\u53EA\u8BFB\u8FB9\u754C\u5185\u6838\u5BF9 Project VNext \u8EAB\u4EFD\u3002"
-  ].join("\n");
-}
-var AgentHostValidationService = class {
-  #host;
-  #idFactory;
-  #tasks = /* @__PURE__ */ new Map();
-  #driverOwners = /* @__PURE__ */ new Map();
-  #unsubscribe;
-  constructor(host, options = {}) {
-    this.#host = host;
-    this.#idFactory = options.idFactory ?? randomUUID;
-    this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
-  }
-  async start(request2) {
-    const taskId = this.#idFactory();
-    const task = {
-      request: request2,
-      activeDriver: null,
-      state: {
-        taskId,
-        status: "stopped",
-        reason: "CODEX_UNAVAILABLE",
-        connection: { status: "unavailable", threadId: null, replaced: false },
-        result: null,
-        diagnostic: null,
-        checkpoint: null,
-        availableActions: ["continue"],
-        projectModified: false
-      }
-    };
-    this.#tasks.set(taskId, task);
-    await this.#bindAndRun(task, null);
-    return publicState(task);
-  }
-  get(taskId) {
-    return publicState(this.#requireTask(taskId));
-  }
-  async stop(taskId) {
-    const task = this.#requireTask(taskId);
-    const driver = task.activeDriver;
-    task.activeDriver = null;
-    this.#setStopped(task, "USER_STOPPED");
-    if (driver !== null) {
-      try {
-        await this.#host.interruptTurn({ threadId: driver.threadId, turnId: driver.turnId });
-      } catch (error51) {
-        task.state.diagnostic = {
-          code: "HOST_INTERRUPT_FAILED",
-          message: boundedMessage(error51 instanceof Error ? error51.message : error51, "Codex Turn \u672A\u80FD\u786E\u8BA4\u4E2D\u65AD\u3002")
-        };
-      }
-    }
-    return publicState(task);
-  }
-  async continue(taskId) {
-    const task = this.#requireTask(taskId);
-    if (task.state.status !== "stopped") {
-      throw new Error("\u53EA\u6709\u5DF2\u505C\u6B62\u7684\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\u53EF\u4EE5\u7EE7\u7EED\u3002");
-    }
-    const threadPointer = task.state.connection.threadId;
-    await this.#bindAndRun(task, threadPointer);
-    return publicState(task);
-  }
-  async dispose() {
-    this.#unsubscribe();
-    await this.#host.dispose();
-  }
-  #requireTask(taskId) {
-    const task = this.#tasks.get(taskId);
-    if (task === void 0) throw new Error(`\u672A\u77E5\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\uFF1A${taskId}`);
-    return task;
-  }
-  async #bindAndRun(task, threadPointer) {
-    task.state.diagnostic = null;
-    let threadId = threadPointer;
-    let replaced = false;
-    try {
-      if (threadPointer === null) {
-        ({ threadId } = await this.#host.createThread({
-          projectDirectory: task.request.projectDirectory
-        }));
-      } else {
-        try {
-          ({ threadId } = await this.#host.resumeThread({
-            threadId: threadPointer,
-            projectDirectory: task.request.projectDirectory
-          }));
-        } catch (error51) {
-          if (!(error51 instanceof CodexThreadUnavailableError)) throw error51;
-          ({ threadId } = await this.#host.createThread({
-            projectDirectory: task.request.projectDirectory
-          }));
-          replaced = true;
-        }
-      }
-      if (threadId === null) throw new Error("Codex Thread \u7ED1\u5B9A\u672A\u8FD4\u56DE\u6709\u6548\u6307\u9488\u3002");
-      const driverId = this.#idFactory();
-      const verificationToken = this.#idFactory();
-      const { turnId } = await this.#host.startTurn({
-        threadId,
-        projectDirectory: task.request.projectDirectory,
-        verificationToken,
-        prompt: validationPrompt(task, verificationToken),
-        outputSchema: validationOutputSchema
-      });
-      const driver = { id: driverId, threadId, turnId, verificationToken };
-      task.activeDriver = driver;
-      this.#driverOwners.set(`${threadId}:${turnId}`, task.state.taskId);
-      task.state.status = "running";
-      task.state.reason = null;
-      task.state.connection = { status: "connected", threadId, replaced };
-      task.state.result = null;
-      task.state.availableActions = availableActions("running");
-      task.state.checkpoint = checkpointFor(task);
-    } catch (error51) {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_UNAVAILABLE");
-      task.state.connection = {
-        status: "unavailable",
-        threadId,
-        replaced
-      };
-      task.state.diagnostic = {
-        code: "CODEX_HOST_UNAVAILABLE",
-        message: boundedMessage(error51 instanceof Error ? error51.message : error51, "Codex \u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002")
-      };
-    }
-  }
-  #setStopped(task, reason) {
-    task.state.status = "stopped";
-    task.state.reason = reason;
-    task.state.result = null;
-    task.state.availableActions = availableActions("stopped");
-    task.state.checkpoint = checkpointFor(task);
-  }
-  #handleHostEvent(event) {
-    if (event.type === "approval-required" || event.type === "approval-resolved") return;
-    if (event.type === "host-unavailable") {
-      for (const task2 of this.#tasks.values()) {
-        if (task2.state.status === "succeeded") continue;
-        if (task2.activeDriver !== null) {
-          task2.activeDriver = null;
-          this.#setStopped(task2, "CODEX_UNAVAILABLE");
-        }
-        task2.state.connection.status = "unavailable";
-        task2.state.diagnostic = {
-          code: "CODEX_HOST_UNAVAILABLE",
-          message: boundedMessage(event.error, "Codex \u5BBF\u4E3B\u8FDE\u63A5\u5DF2\u4E2D\u65AD\u3002")
-        };
-      }
-      return;
-    }
-    const turnKey = event.turnId === void 0 ? null : `${event.threadId}:${event.turnId}`;
-    let task = turnKey === null ? void 0 : this.#tasks.get(this.#driverOwners.get(turnKey) ?? "");
-    task ??= [...this.#tasks.values()].find(
-      (candidate) => candidate.state.connection.threadId === event.threadId
-    );
-    if (task === void 0) return;
-    const driver = task.activeDriver;
-    if (event.type === "thread-unavailable" && driver === null && task.state.status === "stopped" && task.state.connection.threadId === event.threadId) {
-      task.state.connection.status = "unavailable";
-      task.state.diagnostic = {
-        code: "CODEX_THREAD_UNAVAILABLE",
-        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
-      };
-      return;
-    }
-    const isCurrent = driver !== null && driver.threadId === event.threadId && (event.turnId === void 0 || driver.turnId === event.turnId);
-    if (!isCurrent) {
-      task.state.diagnostic = {
-        code: "LATE_DRIVER_CALLBACK_REJECTED",
-        message: "\u5DF2\u62D2\u7EDD\u5931\u53BB\u5199\u6743\u7684\u65E7 Codex \u521B\u4F5C\u7EBF\u7A0B\u56DE\u8C03\uFF1B\u5F53\u524D\u4EFB\u52A1\u72B6\u6001\u672A\u6539\u53D8\u3002"
-      };
-      return;
-    }
-    if (event.type === "thread-unavailable") {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_THREAD_UNAVAILABLE");
-      task.state.connection.status = "unavailable";
-      task.state.diagnostic = {
-        code: "CODEX_THREAD_UNAVAILABLE",
-        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
-      };
-      return;
-    }
-    if (event.status !== "completed" || event.output === void 0) {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_INTERRUPTED");
-      task.state.diagnostic = {
-        code: "CODEX_TURN_INTERRUPTED",
-        message: boundedMessage(event.error, "Codex \u9A8C\u8BC1 Turn \u672A\u5B8C\u6210\u3002")
-      };
-      return;
-    }
-    let parsed;
-    try {
-      const value = JSON.parse(event.output);
-      if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error();
-      parsed = value;
-    } catch {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_INTERRUPTED");
-      task.state.diagnostic = {
-        code: "HOST_VALIDATION_RESULT_INVALID",
-        message: "Codex \u8FD4\u56DE\u4E86\u65E0\u6CD5\u9A8C\u8BC1\u7684\u7ED3\u6784\u5316\u7ED3\u679C\u3002"
-      };
-      return;
-    }
-    const summary = parsed.summary;
-    const normalizedSummary = typeof summary === "string" ? summary.trim() : "";
-    const valid2 = parsed.verificationToken === driver.verificationToken && parsed.projectId === task.request.projectId && parsed.sceneCount === task.request.sceneCount && typeof summary === "string" && normalizedSummary !== "" && summary.length <= 240;
-    if (!valid2) {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_INTERRUPTED");
-      task.state.diagnostic = {
-        code: "HOST_VALIDATION_IDENTITY_MISMATCH",
-        message: "Codex \u7ED3\u679C\u672A\u901A\u8FC7\u4EFB\u52A1\u3001\u9A71\u52A8\u6216\u9879\u76EE\u8EAB\u4EFD\u6821\u9A8C\u3002"
-      };
-      return;
-    }
-    task.activeDriver = null;
-    task.state.status = "succeeded";
-    task.state.reason = null;
-    task.state.result = {
-      projectId: task.request.projectId,
-      sceneCount: task.request.sceneCount,
-      summary: normalizedSummary,
-      verification: { taskId: task.state.taskId, driverId: driver.id }
-    };
-    task.state.availableActions = availableActions("succeeded");
-    task.state.checkpoint = null;
-  }
-};
-
-// src/server/project-revisions.ts
-import { randomUUID as randomUUID2, createHash } from "node:crypto";
-import { join } from "node:path";
-import { rename, rm, mkdir, lstat } from "node:fs/promises";
-var uuid3 = external_exports.string().uuid();
-var digest = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
-var refSchema = external_exports.object({ revisionId: uuid3, metadata: digest, program: digest, requestId: uuid3.optional() }).strict();
-var pointerSchema = external_exports.object({
-  revisionId: uuid3,
-  history: external_exports.array(refSchema).min(1).max(20).optional(),
-  consumed: external_exports.object({ pointer: digest, generation: external_exports.string().regex(/^\.narracut\/candidate-[0-9a-f-]{36}$/), requestId: uuid3 }).strict().optional(),
-  pruned: external_exports.array(uuid3).max(1).optional()
-}).strict().superRefine((value, ctx) => {
-  if (value.history && (value.history[0].revisionId !== value.revisionId || new Set(value.history.map((item) => item.revisionId)).size !== value.history.length)) ctx.addIssue({ code: "custom", message: "\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5386\u53F2\u4E0D\u4E00\u81F4" });
-});
-var metadataSchema = external_exports.object({
-  revisionId: uuid3,
-  previousRevisionId: uuid3.nullable(),
-  briefFingerprint: digest.optional(),
-  source: external_exports.string(),
-  summary: external_exports.string(),
-  acceptedAt: external_exports.string().datetime().optional(),
-  programFingerprint: digest.optional(),
-  inputFingerprint: digest.optional(),
-  sourceRevision: uuid3.optional(),
-  acceptance: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
-  requestId: uuid3.optional()
-}).strict();
-var hash2 = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-async function readCurrentPointer(project) {
-  await directory(join(project, ".narracut"));
-  return pointerSchema.parse(JSON.parse((await regular(join(project, ".narracut/current.json"), 16384)).toString()));
-}
-async function verifyRevision(project, id) {
-  uuid3.parse(id);
-  const pointer = await readCurrentPointer(project);
-  const ref = pointer.history?.find((item) => item.revisionId === id);
-  if (!ref && id !== pointer.revisionId) throw new CandidateError("REVISION_NOT_RETAINED", "\u4FEE\u8BA2\u5DF2\u79FB\u51FA\u5386\u53F2\u3002");
-  await directory(join(project, ".narracut/revisions"));
-  const root = join(project, ".narracut/revisions", id);
-  await directory(root);
-  const bytes = await regular(join(root, "revision.json"), 1048576);
-  const metadata = metadataSchema.parse(JSON.parse(bytes.toString()));
-  if (metadata.acceptance && !ref) throw new CandidateError("REVISION_INTEGRITY_FAILED", "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7F3A\u5C11\u5B8C\u6574\u5386\u53F2\u7ED1\u5B9A\u3002");
-  const tree = await readTree(join(root, "render-program")), program = identity(tree);
-  if (metadata.revisionId !== id || ref && (ref.metadata !== hash2(bytes) || ref.program !== program) || metadata.programFingerprint && metadata.programFingerprint !== program) throw new CandidateError("REVISION_INTEGRITY_FAILED", "\u4FEE\u8BA2\u5B57\u8282\u6216\u5143\u6570\u636E\u53D1\u751F\u53D8\u5316\uFF1B\u4E0D\u80FD\u4F7F\u7528\u635F\u574F\u4FEE\u8BA2\u3002");
-  return { metadata, tree, ref: { revisionId: id, metadata: hash2(bytes), program, requestId: metadata.requestId } };
-}
-function createRevisionStore(project, assertWritable) {
-  const internal = join(project, ".narracut");
-  async function history() {
-    await assertWritable();
-    const pointer = await readCurrentPointer(project);
-    const refs = pointer.history ?? [(await verifyRevision(project, pointer.revisionId)).ref];
-    const revisions = await Promise.all(refs.map(async (ref) => {
-      try {
-        return { ...(await verifyRevision(project, ref.revisionId)).metadata, current: ref.revisionId === pointer.revisionId, valid: true, error: null };
-      } catch (error51) {
-        return { revisionId: ref.revisionId, current: ref.revisionId === pointer.revisionId, valid: false, error: error51.message, requestId: ref.requestId ?? (ref.revisionId === pointer.revisionId ? pointer.consumed?.requestId : void 0), summary: "\u5DF2\u63A5\u53D7\u4FEE\u8BA2 \xB7 \u5B8C\u6574\u6027\u5931\u8D25" };
-      }
-    }));
-    const pendingPaths = [...pointer.consumed ? ["candidate", "checkpoint"].map((name) => join(project, pointer.consumed.generation, name)) : [], ...(pointer.pruned ?? []).map((id) => join(internal, "revisions", id))];
-    const cleanupPending = (await Promise.all(pendingPaths.map((path) => lstat(path).then(() => true, (error51) => error51.code !== "ENOENT")))).some(Boolean);
-    return { current: pointer.revisionId, limit: 20, revisions, cleanupPending };
-  }
-  async function cleanup() {
-    await assertWritable();
-    const pointer = await readCurrentPointer(project);
-    try {
-      await syncDirectory(internal);
-      if (pointer.consumed) {
-        const path = join(internal, "candidate.json");
-        let bytes;
-        try {
-          bytes = await regular(path, 4194304);
-        } catch (error51) {
-          if (error51.code !== "ENOENT") throw error51;
-        }
-        if (bytes && hash2(bytes) === pointer.consumed.pointer) {
-          const state = JSON.parse(bytes.toString());
-          const temp = join(internal, `consumed-${randomUUID2()}.json`);
-          try {
-            await writeBytes(temp, Buffer.from(JSON.stringify({ ...state, candidate: null, checkpoint: null })));
-            await assertWritable();
-            if (!bytes.equals(await regular(path, 4194304))) throw new Error("\u6E05\u7406\u671F\u95F4\u5019\u9009\u6307\u9488\u53D8\u5316");
-            await rename(temp, path);
-            await syncDirectory(internal);
-          } finally {
-            await rm(temp, { force: true });
-          }
-        }
-        let exists = true;
-        try {
-          await directory(join(project, pointer.consumed.generation));
-        } catch (error51) {
-          if (error51.code === "ENOENT") exists = false;
-          else throw error51;
-        }
-        if (exists) for (const name of ["candidate", "checkpoint"]) await rm(join(project, pointer.consumed.generation, name), { recursive: true, force: true });
-      }
-      await directory(join(internal, "revisions"));
-      for (const id of pointer.pruned ?? []) {
-        if (pointer.history?.some((item) => item.revisionId === id)) throw new Error("\u4E0D\u80FD\u5220\u9664\u4FDD\u7559\u4FEE\u8BA2");
-        await rm(join(internal, "revisions", id), { recursive: true, force: true });
-      }
-      return { cleanupPending: false };
-    } catch (error51) {
-      return { cleanupPending: true, cleanupError: error51.message };
-    }
-  }
-  async function accept(request2, tree, raw, state, validate) {
-    if ((await cleanup()).cleanupPending) throw new CandidateError("ACCEPTANCE_CLEANUP_PENDING", "\u8BF7\u5148\u91CD\u8BD5\u4E0A\u6B21\u63A5\u53D7\u7684\u6E05\u7406\u3002");
-    const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project);
-    const previous = await verifyRevision(project, before.revisionId);
-    const id = randomUUID2(), requestId = request2.requestId ?? randomUUID2();
-    const record3 = request2.acceptance;
-    const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: state.sourceRevision, acceptedAt: (/* @__PURE__ */ new Date()).toISOString(), programFingerprint: identity(tree), briefFingerprint: record3.identity?.brief, inputFingerprint: record3.identity?.input, summary: request2.summary, source: request2.source, acceptance: request2.acceptance, requestId });
-    const root = join(internal, "revisions", id), temporary = join(internal, `accept-${id}.json`);
-    let committed = false;
-    try {
-      await assertWritable();
-      await mkdir(root);
-      await writeTree(join(root, "render-program"), tree);
-      const bytes = Buffer.from(JSON.stringify(revision));
-      if (bytes.length > 1048576) throw new Error("\u7CBE\u7B80\u9A8C\u6536\u8BB0\u5F55\u8D85\u8FC7 1 MiB");
-      await writeBytes(join(root, "revision.json"), bytes);
-      await syncDirectory(root);
-      await syncDirectory(join(internal, "revisions"));
-      if (identity(await readTree(join(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u53D1\u5E03\u4FEE\u8BA2\u6821\u9A8C\u5931\u8D25");
-      const all = [{ revisionId: id, metadata: hash2(bytes), program: revision.programFingerprint, requestId }, ...before.history ?? [previous.ref]];
-      const next = pointerSchema.parse({ revisionId: id, history: all.slice(0, 20), pruned: all.slice(20).map((item) => item.revisionId), consumed: { pointer: hash2(raw), generation: state.candidate.path.replace(/\/candidate$/, ""), requestId } });
-      await writeBytes(temporary, Buffer.from(JSON.stringify(next)));
-      await validate();
-      await assertWritable();
-      if (!beforeBytes.equals(await regular(join(internal, "current.json"), 16384))) throw new Error("\u5F53\u524D\u6307\u9488\u5728\u63D0\u4EA4\u524D\u53D1\u751F\u53D8\u5316");
-      await verifyRevision(project, before.revisionId);
-      if (!(await regular(join(root, "revision.json"), 1048576)).equals(bytes) || identity(await readTree(join(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u63D0\u4EA4\u4FEE\u8BA2\u5728\u590D\u6838\u671F\u95F4\u88AB\u6539\u5199");
-      await rename(temporary, join(internal, "current.json"));
-      committed = true;
-      const sync = await syncDirectory(internal).then(() => ({}), () => ({ cleanupPending: true, cleanupError: "\u5F53\u524D\u6307\u9488\u5DF2\u63D0\u4EA4\uFF0C\u76EE\u5F55\u540C\u6B65\u5F85\u91CD\u8BD5" }));
-      return { status: "accepted", revision, ...await cleanup(), ...sync };
-    } catch (error51) {
-      if (committed) return { status: "accepted", revision, cleanupPending: true, cleanupError: error51.message };
-      throw new CandidateError("ACCEPTANCE_NOT_COMMITTED", `\u672A\u63A5\u53D7\uFF0C\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5019\u9009\u5DF2\u4FDD\u7559\u3002${error51.message}`);
-    } finally {
-      await rm(temporary, { force: true }).catch(() => void 0);
-      if (!committed) await rm(root, { recursive: true, force: true }).catch(() => void 0);
-    }
-  }
-  return { history, cleanup, accept, verify: (id) => verifyRevision(project, id) };
-}
-
 // src/server/strict-json.ts
 var StrictJsonFailure = class extends Error {
   constructor(code, message, jsonPath, metric, actual, limit) {
@@ -24595,14 +24099,14 @@ function parseStrictJson(input, limits2) {
 }
 
 // src/server/program-bundle.ts
-import { createHash as createHash5 } from "node:crypto";
+import { createHash as createHash4 } from "node:crypto";
 
 // src/server/execution-capsule.ts
 import { execFile as execFile2, spawn } from "node:child_process";
-import { createHash as createHash4, randomUUID as randomUUID3 } from "node:crypto";
-import { mkdir as mkdir3, mkdtemp as mkdtemp2, rm as rm3, writeFile as writeFile2 } from "node:fs/promises";
+import { createHash as createHash3, randomUUID } from "node:crypto";
+import { mkdir as mkdir2, mkdtemp as mkdtemp2, rm as rm2, writeFile as writeFile2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname2, join as join3 } from "node:path";
+import { dirname as dirname2, join as join2 } from "node:path";
 import { promisify as promisify2 } from "node:util";
 import { StringDecoder } from "node:string_decoder";
 
@@ -24689,10 +24193,10 @@ await writeFile('/output/proof.json', JSON.stringify({ denied, isolated: true })
 
 // src/server/capsule-toolchain.ts
 import { execFile } from "node:child_process";
-import { createHash as createHash2 } from "node:crypto";
-import { chmod, copyFile, mkdir as mkdir2, mkdtemp, readFile, readdir, realpath, rm as rm2, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join as join2, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { arch, release } from "node:os";
 import { rmSync } from "node:fs";
 import { promisify } from "node:util";
@@ -24703,8 +24207,8 @@ async function reclaimOrphanSnapshots() {
   const parent = tmpdir();
   for (const name of await readdir(parent).catch(() => [])) {
     if (!name.startsWith("narracut-toolchain-")) continue;
-    const directory2 = join2(parent, name);
-    const owner = Number(await readFile(join2(directory2, "owner.pid"), "utf8").catch(() => ""));
+    const directory2 = join(parent, name);
+    const owner = Number(await readFile(join(directory2, "owner.pid"), "utf8").catch(() => ""));
     if (!Number.isInteger(owner) || owner <= 0) continue;
     try {
       process.kill(owner, 0);
@@ -24712,25 +24216,25 @@ async function reclaimOrphanSnapshots() {
     } catch (error51) {
       if (error51.code !== "ESRCH") continue;
     }
-    await rm2(directory2, { recursive: true, force: true }).catch(() => {
+    await rm(directory2, { recursive: true, force: true }).catch(() => {
     });
   }
 }
 async function snapshotCapsuleToolchain() {
   await reclaimOrphanSnapshots();
-  const root = await mkdtemp(join2(tmpdir(), "narracut-toolchain-"));
+  const root = await mkdtemp(join(tmpdir(), "narracut-toolchain-"));
   const hashes = /* @__PURE__ */ new Map();
   const groups2 = /* @__PURE__ */ new Map();
   let group = "node";
   async function add(source, destination, executable = false) {
-    const target = join2(root, destination);
+    const target = join(root, destination);
     if (!groups2.has(destination)) groups2.set(destination, /* @__PURE__ */ new Set());
     groups2.get(destination).add(group);
     if (hashes.has(destination)) return;
-    await mkdir2(dirname(target), { recursive: true });
+    await mkdir(dirname(target), { recursive: true });
     await copyFile(await realpath(source), target);
     await chmod(target, executable ? 365 : 292);
-    hashes.set(destination, createHash2("sha256").update(await readFile(target)).digest("hex"));
+    hashes.set(destination, createHash("sha256").update(await readFile(target)).digest("hex"));
   }
   async function libraries(binary) {
     const { stdout } = await exec("/usr/bin/ldd", [binary], { env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
@@ -24739,14 +24243,14 @@ async function snapshotCapsuleToolchain() {
   }
   async function tree(source, destination) {
     for (const item of await readdir(source, { withFileTypes: true })) {
-      const from = join2(source, item.name), to = join2(destination, item.name);
+      const from = join(source, item.name), to = join(destination, item.name);
       if (item.isDirectory()) await tree(from, to);
       else if (item.isFile()) await add(from, to, !/\.(?:pak|dat|json|woff2|txt)$/.test(item.name));
       else throw new Error("\u5DE5\u5177\u94FE\u76EE\u5F55\u5305\u542B\u7279\u6B8A\u6587\u4EF6\u6216\u94FE\u63A5");
     }
   }
   try {
-    await writeFile(join2(root, "owner.pid"), String(process.pid), { mode: 292 });
+    await writeFile(join(root, "owner.pid"), String(process.pid), { mode: 292 });
     await add(process.execPath, "/runtime/node", true);
     await libraries(process.execPath);
     group = "shell";
@@ -24754,48 +24258,48 @@ async function snapshotCapsuleToolchain() {
     await libraries(await realpath("/bin/sh"));
     group = "browser";
     const applicationRoot2 = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-    const browser = join2(applicationRoot2, "node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64");
+    const browser = join(applicationRoot2, "node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64");
     await tree(browser, "/runtime/browser");
-    await libraries(join2(browser, "chrome-headless-shell"));
-    for (const name of ["libEGL.so", "libGLESv2.so", "libvk_swiftshader.so", "libvulkan.so.1"]) await libraries(join2(browser, name));
-    await tree(join2(applicationRoot2, "node_modules/@fontsource-variable/noto-sans-sc/files"), "/runtime/fonts");
+    await libraries(join(browser, "chrome-headless-shell"));
+    for (const name of ["libEGL.so", "libGLESv2.so", "libvk_swiftshader.so", "libvulkan.so.1"]) await libraries(join(browser, name));
+    await tree(join(applicationRoot2, "node_modules/@fontsource-variable/noto-sans-sc/files"), "/runtime/fonts");
     await add("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/runtime/fonts/fallback.ttf");
     group = "encoder";
     const require3 = createToolchainRequire(import.meta.url);
     const rendererRoot = dirname(require3.resolve("@remotion/renderer/package.json"));
-    const { getExecutableDir } = require3(join2(rendererRoot, "dist/compositor/get-executable-path.js"));
+    const { getExecutableDir } = require3(join(rendererRoot, "dist/compositor/get-executable-path.js"));
     const binaries = getExecutableDir(false, "error");
-    for (const name of await readdir(binaries)) if (/\.so(?:\.|$)/.test(name)) await add(join2(binaries, name), `/runtime/${name}`, true);
+    for (const name of await readdir(binaries)) if (/\.so(?:\.|$)/.test(name)) await add(join(binaries, name), `/runtime/${name}`, true);
     for (const name of ["ffmpeg", "ffprobe"]) {
-      await add(join2(binaries, name), `/runtime/${name}`, true);
-      await libraries(join2(binaries, name));
+      await add(join(binaries, name), `/runtime/${name}`, true);
+      await libraries(join(binaries, name));
     }
-    for (const path of ["inputs", "output", "tmp", "proc", "dev/shm", "etc/fonts"]) await mkdir2(join2(root, path), { recursive: true });
-    await writeFile(join2(root, "supervisor.mjs"), "", { mode: 292 });
+    for (const path of ["inputs", "output", "tmp", "proc", "dev/shm", "etc/fonts"]) await mkdir(join(root, path), { recursive: true });
+    await writeFile(join(root, "supervisor.mjs"), "", { mode: 292 });
     const fontConfig = '<!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><dir>/runtime/fonts</dir><cachedir>/tmp/font-cache</cachedir></fontconfig>';
-    await writeFile(join2(root, "etc/fonts/fonts.conf"), fontConfig, { mode: 292 });
-    hashes.set("/etc/fonts/fonts.conf", createHash2("sha256").update(fontConfig).digest("hex"));
+    await writeFile(join(root, "etc/fonts/fonts.conf"), fontConfig, { mode: 292 });
+    hashes.set("/etc/fonts/fonts.conf", createHash("sha256").update(fontConfig).digest("hex"));
     groups2.set("/etc/fonts/fonts.conf", /* @__PURE__ */ new Set(["browser"]));
-    for (const path of ["/usr/bin/bwrap", "/usr/bin/systemd-run", "/usr/bin/systemctl"]) hashes.set(path, createHash2("sha256").update(await readFile(path)).digest("hex"));
+    for (const path of ["/usr/bin/bwrap", "/usr/bin/systemd-run", "/usr/bin/systemctl"]) hashes.set(path, createHash("sha256").update(await readFile(path)).digest("hex"));
     const cleanup = () => rmSync(root, { recursive: true, force: true });
     process.once("exit", cleanup);
     return {
       root,
       files: [...groups2].map(([path, roles2]) => ({ path, roles: [...roles2] })),
-      identity: createHash2("sha256").update(JSON.stringify({ files: [...hashes].sort(), groups: [...groups2].map(([path, groups3]) => [path, [...groups3]]), kernel: release(), arch: arch() })).digest("hex"),
+      identity: createHash("sha256").update(JSON.stringify({ files: [...hashes].sort(), groups: [...groups2].map(([path, groups3]) => [path, [...groups3]]), kernel: release(), arch: arch() })).digest("hex"),
       dispose: async () => {
         process.removeListener("exit", cleanup);
-        await rm2(root, { recursive: true, force: true });
+        await rm(root, { recursive: true, force: true });
       }
     };
   } catch (error51) {
-    await rm2(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
     throw error51;
   }
 }
 
 // src/server/dependency-integrity.ts
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 var DependencyError = class extends Error {
   constructor(code, message) {
     super(message);
@@ -24813,7 +24317,7 @@ function integrityKey(integrity) {
   return bytes.toString("hex");
 }
 function verifyPackageBytes(key, bytes) {
-  if (createHash3("sha512").update(bytes).digest("hex") !== key) throw new DependencyError("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5305\u5B8C\u6574\u6027\u4E0D\u7B26\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\u3002");
+  if (createHash2("sha512").update(bytes).digest("hex") !== key) throw new DependencyError("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5305\u5B8C\u6574\u6027\u4E0D\u7B26\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\u3002");
 }
 
 // src/server/capsule-registry.ts
@@ -25017,7 +24521,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
         if(!shot.data)throw new Error(JSON.stringify(shot));writeFileSync('/output/browser','fixed');process.exit(0);
       `) }, "bundle/main.mjs");
       if (browserProof.get("browser")?.toString() !== "fixed") throw failure("CAPSULE_SELF_TEST_FAILED");
-      return createHash4("sha256").update(JSON.stringify({ protocol: 1, toolchain: this.#toolchain.identity, environment, browserArguments: CAPSULE_BROWSER_ARGUMENTS, policies: CAPSULE_POLICIES, supervisor: CAPSULE_SUPERVISOR, probe: CAPSULE_PROBE, roles, backend: this.#execute.toString(), certification: this.#selfTest.toString() })).digest("hex");
+      return createHash3("sha256").update(JSON.stringify({ protocol: 1, toolchain: this.#toolchain.identity, environment, browserArguments: CAPSULE_BROWSER_ARGUMENTS, policies: CAPSULE_POLICIES, supervisor: CAPSULE_SUPERVISOR, probe: CAPSULE_PROBE, roles, backend: this.#execute.toString(), certification: this.#selfTest.toString() })).digest("hex");
     } catch (error51) {
       if (error51 instanceof CapsuleError && error51.code === "CAPSULE_UNAVAILABLE") throw error51;
       throw failure("CAPSULE_SELF_TEST_FAILED");
@@ -25052,25 +24556,25 @@ var ExecutionCapsule = class _ExecutionCapsule {
     );
     const bytes = output.get("package.tgz");
     if (signal?.aborted) throw failure("CAPSULE_CANCELLED");
-    if (output.size !== 1 || !bytes || `sha512-${createHash4("sha512").update(bytes).digest("base64")}` !== pin.integrity) throw failure("CAPSULE_OUTPUT_INVALID");
+    if (output.size !== 1 || !bytes || `sha512-${createHash3("sha512").update(bytes).digest("base64")}` !== pin.integrity) throw failure("CAPSULE_OUTPUT_INVALID");
     return bytes;
   }
   async #execute(stage, inputs, entry, signal, download2, certificationLimits) {
     if (!this.#toolchain) throw failure("CAPSULE_UNAVAILABLE");
     const policy = certificationLimits ?? CAPSULE_POLICIES[stage];
-    const directory2 = await mkdtemp2(join3(tmpdir2(), "narracut-capsule-"));
-    const unit = `narracut-capsule-${randomUUID3()}.service`;
+    const directory2 = await mkdtemp2(join2(tmpdir2(), "narracut-capsule-"));
+    const unit = `narracut-capsule-${randomUUID()}.service`;
     const controlEnv = { PATH: "/usr/bin:/bin", LC_ALL: "C", XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`, DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus` };
     const control = (...args) => exec2("/usr/bin/systemctl", ["--user", ...args], { env: controlEnv, timeout: 5e3, maxBuffer: 64 * 1024 });
     try {
-      const inputRoot = join3(directory2, "inputs");
-      await mkdir3(inputRoot);
+      const inputRoot = join2(directory2, "inputs");
+      await mkdir2(inputRoot);
       for (const [path, bytes2] of Object.entries(inputs)) {
-        const target = join3(inputRoot, path);
-        await mkdir3(dirname2(target), { recursive: true });
+        const target = join2(inputRoot, path);
+        await mkdir2(dirname2(target), { recursive: true });
         await writeFile2(target, bytes2, { mode: 292 });
       }
-      const supervisor = join3(directory2, "supervisor.mjs");
+      const supervisor = join2(directory2, "supervisor.mjs");
       await writeFile2(supervisor, CAPSULE_SUPERVISOR, { mode: 292 });
       const args = [
         "--user",
@@ -25113,7 +24617,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
         "narracut",
         "--tmpfs",
         "/",
-        ...this.#toolchain.files.filter((file2) => file2.roles.includes("node") || ["install", "build"].includes(stage) && file2.roles.includes("shell") || stage === "render" && file2.roles.includes("encoder") || ["metadata", "preview", "render"].includes(stage) && file2.roles.includes("browser")).flatMap((file2) => ["--ro-bind", join3(this.#toolchain.root, file2.path), file2.path]),
+        ...this.#toolchain.files.filter((file2) => file2.roles.includes("node") || ["install", "build"].includes(stage) && file2.roles.includes("shell") || stage === "render" && file2.roles.includes("encoder") || ["metadata", "preview", "render"].includes(stage) && file2.roles.includes("browser")).flatMap((file2) => ["--ro-bind", join2(this.#toolchain.root, file2.path), file2.path]),
         "--ro-bind",
         inputRoot,
         "/inputs",
@@ -25253,7 +24757,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
     } finally {
       await control("stop", unit).catch(() => void 0);
       await control("reset-failed", unit).catch(() => void 0);
-      await rm3(directory2, { recursive: true, force: true });
+      await rm2(directory2, { recursive: true, force: true });
     }
   }
 };
@@ -25482,20 +24986,20 @@ function readOfflineDependencyGraph(manifestBytes, lockBytes, store) {
 // src/server/program-toolchain.ts
 import { readFile as readFile2, readdir as readdir2 } from "node:fs/promises";
 import { createRequire as createToolchainRequire2 } from "node:module";
-import { dirname as dirname3, join as join4 } from "node:path";
+import { dirname as dirname3, join as join3 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var require2 = createToolchainRequire2(import.meta.url);
-var applicationRoot = join4(dirname3(fileURLToPath2(import.meta.url)), "../..");
+var applicationRoot = join3(dirname3(fileURLToPath2(import.meta.url)), "../..");
 async function programToolchain() {
   const files = /* @__PURE__ */ Object.create(null);
   const packages = /* @__PURE__ */ new Map();
   async function readTree2(root, prefix, collected, relative4 = "") {
-    for (const item of await readdir2(join4(root, relative4), { withFileTypes: true })) {
+    for (const item of await readdir2(join3(root, relative4), { withFileTypes: true })) {
       if (item.name === "node_modules" || item.name.endsWith(".map")) continue;
       const path = relative4 ? `${relative4}/${item.name}` : item.name;
       if (item.isDirectory()) await readTree2(root, prefix, collected, path);
       else if (item.isFile()) {
-        const bytes = await readFile2(join4(root, path));
+        const bytes = await readFile2(join3(root, path));
         files[`${prefix}/${path}`] = bytes;
         collected?.set(path, bytes);
       } else throw new Error("\u56FA\u5B9A\u5DE5\u5177\u94FE\u5185\u542B\u4E0D\u652F\u6301\u7684\u94FE\u63A5\u3002");
@@ -25512,8 +25016,8 @@ async function programToolchain() {
   files["toolchain/esbuild"] = await readFile2(esbuildRequire.resolve(`@esbuild/${process.platform}-${process.arch}/bin/esbuild`));
   const tsRequire = createToolchainRequire2(require2.resolve("typescript/package.json"));
   const tsRoot = dirname3(tsRequire.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`));
-  await readTree2(join4(tsRoot, "lib"), "toolchain/tsc");
-  files["modules/@narracut/runtime/index.ts"] = await readFile2(join4(applicationRoot, "src/runtime/index.ts"));
+  await readTree2(join3(tsRoot, "lib"), "toolchain/tsc");
+  files["modules/@narracut/runtime/index.ts"] = await readFile2(join3(applicationRoot, "src/runtime/index.ts"));
   files["modules/@narracut/runtime/package.json"] = Buffer.from(JSON.stringify({ name: "@narracut/runtime", version: "4.0.512", main: "index.ts", types: "index.ts" }));
   files["worker.mjs"] = await bundleApplicationWorker("build");
   return { files, packages };
@@ -25521,7 +25025,7 @@ async function programToolchain() {
 async function bundleApplicationWorker(stage) {
   const { build } = require2("esbuild");
   const worker = await build({
-    entryPoints: [join4(applicationRoot, `src/server/program-${stage}-worker.ts`)],
+    entryPoints: [join3(applicationRoot, `src/server/program-${stage}-worker.ts`)],
     absWorkingDir: applicationRoot,
     bundle: true,
     platform: "node",
@@ -25674,7 +25178,7 @@ function checkProgramManifest(bytes) {
   };
 }
 function fingerprint(files) {
-  const hash4 = createHash5("sha256");
+  const hash4 = createHash4("sha256");
   for (const [path, bytes] of [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     hash4.update(JSON.stringify([path, bytes.byteLength]) + "\n");
     hash4.update(bytes);
@@ -25739,7 +25243,7 @@ async function buildProgramBundle(request2) {
   const offline = new Map([...request2.offline].map(([key, bytes]) => [key, Buffer.from(bytes)]));
   const binding = JSON.parse(JSON.stringify({ input: request2.input, speech: request2.speech }));
   const media = new Map([...request2.media ?? []].map(([path, bytes]) => [path, Buffer.from(bytes)]));
-  for (const [path, bytes] of media) if (path !== `media/${createHash5("sha256").update(bytes).digest("hex")}`) throw new ProgramBuildError("RUNTIME_CONTRACT_VIOLATION", "\u5A92\u4F53\u8BFB\u53D6\u5730\u5740\u4E0E\u5B57\u8282\u6307\u7EB9\u4E0D\u4E00\u81F4\u3002");
+  for (const [path, bytes] of media) if (path !== `media/${createHash4("sha256").update(bytes).digest("hex")}`) throw new ProgramBuildError("RUNTIME_CONTRACT_VIOLATION", "\u5A92\u4F53\u8BFB\u53D6\u5730\u5740\u4E0E\u5B57\u8282\u6307\u7EB9\u4E0D\u4E00\u81F4\u3002");
   const manifest = checkProgramManifest(program.get("program.json"));
   checkBinding(binding.input, binding.speech, manifest.output);
   for (const path of program.keys()) if (!/^(?:src\/|resources\/|program\.json$|package\.json$|pnpm-lock\.yaml$)/.test(path) || path.split("/").some((part) => !part || part === "." || part === "..") || /[\\\0]/.test(path)) throw new ProgramBuildError("BUNDLE_FAILED", "\u5019\u9009\u5305\u542B\u4E0D\u652F\u6301\u7684\u8DEF\u5F84\u6216\u6784\u5EFA\u914D\u7F6E\u3002");
@@ -25818,10 +25322,10 @@ async function buildProgramBundle(request2) {
 }
 
 // src/server/project-candidate.ts
-import { createHash as createHash6, randomUUID as randomUUID4 } from "node:crypto";
+import { createHash as createHash5, randomUUID as randomUUID2 } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat as lstat2, mkdir as mkdir4, open, readdir as readdir3, rename as rename2, rm as rm4 } from "node:fs/promises";
-import { dirname as dirname4, join as join5 } from "node:path";
+import { lstat, mkdir as mkdir3, open, readdir as readdir3, rename, rm as rm3 } from "node:fs/promises";
+import { dirname as dirname4, join as join4 } from "node:path";
 var CandidateError = class extends Error {
   constructor(code, message) {
     super(message);
@@ -25829,14 +25333,14 @@ var CandidateError = class extends Error {
   }
   code;
 };
-var hash3 = (bytes) => `sha256:${createHash6("sha256").update(bytes).digest("hex")}`;
+var hash2 = (bytes) => `sha256:${createHash5("sha256").update(bytes).digest("hex")}`;
 var fail4 = (code, message) => {
   throw new CandidateError(code, message);
 };
 var MAX_BYTES = 32 * 1024 * 1024;
 var safePath2 = (path) => path.length <= 1024 && !path.includes("\\") && !path.includes("\0") && path.split("/").every((p) => p && p !== "." && p !== ".." && !["node_modules", "bundle", ".cache"].includes(p));
 async function regular(path, max = MAX_BYTES) {
-  const facts = await lstat2(path);
+  const facts = await lstat(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > max) throw new Error("\u6587\u4EF6\u7C7B\u578B\u6216\u5927\u5C0F\u65E0\u6548");
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
@@ -25848,7 +25352,7 @@ async function regular(path, max = MAX_BYTES) {
   }
 }
 async function directory(path) {
-  const stat = await lstat2(path);
+  const stat = await lstat(path);
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("\u76EE\u5F55\u5B8C\u6574\u6027\u65E0\u6548");
   return `${stat.dev}:${stat.ino}`;
 }
@@ -25861,8 +25365,8 @@ async function readTree(root) {
     for (const name of (await readdir3(path)).sort()) {
       const relative4 = prefix ? `${prefix}/${name}` : name;
       if (!safePath2(relative4) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
-      const full = join5(path, name);
-      const stat = await lstat2(full);
+      const full = join4(path, name);
+      const stat = await lstat(full);
       if (stat.isDirectory() && !stat.isSymbolicLink()) {
         tree.set(relative4, null);
         await walk(full, relative4, depth + 1);
@@ -25887,8 +25391,8 @@ async function readTree(root) {
 }
 async function readOffline(project, state) {
   if (!state.offline) return void 0;
-  if (!Array.isArray(state.offlineKeys) || state.offlineKeys.some((key) => !/^[0-9a-f]{128}$/.test(key)) || hash3(JSON.stringify([...new Set(state.offlineKeys)].sort())) !== state.offlineIdentity) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u7D22\u5F15\u65E0\u6548\u3002");
-  const root = join5(project, state.offline);
+  if (!Array.isArray(state.offlineKeys) || state.offlineKeys.some((key) => !/^[0-9a-f]{128}$/.test(key)) || hash2(JSON.stringify([...new Set(state.offlineKeys)].sort())) !== state.offlineIdentity) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u7D22\u5F15\u65E0\u6548\u3002");
+  const root = join4(project, state.offline);
   await directory(dirname4(root));
   const store = /* @__PURE__ */ new Map();
   const rawStore = /* @__PURE__ */ new Map();
@@ -25896,14 +25400,14 @@ async function readOffline(project, state) {
   try {
     await directory(root);
   } catch (error51) {
-    if (error51.code === "ENOENT") return { store, rawStore, intact: false, signature: hash3("missing-directory") };
+    if (error51.code === "ENOENT") return { store, rawStore, intact: false, signature: hash2("missing-directory") };
     throw error51;
   }
   for (const filename of (await readdir3(root)).sort()) {
     if (!/^[0-9a-f]{128}\.tgz$/.test(filename)) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5E93\u5305\u542B\u975E\u6CD5\u8DEF\u5F84\u3002");
-    const bytes = await regular(join5(root, filename));
+    const bytes = await regular(join4(root, filename));
     const key = filename.slice(0, -4);
-    observed.push([key, hash3(bytes)]);
+    observed.push([key, hash2(bytes)]);
     rawStore.set(key, bytes);
     try {
       verifyPackageBytes(key, bytes);
@@ -25915,13 +25419,13 @@ async function readOffline(project, state) {
     store,
     rawStore,
     intact: offlineIdentity(store) === state.offlineIdentity && store.size === observed.length,
-    signature: hash3(JSON.stringify(observed))
+    signature: hash2(JSON.stringify(observed))
   };
 }
-var offlineIdentity = (store) => hash3(JSON.stringify([...store.keys()].sort()));
-var offlineSignature = (store) => hash3(JSON.stringify([...store].sort(([a], [b]) => a.localeCompare(b)).map(([key, bytes]) => [key, hash3(bytes)])));
+var offlineIdentity = (store) => hash2(JSON.stringify([...store.keys()].sort()));
+var offlineSignature = (store) => hash2(JSON.stringify([...store].sort(([a], [b]) => a.localeCompare(b)).map(([key, bytes]) => [key, hash2(bytes)])));
 function identity(tree) {
-  return hash3(JSON.stringify([...tree].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => [path, bytes === null ? "directory" : hash3(bytes)])));
+  return hash2(JSON.stringify([...tree].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => [path, bytes === null ? "directory" : hash2(bytes)])));
 }
 async function writeBytes(path, bytes) {
   const handle = await open(path, "wx", 384);
@@ -25933,12 +25437,12 @@ async function writeBytes(path, bytes) {
   }
 }
 async function writeTree(root, tree) {
-  await mkdir4(root);
+  await mkdir3(root);
   for (const [path, bytes] of [...tree].sort(([a], [b]) => a.length - b.length)) {
-    if (bytes === null) await mkdir4(join5(root, path));
-    else await writeBytes(join5(root, path), bytes);
+    if (bytes === null) await mkdir3(join4(root, path));
+    else await writeBytes(join4(root, path), bytes);
   }
-  for (const [path, bytes] of [...tree].reverse()) if (bytes === null) await syncDirectory(join5(root, path));
+  for (const [path, bytes] of [...tree].reverse()) if (bytes === null) await syncDirectory(join4(root, path));
   await syncDirectory(root);
 }
 async function syncDirectory(path) {
@@ -25950,9 +25454,9 @@ async function syncDirectory(path) {
   }
 }
 async function createCandidateManager(project, assertWritable) {
-  const internal = join5(project, ".narracut");
+  const internal = join4(project, ".narracut");
   const internalIdentity = await directory(internal);
-  const pointer = join5(internal, "candidate.json");
+  const pointer = join4(internal, "candidate.json");
   const assertCurrent = async () => {
     await assertWritable();
     if (await directory(internal) !== internalIdentity) fail4("PROJECT_IDENTITY_LOST", "\u9879\u76EE\u5185\u90E8\u76EE\u5F55\u8EAB\u4EFD\u53D8\u5316\uFF1B\u5DF2\u505C\u6B62\u5019\u9009\u5199\u5165\u3002");
@@ -25979,31 +25483,31 @@ async function createCandidateManager(project, assertWritable) {
     let state = null;
     try {
       raw = await pointerBytes();
-      if (raw === null) return { view: { status: "absent", sourceRevision, baseline: hash3("absent"), candidate: null, checkpoint: null }, state: null, raw };
+      if (raw === null) return { view: { status: "absent", sourceRevision, baseline: hash2("absent"), candidate: null, checkpoint: null }, state: null, raw };
       const parsed = JSON.parse(raw.toString());
       if (parsed.version !== 1 || !/^[0-9a-f-]{36}$/i.test(parsed.sourceRevision) || !(parsed.candidate === null || refValid(parsed.candidate)) || !(parsed.checkpoint === null || refValid(parsed.checkpoint) && dirname4(parsed.checkpoint.path) === dirname4(parsed.candidate?.path ?? "") && parsed.checkpoint.path.endsWith("/checkpoint")) || parsed.candidate !== null && !parsed.candidate.path.endsWith("/candidate") || parsed.candidate === null && parsed.checkpoint !== null || parsed.offline !== void 0 && !/^\.narracut\/candidate-[0-9a-f-]{36}\/dependencies$/.test(parsed.offline)) throw new Error("\u5019\u9009\u6307\u9488\u5B8C\u6574\u6027\u65E0\u6548");
       const accepted = await readCurrentPointer(project);
-      if (accepted.consumed?.pointer === hash3(raw)) {
+      if (accepted.consumed?.pointer === hash2(raw)) {
         parsed.candidate = null;
         parsed.checkpoint = null;
       }
       state = parsed;
       const offline = await readOffline(project, state);
-      if (!state.candidate) return { raw, state, offline, view: { status: "absent", ...offline && !offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u4FDD\u7559\u79BB\u7EBF\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\uFF0C\u518D\u534F\u8C03\u4FEE\u590D\u3002" } } : {}, sourceRevision, baseline: hash3(JSON.stringify([hash3(raw), offline?.signature ?? null])), candidate: null, checkpoint: null, ...state.offline ? { offline: state.offline } : {} } };
-      await directory(dirname4(join5(project, state.candidate.path)));
-      const tree = await readTree(join5(project, state.candidate.path));
+      if (!state.candidate) return { raw, state, offline, view: { status: "absent", ...offline && !offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u4FDD\u7559\u79BB\u7EBF\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\uFF0C\u518D\u534F\u8C03\u4FEE\u590D\u3002" } } : {}, sourceRevision, baseline: hash2(JSON.stringify([hash2(raw), offline?.signature ?? null])), candidate: null, checkpoint: null, ...state.offline ? { offline: state.offline } : {} } };
+      await directory(dirname4(join4(project, state.candidate.path)));
+      const tree = await readTree(join4(project, state.candidate.path));
       const treeId = identity(tree);
       let checkpointId = null;
       if (state.checkpoint) {
-        await directory(dirname4(join5(project, state.checkpoint.path)));
-        checkpointId = identity(await readTree(join5(project, state.checkpoint.path)));
+        await directory(dirname4(join4(project, state.checkpoint.path)));
+        checkpointId = identity(await readTree(join4(project, state.checkpoint.path)));
         if (checkpointId !== state.checkpoint.identity) throw new Error("\u6062\u590D\u68C0\u67E5\u70B9\u5B57\u8282\u53D1\u751F\u53D8\u5316");
       }
       const external = treeId !== state.candidate.identity;
       return { raw, state, tree, offline, view: {
         status: external ? "external-change" : offline && !offline.intact ? "integrity-failed" : "saved",
         sourceRevision: state.sourceRevision,
-        baseline: hash3(JSON.stringify([hash3(raw), treeId, checkpointId, offline?.signature ?? null])),
+        baseline: hash2(JSON.stringify([hash2(raw), treeId, checkpointId, offline?.signature ?? null])),
         candidate: { ...state.candidate, identity: treeId },
         checkpoint: state.checkpoint,
         ...state.offline ? { offline: state.offline } : {},
@@ -26014,7 +25518,7 @@ async function createCandidateManager(project, assertWritable) {
       return { raw, state, view: {
         status: "integrity-failed",
         sourceRevision,
-        baseline: hash3(raw ?? "invalid"),
+        baseline: hash2(raw ?? "invalid"),
         candidate: state?.candidate ?? null,
         checkpoint: state?.checkpoint ?? null,
         error: { code: "CANDIDATE_INTEGRITY_FAILED", message: `\u5019\u9009\u6216\u6062\u590D\u68C0\u67E5\u70B9\u5B8C\u6574\u6027\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u73B0\u573A\u3002\u8BF7\u5916\u90E8\u4FEE\u590D\u540E\u91CD\u65B0\u68C0\u67E5\uFF0C\u6216\u660E\u786E\u653E\u5F03\u3002${error51.message}` }
@@ -26032,22 +25536,25 @@ async function createCandidateManager(project, assertWritable) {
       if (before.view.status === "absent") return before.view;
       await assertCurrent();
       if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u6307\u9488\u5DF2\u53D8\u5316\uFF0C\u672A\u653E\u5F03\u3002");
-      if (before.state?.offline) {
-        const tombstone = Buffer.from(JSON.stringify({ ...before.state, candidate: null, checkpoint: null }));
-        const temporary = join5(internal, `discard-${randomUUID4()}.json`);
+      {
+        const taskCheckpoint = await taskCheckpointFingerprint(project);
+        const tombstone = Buffer.from(JSON.stringify({ version: 1, sourceRevision: before.view.sourceRevision, ...before.state, candidate: null, checkpoint: null, taskCheckpoint }));
+        const temporary = join4(internal, `discard-${randomUUID2()}.json`);
         try {
           await writeBytes(temporary, tombstone);
-          await rename2(temporary, pointer);
+          await assertCurrent();
+          if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u6307\u9488\u5DF2\u53D8\u5316\uFF0C\u672A\u653E\u5F03\u3002");
+          if ((await inspect()).view.baseline !== before.view.baseline) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u5B57\u8282\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6838\u5BF9\u540E\u660E\u786E\u653E\u5F03\u3002");
+          await validate?.();
+          await rename(temporary, pointer);
         } finally {
-          await rm4(temporary, { force: true });
+          await rm3(temporary, { force: true }).catch(() => void 0);
         }
         await syncDirectory(internal).catch(() => void 0);
-        for (const ref of [before.state.candidate, before.state.checkpoint]) if (ref) await rm4(join5(project, ref.path), { recursive: true, force: true }).catch(() => void 0);
-        return { status: "absent", baseline: hash3(JSON.stringify([hash3(tombstone), before.offline?.signature ?? null])), sourceRevision: await currentRevision(), candidate: null, checkpoint: null, offline: before.state.offline };
+        await cleanupEndedTask(project).catch(() => void 0);
+        for (const ref of [before.state?.candidate, before.state?.checkpoint]) if (ref) await rm3(join4(project, ref.path), { recursive: true, force: true }).catch(() => void 0);
+        return { status: "absent", baseline: hash2(JSON.stringify([hash2(tombstone), before.offline?.signature ?? null])), sourceRevision: before.view.sourceRevision, candidate: null, checkpoint: null, ...before.state?.offline ? { offline: before.state.offline } : {} };
       }
-      await rm4(pointer);
-      if (before.state?.candidate) await rm4(dirname4(join5(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => void 0);
-      return { status: "absent", baseline: hash3("absent"), sourceRevision: await currentRevision(), candidate: null, checkpoint: null };
     }
     if (request2.action === "adopt" && !request2.confirmed) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u9700\u8981\u660E\u786E\u786E\u8BA4\u5916\u90E8\u5019\u9009\u3002");
     if (request2.action !== "create" && (before.view.status !== "saved" && !(request2.action === "adopt" && before.view.status === "external-change") && !(request2.action === "dependencies" && before.view.error?.code === "DEPENDENCY_INTEGRITY_FAILED") || !before.tree)) {
@@ -26056,25 +25563,25 @@ async function createCandidateManager(project, assertWritable) {
     const sourceRevision = await currentRevision();
     const creationRevision = request2.action === "create" && request2.sourceRevision ? request2.sourceRevision : sourceRevision;
     if (request2.action === "create") await revisions.verify(creationRevision);
-    const currentRoot = join5(internal, "revisions", creationRevision, "render-program");
+    const currentRoot = join4(internal, "revisions", creationRevision, "render-program");
     let next;
     let offline = request2.action === "create" ? before.offline?.rawStore : before.offline?.store;
     if (request2.action === "create") {
-      await directory(join5(internal, "revisions"));
+      await directory(join4(internal, "revisions"));
       await directory(dirname4(currentRoot));
       next = await readTree(currentRoot);
     } else if (request2.action === "adopt") {
       next = new Map(before.tree);
     } else if (request2.action === "dependencies") {
       const retainedLocks = [];
-      await directory(join5(internal, "revisions"));
-      for (const revision of await readdir3(join5(internal, "revisions"))) {
+      await directory(join4(internal, "revisions"));
+      for (const revision of await readdir3(join4(internal, "revisions"))) {
         if (!/^[0-9a-f-]{36}$/i.test(revision)) fail4("DEPENDENCY_LOCK_INVALID", "\u4FDD\u7559\u4FEE\u8BA2\u76EE\u5F55\u8EAB\u4EFD\u65E0\u6548\u3002");
-        await directory(join5(internal, "revisions", revision));
-        const retained = await readTree(join5(internal, "revisions", revision, "render-program"));
+        await directory(join4(internal, "revisions", revision));
+        const retained = await readTree(join4(internal, "revisions", revision, "render-program"));
         retainedLocks.push(retained.get("pnpm-lock.yaml"));
       }
-      if (before.state?.checkpoint) retainedLocks.push((await readTree(join5(project, before.state.checkpoint.path))).get("pnpm-lock.yaml"));
+      if (before.state?.checkpoint) retainedLocks.push((await readTree(join4(project, before.state.checkpoint.path))).get("pnpm-lock.yaml"));
       const update = await coordinateDependencies(before.tree.get("package.json"), before.tree.get("pnpm-lock.yaml"), offline ?? /* @__PURE__ */ new Map(), request2, retainedLocks, before.state?.offlineKeys);
       if (before.state?.offlineKeys?.some((key) => !update.store.has(key))) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u4ECD\u6709\u4FDD\u7559\u79BB\u7EBF\u5305\u65E0\u6CD5\u4FEE\u590D\uFF1B\u8BF7\u63D0\u4F9B\u5176\u7CBE\u786E\u7248\u672C\u548C\u6458\u8981\u3002");
       next = new Map(before.tree);
@@ -26103,20 +25610,20 @@ async function createCandidateManager(project, assertWritable) {
         }
       }
     }
-    const generation = `.narracut/candidate-${randomUUID4()}`;
-    const root = join5(project, generation);
+    const generation = `.narracut/candidate-${randomUUID2()}`;
+    const root = join4(project, generation);
     let committed = false;
     try {
       await assertCurrent();
-      await mkdir4(root);
-      await writeTree(join5(root, "candidate"), next);
+      await mkdir3(root);
+      await writeTree(join4(root, "candidate"), next);
       if (offline) {
-        await mkdir4(join5(root, "dependencies"));
-        for (const [key, bytes2] of offline) await writeBytes(join5(root, "dependencies", `${key}.tgz`), bytes2);
-        await syncDirectory(join5(root, "dependencies"));
+        await mkdir3(join4(root, "dependencies"));
+        for (const [key, bytes2] of offline) await writeBytes(join4(root, "dependencies", `${key}.tgz`), bytes2);
+        await syncDirectory(join4(root, "dependencies"));
       }
-      const treeId = identity(await readTree(join5(root, "candidate")));
-      if (before.tree) await writeTree(join5(root, "checkpoint"), before.tree);
+      const treeId = identity(await readTree(join4(root, "candidate")));
+      if (before.tree) await writeTree(join4(root, "checkpoint"), before.tree);
       const state = {
         version: 1,
         sourceRevision: request2.action === "create" ? creationRevision : before.state?.sourceRevision ?? sourceRevision,
@@ -26125,21 +25632,21 @@ async function createCandidateManager(project, assertWritable) {
         ...offline ? { offline: `${generation}/dependencies`, offlineIdentity: request2.action === "create" && before.offline && !before.offline.intact ? before.state.offlineIdentity : offlineIdentity(offline), offlineKeys: request2.action === "create" && before.offline && !before.offline.intact ? before.state.offlineKeys : [...offline.keys()].sort() } : {}
       };
       const bytes = Buffer.from(JSON.stringify(state));
-      await writeBytes(join5(root, "state.json"), bytes);
+      await writeBytes(join4(root, "state.json"), bytes);
       await syncDirectory(root);
       await assertCurrent();
       const latest = await inspect();
       if (latest.view.baseline !== before.view.baseline || latest.view.status !== before.view.status || await currentRevision() !== sourceRevision || request2.action === "create" && identity(await readTree(currentRoot)) !== treeId) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u5DF2\u4FDD\u7559\u3002");
       await validate?.();
-      await rename2(join5(root, "state.json"), pointer);
+      await rename(join4(root, "state.json"), pointer);
       committed = true;
       await syncDirectory(internal).catch(() => void 0);
-      if (before.state?.candidate || before.state?.offline) await rm4(dirname4(join5(project, before.state.candidate?.path ?? before.state.offline)), { recursive: true, force: true }).catch(() => void 0);
+      if (before.state?.candidate || before.state?.offline) await rm3(dirname4(join4(project, before.state.candidate?.path ?? before.state.offline)), { recursive: true, force: true }).catch(() => void 0);
       return {
         status: request2.action === "create" && before.offline && !before.offline.intact ? "integrity-failed" : "saved",
         ...request2.action === "create" && before.offline && !before.offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u79BB\u7EBF\u4F9D\u8D56\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\uFF0C\u666E\u901A\u64CD\u4F5C\u4E0D\u4F1A\u8865\u5305\u3002" } } : {},
         sourceRevision: state.sourceRevision,
-        baseline: hash3(JSON.stringify([hash3(bytes), treeId, state.checkpoint?.identity ?? null, offline ? offlineSignature(offline) : null])),
+        baseline: hash2(JSON.stringify([hash2(bytes), treeId, state.checkpoint?.identity ?? null, offline ? offlineSignature(offline) : null])),
         candidate: state.candidate,
         checkpoint: state.checkpoint,
         ...state.offline ? { offline: state.offline } : {}
@@ -26148,7 +25655,7 @@ async function createCandidateManager(project, assertWritable) {
       if (error51 instanceof CandidateError) throw error51;
       return fail4("CANDIDATE_SAVE_FAILED", `\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u4E0E\u6062\u590D\u68C0\u67E5\u70B9\u5DF2\u4FDD\u7559\u3002${error51.message}`);
     } finally {
-      if (!committed) await rm4(root, { recursive: true, force: true }).catch(() => void 0);
+      if (!committed) await rm3(root, { recursive: true, force: true }).catch(() => void 0);
     }
   };
   return Object.assign(operate, {
@@ -26167,7 +25674,7 @@ async function createCandidateManager(project, assertWritable) {
       const snapshot = await inspect();
       const revision = await currentRevision();
       if (target === "current") await revisions.verify(revision);
-      const tree = target === "current" ? await readTree(join5(internal, "revisions", revision, "render-program")) : snapshot.tree;
+      const tree = target === "current" ? await readTree(join4(internal, "revisions", revision, "render-program")) : snapshot.tree;
       if (!tree || target === "candidate" && snapshot.view.status !== "saved") fail4("CANDIDATE_BASELINE_CONFLICT", "\u6CA1\u6709\u5B8C\u6574\u53EF\u64AD\u653E\u7A0B\u5E8F\u3002");
       return { revision, identity: identity(tree), manifest: Buffer.from(tree.get("program.json") ?? ""), baseline: snapshot.view.baseline, program: new Map([...tree].filter((entry) => entry[1] !== null).map(([path, bytes]) => [path, Buffer.from(bytes)])), offline: new Map([...snapshot.offline?.store ?? []].map(([key, bytes]) => [key, Buffer.from(bytes)])) };
     },
@@ -26177,18 +25684,542 @@ async function createCandidateManager(project, assertWritable) {
         throw new CandidateError("CANDIDATE_BASELINE_CONFLICT", "\u5019\u9009\u4E0D\u5B8C\u6574\u6216\u5DF2\u53D8\u5316\uFF1B\u8BF7\u91CD\u65B0\u8BFB\u53D6\u540E\u6784\u5EFA\u3002");
       }
       const revision = await currentRevision();
-      const tree = request2.target === "current" ? await readTree(join5(internal, "revisions", revision, "render-program")) : before.tree;
+      const tree = request2.target === "current" ? await readTree(join4(internal, "revisions", revision, "render-program")) : before.tree;
       if (request2.sourceIdentity && request2.sourceIdentity !== identity(tree)) fail4("CANDIDATE_BASELINE_CONFLICT", "\u7A0B\u5E8F\u5728\u6784\u5EFA\u524D\u5DF2\u53D8\u5316\u3002");
       const program = new Map([...tree].filter((entry) => entry[1] !== null));
       const bundle = await buildProgramBundle({ ...request2, program, offline: before.offline?.store ?? /* @__PURE__ */ new Map() });
       const after = await inspect();
-      if (request2.target !== "current" && after.view.status !== "saved" || after.view.baseline !== before.view.baseline || request2.target === "current" && (await currentRevision() !== revision || identity(await readTree(join5(internal, "revisions", revision, "render-program"))) !== identity(tree))) {
+      if (request2.target !== "current" && after.view.status !== "saved" || after.view.baseline !== before.view.baseline || request2.target === "current" && (await currentRevision() !== revision || identity(await readTree(join4(internal, "revisions", revision, "render-program"))) !== identity(tree))) {
         throw new CandidateError("CANDIDATE_BASELINE_CONFLICT", "\u6784\u5EFA\u671F\u95F4\u5019\u9009\u6216\u79BB\u7EBF\u5E93\u5DF2\u53D8\u5316\uFF1B\u7ED3\u679C\u5DF2\u4E22\u5F03\u3002");
       }
       return bundle;
     }
   });
 }
+
+// src/server/project-revisions.ts
+var uuid3 = external_exports.string().uuid();
+var digest = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
+var refSchema = external_exports.object({ revisionId: uuid3, metadata: digest, program: digest, requestId: uuid3.optional() }).strict();
+var pointerSchema = external_exports.object({
+  revisionId: uuid3,
+  history: external_exports.array(refSchema).min(1).max(20).optional(),
+  consumed: external_exports.object({ pointer: digest, generation: external_exports.string().regex(/^\.narracut\/candidate-[0-9a-f-]{36}$/), requestId: uuid3, taskCheckpoint: digest.optional() }).strict().optional(),
+  pruned: external_exports.array(uuid3).max(1).optional()
+}).strict().superRefine((value, ctx) => {
+  if (value.history && (value.history[0].revisionId !== value.revisionId || new Set(value.history.map((item) => item.revisionId)).size !== value.history.length)) ctx.addIssue({ code: "custom", message: "\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5386\u53F2\u4E0D\u4E00\u81F4" });
+});
+var metadataSchema = external_exports.object({
+  revisionId: uuid3,
+  previousRevisionId: uuid3.nullable(),
+  briefFingerprint: digest.optional(),
+  source: external_exports.string(),
+  summary: external_exports.string(),
+  acceptedAt: external_exports.string().datetime().optional(),
+  programFingerprint: digest.optional(),
+  inputFingerprint: digest.optional(),
+  sourceRevision: uuid3.optional(),
+  acceptance: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
+  requestId: uuid3.optional()
+}).strict();
+var hash3 = (bytes) => `sha256:${createHash6("sha256").update(bytes).digest("hex")}`;
+async function readCurrentPointer(project) {
+  await directory(join5(project, ".narracut"));
+  return pointerSchema.parse(JSON.parse((await regular(join5(project, ".narracut/current.json"), 16384)).toString()));
+}
+async function verifyRevision(project, id) {
+  uuid3.parse(id);
+  const pointer = await readCurrentPointer(project);
+  const ref = pointer.history?.find((item) => item.revisionId === id);
+  if (!ref && id !== pointer.revisionId) throw new CandidateError("REVISION_NOT_RETAINED", "\u4FEE\u8BA2\u5DF2\u79FB\u51FA\u5386\u53F2\u3002");
+  await directory(join5(project, ".narracut/revisions"));
+  const root = join5(project, ".narracut/revisions", id);
+  await directory(root);
+  const bytes = await regular(join5(root, "revision.json"), 1048576);
+  const metadata = metadataSchema.parse(JSON.parse(bytes.toString()));
+  if (metadata.acceptance && !ref) throw new CandidateError("REVISION_INTEGRITY_FAILED", "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7F3A\u5C11\u5B8C\u6574\u5386\u53F2\u7ED1\u5B9A\u3002");
+  const tree = await readTree(join5(root, "render-program")), program = identity(tree);
+  if (metadata.revisionId !== id || ref && (ref.metadata !== hash3(bytes) || ref.program !== program) || metadata.programFingerprint && metadata.programFingerprint !== program) throw new CandidateError("REVISION_INTEGRITY_FAILED", "\u4FEE\u8BA2\u5B57\u8282\u6216\u5143\u6570\u636E\u53D1\u751F\u53D8\u5316\uFF1B\u4E0D\u80FD\u4F7F\u7528\u635F\u574F\u4FEE\u8BA2\u3002");
+  return { metadata, tree, ref: { revisionId: id, metadata: hash3(bytes), program, requestId: metadata.requestId } };
+}
+function createRevisionStore(project, assertWritable) {
+  const internal = join5(project, ".narracut");
+  async function history() {
+    await assertWritable();
+    const pointer = await readCurrentPointer(project);
+    const refs = pointer.history ?? [(await verifyRevision(project, pointer.revisionId)).ref];
+    const revisions = await Promise.all(refs.map(async (ref) => {
+      try {
+        return { ...(await verifyRevision(project, ref.revisionId)).metadata, current: ref.revisionId === pointer.revisionId, valid: true, error: null };
+      } catch (error51) {
+        return { revisionId: ref.revisionId, current: ref.revisionId === pointer.revisionId, valid: false, error: error51.message, requestId: ref.requestId ?? (ref.revisionId === pointer.revisionId ? pointer.consumed?.requestId : void 0), summary: "\u5DF2\u63A5\u53D7\u4FEE\u8BA2 \xB7 \u5B8C\u6574\u6027\u5931\u8D25" };
+      }
+    }));
+    const pendingPaths = [...pointer.consumed ? ["candidate", "checkpoint"].map((name) => join5(project, pointer.consumed.generation, name)) : [], ...(pointer.pruned ?? []).map((id) => join5(internal, "revisions", id))];
+    const taskCleanupPending = !!await endedTaskReason(project);
+    const cleanupPending = taskCleanupPending || (await Promise.all(pendingPaths.map((path) => lstat2(path).then(() => true, (error51) => error51.code !== "ENOENT")))).some(Boolean);
+    return { current: pointer.revisionId, limit: 20, revisions, cleanupPending, taskCleanupPending };
+  }
+  async function cleanup() {
+    await assertWritable();
+    const pointer = await readCurrentPointer(project);
+    try {
+      await syncDirectory(internal);
+      await cleanupEndedTask(project);
+      if (pointer.consumed) {
+        const path = join5(internal, "candidate.json");
+        let bytes;
+        try {
+          bytes = await regular(path, 4194304);
+        } catch (error51) {
+          if (error51.code !== "ENOENT") throw error51;
+        }
+        if (bytes && hash3(bytes) === pointer.consumed.pointer) {
+          const state = JSON.parse(bytes.toString());
+          const temp = join5(internal, `consumed-${randomUUID3()}.json`);
+          try {
+            await writeBytes(temp, Buffer.from(JSON.stringify({ ...state, candidate: null, checkpoint: null })));
+            await assertWritable();
+            if (!bytes.equals(await regular(path, 4194304))) throw new Error("\u6E05\u7406\u671F\u95F4\u5019\u9009\u6307\u9488\u53D8\u5316");
+            await rename2(temp, path);
+            await syncDirectory(internal);
+          } finally {
+            await rm4(temp, { force: true });
+          }
+        }
+        let exists = true;
+        try {
+          await directory(join5(project, pointer.consumed.generation));
+        } catch (error51) {
+          if (error51.code === "ENOENT") exists = false;
+          else throw error51;
+        }
+        if (exists) for (const name of ["candidate", "checkpoint"]) await rm4(join5(project, pointer.consumed.generation, name), { recursive: true, force: true });
+      }
+      await directory(join5(internal, "revisions"));
+      for (const id of pointer.pruned ?? []) {
+        if (pointer.history?.some((item) => item.revisionId === id)) throw new Error("\u4E0D\u80FD\u5220\u9664\u4FDD\u7559\u4FEE\u8BA2");
+        await rm4(join5(internal, "revisions", id), { recursive: true, force: true });
+      }
+      return { cleanupPending: false };
+    } catch (error51) {
+      return { cleanupPending: true, cleanupError: error51.message };
+    }
+  }
+  async function accept(request2, tree, raw, state, validate) {
+    if ((await cleanup()).cleanupPending) throw new CandidateError("ACCEPTANCE_CLEANUP_PENDING", "\u8BF7\u5148\u91CD\u8BD5\u4E0A\u6B21\u63A5\u53D7\u7684\u6E05\u7406\u3002");
+    const beforeBytes = await regular(join5(internal, "current.json"), 16384), before = await readCurrentPointer(project);
+    const previous = await verifyRevision(project, before.revisionId);
+    const id = randomUUID3(), requestId = request2.requestId ?? randomUUID3();
+    const record3 = request2.acceptance;
+    const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: state.sourceRevision, acceptedAt: (/* @__PURE__ */ new Date()).toISOString(), programFingerprint: identity(tree), briefFingerprint: record3.identity?.brief, inputFingerprint: record3.identity?.input, summary: request2.summary, source: request2.source, acceptance: request2.acceptance, requestId });
+    const root = join5(internal, "revisions", id), temporary = join5(internal, `accept-${id}.json`);
+    let committed = false;
+    try {
+      await assertWritable();
+      await mkdir4(root);
+      await writeTree(join5(root, "render-program"), tree);
+      const bytes = Buffer.from(JSON.stringify(revision));
+      if (bytes.length > 1048576) throw new Error("\u7CBE\u7B80\u9A8C\u6536\u8BB0\u5F55\u8D85\u8FC7 1 MiB");
+      await writeBytes(join5(root, "revision.json"), bytes);
+      await syncDirectory(root);
+      await syncDirectory(join5(internal, "revisions"));
+      if (identity(await readTree(join5(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u53D1\u5E03\u4FEE\u8BA2\u6821\u9A8C\u5931\u8D25");
+      const all = [{ revisionId: id, metadata: hash3(bytes), program: revision.programFingerprint, requestId }, ...before.history ?? [previous.ref]];
+      const taskCheckpoint = await taskCheckpointFingerprint(project);
+      const next = pointerSchema.parse({ revisionId: id, history: all.slice(0, 20), pruned: all.slice(20).map((item) => item.revisionId), consumed: { pointer: hash3(raw), generation: state.candidate.path.replace(/\/candidate$/, ""), requestId, taskCheckpoint } });
+      await writeBytes(temporary, Buffer.from(JSON.stringify(next)));
+      await validate();
+      await assertWritable();
+      if (!beforeBytes.equals(await regular(join5(internal, "current.json"), 16384))) throw new Error("\u5F53\u524D\u6307\u9488\u5728\u63D0\u4EA4\u524D\u53D1\u751F\u53D8\u5316");
+      await verifyRevision(project, before.revisionId);
+      if (!(await regular(join5(root, "revision.json"), 1048576)).equals(bytes) || identity(await readTree(join5(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u63D0\u4EA4\u4FEE\u8BA2\u5728\u590D\u6838\u671F\u95F4\u88AB\u6539\u5199");
+      await rename2(temporary, join5(internal, "current.json"));
+      committed = true;
+      const sync = await syncDirectory(internal).then(() => ({}), () => ({ cleanupPending: true, cleanupError: "\u5F53\u524D\u6307\u9488\u5DF2\u63D0\u4EA4\uFF0C\u76EE\u5F55\u540C\u6B65\u5F85\u91CD\u8BD5" }));
+      return { status: "accepted", revision, ...await cleanup(), ...sync };
+    } catch (error51) {
+      if (committed) return { status: "accepted", revision, cleanupPending: true, cleanupError: error51.message };
+      throw new CandidateError("ACCEPTANCE_NOT_COMMITTED", `\u672A\u63A5\u53D7\uFF0C\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5019\u9009\u5DF2\u4FDD\u7559\u3002${error51.message}`);
+    } finally {
+      await rm4(temporary, { force: true }).catch(() => void 0);
+      if (!committed) await rm4(root, { recursive: true, force: true }).catch(() => void 0);
+    }
+  }
+  return { history, cleanup, accept, verify: (id) => verifyRevision(project, id) };
+}
+async function taskCheckpointFingerprint(project) {
+  try {
+    return hash3(await regular(join5(project, ".narracut/agent-task.json"), 2e7));
+  } catch (error51) {
+    if (error51.code === "ENOENT") return void 0;
+    throw error51;
+  }
+}
+async function endedTaskReason(project) {
+  const fingerprint2 = await taskCheckpointFingerprint(project);
+  if (!fingerprint2) return null;
+  if ((await readCurrentPointer(project)).consumed?.taskCheckpoint === fingerprint2) return "CANDIDATE_ACCEPTED";
+  try {
+    const candidate = JSON.parse((await regular(join5(project, ".narracut/candidate.json"), 4194304)).toString());
+    if (candidate.candidate === null && candidate.checkpoint === null && candidate.taskCheckpoint === fingerprint2) return "CANDIDATE_ABANDONED";
+  } catch (error51) {
+    if (error51.code !== "ENOENT") throw error51;
+  }
+  return null;
+}
+async function cleanupEndedTask(project) {
+  if (await endedTaskReason(project)) await rm4(join5(project, ".narracut/agent-task.json"), { force: true });
+}
+
+// plugins/narracut/src/creation-interaction.ts
+var text = external_exports.string().min(1).max(4e3);
+var sceneCondition = external_exports.object({
+  field: external_exports.enum(["narration", "asset", "deleted"]),
+  description: text,
+  minLength: external_exports.number().int().min(0).max(1e5).default(1),
+  maxLength: external_exports.number().int().min(1).max(1e5).default(1e5),
+  anyOf: external_exports.array(text).max(40).default([])
+}).strict();
+var sceneSuggestion = external_exports.object({
+  sceneId: external_exports.string().uuid(),
+  observation: text,
+  action: text,
+  content: text,
+  reason: text,
+  required: external_exports.boolean().default(false),
+  condition: sceneCondition.nullable().default(null)
+}).strict();
+var pendingSuggestion = sceneSuggestion.extend({ satisfied: external_exports.boolean().default(false), missing: external_exports.boolean().default(false) });
+function evaluateSuggestion(item, input) {
+  const scene = input.scenes.find((entry) => entry.id === item.sceneId);
+  const condition = item.condition;
+  let satisfied = false;
+  if (condition?.field === "deleted") satisfied = !scene;
+  else if (scene && condition?.field === "narration") {
+    const value = scene.narration;
+    const length = [...value.trim()].length;
+    satisfied = length >= condition.minLength && length <= condition.maxLength && (!condition.anyOf.length || condition.anyOf.some((part) => value.includes(part)));
+  } else if (scene && condition?.field === "asset") {
+    satisfied = scene.assetIds.some((id) => input.assets.some((asset) => asset.id === id && asset.availability === "available" && asset.src && (!condition.anyOf.length || condition.anyOf.includes(id))));
+  }
+  return { ...item, satisfied, missing: !scene };
+}
+var briefProposal = external_exports.object({ id: external_exports.string().uuid(), base: external_exports.string().max(2097152), baseline: text, content: external_exports.string().max(2097152), purpose: text, status: external_exports.enum(["review", "stale", "rejected", "saved"]) }).strict();
+var messageDecision = external_exports.object({
+  verificationToken: external_exports.string(),
+  kind: external_exports.enum(["creation", "discussion", "mixed", "ambiguous"]),
+  fragments: external_exports.array(text).max(20),
+  reply: text,
+  divergence: external_exports.string().max(4e3)
+}).strict();
+var pendingMessage = external_exports.object({ id: external_exports.string().uuid(), original: text, fragments: external_exports.array(text).max(20), reply: text, previousStatus: external_exports.enum(["running", "waiting", "stopped"]).default("waiting"), previousReason: external_exports.string().nullable().default(null) }).strict();
+function authorizesBrief(instruction) {
+  const latest = instruction.split("\n\n").at(-1).trim();
+  if (/[?？]|不要|别|不必|无需|不能|是否|能否|批准|同意|确认后|解释|如何|保持|不变|如果|等我|先讨论|暂不|前先|之前|方案|建议|备份/.test(latest)) return false;
+  return /^(?:请\s*|帮我\s*|请帮我\s*)?(?:直接\s*)?(?:(?:更新|修改|重写|写入|保存|编写|补充)\s*(?:Video\s*Brief|Brief|video\.md)\s*(?:[。！!]?|[：:][\s\S]+|(?:为|成)[\s\S]+)|(?:将|把)?\s*(?:Video\s*Brief|Brief|video\.md)\s*(?:改为|改成|更新为|写成)[\s\S]+)$/i.test(latest);
+}
+
+// plugins/narracut/src/creation-task.ts
+import { randomUUID as randomUUID5 } from "node:crypto";
+import { join as join6 } from "node:path";
+import { rename as rename3, rm as rm5, open as open2 } from "node:fs/promises";
+
+// plugins/narracut/src/codex-host.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
+var CodexThreadUnavailableError = class extends Error {
+  code = "CODEX_THREAD_UNAVAILABLE";
+  threadId;
+  constructor(threadId) {
+    super(`Codex \u521B\u4F5C\u7EBF\u7A0B ${threadId} \u4E0D\u53EF\u7528\u3002`);
+    this.name = "CodexThreadUnavailableError";
+    this.threadId = threadId;
+  }
+};
+function codexStopReason(error51) {
+  const value = error51;
+  const codes = ["CODEX_USAGE_LIMIT", "CODEX_AUTH_REQUIRED", "CODEX_UNAVAILABLE", "CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "NO_PROGRESS", "PROJECT_IDENTITY_LOST"];
+  return codes.find((code) => value?.code === code || value?.message === code) ?? "CODEX_INTERRUPTED";
+}
+var validationOutputSchema = {
+  type: "object",
+  required: ["verificationToken", "projectId", "sceneCount", "summary"],
+  properties: {
+    verificationToken: { type: "string" },
+    projectId: { type: "string" },
+    sceneCount: { type: "integer", minimum: 0 },
+    summary: { type: "string", maxLength: 240 }
+  },
+  additionalProperties: false
+};
+function checkpointFor(task) {
+  if (task.state.status === "succeeded") return null;
+  return {
+    taskId: task.state.taskId,
+    status: task.state.status,
+    reason: task.state.reason,
+    threadPointer: task.state.connection.threadId
+  };
+}
+function availableActions(status) {
+  if (status === "running") return ["stop"];
+  if (status === "stopped") return ["continue"];
+  return [];
+}
+function publicState(task) {
+  return {
+    ...task.state,
+    connection: { ...task.state.connection },
+    result: task.state.result === null ? null : { ...task.state.result, verification: { ...task.state.result.verification } },
+    diagnostic: task.state.diagnostic === null ? null : { ...task.state.diagnostic },
+    checkpoint: checkpointFor(task),
+    availableActions: [...task.state.availableActions]
+  };
+}
+function boundedMessage(message, fallback) {
+  if (typeof message !== "string" || message.trim() === "") return fallback;
+  return message.trim().slice(0, 240);
+}
+function validationPrompt(task, verificationToken) {
+  return [
+    "\u8FD9\u662F Narracut \u7684\u4E00\u6B21\u56FA\u5B9A Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\uFF0C\u4E0D\u662F\u521B\u4F5C\u4EFB\u52A1\u3002",
+    "\u53EA\u8BFB\u68C0\u67E5\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\u4E2D\u7684 narracut.json \u4E0E project.json\uFF1B\u4E0D\u8981\u521B\u5EFA\u3001\u4FEE\u6539\u6216\u5220\u9664\u4EFB\u4F55\u6587\u4EF6\uFF0C\u4E5F\u4E0D\u8981\u6267\u884C\u7F51\u7EDC\u64CD\u4F5C\u3002",
+    `\u786E\u8BA4 Project ID \u662F ${task.request.projectId}\uFF0CScene \u6570\u91CF\u662F ${task.request.sceneCount}\u3002`,
+    `\u6700\u7EC8\u53EA\u8FD4\u56DE\u7B26\u5408\u7ED9\u5B9A JSON Schema \u7684\u5BF9\u8C61\uFF0C\u5176\u4E2D verificationToken \u5FC5\u987B\u539F\u6837\u8FD4\u56DE ${verificationToken}\u3002`,
+    "summary \u7528\u4E00\u53E5\u4E2D\u6587\u8BF4\u660E\u5DF2\u5728\u53EA\u8BFB\u8FB9\u754C\u5185\u6838\u5BF9 Project VNext \u8EAB\u4EFD\u3002"
+  ].join("\n");
+}
+var AgentHostValidationService = class {
+  #host;
+  #idFactory;
+  #tasks = /* @__PURE__ */ new Map();
+  #driverOwners = /* @__PURE__ */ new Map();
+  #unsubscribe;
+  constructor(host, options = {}) {
+    this.#host = host;
+    this.#idFactory = options.idFactory ?? randomUUID4;
+    this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
+  }
+  async start(request2) {
+    const taskId = this.#idFactory();
+    const task = {
+      request: request2,
+      activeDriver: null,
+      state: {
+        taskId,
+        status: "stopped",
+        reason: "CODEX_UNAVAILABLE",
+        connection: { status: "unavailable", threadId: null, replaced: false },
+        result: null,
+        diagnostic: null,
+        checkpoint: null,
+        availableActions: ["continue"],
+        projectModified: false
+      }
+    };
+    this.#tasks.set(taskId, task);
+    await this.#bindAndRun(task, null);
+    return publicState(task);
+  }
+  get(taskId) {
+    return publicState(this.#requireTask(taskId));
+  }
+  async stop(taskId) {
+    const task = this.#requireTask(taskId);
+    const driver = task.activeDriver;
+    task.activeDriver = null;
+    this.#setStopped(task, "USER_STOPPED");
+    if (driver !== null) {
+      try {
+        await this.#host.interruptTurn({ threadId: driver.threadId, turnId: driver.turnId });
+      } catch (error51) {
+        task.state.diagnostic = {
+          code: "HOST_INTERRUPT_FAILED",
+          message: boundedMessage(error51 instanceof Error ? error51.message : error51, "Codex Turn \u672A\u80FD\u786E\u8BA4\u4E2D\u65AD\u3002")
+        };
+      }
+    }
+    return publicState(task);
+  }
+  async continue(taskId) {
+    const task = this.#requireTask(taskId);
+    if (task.state.status !== "stopped") {
+      throw new Error("\u53EA\u6709\u5DF2\u505C\u6B62\u7684\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\u53EF\u4EE5\u7EE7\u7EED\u3002");
+    }
+    const threadPointer = task.state.connection.threadId;
+    await this.#bindAndRun(task, threadPointer);
+    return publicState(task);
+  }
+  async dispose() {
+    this.#unsubscribe();
+    await this.#host.dispose();
+  }
+  #requireTask(taskId) {
+    const task = this.#tasks.get(taskId);
+    if (task === void 0) throw new Error(`\u672A\u77E5\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\uFF1A${taskId}`);
+    return task;
+  }
+  async #bindAndRun(task, threadPointer) {
+    task.state.diagnostic = null;
+    let threadId = threadPointer;
+    let replaced = false;
+    try {
+      if (threadPointer === null) {
+        ({ threadId } = await this.#host.createThread({
+          projectDirectory: task.request.projectDirectory
+        }));
+      } else {
+        try {
+          ({ threadId } = await this.#host.resumeThread({
+            threadId: threadPointer,
+            projectDirectory: task.request.projectDirectory
+          }));
+        } catch (error51) {
+          if (!(error51 instanceof CodexThreadUnavailableError)) throw error51;
+          ({ threadId } = await this.#host.createThread({
+            projectDirectory: task.request.projectDirectory
+          }));
+          replaced = true;
+        }
+      }
+      if (threadId === null) throw new Error("Codex Thread \u7ED1\u5B9A\u672A\u8FD4\u56DE\u6709\u6548\u6307\u9488\u3002");
+      const driverId = this.#idFactory();
+      const verificationToken = this.#idFactory();
+      const { turnId } = await this.#host.startTurn({
+        threadId,
+        projectDirectory: task.request.projectDirectory,
+        verificationToken,
+        prompt: validationPrompt(task, verificationToken),
+        outputSchema: validationOutputSchema
+      });
+      const driver = { id: driverId, threadId, turnId, verificationToken };
+      task.activeDriver = driver;
+      this.#driverOwners.set(`${threadId}:${turnId}`, task.state.taskId);
+      task.state.status = "running";
+      task.state.reason = null;
+      task.state.connection = { status: "connected", threadId, replaced };
+      task.state.result = null;
+      task.state.availableActions = availableActions("running");
+      task.state.checkpoint = checkpointFor(task);
+    } catch (error51) {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_UNAVAILABLE");
+      task.state.connection = {
+        status: "unavailable",
+        threadId,
+        replaced
+      };
+      task.state.diagnostic = {
+        code: "CODEX_HOST_UNAVAILABLE",
+        message: boundedMessage(error51 instanceof Error ? error51.message : error51, "Codex \u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002")
+      };
+    }
+  }
+  #setStopped(task, reason) {
+    task.state.status = "stopped";
+    task.state.reason = reason;
+    task.state.result = null;
+    task.state.availableActions = availableActions("stopped");
+    task.state.checkpoint = checkpointFor(task);
+  }
+  #handleHostEvent(event) {
+    if (event.type === "approval-required" || event.type === "approval-resolved") return;
+    if (event.type === "host-unavailable") {
+      for (const task2 of this.#tasks.values()) {
+        if (task2.state.status === "succeeded") continue;
+        if (task2.activeDriver !== null) {
+          task2.activeDriver = null;
+          this.#setStopped(task2, "CODEX_UNAVAILABLE");
+        }
+        task2.state.connection.status = "unavailable";
+        task2.state.diagnostic = {
+          code: "CODEX_HOST_UNAVAILABLE",
+          message: boundedMessage(event.error, "Codex \u5BBF\u4E3B\u8FDE\u63A5\u5DF2\u4E2D\u65AD\u3002")
+        };
+      }
+      return;
+    }
+    const turnKey = event.turnId === void 0 ? null : `${event.threadId}:${event.turnId}`;
+    let task = turnKey === null ? void 0 : this.#tasks.get(this.#driverOwners.get(turnKey) ?? "");
+    task ??= [...this.#tasks.values()].find(
+      (candidate) => candidate.state.connection.threadId === event.threadId
+    );
+    if (task === void 0) return;
+    const driver = task.activeDriver;
+    if (event.type === "thread-unavailable" && driver === null && task.state.status === "stopped" && task.state.connection.threadId === event.threadId) {
+      task.state.connection.status = "unavailable";
+      task.state.diagnostic = {
+        code: "CODEX_THREAD_UNAVAILABLE",
+        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
+      };
+      return;
+    }
+    const isCurrent = driver !== null && driver.threadId === event.threadId && (event.turnId === void 0 || driver.turnId === event.turnId);
+    if (!isCurrent) {
+      task.state.diagnostic = {
+        code: "LATE_DRIVER_CALLBACK_REJECTED",
+        message: "\u5DF2\u62D2\u7EDD\u5931\u53BB\u5199\u6743\u7684\u65E7 Codex \u521B\u4F5C\u7EBF\u7A0B\u56DE\u8C03\uFF1B\u5F53\u524D\u4EFB\u52A1\u72B6\u6001\u672A\u6539\u53D8\u3002"
+      };
+      return;
+    }
+    if (event.type === "thread-unavailable") {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_THREAD_UNAVAILABLE");
+      task.state.connection.status = "unavailable";
+      task.state.diagnostic = {
+        code: "CODEX_THREAD_UNAVAILABLE",
+        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
+      };
+      return;
+    }
+    if (event.status !== "completed" || event.output === void 0) {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_INTERRUPTED");
+      task.state.diagnostic = {
+        code: "CODEX_TURN_INTERRUPTED",
+        message: boundedMessage(event.error, "Codex \u9A8C\u8BC1 Turn \u672A\u5B8C\u6210\u3002")
+      };
+      return;
+    }
+    let parsed;
+    try {
+      const value = JSON.parse(event.output);
+      if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error();
+      parsed = value;
+    } catch {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_INTERRUPTED");
+      task.state.diagnostic = {
+        code: "HOST_VALIDATION_RESULT_INVALID",
+        message: "Codex \u8FD4\u56DE\u4E86\u65E0\u6CD5\u9A8C\u8BC1\u7684\u7ED3\u6784\u5316\u7ED3\u679C\u3002"
+      };
+      return;
+    }
+    const summary = parsed.summary;
+    const normalizedSummary = typeof summary === "string" ? summary.trim() : "";
+    const valid2 = parsed.verificationToken === driver.verificationToken && parsed.projectId === task.request.projectId && parsed.sceneCount === task.request.sceneCount && typeof summary === "string" && normalizedSummary !== "" && summary.length <= 240;
+    if (!valid2) {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_INTERRUPTED");
+      task.state.diagnostic = {
+        code: "HOST_VALIDATION_IDENTITY_MISMATCH",
+        message: "Codex \u7ED3\u679C\u672A\u901A\u8FC7\u4EFB\u52A1\u3001\u9A71\u52A8\u6216\u9879\u76EE\u8EAB\u4EFD\u6821\u9A8C\u3002"
+      };
+      return;
+    }
+    task.activeDriver = null;
+    task.state.status = "succeeded";
+    task.state.reason = null;
+    task.state.result = {
+      projectId: task.request.projectId,
+      sceneCount: task.request.sceneCount,
+      summary: normalizedSummary,
+      verification: { taskId: task.state.taskId, driverId: driver.id }
+    };
+    task.state.availableActions = availableActions("succeeded");
+    task.state.checkpoint = null;
+  }
+};
 
 // src/shared/program-checks.ts
 var groups = [
@@ -26424,7 +26455,7 @@ var CreationTask = class {
     return !this.#closed && !this.#transferred && this.#state?.status === "running" && !this.#operation && !this.#recovery;
   }
   get blocksCandidateWrites() {
-    return this.ownsCandidate || this.#operation !== null;
+    return this.ownsCandidate || this.#busy || this.#operation !== null;
   }
   async status() {
     if (!this.#closed && !this.#operation && !this.#recovery && this.#state?.status === "waiting" && this.#state.reason === "CANDIDATE_READY") {
@@ -26442,6 +26473,11 @@ var CreationTask = class {
   }
   async load(transferred = false) {
     try {
+      const ended = await endedTaskReason(this.opened.inspection.projectDirectory);
+      if (ended) {
+        await this.opened.programTransaction(() => cleanupEndedTask(this.opened.inspection.projectDirectory)).catch(() => void 0);
+        return;
+      }
       const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 2e7)).toString()));
       if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error("\u4EFB\u52A1\u9879\u76EE\u8EAB\u4EFD\u4E0D\u5339\u914D");
       this.#state = { ...checkpoint, externalBaseline: null, status: checkpoint.status === "terminated" ? "terminated" : "stopped", reason: checkpoint.status === "terminated" ? checkpoint.reason : "APP_RESTARTED", waitingReason: checkpoint.waitingReason ?? (checkpoint.status === "waiting" ? checkpoint.reason : null), stage: "read", divergence: "", preview: null, deliveryId: null };
@@ -26514,7 +26550,7 @@ var CreationTask = class {
     return join6(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
   }
   async #save() {
-    if (!this.#state) return;
+    if (!this.#state || this.#state.status === "terminated") return;
     const { externalBaseline: _externalBaseline, stage: _stage, divergence: _divergence, preview: _preview, deliveryId: _delivery, ...checkpoint } = this.#state;
     const bytes = JSON.stringify(checkpointSchema.parse(checkpoint));
     await this.opened.programTransaction(() => this.#writeCheckpoint(bytes));
@@ -26533,14 +26569,9 @@ var CreationTask = class {
       if (identity2 !== await directory(parent)) throw new Error("\u4EFB\u52A1\u76EE\u5F55\u5DF2\u66FF\u6362");
       await validate?.();
       await rename3(temporary, this.#path());
-      const parentHandle = await open2(parent, "r");
-      try {
-        await parentHandle.sync();
-      } finally {
-        await parentHandle.close();
-      }
+      await syncDirectory(parent).catch(() => void 0);
     } finally {
-      await rm5(temporary, { force: true });
+      await rm5(temporary, { force: true }).catch(() => void 0);
     }
   }
   async start(instruction, parentOrigin = "null") {
@@ -26589,8 +26620,10 @@ var CreationTask = class {
     }
   }
   /** 接管只替换单一任务检查点；候选文件字节保持不变。 */
-  async takeover(instruction, baseline, parentOrigin = "null") {
+  async takeover(instruction, baseline, parentOrigin = "null", requestId) {
     if (this.#closed || this.#transferred) throw new Error("\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B");
+    if (requestId && this.#state?.taskId === requestId && this.#state.instruction === instruction) return this.value;
+    if (requestId) external_exports.string().uuid().parse(requestId);
     if (this.#busy || this.#operation || this.ownsCandidate || !instruction?.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u505C\u6B62\u6D3B\u52A8\u4EFB\u52A1\u5E76\u586B\u5199 1\u20134000 \u5B57\u7684\u65B0\u76EE\u6807\u3002");
     this.#busy = true;
     const previous = this.#state;
@@ -26602,7 +26635,7 @@ var CreationTask = class {
         if (candidate.status === "external-change") candidate = await manager({ action: "adopt", baseline, confirmed: true });
         if (candidate.status !== "saved") throw new Error(candidate.error?.message ?? "\u8BF7\u5148\u5728\u5019\u9009\u533A\u57DF\u5904\u7406\u5B8C\u6574\u6027\u95EE\u9898\u3002");
         const checkpoint = {
-          taskId: randomUUID5(),
+          taskId: requestId ?? randomUUID5(),
           projectId: this.opened.inspection.manifest.projectId,
           instruction,
           status: "running",
@@ -26627,6 +26660,9 @@ var CreationTask = class {
         }
         this.#state = { ...checkpoint, externalBaseline: null, stage: "read", divergence: "", preview: null, deliveryId: null };
       });
+      this.#driver = null;
+      this.checks.invalidate();
+      this.delivery.invalidate();
       this.#recovery = null;
       this.#parentOrigin = parentOrigin;
       this.#messageMode = null;
@@ -27294,7 +27330,7 @@ var CreationTask = class {
     await this.#save();
   }
   async #stop(error51) {
-    if (!this.#state || this.#closed || this.#operation || this.#state.status === "stopped") return;
+    if (!this.#state || this.#closed || this.#operation || ["stopped", "terminated"].includes(this.#state.status)) return;
     if (this.ownsCandidate) {
       try {
         const snapshot = await this.#snapshot();
@@ -27337,17 +27373,17 @@ var CreationTask = class {
     await this.#save().catch(() => void 0);
   }
   async terminate(reason) {
-    if (!this.#state) {
-      if (this.#recovery) await this.opened.programTransaction(() => rm5(this.#path(), { force: true }));
-      this.#recovery = null;
-      return;
-    }
     this.#driver = null;
-    this.#state.status = "terminated";
-    this.#state.reason = reason;
-    this.#state.pending = null;
-    await this.#save();
     this.#recovery = null;
+    if (this.#state) {
+      this.#state.status = "terminated";
+      this.#state.reason = reason;
+      this.#state.pending = null;
+      this.#state.toolApproval = null;
+      this.#state.pendingMessage = null;
+      this.#state.suggestions = [];
+    }
+    await this.opened.programTransaction(() => cleanupEndedTask(this.opened.inspection.projectDirectory));
   }
   async close() {
     clearInterval(this.#timer);
@@ -32617,6 +32653,7 @@ var ProjectWorkspaceSession = class {
   #handoffPending = false;
   #opening = false;
   creation = null;
+  #resolvingCandidate = false;
   creationError = null;
   async creationOperation(input, start = false, resume = false, respond = false) {
     if (!input || typeof input.projectDirectory !== "string" || typeof input.projectId !== "string" || start && typeof input.instruction !== "string") throw new Error("\u521B\u4F5C\u4EFB\u52A1\u53C2\u6570\u65E0\u6548\u3002");
@@ -32625,7 +32662,11 @@ var ProjectWorkspaceSession = class {
     if (this.creationError) throw new Error(this.creationError);
     if (!this.creation) throw new Error("\u521B\u4F5C\u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002");
     if (!respond && input.action !== void 0) throw new Error("\u5F53\u524D\u5DE5\u5177\u4E0D\u63A5\u53D7\u4EFB\u52A1\u5199\u64CD\u4F5C");
-    const creationTask = respond ? input.action === "takeover" ? await this.creation.takeover(input.instruction, input.baseline, input.parentOrigin) : await this.creation.respond(input) : resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? "null") : await this.creation.status();
+    if (this.#resolvingCandidate) {
+      if (respond || resume || start) throw new Error("\u6B63\u5728\u6838\u5BF9\u64CD\u4F5C\u7ED3\u679C\uFF0C\u8BF7\u7A0D\u5019\u3002");
+      return { creationTask: this.creation.value, candidate: this.#candidateStatus, creationRecovery: this.creation.recovery };
+    }
+    const creationTask = respond ? input.action === "takeover" ? await this.creation.takeover(input.instruction, input.baseline, input.parentOrigin, input.id) : await this.creation.respond(input) : resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? "null") : await this.creation.status();
     const candidate = await this.candidate({ projectDirectory: input.projectDirectory, projectId: input.projectId, action: "read" });
     return { creationTask, candidate, creationRecovery: this.creation.recovery };
   }
@@ -32645,10 +32686,22 @@ var ProjectWorkspaceSession = class {
   async acceptanceOperation(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     if (this.creation?.blocksCandidateWrites && !["status", "history", "result"].includes(input.action)) throw new Error("\u521B\u4F5C\u4EFB\u52A1\u6B63\u5728\u8FD0\u884C\uFF0C\u8BF7\u7B49\u5F85\u5019\u9009\u4EA4\u4ED8\u3002");
-    const result = await this.acceptance.operate(opened, input);
-    if (result.status === "accepted") await this.creation?.terminate("CANDIDATE_ACCEPTED");
-    this.#candidateStatus = await opened.candidate({ action: "read" });
-    return result;
+    if (this.#resolvingCandidate) throw new Error("\u6B63\u5728\u6838\u5BF9\u64CD\u4F5C\u7ED3\u679C\uFF0C\u8BF7\u7A0D\u5019\u3002");
+    this.#resolvingCandidate = true;
+    try {
+      const result = await this.acceptance.operate(opened, input);
+      this.#candidateStatus = await opened.candidate({ action: "read" });
+      if (result.status === "accepted" && result.revision.current !== false && this.#candidateStatus.status === "absent") {
+        try {
+          await this.creation?.terminate("CANDIDATE_ACCEPTED");
+        } catch {
+          result.taskCleanupPending = true;
+        }
+      }
+      return { ...result, creationTask: this.creation?.value ?? null };
+    } finally {
+      this.#resolvingCandidate = false;
+    }
   }
   async deliveryOperation(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
@@ -32695,7 +32748,7 @@ var ProjectWorkspaceSession = class {
     return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
   }
   async open(projectDirectory) {
-    if (this.#opening) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
+    if (this.#opening || this.#resolvingCandidate) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u6216\u5019\u9009\u64CD\u4F5C\u7ED3\u679C\u5F85\u6838\u5BF9");
     if (!this.#transferred && !this.#handoffPending && this.#opened?.inspection.projectDirectory === projectDirectory) return this.#opened.inspection;
     this.#opening = true;
     try {
@@ -32708,7 +32761,7 @@ var ProjectWorkspaceSession = class {
     const next = await openProjectVNext(projectDirectory, {
       probeSpeechDurationMs: this.#probeSpeechDurationMs,
       onHandoff: async () => {
-        if (this.#opening) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
+        if (this.#opening || this.#resolvingCandidate) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u6216\u5019\u9009\u64CD\u4F5C\u7ED3\u679C\u5F85\u6838\u5BF9");
         this.#handoffPending = true;
         await this.creation?.transfer();
         await this.render.close();
@@ -32748,9 +32801,22 @@ var ProjectWorkspaceSession = class {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const { projectDirectory: _directory, projectId: _id, ...request2 } = input;
     if (this.creation?.blocksCandidateWrites && request2.action !== "read") throw new Error("\u53EA\u6709\u5F53\u524D\u521B\u4F5C\u9A71\u52A8\u53EF\u4EE5\u4FEE\u6539\u5019\u9009\uFF1B\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\u3002");
-    this.#candidateStatus = await opened.candidate(request2);
-    if (request2.action === "discard") await this.creation?.terminate("CANDIDATE_ABANDONED");
-    return this.#candidateStatus;
+    if (this.#resolvingCandidate && request2.action !== "read") throw new Error("\u6B63\u5728\u6838\u5BF9\u64CD\u4F5C\u7ED3\u679C\uFF0C\u8BF7\u7A0D\u5019\u3002");
+    if (request2.action !== "discard") {
+      this.#candidateStatus = await opened.candidate(request2);
+      return this.#candidateStatus;
+    }
+    this.#resolvingCandidate = true;
+    try {
+      this.#candidateStatus = await opened.candidate(request2);
+      await this.creation?.terminate("CANDIDATE_ABANDONED").catch(() => void 0);
+      this.delivery.clear();
+      this.checks.invalidate();
+      this.preview.invalidate();
+      return this.#candidateStatus;
+    } finally {
+      this.#resolvingCandidate = false;
+    }
   }
   async save(input) {
     const opened = this.#opened;

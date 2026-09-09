@@ -6,7 +6,7 @@ import { regular, directory, readTree, identity, writeTree, writeBytes, syncDire
 const uuid = z.string().uuid(), digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const refSchema = z.object({ revisionId: uuid, metadata: digest, program: digest, requestId: uuid.optional() }).strict();
 const pointerSchema = z.object({ revisionId: uuid, history: z.array(refSchema).min(1).max(20).optional(),
-  consumed: z.object({ pointer: digest, generation: z.string().regex(/^\.narracut\/candidate-[0-9a-f-]{36}$/), requestId: uuid }).strict().optional(),
+  consumed: z.object({ pointer: digest, generation: z.string().regex(/^\.narracut\/candidate-[0-9a-f-]{36}$/), requestId: uuid, taskCheckpoint: digest.optional() }).strict().optional(),
   pruned: z.array(uuid).max(1).optional(),
 }).strict().superRefine((value, ctx) => {
   if (value.history && (value.history[0].revisionId !== value.revisionId || new Set(value.history.map(item => item.revisionId)).size !== value.history.length)) ctx.addIssue({ code: 'custom', message: '当前修订与历史不一致' });
@@ -45,13 +45,15 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
       catch (error) { return { revisionId: ref.revisionId, current: ref.revisionId === pointer.revisionId, valid: false, error: (error as Error).message, requestId: ref.requestId ?? (ref.revisionId === pointer.revisionId ? pointer.consumed?.requestId : undefined), summary: '已接受修订 · 完整性失败' } as Partial<Revision> & { revisionId: string; current: boolean; valid: boolean; error: string | null }; }
     }));
     const pendingPaths = [...(pointer.consumed ? ['candidate', 'checkpoint'].map(name => join(project, pointer.consumed!.generation, name)) : []), ...(pointer.pruned ?? []).map(id => join(internal, 'revisions', id))];
-    const cleanupPending = (await Promise.all(pendingPaths.map(path => lstat(path).then(() => true, error => error.code !== 'ENOENT')))).some(Boolean);
-    return { current: pointer.revisionId, limit: 20, revisions, cleanupPending };
+    const taskCleanupPending = !!await endedTaskReason(project);
+    const cleanupPending = taskCleanupPending || (await Promise.all(pendingPaths.map(path => lstat(path).then(() => true, error => error.code !== 'ENOENT')))).some(Boolean);
+    return { current: pointer.revisionId, limit: 20, revisions, cleanupPending, taskCleanupPending };
   }
   async function cleanup() {
     await assertWritable(); const pointer = await readCurrentPointer(project);
     try {
       await syncDirectory(internal);
+      await cleanupEndedTask(project);
       if (pointer.consumed) {
         const path = join(internal, 'candidate.json');
         let bytes: Buffer | undefined;
@@ -93,7 +95,8 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
       await writeBytes(join(root, 'revision.json'), bytes); await syncDirectory(root); await syncDirectory(join(internal, 'revisions'));
       if (identity(await readTree(join(root, 'render-program'))) !== revision.programFingerprint) throw new Error('待发布修订校验失败');
       const all = [{ revisionId: id, metadata: hash(bytes), program: revision.programFingerprint!, requestId }, ...(before.history ?? [previous.ref])];
-      const next = pointerSchema.parse({ revisionId: id, history: all.slice(0, 20), pruned: all.slice(20).map(item => item.revisionId), consumed: { pointer: hash(raw), generation: state.candidate!.path.replace(/\/candidate$/, ''), requestId } });
+      const taskCheckpoint = await taskCheckpointFingerprint(project);
+      const next = pointerSchema.parse({ revisionId: id, history: all.slice(0, 20), pruned: all.slice(20).map(item => item.revisionId), consumed: { pointer: hash(raw), generation: state.candidate!.path.replace(/\/candidate$/, ''), requestId, taskCheckpoint } });
       await writeBytes(temporary, Buffer.from(JSON.stringify(next)));
       await validate(); await assertWritable();
       if (!beforeBytes.equals(await regular(join(internal, 'current.json'), 16384))) throw new Error('当前指针在提交前发生变化');
@@ -111,4 +114,23 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
     }
   }
   return { history, cleanup, accept, verify: (id: string) => verifyRevision(project, id) };
+}
+
+/** 指纹只消费提交时的旧检查点；后续新任务不会被旧收尾删除。 */
+export async function taskCheckpointFingerprint(project: string) {
+  try { return hash(await regular(join(project, '.narracut/agent-task.json'), 20_000_000)); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+}
+export async function endedTaskReason(project: string) {
+  const fingerprint = await taskCheckpointFingerprint(project);
+  if (!fingerprint) return null;
+  if ((await readCurrentPointer(project)).consumed?.taskCheckpoint === fingerprint) return 'CANDIDATE_ACCEPTED' as const;
+  try {
+    const candidate = JSON.parse((await regular(join(project, '.narracut/candidate.json'), 4194304)).toString());
+    if (candidate.candidate === null && candidate.checkpoint === null && candidate.taskCheckpoint === fingerprint) return 'CANDIDATE_ABANDONED' as const;
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  return null;
+}
+export async function cleanupEndedTask(project: string) {
+  if (await endedTaskReason(project)) await rm(join(project, '.narracut/agent-task.json'), { force: true });
 }

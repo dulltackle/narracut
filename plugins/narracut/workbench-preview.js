@@ -170,6 +170,18 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
     } finally { polling = false; }
   }, 4000);
   return {
+    discarded() {
+      for (const slot of [...slots.values()]) if (slot.target === 'candidate') {
+        if (active === slot) { active = null; requested = null; }
+        if (pending === slot) pending = null;
+        dispose(slot);
+      }
+      buildStates.candidate = ''; update();
+    },
+    superseded() {
+      for (const slot of slots.values()) if (slot.target === 'candidate') { slot.buildStale = true; slot.stale = true; }
+      sceneNotice = '新目标已接管，旧证据需重新核对。'; update();
+    },
     accepted(instanceId, revisionId) {
       for (const previous of slots.values()) if (previous.target === 'current' && previous.instanceId !== instanceId) { previous.label = previous.label.replace(/^当前/, '历史修订'); previous.buildStale = true; }
       const slot = slots.get(instanceId); if (!slot) { update(); return; }

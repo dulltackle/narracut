@@ -61,6 +61,9 @@
     takeoverDraft: "",
     takeoverBusy: false,
     takeoverError: "",
+    takeoverPending: null,
+    takeoverBaseline: null,
+    candidateUncertain: false,
     externalBusy: false,
     composerRevision: 0,
     creationFocusPending: false,
@@ -607,42 +610,60 @@
   function updateRecoveryRegion() {
     const region = document.querySelector('[data-task-recovery]');
     if (!region) return;
-    region.hidden = !state.creationRecovery;
-    if (!state.creationRecovery) return;
+    const eligible = state.creationRecovery || state.creationTask && state.creationTask.status !== 'terminated' && !state.creationTask.transferred && state.candidate?.candidate;
+    region.hidden = !eligible;
+    if (!eligible) return;
     if (!region.firstElementChild) {
-      region.innerHTML = `<div class="creation-details"><h2 tabindex="-1" id="task-recovery-title">原任务无法恢复</h2><p>任务检查点缺失、损坏或与候选不一致，无法继续原任务。候选已保留；这不代表候选损坏。</p><button class="agent-action" data-open-takeover>用新任务接管…</button><form data-takeover-form hidden><label for="takeover-goal">新任务目标</label><textarea id="takeover-goal" rows="4" maxlength="4000" required aria-describedby="takeover-description"></textarea><p id="takeover-description">新任务会保留候选字节，以新目标取代可识别的旧任务，并重新核对最新项目内容。</p><p>候选对象：<code data-takeover-path></code></p><p data-takeover-error role="status"></p><div class="todo-actions"><button class="agent-action" type="submit" data-submit-takeover>开始新任务并接管候选</button><button class="agent-action" type="button" data-cancel-takeover>取消</button></div></form></div>`;
-      region.querySelector('[data-open-takeover]').onclick = () => { state.takeoverOpen = true; updateRecoveryRegion(); region.querySelector('textarea').focus(); };
+      region.innerHTML = `<div class="creation-details"><h2 tabindex="-1" id="task-recovery-title">原任务无法恢复</h2><p data-recovery-copy>任务检查点缺失、损坏或与候选不一致，无法继续原任务。候选已保留；这不代表候选损坏。</p><button class="agent-action" data-open-takeover>用新目标接管…</button><form data-takeover-form hidden><label for="takeover-goal">新任务目标</label><textarea id="takeover-goal" rows="4" maxlength="4000" required aria-describedby="takeover-description"></textarea><p id="takeover-description">保留候选字节，终结旧任务，以新 Task ID 和新目标开始创作。旧审批和待办不继承，旧检查与 Preview 证据需重新核对。</p><p>候选对象：<code data-takeover-path></code></p><p data-takeover-error role="status"></p><button type="button" class="agent-action" data-takeover-reconcile hidden>核对操作结果</button><div class="todo-actions"><button class="agent-action" type="submit" data-submit-takeover>开始新任务并接管候选</button><button class="agent-action" type="button" data-cancel-takeover>取消</button></div></form></div>`;
+      region.querySelector('[data-open-takeover]').onclick = () => { state.takeoverOpen = true; state.takeoverBaseline = state.creationRecovery?.candidateBaseline ?? state.candidate?.baseline; updateRecoveryRegion(); region.querySelector('textarea').focus(); };
       region.querySelector('[data-cancel-takeover]').onclick = () => { state.takeoverOpen = false; updateRecoveryRegion(); region.querySelector('[data-open-takeover]').focus(); };
       region.querySelector('textarea').value = state.takeoverDraft;
       region.querySelector('textarea').oninput = event => { state.takeoverDraft = event.target.value; };
+      region.querySelector('[data-takeover-reconcile]').onclick = () => void takeoverTask();
       region.querySelector('form').onsubmit = event => { event.preventDefault(); void takeoverTask(); };
     }
+    region.querySelector('#task-recovery-title').textContent = state.creationRecovery ? '原任务无法恢复' : '用新目标接管候选';
+    region.querySelector('[data-recovery-copy]').hidden = !state.creationRecovery;
     region.querySelector('form').hidden = !state.takeoverOpen;
     region.querySelector('[data-open-takeover]').hidden = state.takeoverOpen;
-    region.querySelector('[data-takeover-path]').textContent = state.creationRecovery.candidatePath ?? '候选暂不可用，请在候选区域处理完整性问题';
+    region.querySelector('[data-takeover-path]').textContent = state.creationRecovery?.candidatePath ?? state.candidate?.candidate?.path ?? '候选暂不可用，请在候选区域处理完整性问题';
     region.querySelector('[data-takeover-error]').textContent = state.takeoverError;
-    region.querySelectorAll('button').forEach(button => { button.disabled = state.takeoverBusy; });
+    region.querySelectorAll('button').forEach(button => { button.disabled = state.takeoverBusy || !!state.takeoverPending || state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation; });
+    region.querySelector('[data-takeover-reconcile]').hidden = !state.takeoverPending;
+    region.querySelector('[data-takeover-reconcile]').disabled = state.takeoverBusy;
     region.querySelector('[data-submit-takeover]').textContent = state.takeoverBusy ? '正在核对并接管…' : '开始新任务并接管候选';
   }
   async function takeoverTask() {
     if (state.takeoverBusy || !state.takeoverDraft.trim()) return;
     const project = state.result.project;
-    state.takeoverBusy = true; state.takeoverError = ''; updateRecoveryRegion();
+    const pending = state.takeoverPending ?? { id: createUuid(), previousTaskId: state.creationTask?.taskId, baseline: state.takeoverBaseline, instruction: state.takeoverDraft };
+    const reconciling = !!state.takeoverPending;
+    state.takeoverBusy = true; state.takeoverPending = pending; state.takeoverError = '正在核对操作结果'; updateRecoveryRegion(); updateCandidate();
     try {
-      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action: 'takeover', instruction: state.takeoverDraft, baseline: state.creationRecovery.candidateBaseline, parentOrigin: location.origin });
+      let response;
+      if (!reconciling) {
+        response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action: 'takeover', id: pending.id, instruction: pending.instruction, baseline: pending.baseline, parentOrigin: location.origin }).catch(() => null);
+      }
+      const failure = response?.structuredContent?.error?.message;
+      if (!response?.structuredContent?.creationTask || response.isError) response = await callHostTool('get_creation_task', { projectDirectory: project.directory, projectId: project.projectId });
       if (state.result.project !== project) return;
-      if (response?.isError || !response?.structuredContent?.creationTask) throw new Error(response?.structuredContent?.error?.message ?? '未收到接管成功回执，请重新核对任务');
-      state.creationRecovery = response.structuredContent.creationRecovery ?? null; state.takeoverOpen = false; state.takeoverDraft = '';
-      if (response.structuredContent.candidate) state.candidate = response.structuredContent.candidate;
-      applyCreation(response.structuredContent.creationTask);
-      document.getElementById('creation-task-title')?.focus();
-    } catch (error) {
-      state.takeoverError = error.message;
-      const latest = await callHostTool('get_creation_task', { projectDirectory: project.directory, projectId: project.projectId }).catch(() => null);
-      if (state.result.project !== project) return;
-      if (latest?.structuredContent?.creationRecovery) state.creationRecovery = latest.structuredContent.creationRecovery;
-      else if (latest?.structuredContent?.creationTask) { state.creationRecovery = null; state.takeoverOpen = false; applyCreation(latest.structuredContent.creationTask); }
-    } finally { state.takeoverBusy = false; updateRecoveryRegion(); }
+      const value = response?.structuredContent;
+      if (!value || response.isError || !('creationTask' in value)) throw new Error('正在核对操作结果；连接恢复后点击“核对操作结果”，核对前不会重复提交。');
+      if (value.candidate) state.candidate = value.candidate;
+      state.creationRecovery = value.creationRecovery ?? null;
+      const next = value.creationTask;
+      if (next && next.taskId === pending.id && !state.creationRecovery) {
+        state.takeoverPending = null; state.takeoverOpen = false; state.takeoverDraft = ''; state.takeoverError = '';
+        applyCreation(next); previewWorkbench.superseded(); await deliveryWorkbench.refresh().catch(() => {});
+        document.getElementById('creation-task-title')?.focus();
+      } else {
+        state.takeoverPending = null;
+        state.takeoverError = failure ?? '接管尚未提交，请核对候选对象后再次明确提交。';
+        state.takeoverBaseline = state.creationRecovery?.candidateBaseline ?? state.candidate?.baseline;
+        applyCreation(next);
+      }
+    } catch (error) { if (state.result.project === project) state.takeoverError = `正在核对操作结果。${error.message}`; }
+    finally { if (state.result.project === project) { state.takeoverBusy = false; updateRecoveryRegion(); updateCandidate(); } }
   }
   const creationStages = { read: "读取项目", modify: "修改候选", check: "运行检查", preview: "构建 Preview", frames: "检查代表帧", deliver: "准备交付" };
   const creationStopCopy = {
@@ -670,7 +691,7 @@
       ${taskInteractions(task)}
       ${briefPending !== false ? `<div class="agent-diagnostic" data-brief-review="${briefPending === true}"><strong>${briefPending ? "Brief 待复核" : "Brief 关系未检查"}</strong><p>${briefPending ? "当前 Render Program 与既有 Preview 保持不变" : "打开可写项目后校验当前 Render Program 的 Brief 指纹"}</p></div>` : ""}
       ${task?.divergence ? `<div class="agent-diagnostic"><h3>与 Video Brief 的分歧</h3><div class="brief-divergence"><section><h4>Video Brief</h4><p class="creation-instruction">${escapeHtml(state.brief.base)}</p></section><section><h4>本次用户要求</h4><p class="creation-instruction">${escapeHtml(task.instruction)}</p></section></div><p>${escapeHtml(task.divergence)}</p><p>本次成片表现遵循上方用户原文；Scene、Speech、时间与安全硬约束保持有效。</p></div>` : ""}
-      ${task ? `<details class="creation-details"><summary>任务详情</summary><dl><dt>原因</dt><dd>${escapeHtml(task.reason ?? "无")}</dd><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>线程连接</dt><dd>${escapeHtml(task.threadPointer ?? "尚未连接")}</dd><dt>最后完成的安全阶段</dt><dd>${creationStages[task.lastSafeStage] ?? "尚无"}</dd><dt>Agent 任务检查点</dt><dd>${state.creationRecovery ? "无法恢复；候选字节已保留" : task.candidateBaseline ? "已保留，用于继续此任务" : "尚无"}</dd></dl></details>` : ""}
+      ${task ? `<details class="creation-details"><summary>任务详情</summary><dl><dt>原因</dt><dd>${escapeHtml(task.reason ?? "无")}</dd><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>线程连接</dt><dd>${escapeHtml(task.threadPointer ?? "尚未连接")}</dd><dt>最后完成的安全阶段</dt><dd>${creationStages[task.lastSafeStage] ?? "尚无"}</dd><dt>Agent 任务检查点</dt><dd>${task.status === "terminated" ? "任务已终结，检查点已消费" : state.creationRecovery ? "无法恢复；候选字节已保留" : task.candidateBaseline ? "已保留，用于继续此任务" : "尚无"}</dd></dl></details>` : ""}
       ${task?.reason === "CANDIDATE_READY" ? '<footer class="agent-actions"><button class="agent-action" data-show-delivery>查看候选交付</button></footer>' : ""}
     </section></main>`;
   }
@@ -769,14 +790,14 @@
   function candidatePanel() {
     const candidate = state.candidate;
     const absent = candidate?.status === "absent";
-    const disabled = state.candidateBusy || state.autosaveStopped || !state.result?.writable;
+    const disabled = state.candidateBusy || state.takeoverBusy || !!state.takeoverPending || state.candidateUncertain || acceptanceWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation || state.autosaveStopped || !state.result?.writable;
     return `<section class="candidate-panel" aria-labelledby="candidate-title"><header><h2 id="candidate-title">候选 Render Program</h2><span class="candidate-save" role="status"><span class="status-mark" data-status="${candidate?.status === "saved" ? "succeeded" : "unavailable"}" aria-hidden="true"></span>${candidateLabel()}</span></header>
       <p>${absent ? "从当前修订建立唯一可写候选。创建后尚未接受。" : "Agent、人工与受控工具共享这个候选。停止活动或切换工作区都会保留它。"}</p>
       <dl><div><dt>检查</dt><dd>检查批次与操作条件见下方；构建与播放见上方成片 Preview</dd></div><div><dt>恢复检查点</dt><dd>${candidate?.checkpoint ? "上一份完整候选已保留" : "尚无恢复检查点"}</dd></div></dl>
       ${state.candidateError || candidate?.error ? `<p class="candidate-error" role="alert">${escapeHtml((state.candidateError ?? candidate.error).message)}</p>` : ""}
-      <div class="candidate-actions">${absent ? `<button type="button" class="agent-action primary" data-candidate-action="create" ${disabled ? "disabled" : ""}>从当前修订创建候选</button>` : ""}<button type="button" class="agent-action" data-candidate-action="read" ${disabled ? "disabled" : ""}>重新检查完整性</button>${candidate && !absent ? `<button type="button" class="agent-action" data-candidate-discard ${disabled ? "disabled" : ""}>放弃候选</button>` : ""}</div>
+      ${state.candidateUncertain ? '<p role="status">正在核对操作结果；核对前不会重复提交。</p><button class="agent-action" data-candidate-action="read">核对操作结果</button>' : ''}<div class="candidate-actions">${absent ? `<button type="button" class="agent-action primary" data-candidate-action="create" ${disabled ? "disabled" : ""}>从当前修订创建候选</button>` : ""}<button type="button" class="agent-action" data-candidate-action="read" ${disabled ? "disabled" : ""}>重新检查完整性</button>${candidate && !absent ? `<button type="button" class="agent-action" data-candidate-discard ${disabled ? "disabled" : ""}>放弃候选</button>` : ""}</div>
       <details ${state.candidateDetails ? "open" : ""} data-candidate-details><summary>身份与完整性详情</summary><dl><div><dt>来源修订</dt><dd>${escapeHtml(candidate?.sourceRevision ?? "尚未读取")}</dd></div>${[ ["候选", candidate?.candidate], ["恢复检查点", candidate?.checkpoint] ].map(([label, ref]) => ref ? `<div><dt>${label}路径</dt><dd><code>${escapeHtml(ref.path)}</code></dd></div><div><dt>${label}完整树身份</dt><dd><code>${escapeHtml(ref.identity)}</code></dd></div>` : "").join("")}</dl><p>完整性检查核对目录、普通文件和完整树字节；不表示源码、类型或构建检查通过。恢复替换与损坏导出尚未接入。</p></details>
-      ${state.candidateConfirm ? `<div class="candidate-confirm" role="alertdialog" aria-modal="true" aria-labelledby="candidate-discard-title" aria-describedby="candidate-discard-help"><h3 id="candidate-discard-title">永久放弃候选？</h3><p id="candidate-discard-help">候选及恢复检查点将被删除，且不可撤销。当前修订保留。</p><div class="candidate-actions"><button type="button" class="agent-action" data-candidate-cancel>取消</button><button type="button" class="agent-action" data-candidate-action="discard">确认永久放弃</button></div></div>` : ""}</section>`;
+      ${state.candidateConfirm ? `<div class="candidate-confirm" role="alertdialog" aria-modal="true" aria-labelledby="candidate-discard-title" aria-describedby="candidate-discard-help"><h3 id="candidate-discard-title">放弃候选并终结任务？</h3><p id="candidate-discard-help">候选、候选恢复检查点和 Agent 任务检查点将一起删除，并终结旧任务。当前修订保留，操作不可撤销。</p><div class="candidate-actions"><button type="button" class="agent-action" data-candidate-cancel>取消</button><button type="button" class="agent-action" data-candidate-action="discard">放弃候选并终结任务</button></div></div>` : ""}</section>`;
   }
 
   function updateCandidate() {
@@ -793,7 +814,7 @@
   }
 
   async function candidateOperation(action, quiet = false) {
-    if (state.candidateBusy || !state.result?.writable || state.autosaveStopped || (quiet && state.candidateConfirm)) return;
+    if (state.candidateBusy || (action !== 'read' && (state.takeoverBusy || state.takeoverPending || state.candidateUncertain || acceptanceWorkbench.blocked())) || !state.result?.writable || state.autosaveStopped || (quiet && state.candidateConfirm)) return;
     const project = state.result.project;
     state.candidateBusy = true;
     state.candidateAction = action;
@@ -802,13 +823,24 @@
       const response = await callHostTool("manage_project_candidate", { projectDirectory: project.directory, projectId: project.projectId, action, ...(action === "discard" ? { baseline: state.candidate?.baseline, confirmed: true } : {}) });
       if (state.result?.project !== project) return;
       const content = response?.structuredContent;
-      if (content?.candidate) { state.candidate = content.candidate; state.candidateError = null; }
+      if (content?.candidate) {
+        state.candidate = content.candidate; state.candidateError = null;
+        if (action === 'discard' || state.candidateUncertain) {
+          state.candidateUncertain = false;
+          if (content.candidate.status === 'absent') {
+            previewWorkbench.discarded(); await deliveryWorkbench.refresh().catch(() => {});
+            const taskResult = await callHostTool('get_creation_task', { projectDirectory: project.directory, projectId: project.projectId }).catch(() => null);
+            if (taskResult?.structuredContent && 'creationTask' in taskResult.structuredContent) applyCreation(taskResult.structuredContent.creationTask);
+          } else state.candidateError = { message: '候选仍存在；请重新核对后明确放弃。' };
+        }
+      }
       else if (content?.error) {
         state.candidateError = content.error;
+        if (action === 'discard' && content.error.code === 'CANDIDATE_SAVE_FAILED') state.candidateUncertain = true;
         if (content.error.code === "PROJECT_IDENTITY_LOST") state.autosaveStopped = true;
-      } else if (!quiet) state.candidateError = { message: "候选操作未返回有效状态，请重试。" };
+      } else if (!quiet) { state.candidateUncertain ||= action === 'discard'; state.candidateError = { message: '正在核对操作结果，请点击核对操作结果。' }; }
     } catch (error) {
-      if (state.result?.project === project && !quiet) state.candidateError = { message: `候选操作失败，请重试。${error.message}` };
+      if (state.result?.project === project && !quiet) { state.candidateUncertain ||= action === 'discard'; state.candidateError = { message: state.candidateUncertain ? '正在核对操作结果，请点击核对操作结果。' : error.message }; }
     } finally {
       if (state.result?.project === project) {
         state.candidateBusy = false;
@@ -861,12 +893,13 @@
   const acceptanceWorkbench = createAcceptanceWorkbench(
     (action, args) => callHostTool('project_acceptance', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
     () => state.result?.project,
-    () => state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict,
+    () => !state.takeoverBusy && !state.takeoverPending && !state.candidateUncertain && !(state.candidateBusy && state.candidateAction !== 'read') && state.creationTask?.status !== 'running' && !state.creationTask?.operation && state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict,
     deliveryWorkbench, previewWorkbench,
     async (result) => {
       if (result?.status === 'accepted' && result.revision.valid !== false && result.revision.current !== false) {
         state.result.currentRenderProgram = { briefRevision: result.revision.briefFingerprint, briefReviewPending: result.revision.briefFingerprint !== state.brief.baselineRevision, previewPreserved: true };
       }
+      if (result && 'creationTask' in result) applyCreation(result.creationTask);
       await candidateOperation('read'); await deliveryWorkbench.refresh(); render();
     }
   );
@@ -2621,7 +2654,7 @@
     state.focusTarget = focusEmpty ? "[data-empty-title]" : null;
     if (previousProjectId !== result?.project?.projectId) {
       state.creationTask = result?.creationTask ?? null;
-      state.creationRecovery = result?.creationRecovery ?? null; state.taskOperation = null; state.takeoverOpen = false; state.takeoverDraft = ''; state.takeoverError = '';
+      state.creationRecovery = result?.creationRecovery ?? null; state.taskOperation = null; state.takeoverOpen = false; state.takeoverDraft = ''; state.takeoverError = ''; state.takeoverBusy = false; state.takeoverPending = null; state.takeoverBaseline = null; state.candidateUncertain = false;
       state.agentBusy = false;
       state.creationFocusPending = false;
       state.agentError = result?.creationError ?? null;

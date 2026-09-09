@@ -1,3 +1,4 @@
+import { endedTaskReason, cleanupEndedTask } from '../../../src/server/project-revisions';
 import { sceneSuggestion, pendingSuggestion, evaluateSuggestion, briefProposal, pendingMessage, messageDecision, authorizesBrief } from './creation-interaction';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { z } from 'zod';
 import type { CodexHostAdapter, CodexHostEvent } from './codex-host';
 import { codexStopReason } from './codex-host';
 import type { OpenedProjectVNext } from '../../../src/server/project-lifecycle';
-import { directory, regular } from '../../../src/server/project-candidate';
+import { directory, regular, syncDirectory } from '../../../src/server/project-candidate';
 import { ProjectPreview } from '../../../src/server/project-preview';
 import { ProjectChecks } from '../../../src/server/project-checks';
 import { sameIdentity } from '../../../src/shared/program-checks';
@@ -87,7 +88,7 @@ export class CreationTask {
     });
   }
   get ownsCandidate() { return !this.#closed && !this.#transferred && this.#state?.status === 'running' && !this.#operation && !this.#recovery; }
-  get blocksCandidateWrites() { return this.ownsCandidate || this.#operation !== null; }
+  get blocksCandidateWrites() { return this.ownsCandidate || this.#busy || this.#operation !== null; }
   async status() {
     if (!this.#closed && !this.#operation && !this.#recovery && this.#state?.status === 'waiting' && this.#state.reason === 'CANDIDATE_READY') {
       const latest = await this.delivery.status(this.opened);
@@ -102,6 +103,11 @@ export class CreationTask {
   get value() { return this.#state ? { ...structuredClone(this.#state), briefChange: this.#briefChange, discussion: this.#discussion, operation: this.#operation, replacementThread: this.#replacementThread, transferred: this.#transferred, connectionNotice: this.#connectionNotice } : null; }
   async load(transferred = false) {
     try {
+      const ended = await endedTaskReason(this.opened.inspection.projectDirectory);
+      if (ended) {
+        await this.opened.programTransaction(() => cleanupEndedTask(this.opened.inspection.projectDirectory)).catch(() => undefined);
+        return;
+      }
       const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 20_000_000)).toString()));
       if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error('任务项目身份不匹配');
       this.#state = { ...checkpoint, externalBaseline: null, status: checkpoint.status === 'terminated' ? 'terminated' : 'stopped', reason: checkpoint.status === 'terminated' ? checkpoint.reason : 'APP_RESTARTED', waitingReason: checkpoint.waitingReason ?? (checkpoint.status === 'waiting' ? checkpoint.reason : null), stage: 'read', divergence: '', preview: null, deliveryId: null };
@@ -150,7 +156,7 @@ export class CreationTask {
   }
   #path() { return join(this.opened.inspection.projectDirectory, '.narracut', 'agent-task.json'); }
   async #save() {
-    if (!this.#state) return;
+    if (!this.#state || this.#state.status === 'terminated') return;
     const { externalBaseline: _externalBaseline, stage: _stage, divergence: _divergence, preview: _preview, deliveryId: _delivery, ...checkpoint } = this.#state;
     const bytes = JSON.stringify(checkpointSchema.parse(checkpoint));
     await this.opened.programTransaction(() => this.#writeCheckpoint(bytes));
@@ -164,9 +170,8 @@ export class CreationTask {
         if (identity !== await directory(parent)) throw new Error('任务目录已替换');
         await validate?.();
         await rename(temporary, this.#path());
-        const parentHandle = await open(parent, 'r');
-        try { await parentHandle.sync(); } finally { await parentHandle.close(); }
-      } finally { await rm(temporary, { force: true }); }
+        await syncDirectory(parent).catch(() => undefined);
+      } finally { await rm(temporary, { force: true }).catch(() => undefined); }
   }
   async start(instruction: string, parentOrigin = 'null') {
     if (this.#closed || this.#transferred) throw new Error('任务已转移到另一线程');
@@ -193,8 +198,10 @@ export class CreationTask {
     } finally { this.#busy = false; }
   }
   /** 接管只替换单一任务检查点；候选文件字节保持不变。 */
-  async takeover(instruction: string, baseline: string, parentOrigin = 'null') {
+  async takeover(instruction: string, baseline: string, parentOrigin = 'null', requestId?: string) {
     if (this.#closed || this.#transferred) throw new Error('任务已转移到另一线程');
+    if (requestId && this.#state?.taskId === requestId && this.#state.instruction === instruction) return this.value;
+    if (requestId) z.string().uuid().parse(requestId);
     if (this.#busy || this.#operation || this.ownsCandidate || !instruction?.trim() || instruction.length > 4000) throw new Error('请停止活动任务并填写 1–4000 字的新目标。');
     this.#busy = true;
     const previous = this.#state;
@@ -205,7 +212,7 @@ export class CreationTask {
         if (candidate.baseline !== baseline) throw new Error('候选再次变化，请核对候选对象后再次明确提交。');
         if (candidate.status === 'external-change') candidate = await manager({ action: 'adopt', baseline, confirmed: true });
         if (candidate.status !== 'saved') throw new Error(candidate.error?.message ?? '请先在候选区域处理完整性问题。');
-        const checkpoint: CreationCheckpoint = { taskId: randomUUID(), projectId: this.opened.inspection.manifest.projectId, instruction,
+        const checkpoint: CreationCheckpoint = { taskId: requestId ?? randomUUID(), projectId: this.opened.inspection.manifest.projectId, instruction,
           status: 'running', reason: null, threadPointer: null, lastSafeStage: null, candidateBaseline: candidate.baseline,
           inputIdentity: null, pending: null, waitingReason: null, suggestions: [], briefProposal: null, pendingMessage: null, toolApproval: null };
         await this.#writeCheckpoint(JSON.stringify(checkpoint), async () => {
@@ -214,6 +221,7 @@ export class CreationTask {
         if (previous) { previous.status = 'terminated'; previous.reason = 'TASK_SUPERSEDED'; }
         this.#state = { ...checkpoint, externalBaseline: null, stage: 'read', divergence: '', preview: null, deliveryId: null };
       });
+      this.#driver = null; this.checks.invalidate(); this.delivery.invalidate();
       this.#recovery = null; this.#parentOrigin = parentOrigin; this.#messageMode = null; this.#briefChange = null; this.#discussion = ''; this.#replacementThread = false;
       this.#pendingRun = this.#run('用户以新目标明确接管现有候选。重新读取并检查最新内容。').catch(error => this.#stop(error));
       return this.value;
@@ -712,7 +720,7 @@ export class CreationTask {
     this.#driver = null; this.#state!.status = 'waiting'; this.#state!.reason = reason; this.#state!.waitingReason = reason; this.#state!.pending = pending; await this.#save();
   }
   async #stop(error: unknown) {
-    if (!this.#state || this.#closed || this.#operation || this.#state.status === 'stopped') return;
+    if (!this.#state || this.#closed || this.#operation || ['stopped', 'terminated'].includes(this.#state.status)) return;
     if (this.ownsCandidate) {
       try {
         const snapshot = await this.#snapshot();
@@ -734,13 +742,14 @@ export class CreationTask {
     await this.#save().catch(() => undefined);
   }
   async terminate(reason: 'CANDIDATE_ACCEPTED' | 'CANDIDATE_ABANDONED') {
-    if (!this.#state) {
-      if (this.#recovery) await this.opened.programTransaction(() => rm(this.#path(), { force: true }));
-      this.#recovery = null;
-      return;
-    }
-    this.#driver = null; this.#state.status = 'terminated'; this.#state.reason = reason; this.#state.pending = null; await this.#save();
+    this.#driver = null;
     this.#recovery = null;
+    if (this.#state) {
+      this.#state.status = 'terminated'; this.#state.reason = reason; this.#state.pending = null;
+      this.#state.toolApproval = null; this.#state.pendingMessage = null; this.#state.suggestions = [];
+    }
+    // 终结事实已由候选/修订指针提交；不得重新保存或复活旧任务检查点。
+    await this.opened.programTransaction(() => cleanupEndedTask(this.opened.inspection.projectDirectory));
   }
   async close() {
     clearInterval(this.#timer); this.#closed = true; this.#unsubscribe(); const driver = this.#driver; this.#driver = null;

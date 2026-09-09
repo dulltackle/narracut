@@ -161,6 +161,18 @@ test('MCP 零 Scene 可以交付，明确没有可播放 Scene；没有图像也
     expect(delivery.zeroScenes).toBe(true);
     expect(delivery.frames).toEqual([]);
     expect(delivery.report.warnings).toContain('没有可播放 Scene；请在表格工作区添加 Scene。');
+    const displayed = (await app.call('project_delivery', { action: 'status' })).structuredContent;
+    await app.call('project_delivery_display', { deliveryId: delivery.id, reportRevision: delivery.reportRevision, batchId: displayed.checks.batches.at(-1).id, warningsKey: displayed.warningsKey });
+    const reviewed = await app.call('project_acceptance', { action: 'review' });
+    expect(reviewed.isError, JSON.stringify(reviewed)).not.toBe(true);
+    const review = reviewed.structuredContent.confirmation;
+    const accepted = await app.call('project_acceptance', { action: 'accept', key: review.key, requestId: review.requestId, confirmed: true });
+    expect(accepted.structuredContent.status).toBe('accepted');
+    expect((await app.call('get_creation_task')).structuredContent.creationTask).toMatchObject({ taskId: task.taskId, status: 'terminated', reason: 'CANDIDATE_ACCEPTED' });
+    await expect(readFile(join(app.projectDirectory, '.narracut/agent-task.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    const replay = await app.call('project_acceptance', { action: 'result', requestId: review.requestId });
+    expect(replay.structuredContent.revision.revisionId).toBe(accepted.structuredContent.revision.revisionId);
+
   } finally { await app.close(); }
 }, 90000);
 
@@ -827,5 +839,61 @@ test('停止任务的消息分类遇到跨工作台接管时保留停止与原�
     const result = await other({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'open_project', arguments: { projectDirectory: app.projectDirectory } } }) as any;
     expect(result.structuredContent.creationTask).toMatchObject({ status: 'stopped', reason: 'USER_STOPPED', pendingMessage: { original: '现在进展如何？' } });
     expect(host.turns).toHaveLength(0);
+  } finally { await other.dispose(); await app.close(); }
+});
+
+test('明确放弃原子消费候选与两种检查点，旧任务终结且迟到写入无效', async () => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '旧目标' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await app.call('respond_creation_task', { action: 'stop' });
+    const candidate = (await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    const current = await readFile(join(app.projectDirectory, '.narracut/current.json'));
+    expect((await app.call('manage_project_candidate', { action: 'discard', baseline: candidate.baseline, confirmed: true })).structuredContent.candidate.status).toBe('absent');
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('terminated');
+    await expect(readFile(join(app.projectDirectory, '.narracut/agent-task.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(join(app.projectDirectory, '.narracut/current.json'))).toEqual(current);
+    app.host.complete({ action: 'apply', changes: [{ path: 'resources/late.txt', content: '旧驱动' }] }, 0);
+    expect((await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate.status).toBe('absent');
+  } finally { await app.close(); }
+});
+
+test('正常任务新目标接管保持候选字节，新 ID 幂等且启动失败只停止新任务', async () => {
+  const app = await setup();
+  try {
+    const old = (await app.call('start_creation_task', { instruction: '旧目标' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await app.call('respond_creation_task', { action: 'stop' });
+    const candidate = (await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    const bytes = await readFile(join(app.projectDirectory, candidate.candidate.path, 'program.json'));
+    app.host.createThread = async () => { throw new Error('新任务宿主暂不可用'); };
+    const id = '70000000-0000-4000-8000-000000000087';
+    const input = { action: 'takeover', baseline: candidate.baseline, instruction: '  新目标\n原文  ', id };
+    const next = (await app.call('respond_creation_task', input)).structuredContent.creationTask;
+    expect(next.taskId).toBe(id); expect(next.taskId).not.toBe(old.taskId);
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('stopped');
+    expect((await app.call('respond_creation_task', input)).structuredContent.creationTask.taskId).toBe(id);
+    expect(await readFile(join(app.projectDirectory, candidate.candidate.path, 'program.json'))).toEqual(bytes);
+    app.host.complete({ action: 'apply', changes: [{ path: 'resources/late.txt', content: '不能继承旧写权' }] }, 0);
+    const final = (await app.call('get_creation_task')).structuredContent.creationTask;
+    expect(final).toMatchObject({ taskId: id, instruction: input.instruction, status: 'stopped', suggestions: [], toolApproval: null, pendingMessage: null });
+    expect((await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate.baseline).toBe(candidate.baseline);
+  } finally { await app.close(); }
+});
+
+test('终结后转移工作台并重开不会重新生成旧任务检查点', async () => {
+  const app = await setup();
+  const other = createNarracutRequestHandler({ codexHost: new Host() });
+  try {
+    await app.call('start_creation_task', { instruction: '完成后终结' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await app.call('respond_creation_task', { action: 'stop' });
+    const candidate = (await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    await app.call('manage_project_candidate', { action: 'discard', baseline: candidate.baseline, confirmed: true });
+    const opened: any = await other({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'open_project', arguments: { projectDirectory: app.projectDirectory } } });
+    expect(opened.isError).not.toBe(true);
+    expect(opened.structuredContent.creationTask).toBeNull();
+    await expect(readFile(join(app.projectDirectory, '.narracut/agent-task.json'))).rejects.toMatchObject({ code: 'ENOENT' });
   } finally { await other.dispose(); await app.close(); }
 });

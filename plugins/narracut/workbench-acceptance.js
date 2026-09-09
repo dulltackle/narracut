@@ -28,13 +28,13 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
   }
   function renderConfirmation(value) {
     confirmation = value;
-    region.querySelector('[data-accept-summary]').innerHTML = `<h3>接受完整候选</h3><p>${esc(value.summary)}</p><dl><div><dt>候选身份</dt><dd><code>${esc(value.record.identity.program)}</code></dd></div><div><dt>输入新鲜度</dt><dd>Brief、Scene、媒体和执行环境均对应最新状态</dd></div><div><dt>检查结论</dt><dd>${value.record.zeroScenes ? 'Manifest 与构建检查通过；零 Scene 不需运行期代表帧' : '必要检查与完整代表帧证据已通过'}</dd></div></dl><h4>全部非阻断警告</h4>${value.record.warnings.length ? `<ul>${value.record.warnings.map(text=>`<li>${esc(text)}</li>`).join('')}</ul>` : '<p>当前没有非阻断警告。</p>'}<p>接受会创建不可变修订、更新当前修订并消费整个候选及恢复检查点；不代表已完成最终 Render。</p>${value.willPrune ? '<p class="accept-warning">历史已满，最旧修订将自动移出最近 20 个修订。</p>' : ''}`;
+    region.querySelector('[data-accept-summary]').innerHTML = `<h3>接受完整候选</h3><p>${esc(value.summary)}</p><dl><div><dt>候选身份</dt><dd><code>${esc(value.record.identity.program)}</code></dd></div><div><dt>输入新鲜度</dt><dd>Brief、Scene、媒体和执行环境均对应最新状态</dd></div><div><dt>检查结论</dt><dd>${value.record.zeroScenes ? 'Manifest 与构建检查通过；零 Scene 不需运行期代表帧' : '必要检查与完整代表帧证据已通过'}</dd></div></dl><h4>全部非阻断警告</h4>${value.record.warnings.length ? `<ul>${value.record.warnings.map(text=>`<li>${esc(text)}</li>`).join('')}</ul>` : '<p>当前没有非阻断警告。</p>'}<p>接受后终结本次任务，删除 Agent 任务检查点；创建不可变修订、更新当前修订并消费整个候选及候选恢复检查点；不代表已完成最终 Render。</p>${value.willPrune ? '<p class="accept-warning">历史已满，最旧修订将自动移出最近 20 个修订。</p>' : ''}`;
     update(); region.querySelector('[data-accept-cancel]').focus({preventScroll:true});
   }
   async function success(value) {
-    unresolved = null; confirmation = null; cleanupPending = value.cleanupPending;
+    unresolved = null; confirmation = null; cleanupPending = value.cleanupPending || value.taskCleanupPending;
     if (value.revision.valid !== false && value.revision.current !== false) preview.accepted(value.revision.acceptance?.instanceId, value.revision.revisionId);
-    notice(`${cleanupPending ? '已接受，清理待重试' : '已接受'} · ${value.revision.revisionId.slice(0,8)} · ${value.revision.summary}${value.revision.valid === false ? '；请查看历史中的损坏原因，接受事实不会撤销。' : ''}`);
+    notice(`${value.taskCleanupPending ? '候选已接受，任务收尾待完成' : cleanupPending ? '已接受，清理待重试' : '已接受'} · ${value.revision.revisionId.slice(0,8)} · ${value.revision.summary}${value.revision.valid === false ? '；请查看历史中的损坏原因，接受事实不会撤销。' : ''}`);
     await changed(value).catch(()=>notice('已接受；候选状态刷新失败，请重新检查完整性。')); await refreshHistory().catch(()=>{});
   }
   async function action(kind, args) {
@@ -68,7 +68,7 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
   }
   async function refreshHistory() {
     const value = await request('history'); if (!value.revisions) return; history = value;
-    if (value.cleanupPending) { cleanupPending = true; if (!message) message = '已接受，清理待重试'; }
+    if (value.cleanupPending) { cleanupPending = true; if (!message) message = value.taskCleanupPending ? '候选已接受，任务收尾待完成' : '已接受，清理待重试'; }
     const list = region.querySelector('[data-history-list]');
     const signature = JSON.stringify(value); if (list.dataset.signature === signature) { update(); return; }
     list.dataset.signature = signature;
@@ -87,7 +87,7 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
   }
   setInterval(()=>{if(visible()){update();void verifyConfirmation();}},2000);
   document.addEventListener('input',()=>{if(visible())update();});
-  return { mount(node) {
+  return { blocked: () => busy || !!unresolved, mount(node) {
     const project = getProject(), key = project && `${project.projectId}:${project.directory}`;
     if (key !== projectKey) { projectKey = key; confirmation = unresolved = undefined; message = ''; history = {}; busy = cleanupPending = false; }
     if (region === node) { update(); return; } region = node; if (!region) return;
