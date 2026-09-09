@@ -78,7 +78,8 @@ test('MCP 拒绝旧输入结果，保存用户原文且不覆盖候选或当前�
     const current = await readFile(join(app.projectDirectory, '.narracut/current.json'), 'utf8');
     await writeFile(join(app.projectDirectory, 'video.md'), '# 已变更的目标\n');
     app.host.complete({ action: 'apply', changes: [{ path: 'resources/stale.txt', content: '过期' }] });
-    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('stopped');
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('running');
+    await expect.poll(() => app.host.turns.length).toBe(2);
     expect((await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate.baseline).toBe(before.baseline);
     expect(await readFile(join(app.projectDirectory, '.narracut/current.json'), 'utf8')).toBe(current);
   } finally { await app.close(); }
@@ -101,6 +102,16 @@ test('MCP 原子修改小批候选并运行检查；外部候选不能静默接�
     await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
     expect((await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED');
     expect(await readFile(join(app.projectDirectory, after.candidate.path, 'resources/goal.txt'), 'utf8')).toBe('外部修改必须保留');
+    const external = (await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    await writeFile(join(app.projectDirectory, external.candidate.path, 'resources/goal.txt'), '再次外部修改');
+    const staleResume = await app.call('continue_creation_task', { baseline: external.baseline });
+    expect(staleResume.structuredContent.creationTask.status).toBe('waiting');
+    const latest = (await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    const resumed = await app.call('continue_creation_task', { baseline: latest.baseline });
+    expect(resumed.structuredContent.creationTask.status).toBe('running');
+    expect(resumed.structuredContent.creationTask.taskId).toBe(staleResume.structuredContent.creationTask.taskId);
+    expect(await readFile(join(app.projectDirectory, resumed.structuredContent.candidate.candidate.path, 'resources/goal.txt'), 'utf8')).toBe('再次外部修改');
+    await expect.poll(() => app.host.turns.length).toBe(3);
     const another = await app.call('start_creation_task', { instruction: '换目标' });
     expect(another.isError).toBe(true);
   } finally { await app.close(); }
@@ -152,3 +163,106 @@ test('MCP 零 Scene 可以交付，明确没有可播放 Scene；没有图像也
     expect(delivery.report.warnings).toContain('没有可播放 Scene；请在表格工作区添加 Scene。');
   } finally { await app.close(); }
 }, 90000);
+
+test('同一任务自动读取连续 Brief 更新，旧 Turn 迟到与普通等待均不能取得写权', async () => {
+  const app = await setup();
+  try {
+    const task = (await app.call('start_creation_task', { instruction: '跟随最新目标' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await writeFile(join(app.projectDirectory, 'video.md'), '# 第一版\n');
+    await expect.poll(() => app.host.turns.length, { timeout: 10000 }).toBe(2);
+    await writeFile(join(app.projectDirectory, 'video.md'), '# 第二版\n');
+    await expect.poll(() => app.host.turns.length, { timeout: 10000 }).toBe(3);
+    app.host.complete({ action: 'apply', changes: [{ path: 'resources/late.txt', content: '迟到' }] }, 0);
+    app.host.complete({});
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.taskId).toBe(task.taskId);
+    await writeFile(join(app.projectDirectory, 'video.md'), '# 普通等待不恢复\n');
+    await new Promise(resolve => setTimeout(resolve, 800));
+    expect(app.host.turns).toHaveLength(3);
+    const candidate = (await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    await expect(readFile(join(app.projectDirectory, candidate.candidate.path, 'resources/late.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally { await app.close(); }
+}, 30000);
+
+test('等待 Scene 修改后自动继续同一任务', async () => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '需要一句旁白' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({ suggestions: [{ sceneId: '新增', observation: '没有旁白', action: '新增', content: '你好', reason: '需要开场' }] });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('SCENE_CHANGE_REQUIRED');
+    await writeFile(join(app.projectDirectory, 'project.json'), JSON.stringify({ assets: [], scenes: [{ id: '30000000-0000-4000-8000-000000000001', narration: { text: '你好' }, assetIds: [] }] }));
+    await expect.poll(() => app.host.turns.length, { timeout: 10000 }).toBe(2);
+    expect(app.host.turns[1]!.prompt).toContain('你好');
+  } finally { await app.close(); }
+}, 20000);
+
+for (const stage of ['check', 'preview', 'frames', 'deliver'] as const) {
+  test(`在 ${stage} 阶段变化使旧证据失效并继续同一任务`, async () => {
+    const { ProjectChecks } = await import('../src/server/project-checks');
+    const { ProjectPreview } = await import('../src/server/project-preview');
+    const { ProjectDelivery } = await import('../src/server/project-delivery');
+    const app = await setup(0, true);
+    const spies: Array<{ mockRestore(): void }> = [];
+    try {
+      const initial = (await app.call('start_creation_task', { instruction: '检查最新空项目', parentOrigin: 'http://127.0.0.1:45678' })).structuredContent.creationTask;
+      await expect.poll(() => app.host.turns.length).toBe(1);
+      app.host.complete({ action: 'dependencies' });
+      await expect.poll(() => app.host.turns.length, { timeout: 60000 }).toBe(2);
+      const change = () => writeFile(join(app.projectDirectory, 'video.md'), `# ${stage} 阶段的新目标\n`);
+      if (stage === 'check') {
+        const original = ProjectChecks.prototype.start;
+        spies.push(vi.spyOn(ProjectChecks.prototype, 'start').mockImplementationOnce(async function (this: InstanceType<typeof ProjectChecks>, opened) { const result = await original.call(this, opened); await change(); return result; }));
+      } else if (stage === 'preview') {
+        const original = ProjectPreview.prototype.build;
+        spies.push(vi.spyOn(ProjectPreview.prototype, 'build').mockImplementationOnce(async function (this: InstanceType<typeof ProjectPreview>, ...args) { const result = await original.apply(this, args); await change(); return result; }));
+      } else {
+        const original = ProjectDelivery.prototype.operate;
+        let changed = false;
+        spies.push(vi.spyOn(ProjectDelivery.prototype, 'operate').mockImplementation(async function (this: InstanceType<typeof ProjectDelivery>, opened, args) {
+          if (!changed && args.action === (stage === 'frames' ? 'prepare' : 'describe')) { changed = true; await change(); }
+          return original.call(this, opened, args);
+        }));
+      }
+      app.host.complete({ action: 'deliver' });
+      await expect.poll(() => app.host.turns.length, { timeout: 60000 }).toBe(3);
+      const task = (await app.call('get_creation_task')).structuredContent.creationTask;
+      expect(task).toMatchObject({ taskId: initial.taskId, status: 'running', preview: null, deliveryId: null });
+      // 输入回退也不能让已经过期的检查和交付证据重新有效。
+      await writeFile(join(app.projectDirectory, 'video.md'), '');
+      // 交付公开接口同时返回检查批次，确认旧门禁不可用。
+      const delivery = (await app.call('project_delivery', { action: 'status' })).structuredContent;
+      expect(delivery.checks.batches.at(-1).stale).toBe(true);
+      expect(delivery.delivery === null || delivery.delivery.stale).toBe(true);
+    } finally { spies.forEach(spy => spy.mockRestore()); await app.close(); }
+  }, 90000);
+}
+
+test('Asset 原位替换与 Speech 成功持久化均由同一任务读取最新输入', async () => {
+  const { createHash } = await import('node:crypto');
+  const app = await setup();
+  const id = '30000000-0000-4000-8000-000000000001', assetId = '20000000-0000-4000-8000-000000000001';
+  try {
+    const project = { assets: [{ id: assetId, path: 'assets/reference.txt' }], scenes: [{ id, narration: { text: '你好' }, assetIds: [assetId] }] };
+    await writeFile(join(app.projectDirectory, 'assets/reference.txt'), '第一份素材');
+    await writeFile(join(app.projectDirectory, 'project.json'), JSON.stringify(project));
+    const initial = (await app.call('start_creation_task', { instruction: '跟随媒体内容' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await writeFile(join(app.projectDirectory, 'assets/reference.txt'), '替换后的素材');
+    await expect.poll(() => app.host.turns.length, { timeout: 10000 }).toBe(2);
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const { writeProjectTtsConfig, probeSpeechDurationMs } = await import('../src/server/project-speech-vnext');
+    const configured = await writeProjectTtsConfig(app.projectDirectory, { provider: 'tokendance', model: 'minimax-speech-2.8-turbo', voice: 'Chinese (Mandarin)_News_Anchor', speed: 1, volume: 1, pitch: 0 });
+    const speechPath = `speech/${id}.mp3`, absolute = join(app.projectDirectory, speechPath);
+    await promisify(execFile)('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=32000:cl=mono', '-t', '1', '-c:a', 'libmp3lame', absolute]);
+    const bytes = await readFile(absolute);
+    const hash = (value: string | Buffer) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+    const speech = { path: speechPath, durationMs: await probeSpeechDurationMs(absolute), sourceTextHash: hash('你好'), ttsProfileId: configured.profileId, audioContentHash: hash(bytes) };
+    await writeFile(join(app.projectDirectory, 'project.json'), JSON.stringify({ ...project, scenes: [{ ...project.scenes[0], speech }] }));
+    await expect.poll(() => app.host.turns.length, { timeout: 10000 }).toBe(3);
+    expect(app.host.turns[2]!.prompt).toContain('"source":"speech"');
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.taskId).toBe(initial.taskId);
+  } finally { await app.close(); }
+}, 30000);

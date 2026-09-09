@@ -55,6 +55,7 @@
     dragged: null,
     operationMessage: null,
     creationTask: null,
+    externalBusy: false,
     composerRevision: 0,
     creationFocusPending: false,
     agentBusy: false,
@@ -526,6 +527,7 @@
     return `<main class="stage"><section class="contact-frame" data-editable="true" aria-label="Scene 可编辑接触印样">
       <div class="film-edge"><span>NCUT · ${escapeHtml(result.project.projectId.slice(0, 13))}</span><span>EDITING BENCH</span><span>${count(scenes.length)} SCENES</span></div>
       ${toolbar()}
+      <div class="task-notice" data-task-notice>${taskNotice()}</div>
       ${scenes.length === 0 ? empty : `<div class="contact-sheet"><div class="scene-header"><span>Scene</span><span>Narration</span><span>Asset</span><span>Speech</span></div><div class="scene-scroll" tabindex="0" aria-label="Scene 列表"><div class="scene-spacer" style="height:${scenes.length * ROW_HEIGHT}px"><div class="scene-window" style="transform:translateY(${start * ROW_HEIGHT}px)">${rows}</div></div></div></div>`}
       <div class="film-edge"><span>SCENE WRITE BOUNDARY</span><span>${count(scenes.length)} SCENES</span><span>NCUT 01</span></div>
       ${state.toast ? `<div class="undo-toast" role="status"><span>${escapeHtml(state.toast)}</span><button type="button" data-undo-delete>撤销删除</button></div>` : ""}
@@ -537,20 +539,26 @@
     const task = state.creationTask;
     const briefPending = result.currentRenderProgram?.briefReviewPending;
     const label = state.agentBusy ? "正在创建创作任务" : !task ? "尚无任务" : { running: "运行中", waiting: "等待用户", stopped: "已停止", terminated: "已终结" }[task.status];
-    const reason = { CANDIDATE_READY: "候选已就绪", CANDIDATE_ACCEPTED: "候选已接受", CANDIDATE_ABANDONED: "候选已放弃", TASK_SUPERSEDED: "已被新目标取代", APP_RESTARTED: "应用已重启" }[task?.reason];
+    const reason = { EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED: "候选已被外部修改", CANDIDATE_READY: "候选已就绪", CANDIDATE_ACCEPTED: "候选已接受", CANDIDATE_ABANDONED: "候选已放弃", TASK_SUPERSEDED: "已被新目标取代", APP_RESTARTED: "应用已重启" }[task?.reason];
     return `<main class="stage"><section class="agent-panel creation-panel" aria-labelledby="creation-task-title">
       <header class="agent-head"><div><h1 id="creation-task-title" tabindex="-1">当前创作指令</h1>${task ? `<p class="creation-instruction">${escapeHtml(task.instruction.slice(0, 200))}${task.instruction.length > 200 ? "…" : ""}</p>${task.instruction.length > 200 ? `<details><summary>展开完整原文</summary><p class="creation-instruction">${escapeHtml(task.instruction)}</p></details>` : ""}` : '<p>在下方 Composer 描述这次希望如何调整成片表现。</p>'}</div></header>
-      <div class="creation-state"><span class="status-mark" data-status="${task?.status === "running" ? "running" : "idle"}" aria-hidden="true"></span><h2>${label}${reason ? ` · ${reason}` : ""}</h2>${task?.status === "running" ? `<p>${creationStages[task.stage] ?? "读取项目"}</p>` : ""}</div>
+      <div class="creation-state"><span class="status-mark" data-status="${task?.status === "running" ? "running" : "idle"}" aria-hidden="true"></span><h2>${label}${task?.status === "running" && task.pending ? " · 正在跟进最新项目内容" : ""}${reason ? ` · ${reason}` : ""}</h2>${task?.status === "running" ? `<p>${creationStages[task.stage] ?? "读取项目"}</p>` : ""}</div>
       ${state.agentError ? `<p class="agent-diagnostic" role="alert">${escapeHtml(state.agentError)} · 草稿已保留，可重试。</p>` : ""}
-      ${task?.pending ? `<div class="agent-diagnostic"><h3>待处理事项</h3><p>${escapeHtml(task.pending)}</p>${task.reason === "SCENE_CHANGE_REQUIRED" ? '<button class="agent-action" data-scene-suggestion>前往表格工作区修改 Scene</button>' : ""}</div>` : ""}
+      ${task?.pending ? `<div class="agent-diagnostic"><h3>待处理事项</h3><p>${escapeHtml(task.pending)}</p>${task.reason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" ? `<button class="agent-action" data-continue-external ${state.externalBusy ? "disabled" : ""}>${state.externalBusy ? "正在核对候选" : "基于外部候选继续"}</button>` : ""}${task.reason === "SCENE_CHANGE_REQUIRED" ? '<button class="agent-action" data-scene-suggestion>前往表格工作区修改 Scene</button>' : ""}</div>` : ""}
       ${briefPending !== false ? `<div class="agent-diagnostic" data-brief-review="${briefPending === true}"><strong>${briefPending ? "Brief 待复核" : "Brief 关系未检查"}</strong><p>${briefPending ? "当前 Render Program 与既有 Preview 保持不变" : "打开可写项目后校验当前 Render Program 的 Brief 指纹"}</p></div>` : ""}
       ${task?.divergence ? `<div class="agent-diagnostic"><h3>与 Video Brief 的分歧</h3><p>${escapeHtml(task.divergence)}</p><p>本次成片表现遵循上方用户原文；Scene、Speech、时间与安全硬约束保持有效。</p></div>` : ""}
-      ${task ? `<details class="creation-details"><summary>任务详情</summary><dl><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>线程连接</dt><dd>${escapeHtml(task.threadPointer ?? "尚未连接")}</dd><dt>最后完成的安全阶段</dt><dd>${creationStages[task.lastSafeStage] ?? "尚无"}</dd><dt>已保存候选</dt><dd>${task.candidateBaseline ? "候选与原子检查点已保留" : "尚无"}</dd></dl></details>` : ""}
+      ${task ? `<details class="creation-details"><summary>任务详情</summary><dl><dt>原因</dt><dd>${escapeHtml(task.reason ?? "无")}</dd><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>线程连接</dt><dd>${escapeHtml(task.threadPointer ?? "尚未连接")}</dd><dt>最后完成的安全阶段</dt><dd>${creationStages[task.lastSafeStage] ?? "尚无"}</dd><dt>已保存候选</dt><dd>${task.candidateBaseline ? "候选与原子检查点已保留" : "尚无"}</dd></dl></details>` : ""}
       ${task?.reason === "CANDIDATE_READY" ? '<footer class="agent-actions"><button class="agent-action" data-show-delivery>查看候选交付</button></footer>' : ""}
     </section></main>`;
   }
 
+  function taskNotice() {
+    const task = state.creationTask;
+    return task ? `<span>${task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : escapeHtml(task.pending ?? '创作任务已保留')}</span><button class="agent-action" data-view-task>查看任务</button>` : '';
+  }
   function updateTaskRegion() {
+    const notice = document.querySelector('[data-task-notice]');
+    if (notice) updateRegion(notice, taskNotice());
     const region = document.querySelector('[data-agent-content]');
     if (!region) return;
     const focused = region.contains(document.activeElement) ? document.activeElement : null;
@@ -2151,6 +2159,8 @@
     document.querySelectorAll("[data-workspace]").forEach((tab) => tab.addEventListener("click", () => {
       if (state.result?.status === "valid") switchWorkspace(tab.dataset.workspace);
     }, { signal: bindings.signal }));
+    document.querySelectorAll('[data-view-task]').forEach(button => button.addEventListener('click', () => switchWorkspace('agent'), { signal: bindings.signal }));
+    document.querySelector('[data-continue-external]')?.addEventListener('click', continueExternal, { signal: bindings.signal });
     document.querySelectorAll("[data-scene-suggestion]").forEach(button => button.addEventListener("click", () => switchWorkspace("table"), { signal: bindings.signal }));
     document.querySelectorAll("[data-workspace]").forEach((tab) => tab.addEventListener("keydown", (event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -2325,14 +2335,27 @@
   function applyCreation(task) {
     const changed = JSON.stringify(state.creationTask) !== JSON.stringify(task) || state.agentError !== null;
     state.agentError = null;
+    const previousStatus = state.creationTask?.status, previousReason = state.creationTask?.reason;
     state.creationTask = task;
     if (!changed) { schedulePoll(); return; }
     updateTaskRegion();
     if (task?.preview) previewWorkbench.receive(task.preview);
     if (task?.deliveryId) void deliveryWorkbench.refresh();
     bindings.abort(); bindings = new AbortController(); bind(); updateComposer();
-    document.getElementById('agent-status-announcer').textContent = task ? `${{running:'运行中',waiting:'等待用户',stopped:'已停止',terminated:'已终结'}[task.status]}。${task.pending ?? creationStages[task.stage]}` : '尚无任务';
+    if (previousStatus !== task?.status || previousReason !== task?.reason) document.getElementById('agent-status-announcer').textContent = task ? `${{running:'运行中',waiting:'等待用户',stopped:'已停止',terminated:'已终结'}[task.status]}。${task.pending ?? creationStages[task.stage]}` : '尚无任务';
     schedulePoll();
+  }
+  async function continueExternal() {
+    if (state.externalBusy) return;
+    state.externalBusy = true; updateTaskRegion();
+    try {
+      const project = state.result.project;
+      const response = await callHostTool('continue_creation_task', { projectDirectory: project.directory, projectId: project.projectId, baseline: state.creationTask?.externalBaseline });
+      if (response.isError) throw new Error(response.structuredContent?.error?.message ?? '继续失败，请重新检查候选');
+      if (response.structuredContent?.candidate) state.candidate = response.structuredContent.candidate;
+      applyCreation(response.structuredContent.creationTask);
+    } catch (error) { state.agentError = error.message; }
+    finally { state.externalBusy = false; updateTaskRegion(); bindings.abort(); bindings = new AbortController(); bind(); }
   }
   async function startCreation() {
     if (composing || state.agentBusy || !state.composerDraft.trim()) return;

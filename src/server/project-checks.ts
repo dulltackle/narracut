@@ -102,5 +102,11 @@ export class ProjectChecks {
     // 接受仍需用户明确整体确认；最终 Render 独立判定。
     return { batches, gates: gateOperations(batches.at(-1) ?? null, latest, this.evidence?.(latest, batches.at(-1)), undefined, { preview: true, delivery: true, accept: true }) };
   }
+  invalidate() {
+    for (const batch of this.#batches) {
+      batch.invalidate({ ...batch.view().identity, project: null });
+      batch.cancel();
+    }
+  }
   clear() { this.#generation++; for (const batch of this.#batches) batch.cancel(); this.#batches = []; }
 }

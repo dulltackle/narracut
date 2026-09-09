@@ -114,6 +114,7 @@ export class ProjectPreview {
     entry.descriptor.revisionId = revision;
     entry.revision = revision;
   }
+  invalidate() { for (const entry of this.#active.values()) entry.stale = true; }
   latestCandidate() { return [...this.#active.values()].filter(entry => entry.descriptor.target === 'candidate').at(-1)?.descriptor.instanceId; }
   release(instanceId: string) { const entry = this.#active.get(instanceId); if (entry) this.source.release(entry.descriptor.url); this.#active.delete(instanceId); }
   clear() { for (const entry of this.#active.values()) this.source.release(entry.descriptor.url); this.#active.clear(); this.#bundles.clear(); }

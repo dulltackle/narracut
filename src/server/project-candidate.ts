@@ -10,7 +10,7 @@ export class CandidateError extends Error {
   constructor(readonly code: string, message: string) { super(message); }
 }
 export type CandidateRequest = DependencyUpdate & {
-  action: 'read' | 'create' | 'apply' | 'discard' | 'dependencies';
+  action: 'read' | 'create' | 'apply' | 'discard' | 'dependencies' | 'adopt';
   baseline?: string;
   sourceRevision?: string;
   confirmed?: boolean;
@@ -217,7 +217,8 @@ export async function createCandidateManager(project: string, assertWritable: ()
       if (before.state?.candidate) await rm(dirname(join(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => undefined);
       return { status: 'absent', baseline: hash('absent'), sourceRevision: await currentRevision(), candidate: null, checkpoint: null };
     }
-    if (request.action !== 'create' && ((before.view.status !== 'saved' && !(request.action === 'dependencies' && before.view.error?.code === 'DEPENDENCY_INTEGRITY_FAILED')) || !before.tree)) {
+    if (request.action === 'adopt' && !request.confirmed) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '需要明确确认外部候选。');
+    if (request.action !== 'create' && ((before.view.status !== 'saved' && !(request.action === 'adopt' && before.view.status === 'external-change') && !(request.action === 'dependencies' && before.view.error?.code === 'DEPENDENCY_INTEGRITY_FAILED')) || !before.tree)) {
       fail(before.view.error?.code ?? 'CANDIDATE_MISSING', before.view.error?.message ?? '请先显式创建候选。');
     }
     const sourceRevision = await currentRevision();
@@ -230,6 +231,8 @@ export async function createCandidateManager(project: string, assertWritable: ()
       await directory(join(internal, 'revisions'));
       await directory(dirname(currentRoot));
       next = await readTree(currentRoot);
+    } else if (request.action === 'adopt') {
+      next = new Map(before.tree);
     } else if (request.action === 'dependencies') {
       const retainedLocks: Buffer[] = [];
       await directory(join(internal, 'revisions'));

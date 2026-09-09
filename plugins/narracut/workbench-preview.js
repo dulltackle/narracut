@@ -15,6 +15,7 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
   }
   function locateScene() {
     if (!deferredScene || isHidden() || !active?.ready) return;
+    if (active.stale || active.buildStale) { deferredScene = null; sceneNotice = '正在查看的 Preview 已过期，不能用于定位；请切换最新候选。'; update(); return; }
     const id = deferredScene; deferredScene = null;
     const scene = active.input.scenes.find(item => item.id === id);
     if (!scene) { sceneNotice = '正在查看的版本不含所选 Scene，无法定位；请切换或构建对应版本。'; update(); return; }
@@ -51,7 +52,7 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
     region.querySelector('.preview-controls').hidden = !!slot?.ready && slot.input.scenes.length === 0;
     const button = region.querySelector('[data-preview-switch]');
     button.hidden = !pending?.ready || pending === active || pending.failed;
-    button.textContent = `${pending?.label ?? '新候选'}已就绪 · 切换查看`;
+    button.textContent = pending?.target === 'candidate' ? '新候选已就绪 · 切换查看' : `${pending?.label ?? '新版本'}已就绪 · 切换查看`;
     region.querySelectorAll('[data-playback]').forEach(node => { node.disabled = !playable; });
     region.querySelector('[data-play]').textContent = slot?.playing ? '暂停' : '播放';
     const slider = region.querySelector('[data-seek]'); slider.max = String(Math.max(0, (slot?.input.durationInFrames ?? 1) - 1));

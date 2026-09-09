@@ -25705,7 +25705,8 @@ async function createCandidateManager(project, assertWritable) {
       if (before.state?.candidate) await rm4(dirname4(join5(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => void 0);
       return { status: "absent", baseline: hash3("absent"), sourceRevision: await currentRevision(), candidate: null, checkpoint: null };
     }
-    if (request.action !== "create" && (before.view.status !== "saved" && !(request.action === "dependencies" && before.view.error?.code === "DEPENDENCY_INTEGRITY_FAILED") || !before.tree)) {
+    if (request.action === "adopt" && !request.confirmed) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u9700\u8981\u660E\u786E\u786E\u8BA4\u5916\u90E8\u5019\u9009\u3002");
+    if (request.action !== "create" && (before.view.status !== "saved" && !(request.action === "adopt" && before.view.status === "external-change") && !(request.action === "dependencies" && before.view.error?.code === "DEPENDENCY_INTEGRITY_FAILED") || !before.tree)) {
       fail4(before.view.error?.code ?? "CANDIDATE_MISSING", before.view.error?.message ?? "\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\u3002");
     }
     const sourceRevision = await currentRevision();
@@ -25718,6 +25719,8 @@ async function createCandidateManager(project, assertWritable) {
       await directory(join5(internal, "revisions"));
       await directory(dirname4(currentRoot));
       next = await readTree(currentRoot);
+    } else if (request.action === "adopt") {
+      next = new Map(before.tree);
     } else if (request.action === "dependencies") {
       const retainedLocks = [];
       await directory(join5(internal, "revisions"));
@@ -25842,362 +25845,6 @@ async function createCandidateManager(project, assertWritable) {
     }
   });
 }
-
-// plugins/narracut/src/creation-task.ts
-var stages = ["read", "modify", "check", "preview", "frames", "deliver"];
-var checkpointSchema = external_exports.object({
-  taskId: external_exports.string().uuid(),
-  projectId: external_exports.string().uuid(),
-  instruction: external_exports.string().min(1).max(4e3),
-  status: external_exports.enum(["running", "waiting", "stopped", "terminated"]),
-  reason: external_exports.string().nullable(),
-  threadPointer: external_exports.string().nullable(),
-  lastSafeStage: external_exports.enum(stages).nullable(),
-  candidateBaseline: external_exports.string().nullable(),
-  inputIdentity: external_exports.string().nullable(),
-  pending: external_exports.string().max(4e3).nullable()
-}).strict();
-var reportText = external_exports.string().min(1).max(4e3);
-var answerSchema = external_exports.object({
-  verificationToken: external_exports.string(),
-  action: external_exports.enum(["apply", "dependencies", "deliver", "wait"]),
-  changes: external_exports.array(external_exports.object({ path: external_exports.string().max(1024), content: external_exports.string().max(256e3).nullable() }).strict()).max(12),
-  dependencies: external_exports.array(external_exports.object({ name: external_exports.string(), version: external_exports.string() }).strict()).max(100).default([]),
-  packages: external_exports.array(external_exports.object({ name: external_exports.string(), version: external_exports.string(), integrity: external_exports.string() }).strict()).max(256).default([]),
-  summary: reportText,
-  divergence: external_exports.string().max(4e3),
-  warnings: external_exports.array(reportText).max(100),
-  suggestions: external_exports.array(external_exports.object({ sceneId: reportText, observation: reportText, action: reportText, content: reportText, reason: reportText }).strict()).max(100),
-  reviews: external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), digest: reportText, observation: reportText }).strict()).max(12)
-}).strict();
-var CreationTask = class {
-  constructor(opened, host, preview, checks, delivery) {
-    this.opened = opened;
-    this.host = host;
-    this.preview = preview;
-    this.checks = checks;
-    this.delivery = delivery;
-    this.#unsubscribe = host.subscribe((event) => {
-      if (this.#starting && this.#driver?.turnId === null) {
-        this.#early.push(event);
-        return;
-      }
-      this.#pendingRun = this.#pendingRun.then(() => this.#event(event)).catch((error51) => this.#stop(error51));
-    });
-  }
-  opened;
-  host;
-  preview;
-  checks;
-  delivery;
-  #state = null;
-  #driver = null;
-  #starting = false;
-  #busy = false;
-  #early = [];
-  #closed = false;
-  #unsubscribe;
-  #noProgress = 0;
-  #parentOrigin = "null";
-  #pendingRun = Promise.resolve();
-  get ownsCandidate() {
-    return this.#state?.status === "running";
-  }
-  async status() {
-    if (this.#state?.reason === "CANDIDATE_READY") {
-      const latest = await this.delivery.status(this.opened);
-      if (!latest.delivery || latest.delivery.stale) {
-        this.#state.reason = "USER_DECISION_REQUIRED";
-        this.#state.pending = "\u4EA4\u4ED8\u8BC1\u636E\u5DF2\u8FC7\u671F\u6216\u4E0D\u53EF\u7528\uFF1B\u4E0D\u80FD\u4F5C\u4E3A\u5F53\u524D\u6210\u679C\uFF0C\u81EA\u52A8\u8FFD\u8D76\u5C1A\u672A\u63A5\u5165\u3002";
-        await this.#save();
-      }
-    }
-    return this.value;
-  }
-  get value() {
-    return this.#state ? structuredClone(this.#state) : null;
-  }
-  async load() {
-    try {
-      const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 32e3)).toString()));
-      if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error("\u4EFB\u52A1\u9879\u76EE\u8EAB\u4EFD\u4E0D\u5339\u914D");
-      const candidate = await this.opened.candidate({ action: "read" });
-      if (checkpoint.status !== "terminated" && checkpoint.candidateBaseline !== candidate.baseline) throw new Error("\u4EFB\u52A1\u5019\u9009\u68C0\u67E5\u70B9\u4E0D\u5339\u914D");
-      this.#state = { ...checkpoint, status: checkpoint.status === "terminated" ? "terminated" : "stopped", reason: checkpoint.status === "terminated" ? checkpoint.reason : "APP_RESTARTED", stage: checkpoint.lastSafeStage ?? "read", divergence: "", preview: null, deliveryId: null };
-      await this.#save();
-    } catch (error51) {
-      if (error51.code !== "ENOENT") throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u4EFB\u52A1\u68C0\u67E5\u70B9\u65E0\u6CD5\u6062\u590D\uFF1B\u5019\u9009\u4FDD\u7559\u3002");
-    }
-  }
-  #path() {
-    return join6(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
-  }
-  async #save() {
-    if (!this.#state) return;
-    const { stage: _stage, divergence: _divergence, preview: _preview, deliveryId: _delivery, ...checkpoint } = this.#state;
-    const bytes = JSON.stringify(checkpointSchema.parse(checkpoint));
-    await this.opened.programTransaction(async () => {
-      const parent = join6(this.opened.inspection.projectDirectory, ".narracut");
-      const identity2 = await directory(parent), temporary = join6(parent, `task-${randomUUID4()}.tmp`);
-      try {
-        const handle = await open2(temporary, "wx", 384);
-        try {
-          await handle.writeFile(bytes);
-          await handle.sync();
-        } finally {
-          await handle.close();
-        }
-        if (identity2 !== await directory(parent)) throw new Error("\u4EFB\u52A1\u76EE\u5F55\u5DF2\u66FF\u6362");
-        await rename3(temporary, this.#path());
-        const parentHandle = await open2(parent, "r");
-        try {
-          await parentHandle.sync();
-        } finally {
-          await parentHandle.close();
-        }
-      } finally {
-        await rm5(temporary, { force: true });
-      }
-    });
-  }
-  async start(instruction, parentOrigin = "null") {
-    if (this.#busy || this.#state && this.#state.status !== "terminated") throw new Error("\u5DF2\u6709\u521B\u4F5C\u4EFB\u52A1\uFF1B\u8FFD\u52A0\u8981\u6C42\u4E0E\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
-    if (!instruction.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u586B\u5199 1\u20134000 \u5B57\u7684\u660E\u786E\u521B\u4F5C\u76EE\u6807\u3002");
-    this.#parentOrigin = parentOrigin;
-    this.#busy = true;
-    try {
-      const candidate = await this.opened.candidate({ action: "read" });
-      if (candidate.status !== "absent") throw new Error("\u5DF2\u6709\u5019\u9009\uFF1B\u672C\u6B21\u4E0D\u4F1A\u66FF\u6362\u6216\u63A5\u7BA1\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
-      this.#state = {
-        taskId: randomUUID4(),
-        projectId: this.opened.inspection.manifest.projectId,
-        instruction,
-        status: "running",
-        reason: null,
-        threadPointer: null,
-        lastSafeStage: null,
-        candidateBaseline: null,
-        inputIdentity: null,
-        pending: null,
-        stage: "read",
-        divergence: "",
-        preview: null,
-        deliveryId: null
-      };
-      await this.#save();
-      const created = await this.opened.candidate({ action: "create" });
-      this.#state.candidateBaseline = created.baseline;
-      await this.#save();
-      this.#pendingRun = this.#run().catch((error51) => this.#stop(error51));
-      return this.value;
-    } catch (error51) {
-      if (this.#state) await this.#stop(error51);
-      throw error51;
-    } finally {
-      this.#busy = false;
-    }
-  }
-  async #set(stage) {
-    this.#assert();
-    this.#state.stage = stage;
-    await this.#save();
-  }
-  #assert() {
-    if (this.#closed || this.#state?.status !== "running") throw new Error("\u5F53\u524D\u9A71\u52A8\u5DF2\u5931\u53BB\u5199\u6743\u3002");
-  }
-  async #snapshot() {
-    const candidate = await this.opened.candidate({ action: "read" });
-    if (candidate.status === "external-change") throw Object.assign(new Error("\u5019\u9009\u5DF2\u88AB\u5916\u90E8\u4FEE\u6539"), { code: "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" });
-    return this.preview.capture(this.opened, "candidate", true);
-  }
-  async #run(feedback = "", images = []) {
-    this.#assert();
-    const state = this.#state;
-    const snapshot = await this.#snapshot();
-    if (state.candidateBaseline !== snapshot.baseline) return this.#wait("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF0C\u5916\u90E8\u5B57\u8282\u5DF2\u4FDD\u7559\uFF1B\u5F53\u524D\u7248\u672C\u5C1A\u4E0D\u652F\u6301\u786E\u8BA4\u540E\u63A5\u7BA1\u3002");
-    state.inputIdentity = snapshot.signature;
-    if (!state.threadPointer) {
-      state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
-      this.#assert();
-    }
-    state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
-    await this.#save();
-    const driver = { token: randomUUID4(), turnId: null, signature: snapshot.signature };
-    this.#driver = driver;
-    this.#starting = true;
-    try {
-      const turn = await this.host.startTurn({
-        threadId: state.threadPointer,
-        projectDirectory: this.opened.inspection.projectDirectory,
-        verificationToken: driver.token,
-        outputSchema: external_exports.toJSONSchema(answerSchema),
-        images,
-        prompt: [
-          "\u4F60\u662F Narracut \u4E13\u7528\u521B\u4F5C Agent\u3002\u53EA\u8BFB\u9879\u76EE\uFF0C\u4E0D\u6267\u884C\u9879\u76EE\u4EE3\u7801\uFF0C\u4E0D\u5199\u6587\u4EF6\u3001\u4E0D\u8BBF\u95EE\u7F51\u7EDC\u3002\u901A\u8FC7\u7ED3\u6784\u5316\u7ED3\u679C\u8BF7\u6C42\u5E94\u7528\u539F\u5B50\u4FEE\u6539\u552F\u4E00\u5019\u9009\u3002",
-          "\u6210\u7247\u8868\u73B0\u4F18\u5148\u7EA7\uFF1A\u5F53\u524D\u521B\u4F5C\u6307\u4EE4 > Video Brief > \u65E2\u6709 Render Program\u3002Scene\u3001Narration\u3001Asset\u3001Speech\u3001\u65F6\u95F4\u7A97\u3001\u603B\u65F6\u957F\u3001\u786E\u5B9A\u6027\u548C\u5B89\u5168\u786C\u7EA6\u675F\u4E0D\u53EF\u8986\u76D6\u3002\u7981\u6B62\u81EA\u52A8\u63A5\u53D7\u6216\u6700\u7EC8 Render\u3002",
-          "\u6BCF\u6279\u6700\u591A 12 \u4E2A\u6587\u4EF6\uFF0C\u6BCF\u6587\u4EF6\u6700\u591A 256000 \u5B57\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\u76F8\u5BF9\u8DEF\u5F84\u3002\u5148\u8BFB\u5F53\u524D\u5019\u9009\u6E90\u7801\u548C\u9879\u76EE\u5185\u5BB9\uFF1Bapply \u540E\u5E94\u7528\u4F1A\u68C0\u67E5\u5E76\u5C06\u8BCA\u65AD\u4EA4\u56DE\uFF0C\u5141\u8BB8\u4FEE\u590D\u3002\u4E0D\u8981\u590D\u5236 Scene \u5185\u5BB9\u4F5C\u4E3A\u7B2C\u4E8C\u6743\u5A01\u3002",
-          "\u7F3A\u5C11\u79BB\u7EBF\u4F9D\u8D56\u65F6\u8FD4\u56DE action=dependencies\uFF0Cdependencies \u4E0E packages \u4E3A\u7A7A\u6570\u7EC4\u53EF\u6309\u65E2\u6709\u7CBE\u786E\u9501\u56FE\u8865\u9F50\u79BB\u7EBF\u5E93\uFF1B\u65B0\u589E\u4F9D\u8D56\u5FC5\u987B\u63D0\u4F9B\u516C\u5171 npm \u7CBE\u786E\u7248\u672C\u548C\u5B8C\u6574\u6027\u6458\u8981\uFF0C\u5E94\u7528\u53EA\u4ECE canonical registry \u4E0B\u8F7D\u3002",
-          "action=deliver \u8BF7\u6C42\u6784\u5EFA Preview \u5E76\u91C7\u96C6\u4EE3\u8868\u5E27\u3002\u6536\u5230\u56FE\u50CF\u540E\u9010\u5E27\u68C0\u67E5\uFF0Creviews \u5FC5\u987B\u5F15\u7528\u6240\u7ED9\u5E27\u53F7\u4E0E digest\uFF0C\u4E0D\u80FD\u4EC5\u51ED\u6587\u672C\u58F0\u79F0\u68C0\u67E5\u3002\u65E0\u9700\u4FEE\u6539\u65F6 changes=[]\u3002\u5FC5\u987B\u7528\u6237\u5904\u7406\u65F6 action=wait \u5E76\u660E\u786E\u539F\u56E0\u3002",
-          "\u5B9E\u8D28 Brief \u5206\u6B67\u586B\u5199 divergence\uFF0C\u5E76\u8BF4\u660E\u672C\u6B21\u9075\u5FAA\u7684\u7528\u6237\u539F\u6587\uFF1B\u5426\u5219\u7A7A\u5B57\u7B26\u4E32\u3002summary\u3001warnings\u3001suggestions \u7528\u4E2D\u6587\u3002",
-          `\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\uFF08\u7CBE\u786E\u539F\u6587\uFF09\uFF1A${JSON.stringify(state.instruction)}`,
-          `\u6700\u65B0 Runtime \u8F93\u5165\uFF1A${JSON.stringify(snapshot.input)}`,
-          `\u5019\u9009\uFF1A${snapshot.candidate.candidate?.path}\uFF1B\u5B8C\u6574\u8EAB\u4EFD\uFF1A${snapshot.signature}`,
-          `verificationToken \u5FC5\u987B\u539F\u6837\u8FD4\u56DE\uFF1A${driver.token}`,
-          feedback
-        ].join("\n")
-      });
-      this.#assert();
-      driver.turnId = turn.turnId;
-    } finally {
-      this.#starting = false;
-      for (const event of this.#early.splice(0)) this.#pendingRun = this.#pendingRun.then(() => this.#event(event)).catch((error51) => this.#stop(error51));
-    }
-  }
-  async #event(event) {
-    if (!this.ownsCandidate || this.#closed) return;
-    if (event.type === "host-unavailable") throw new Error("CODEX_UNAVAILABLE");
-    if (event.threadId !== this.#state.threadPointer) return;
-    const driver = this.#driver;
-    if (event.type === "thread-unavailable") {
-      if (event.turnId && event.turnId !== driver?.turnId) return;
-      throw new Error("CODEX_THREAD_UNAVAILABLE");
-    }
-    if (!driver || event.turnId !== driver.turnId) return;
-    this.#driver = null;
-    if (event.status !== "completed" || !event.output) throw new Error("CODEX_INTERRUPTED");
-    const answer = answerSchema.parse(JSON.parse(event.output));
-    if (answer.verificationToken !== driver.token) throw new Error("\u521B\u4F5C\u7ED3\u679C\u9A71\u52A8\u8EAB\u4EFD\u4E0D\u5339\u914D");
-    const snapshot = await this.#snapshot();
-    if (snapshot.baseline !== this.#state.candidateBaseline) return this.#wait("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1B\u5916\u90E8\u5B57\u8282\u5DF2\u4FDD\u7559\uFF0C\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\u3002");
-    if (snapshot.signature !== driver.signature) throw new Error("\u9879\u76EE\u8F93\u5165\u6216\u5019\u9009\u5DF2\u53D8\u5316\uFF1B\u65E7\u7ED3\u679C\u5DF2\u4E22\u5F03\uFF0C\u81EA\u52A8\u8FFD\u8D76\u5C1A\u672A\u63A5\u5165\u3002");
-    this.#state.divergence = answer.divergence;
-    if (answer.action === "wait") return this.#wait(answer.suggestions.length ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
-    if (answer.action === "apply" || answer.action === "dependencies") {
-      if (answer.action === "apply" && !answer.changes.length) {
-        if (++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
-        return this.#run("\u672A\u4EA7\u751F\u6301\u4E45\u6210\u679C\uFF0C\u8BF7\u63D0\u4EA4\u4FEE\u6539\u6216\u8BF7\u6C42\u4EA4\u4ED8\u3002");
-      }
-      this.#state.preview = null;
-      this.#state.deliveryId = null;
-      this.delivery.clear();
-      await this.#set("modify");
-      const applied = await this.opened.programTransaction(async (manager) => {
-        const view = { ...this.opened, candidate: manager, readPreviewSource: manager.previewSource };
-        return manager(answer.action === "dependencies" ? { action: "dependencies", baseline: snapshot.baseline, dependencies: Object.fromEntries(answer.dependencies.map((item) => [item.name, item.version])), packages: answer.packages } : { action: "apply", baseline: snapshot.baseline, changes: answer.changes }, async () => {
-          this.#assert();
-          if ((await this.preview.capture(view, "candidate", true)).signature !== driver.signature) throw new Error("\u9879\u76EE\u8F93\u5165\u5DF2\u53D8\u5316\uFF1B\u672C\u6279\u672A\u63D0\u4EA4\u3002");
-          this.#assert();
-        });
-      });
-      this.#state.candidateBaseline = applied.baseline;
-      this.#state.lastSafeStage = "modify";
-      this.#noProgress = applied.candidate?.identity === snapshot.candidate.candidate?.identity ? this.#noProgress + 1 : 0;
-      if (this.#noProgress >= 3) throw new Error("NO_PROGRESS");
-      await this.#set("check");
-      await this.checks.start(this.opened);
-      const checked = await this.#poll(async () => this.checks.status(this.opened), (value) => value.batches.at(-1)?.status !== "running");
-      this.#state.lastSafeStage = "check";
-      return this.#run(`\u5019\u9009\u68C0\u67E5\uFF1A${JSON.stringify(checked)}\u3002\u4FEE\u590D\u95EE\u9898\u6216\u8BF7\u6C42 deliver\u3002`);
-    }
-    if (this.#state.stage !== "frames") {
-      await this.#set("check");
-      await this.checks.start(this.opened);
-      const checked = await this.#poll(() => this.checks.status(this.opened), (value) => value.batches.at(-1)?.status !== "running");
-      if (checked.batches.at(-1)?.stale || checked.gates.find((gate) => gate.operation === "preview")?.status !== "available") {
-        if (++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
-        return this.#run(`\u68C0\u67E5\u5C1A\u672A\u901A\u8FC7\uFF0C\u8BF7\u4FEE\u590D\u6216\u660E\u786E\u7B49\u5F85\u7528\u6237\uFF1A${JSON.stringify(checked)}`);
-      }
-      this.#state.lastSafeStage = "check";
-    }
-    await this.#set("preview");
-    if (!this.#state.preview) {
-      const descriptor = await this.preview.build(this.opened, "candidate", this.#parentOrigin);
-      this.#assert();
-      this.#state.preview = descriptor;
-      this.#state.lastSafeStage = "preview";
-      await this.delivery.operate(this.opened, { action: "prepare", instanceId: descriptor.instanceId });
-    }
-    await this.#set("frames");
-    const deliveryState = await this.#poll(() => this.delivery.status(this.opened), (value) => !value.collecting);
-    const current = deliveryState.delivery;
-    if (!current || current.stale) throw new Error("\u4EA4\u4ED8\u8BC1\u636E\u5DF2\u8FC7\u671F");
-    this.#state.deliveryId = current.id;
-    if (answer.reviews.length) await this.delivery.operate(this.opened, { action: "review", deliveryId: current.id, reviews: answer.reviews });
-    const latest = (await this.delivery.status(this.opened)).delivery;
-    const remaining = latest.frames.filter((frame) => !frame.observation);
-    if (remaining.some((frame) => frame.status !== "captured")) return this.#wait("USER_DECISION_REQUIRED", "\u4EE3\u8868\u5E27\u91C7\u96C6\u5931\u8D25\uFF0C\u8BF7\u5728\u5019\u9009\u4EA4\u4ED8\u533A\u68C0\u67E5\u5E76\u91CD\u8BD5\u3002");
-    if (remaining.length) {
-      const images = [], refs = [];
-      for (const frame of remaining.slice(0, 12)) {
-        const result = await this.delivery.operate(this.opened, { action: "image", deliveryId: current.id, frame: frame.frame });
-        images.push(`data:image/png;base64,${result.image}`);
-        refs.push({ frame: frame.frame, digest: result.digest });
-      }
-      if (!answer.reviews.length && ++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
-      if (answer.reviews.length) this.#noProgress = 0;
-      return this.#run(`\u68C0\u67E5\u9644\u5E26\u56FE\u50CF\uFF0C\u6309\u987A\u5E8F\u5BF9\u5E94\uFF1A${JSON.stringify(refs)}\u3002\u8FD4\u56DE deliver \u548C reviews\u3002`, images);
-    }
-    this.#state.lastSafeStage = "frames";
-    await this.#set("deliver");
-    await this.delivery.operate(this.opened, {
-      action: "describe",
-      deliveryId: current.id,
-      report: { goal: this.#state.instruction, summary: answer.summary, warnings: [.../* @__PURE__ */ new Set([...answer.warnings, ...snapshot.input.scenes.length === 0 ? ["\u6CA1\u6709\u53EF\u64AD\u653E Scene\uFF1B\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u6DFB\u52A0 Scene\u3002"] : snapshot.input.scenes.some((scene) => scene.time.source === "draft") ? ["\u7F3A\u5C11 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u4E0D\u80FD\u7528\u4E8E\u6700\u7EC8 Render\u3002"] : []])], suggestions: answer.suggestions }
-    });
-    this.#state.lastSafeStage = "deliver";
-    return this.#wait("CANDIDATE_READY", "\u5019\u9009\u5DF2\u5C31\u7EEA\uFF1B\u8BF7\u67E5\u770B\u4EA4\u4ED8\u3001\u68C0\u67E5\u7ED3\u679C\u4E0E\u8B66\u544A\uFF0C\u7531\u4F60\u51B3\u5B9A\u662F\u5426\u63A5\u53D7\u3002");
-  }
-  async #poll(read, done) {
-    for (; ; ) {
-      this.#assert();
-      const value = await read();
-      if (done(value)) return value;
-      await new Promise((resolve4) => setTimeout(resolve4, 100));
-    }
-  }
-  async #wait(reason, pending) {
-    this.#assert();
-    this.#driver = null;
-    this.#state.status = "waiting";
-    this.#state.reason = reason;
-    this.#state.pending = pending;
-    await this.#save();
-  }
-  async #stop(error51) {
-    this.#driver = null;
-    if (!this.#state || this.#closed) return;
-    if (error51.code === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") {
-      this.#state.status = "waiting";
-      this.#state.reason = "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED";
-      this.#state.pending = "\u5019\u9009\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF0C\u5916\u90E8\u5B57\u8282\u5DF2\u4FDD\u7559\uFF1B\u5F53\u524D\u7248\u672C\u5C1A\u4E0D\u652F\u6301\u786E\u8BA4\u540E\u63A5\u7BA1\u3002";
-      await this.#save().catch(() => void 0);
-      return;
-    }
-    this.#state.status = "stopped";
-    this.#state.reason = ["CODEX_UNAVAILABLE", "CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "NO_PROGRESS"].includes(error51.message) ? error51.message : "CODEX_INTERRUPTED";
-    this.#state.pending = String(error51.message).slice(0, 4e3);
-    await this.#save().catch(() => void 0);
-  }
-  async terminate(reason) {
-    if (!this.#state) return;
-    this.#driver = null;
-    this.#state.status = "terminated";
-    this.#state.reason = reason;
-    this.#state.pending = null;
-    await this.#save();
-  }
-  async close() {
-    this.#closed = true;
-    this.#unsubscribe();
-    const driver = this.#driver;
-    this.#driver = null;
-    if (driver?.turnId && this.#state?.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId }).catch(() => void 0);
-    await this.#pendingRun;
-  }
-};
-
-// src/server/project-acceptance.ts
-import { randomUUID as randomUUID6 } from "node:crypto";
 
 // src/shared/program-checks.ts
 var groups = [
@@ -26334,6 +25981,481 @@ function gateOperations(batch, latest, evidence, accepted, enabled = { preview: 
   const next = { preview: "\u68C0\u67E5\u5F53\u524D\u5019\u9009\uFF1B\u901A\u8FC7\u540E\u5728\u4E0A\u65B9\u6784\u5EFA\u5019\u9009", delivery: "\u6784\u5EFA\u6700\u65B0\u5019\u9009 Preview \u5E76\u5B8C\u6210\u4EE3\u8868\u5E27\u5BA1\u6838", accept: "\u5B8C\u6210\u4EA4\u4ED8\u68C0\u67E5\u540E\u660E\u786E\u6574\u4F53\u63A5\u53D7", render: "\u9488\u5BF9\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u8865\u9F50\u6B63\u5F0F\u65F6\u95F4\u53CA Render \u524D\u68C0\u67E5" };
   return ["preview", "delivery", "accept", "render"].map((operation) => ({ operation, eligible: { preview, delivery, accept, render }[operation], status: !enabled[operation] ? "disabled" : { preview, delivery, accept, render }[operation] ? "available" : "blocked", reason: reasons[operation], next: !enabled[operation] ? "\u6B64\u64CD\u4F5C\u5C1A\u672A\u542F\u7528" : next[operation] }));
 }
+
+// plugins/narracut/src/creation-task.ts
+var stages = ["read", "modify", "check", "preview", "frames", "deliver"];
+var checkpointSchema = external_exports.object({
+  taskId: external_exports.string().uuid(),
+  projectId: external_exports.string().uuid(),
+  instruction: external_exports.string().min(1).max(4e3),
+  status: external_exports.enum(["running", "waiting", "stopped", "terminated"]),
+  reason: external_exports.string().nullable(),
+  threadPointer: external_exports.string().nullable(),
+  lastSafeStage: external_exports.enum(stages).nullable(),
+  candidateBaseline: external_exports.string().nullable(),
+  inputIdentity: external_exports.string().nullable(),
+  pending: external_exports.string().max(4e3).nullable()
+}).strict();
+var reportText = external_exports.string().min(1).max(4e3);
+var answerSchema = external_exports.object({
+  verificationToken: external_exports.string(),
+  action: external_exports.enum(["apply", "dependencies", "deliver", "wait"]),
+  changes: external_exports.array(external_exports.object({ path: external_exports.string().max(1024), content: external_exports.string().max(256e3).nullable() }).strict()).max(12),
+  dependencies: external_exports.array(external_exports.object({ name: external_exports.string(), version: external_exports.string() }).strict()).max(100).default([]),
+  packages: external_exports.array(external_exports.object({ name: external_exports.string(), version: external_exports.string(), integrity: external_exports.string() }).strict()).max(256).default([]),
+  summary: reportText,
+  divergence: external_exports.string().max(4e3),
+  warnings: external_exports.array(reportText).max(100),
+  suggestions: external_exports.array(external_exports.object({ sceneId: reportText, observation: reportText, action: reportText, content: reportText, reason: reportText }).strict()).max(100),
+  reviews: external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), digest: reportText, observation: reportText }).strict()).max(12)
+}).strict();
+var externalMessage = "\u5DF2\u4FDD\u7559\u5916\u90E8\u4FEE\u6539\uFF0C\u5DF2\u4E22\u5F03 Agent \u672A\u63D0\u4EA4\u4FEE\u6539\u3002\u7EE7\u7EED\u540E\uFF0CAgent \u5C06\u57FA\u4E8E\u5916\u90E8\u5019\u9009\u548C\u6700\u65B0\u9879\u76EE\u5185\u5BB9\u91CD\u65B0\u68C0\u67E5\u5E76\u521B\u4F5C\u3002";
+var InputsChanged = class extends Error {
+};
+var CreationTask = class {
+  constructor(opened, host, preview, checks, delivery) {
+    this.opened = opened;
+    this.host = host;
+    this.preview = preview;
+    this.checks = checks;
+    this.delivery = delivery;
+    this.#timer = setInterval(() => {
+      if (this.#observing || this.#closed) return;
+      this.#observing = true;
+      this.#pendingRun = this.#pendingRun.then(() => this.#observe()).catch((error51) => this.#stop(error51)).finally(() => {
+        this.#observing = false;
+      });
+    }, 500);
+    this.#timer.unref();
+    this.#unsubscribe = host.subscribe((event) => {
+      if (this.#starting && this.#driver?.turnId === null) {
+        this.#early.push(event);
+        return;
+      }
+      this.#pendingRun = this.#pendingRun.then(() => this.#event(event)).catch((error51) => this.#stop(error51));
+    });
+  }
+  opened;
+  host;
+  preview;
+  checks;
+  delivery;
+  #state = null;
+  #driver = null;
+  #timer;
+  #observing = false;
+  #snapshotValue = null;
+  #starting = false;
+  #busy = false;
+  #early = [];
+  #closed = false;
+  #unsubscribe;
+  #noProgress = 0;
+  #parentOrigin = "null";
+  #pendingRun = Promise.resolve();
+  get ownsCandidate() {
+    return this.#state?.status === "running";
+  }
+  async status() {
+    if (this.#state?.reason === "CANDIDATE_READY") {
+      const latest = await this.delivery.status(this.opened);
+      if (!latest.delivery || latest.delivery.stale) {
+        this.#state.reason = "USER_DECISION_REQUIRED";
+        this.#state.pending = "\u4EA4\u4ED8\u8BC1\u636E\u5DF2\u8FC7\u671F\u6216\u4E0D\u53EF\u7528\uFF1B\u4E0D\u80FD\u4F5C\u4E3A\u5F53\u524D\u6210\u679C\u3002";
+        await this.#save();
+      }
+    }
+    return this.value;
+  }
+  get value() {
+    return this.#state ? structuredClone(this.#state) : null;
+  }
+  async load() {
+    try {
+      const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 32e3)).toString()));
+      if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error("\u4EFB\u52A1\u9879\u76EE\u8EAB\u4EFD\u4E0D\u5339\u914D");
+      const candidate = await this.opened.candidate({ action: "read" });
+      if (checkpoint.status !== "terminated" && checkpoint.candidateBaseline !== candidate.baseline) throw new Error("\u4EFB\u52A1\u5019\u9009\u68C0\u67E5\u70B9\u4E0D\u5339\u914D");
+      this.#state = { ...checkpoint, externalBaseline: null, status: checkpoint.status === "terminated" ? "terminated" : "stopped", reason: checkpoint.status === "terminated" ? checkpoint.reason : "APP_RESTARTED", stage: checkpoint.lastSafeStage ?? "read", divergence: "", preview: null, deliveryId: null };
+      await this.#save();
+    } catch (error51) {
+      if (error51.code !== "ENOENT") throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u4EFB\u52A1\u68C0\u67E5\u70B9\u65E0\u6CD5\u6062\u590D\uFF1B\u5019\u9009\u4FDD\u7559\u3002");
+    }
+  }
+  #path() {
+    return join6(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
+  }
+  async #save() {
+    if (!this.#state) return;
+    const { externalBaseline: _externalBaseline, stage: _stage, divergence: _divergence, preview: _preview, deliveryId: _delivery, ...checkpoint } = this.#state;
+    const bytes = JSON.stringify(checkpointSchema.parse(checkpoint));
+    await this.opened.programTransaction(async () => {
+      const parent = join6(this.opened.inspection.projectDirectory, ".narracut");
+      const identity2 = await directory(parent), temporary = join6(parent, `task-${randomUUID4()}.tmp`);
+      try {
+        const handle = await open2(temporary, "wx", 384);
+        try {
+          await handle.writeFile(bytes);
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        if (identity2 !== await directory(parent)) throw new Error("\u4EFB\u52A1\u76EE\u5F55\u5DF2\u66FF\u6362");
+        await rename3(temporary, this.#path());
+        const parentHandle = await open2(parent, "r");
+        try {
+          await parentHandle.sync();
+        } finally {
+          await parentHandle.close();
+        }
+      } finally {
+        await rm5(temporary, { force: true });
+      }
+    });
+  }
+  async start(instruction, parentOrigin = "null") {
+    if (this.#busy || this.#state && this.#state.status !== "terminated") throw new Error("\u5DF2\u6709\u521B\u4F5C\u4EFB\u52A1\uFF1B\u8FFD\u52A0\u8981\u6C42\u4E0E\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
+    if (!instruction.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u586B\u5199 1\u20134000 \u5B57\u7684\u660E\u786E\u521B\u4F5C\u76EE\u6807\u3002");
+    this.#parentOrigin = parentOrigin;
+    this.#busy = true;
+    try {
+      const candidate = await this.opened.candidate({ action: "read" });
+      if (candidate.status !== "absent") throw new Error("\u5DF2\u6709\u5019\u9009\uFF1B\u672C\u6B21\u4E0D\u4F1A\u66FF\u6362\u6216\u63A5\u7BA1\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
+      this.#state = {
+        taskId: randomUUID4(),
+        projectId: this.opened.inspection.manifest.projectId,
+        instruction,
+        externalBaseline: null,
+        status: "running",
+        reason: null,
+        threadPointer: null,
+        lastSafeStage: null,
+        candidateBaseline: null,
+        inputIdentity: null,
+        pending: null,
+        stage: "read",
+        divergence: "",
+        preview: null,
+        deliveryId: null
+      };
+      await this.#save();
+      const created = await this.opened.candidate({ action: "create" });
+      this.#state.candidateBaseline = created.baseline;
+      await this.#save();
+      this.#pendingRun = this.#run().catch((error51) => this.#stop(error51));
+      return this.value;
+    } catch (error51) {
+      if (this.#state) await this.#stop(error51);
+      throw error51;
+    } finally {
+      this.#busy = false;
+    }
+  }
+  async #observe() {
+    if (!this.ownsCandidate && this.#state?.reason !== "SCENE_CHANGE_REQUIRED") return;
+    const snapshot = await this.#snapshot();
+    if (snapshot.baseline !== this.#state.candidateBaseline) throw Object.assign(new Error(externalMessage), { code: "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" });
+    if (this.#state.inputIdentity && snapshot.signature !== this.#state.inputIdentity) await this.#catchUp(snapshot);
+  }
+  async #fresh() {
+    this.#assert();
+    const snapshot = await this.#snapshot();
+    if (snapshot.baseline !== this.#state.candidateBaseline) throw Object.assign(new Error(externalMessage), { code: "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" });
+    if (snapshot.signature !== this.#state.inputIdentity) throw new InputsChanged("\u9879\u76EE\u5185\u5BB9\u5DF2\u66F4\u65B0");
+    return snapshot;
+  }
+  async #catchUp(snapshot) {
+    const driver = this.#driver;
+    this.#driver = null;
+    if (driver?.turnId && this.#state?.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId }).catch(() => void 0);
+    const previous = this.#snapshotValue;
+    const changes = [];
+    if (!previous || previous.brief !== snapshot.brief) changes.push("Brief");
+    if (!previous || JSON.stringify(previous.input.scenes) !== JSON.stringify(snapshot.input.scenes)) changes.push("Scene");
+    if (!previous || JSON.stringify(previous.input.assets) !== JSON.stringify(snapshot.input.assets) || JSON.stringify([...previous.media.keys()]) !== JSON.stringify([...snapshot.media.keys()])) changes.push("Asset / Speech");
+    const state = this.#state;
+    state.inputIdentity = snapshot.signature;
+    state.status = "running";
+    state.reason = null;
+    state.stage = "read";
+    state.preview = null;
+    state.deliveryId = null;
+    state.pending = `${changes.join("\u3001") || "\u9879\u76EE\u8F93\u5165"} \u5DF2\u66F4\u65B0\uFF0C\u6B63\u5728\u91CD\u65B0\u68C0\u67E5`;
+    this.#noProgress = 0;
+    this.preview.invalidate();
+    this.delivery.invalidate();
+    this.checks.invalidate();
+    await this.#run("\u65E7\u8EAB\u4EFD\u4E0B\u7684\u7ED3\u679C\u5747\u5DF2\u4F5C\u5E9F\u3002\u8BF7\u4F9D\u636E\u6700\u65B0\u9879\u76EE\u5185\u5BB9\u91CD\u65B0\u68C0\u67E5\u5E76\u521B\u4F5C\u3002");
+  }
+  async continueExternal(baseline) {
+    if (this.#busy || this.#state?.status !== "waiting" || this.#state.reason !== "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") throw new Error("\u5F53\u524D\u4EFB\u52A1\u4E0D\u5728\u7B49\u5F85\u5916\u90E8\u5019\u9009\u786E\u8BA4\u3002");
+    this.#busy = true;
+    try {
+      await this.#pendingRun;
+      const candidate = await this.opened.candidate({ action: "read" });
+      if (baseline !== candidate.baseline) {
+        this.#state.externalBaseline = candidate.baseline;
+        this.#state.pending = `\u5019\u9009\u518D\u6B21\u53D8\u5316\u3002${externalMessage}`;
+        await this.#save();
+        return this.value;
+      }
+      const adopted = await this.opened.candidate({ action: "adopt", baseline, confirmed: true });
+      this.#state.candidateBaseline = adopted.baseline;
+      this.#state.externalBaseline = null;
+      this.#state.status = "running";
+      this.#state.reason = null;
+      this.#state.preview = null;
+      this.#state.deliveryId = null;
+      this.#state.stage = "read";
+      this.#state.pending = "\u6B63\u5728\u57FA\u4E8E\u5916\u90E8\u5019\u9009\u91CD\u65B0\u68C0\u67E5\u5E76\u521B\u4F5C";
+      this.#noProgress = 0;
+      await this.#save();
+      this.#pendingRun = this.#run().catch((error51) => this.#stop(error51));
+      return this.value;
+    } catch (error51) {
+      this.#state.pending = `${externalMessage} ${error51.message}`;
+      await this.#save();
+      throw error51;
+    } finally {
+      this.#busy = false;
+    }
+  }
+  async #set(stage) {
+    this.#assert();
+    this.#state.stage = stage;
+    await this.#save();
+  }
+  #assert() {
+    if (this.#closed || this.#state?.status !== "running") throw new Error("\u5F53\u524D\u9A71\u52A8\u5DF2\u5931\u53BB\u5199\u6743\u3002");
+  }
+  async #snapshot() {
+    const candidate = await this.opened.candidate({ action: "read" });
+    if (candidate.status === "external-change") throw Object.assign(new Error("\u5019\u9009\u5DF2\u88AB\u5916\u90E8\u4FEE\u6539"), { code: "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" });
+    return this.preview.capture(this.opened, "candidate", true);
+  }
+  async #run(feedback = "", images = []) {
+    this.#assert();
+    const state = this.#state;
+    const snapshot = await this.#snapshot();
+    if (state.candidateBaseline !== snapshot.baseline) return this.#wait("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", externalMessage);
+    if (state.inputIdentity && snapshot.signature !== state.inputIdentity && feedback) return this.#catchUp(snapshot);
+    state.inputIdentity = snapshot.signature;
+    this.#snapshotValue = snapshot;
+    if (!state.threadPointer) {
+      state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
+      this.#assert();
+    }
+    state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
+    await this.#save();
+    const driver = { token: randomUUID4(), turnId: null, signature: snapshot.signature };
+    this.#driver = driver;
+    this.#starting = true;
+    try {
+      const turn = await this.host.startTurn({
+        threadId: state.threadPointer,
+        projectDirectory: this.opened.inspection.projectDirectory,
+        verificationToken: driver.token,
+        outputSchema: external_exports.toJSONSchema(answerSchema),
+        images,
+        prompt: [
+          "\u4F60\u662F Narracut \u4E13\u7528\u521B\u4F5C Agent\u3002\u53EA\u8BFB\u9879\u76EE\uFF0C\u4E0D\u6267\u884C\u9879\u76EE\u4EE3\u7801\uFF0C\u4E0D\u5199\u6587\u4EF6\u3001\u4E0D\u8BBF\u95EE\u7F51\u7EDC\u3002\u901A\u8FC7\u7ED3\u6784\u5316\u7ED3\u679C\u8BF7\u6C42\u5E94\u7528\u539F\u5B50\u4FEE\u6539\u552F\u4E00\u5019\u9009\u3002",
+          "\u6210\u7247\u8868\u73B0\u4F18\u5148\u7EA7\uFF1A\u5F53\u524D\u521B\u4F5C\u6307\u4EE4 > Video Brief > \u65E2\u6709 Render Program\u3002Scene\u3001Narration\u3001Asset\u3001Speech\u3001\u65F6\u95F4\u7A97\u3001\u603B\u65F6\u957F\u3001\u786E\u5B9A\u6027\u548C\u5B89\u5168\u786C\u7EA6\u675F\u4E0D\u53EF\u8986\u76D6\u3002\u7981\u6B62\u81EA\u52A8\u63A5\u53D7\u6216\u6700\u7EC8 Render\u3002",
+          "\u6BCF\u6279\u6700\u591A 12 \u4E2A\u6587\u4EF6\uFF0C\u6BCF\u6587\u4EF6\u6700\u591A 256000 \u5B57\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\u76F8\u5BF9\u8DEF\u5F84\u3002\u5148\u8BFB\u5F53\u524D\u5019\u9009\u6E90\u7801\u548C\u9879\u76EE\u5185\u5BB9\uFF1Bapply \u540E\u5E94\u7528\u4F1A\u68C0\u67E5\u5E76\u5C06\u8BCA\u65AD\u4EA4\u56DE\uFF0C\u5141\u8BB8\u4FEE\u590D\u3002\u4E0D\u8981\u590D\u5236 Scene \u5185\u5BB9\u4F5C\u4E3A\u7B2C\u4E8C\u6743\u5A01\u3002",
+          "\u7F3A\u5C11\u79BB\u7EBF\u4F9D\u8D56\u65F6\u8FD4\u56DE action=dependencies\uFF0Cdependencies \u4E0E packages \u4E3A\u7A7A\u6570\u7EC4\u53EF\u6309\u65E2\u6709\u7CBE\u786E\u9501\u56FE\u8865\u9F50\u79BB\u7EBF\u5E93\uFF1B\u65B0\u589E\u4F9D\u8D56\u5FC5\u987B\u63D0\u4F9B\u516C\u5171 npm \u7CBE\u786E\u7248\u672C\u548C\u5B8C\u6574\u6027\u6458\u8981\uFF0C\u5E94\u7528\u53EA\u4ECE canonical registry \u4E0B\u8F7D\u3002",
+          "action=deliver \u8BF7\u6C42\u6784\u5EFA Preview \u5E76\u91C7\u96C6\u4EE3\u8868\u5E27\u3002\u6536\u5230\u56FE\u50CF\u540E\u9010\u5E27\u68C0\u67E5\uFF0Creviews \u5FC5\u987B\u5F15\u7528\u6240\u7ED9\u5E27\u53F7\u4E0E digest\uFF0C\u4E0D\u80FD\u4EC5\u51ED\u6587\u672C\u58F0\u79F0\u68C0\u67E5\u3002\u65E0\u9700\u4FEE\u6539\u65F6 changes=[]\u3002\u5FC5\u987B\u7528\u6237\u5904\u7406\u65F6 action=wait \u5E76\u660E\u786E\u539F\u56E0\u3002",
+          "\u5B9E\u8D28 Brief \u5206\u6B67\u586B\u5199 divergence\uFF0C\u5E76\u8BF4\u660E\u672C\u6B21\u9075\u5FAA\u7684\u7528\u6237\u539F\u6587\uFF1B\u5426\u5219\u7A7A\u5B57\u7B26\u4E32\u3002summary\u3001warnings\u3001suggestions \u7528\u4E2D\u6587\u3002",
+          `\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\uFF08\u7CBE\u786E\u539F\u6587\uFF09\uFF1A${JSON.stringify(state.instruction)}`,
+          `\u6700\u65B0 Runtime \u8F93\u5165\uFF1A${JSON.stringify(snapshot.input)}`,
+          `\u5019\u9009\uFF1A${snapshot.candidate.candidate?.path}\uFF1B\u5B8C\u6574\u8EAB\u4EFD\uFF1A${snapshot.signature}`,
+          `verificationToken \u5FC5\u987B\u539F\u6837\u8FD4\u56DE\uFF1A${driver.token}`,
+          feedback
+        ].join("\n")
+      });
+      this.#assert();
+      driver.turnId = turn.turnId;
+    } finally {
+      this.#starting = false;
+      for (const event of this.#early.splice(0)) this.#pendingRun = this.#pendingRun.then(() => this.#event(event)).catch((error51) => this.#stop(error51));
+    }
+  }
+  async #event(event) {
+    if (!this.ownsCandidate || this.#closed) return;
+    if (event.type === "host-unavailable") throw new Error("CODEX_UNAVAILABLE");
+    if (event.threadId !== this.#state.threadPointer) return;
+    const driver = this.#driver;
+    if (event.type === "thread-unavailable") {
+      if (event.turnId && event.turnId !== driver?.turnId) return;
+      throw new Error("CODEX_THREAD_UNAVAILABLE");
+    }
+    if (!driver || event.turnId !== driver.turnId) return;
+    this.#driver = null;
+    if (event.status !== "completed" || !event.output) throw new Error("CODEX_INTERRUPTED");
+    const answer = answerSchema.parse(JSON.parse(event.output));
+    if (answer.verificationToken !== driver.token) throw new Error("\u521B\u4F5C\u7ED3\u679C\u9A71\u52A8\u8EAB\u4EFD\u4E0D\u5339\u914D");
+    const snapshot = await this.#snapshot();
+    if (snapshot.baseline !== this.#state.candidateBaseline) return this.#wait("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", externalMessage);
+    if (snapshot.signature !== driver.signature) throw new InputsChanged("\u9879\u76EE\u8F93\u5165\u5DF2\u53D8\u5316");
+    this.#state.divergence = answer.divergence;
+    if (answer.action === "wait") return this.#wait(answer.suggestions.length ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
+    if (answer.action === "apply" || answer.action === "dependencies") {
+      if (answer.action === "apply" && !answer.changes.length) {
+        if (++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
+        return this.#run("\u672A\u4EA7\u751F\u6301\u4E45\u6210\u679C\uFF0C\u8BF7\u63D0\u4EA4\u4FEE\u6539\u6216\u8BF7\u6C42\u4EA4\u4ED8\u3002");
+      }
+      this.#state.preview = null;
+      this.#state.deliveryId = null;
+      this.delivery.clear();
+      await this.#set("modify");
+      const applied = await this.opened.programTransaction(async (manager) => {
+        const view = { ...this.opened, candidate: manager, readPreviewSource: manager.previewSource };
+        return manager(answer.action === "dependencies" ? { action: "dependencies", baseline: snapshot.baseline, dependencies: Object.fromEntries(answer.dependencies.map((item) => [item.name, item.version])), packages: answer.packages } : { action: "apply", baseline: snapshot.baseline, changes: answer.changes }, async () => {
+          this.#assert();
+          if ((await this.preview.capture(view, "candidate", true)).signature !== driver.signature) throw new Error("\u9879\u76EE\u8F93\u5165\u5DF2\u53D8\u5316\uFF1B\u672C\u6279\u672A\u63D0\u4EA4\u3002");
+          this.#assert();
+        });
+      });
+      this.#state.candidateBaseline = applied.baseline;
+      this.#state.lastSafeStage = "modify";
+      this.#noProgress = applied.candidate?.identity === snapshot.candidate.candidate?.identity ? this.#noProgress + 1 : 0;
+      if (this.#noProgress >= 3) throw new Error("NO_PROGRESS");
+      this.#state.inputIdentity = (await this.#snapshot()).signature;
+      await this.#set("check");
+      await this.checks.start(this.opened);
+      const checked = await this.#poll(async () => this.checks.status(this.opened), (value) => value.batches.at(-1)?.status !== "running");
+      this.#state.lastSafeStage = "check";
+      return this.#run(`\u5019\u9009\u68C0\u67E5\uFF1A${JSON.stringify(checked)}\u3002\u4FEE\u590D\u95EE\u9898\u6216\u8BF7\u6C42 deliver\u3002`);
+    }
+    if (this.#state.stage !== "frames") {
+      await this.#set("check");
+      await this.checks.start(this.opened);
+      const checked = await this.#poll(() => this.checks.status(this.opened), (value) => value.batches.at(-1)?.status !== "running");
+      if (checked.batches.at(-1)?.stale || checked.gates.find((gate) => gate.operation === "preview")?.status !== "available") {
+        if (++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
+        return this.#run(`\u68C0\u67E5\u5C1A\u672A\u901A\u8FC7\uFF0C\u8BF7\u4FEE\u590D\u6216\u660E\u786E\u7B49\u5F85\u7528\u6237\uFF1A${JSON.stringify(checked)}`);
+      }
+      this.#state.lastSafeStage = "check";
+    }
+    await this.#fresh();
+    await this.#set("preview");
+    if (!this.#state.preview) {
+      const descriptor = await this.preview.build(this.opened, "candidate", this.#parentOrigin);
+      try {
+        await this.#fresh();
+      } catch (error51) {
+        this.preview.release(descriptor.instanceId);
+        throw error51;
+      }
+      this.#state.preview = descriptor;
+      this.#state.lastSafeStage = "preview";
+      await this.delivery.operate(this.opened, { action: "prepare", instanceId: descriptor.instanceId });
+    }
+    await this.#set("frames");
+    const deliveryState = await this.#poll(() => this.delivery.status(this.opened), (value) => !value.collecting);
+    const current = deliveryState.delivery;
+    if (!current || current.stale) throw new Error("\u4EA4\u4ED8\u8BC1\u636E\u5DF2\u8FC7\u671F");
+    this.#state.deliveryId = current.id;
+    if (answer.reviews.length) await this.delivery.operate(this.opened, { action: "review", deliveryId: current.id, reviews: answer.reviews });
+    const latest = (await this.delivery.status(this.opened)).delivery;
+    const remaining = latest.frames.filter((frame) => !frame.observation);
+    if (remaining.some((frame) => frame.status !== "captured")) return this.#wait("USER_DECISION_REQUIRED", "\u4EE3\u8868\u5E27\u91C7\u96C6\u5931\u8D25\uFF0C\u8BF7\u5728\u5019\u9009\u4EA4\u4ED8\u533A\u68C0\u67E5\u5E76\u91CD\u8BD5\u3002");
+    if (remaining.length) {
+      const images = [], refs = [];
+      for (const frame of remaining.slice(0, 12)) {
+        const result = await this.delivery.operate(this.opened, { action: "image", deliveryId: current.id, frame: frame.frame });
+        images.push(`data:image/png;base64,${result.image}`);
+        refs.push({ frame: frame.frame, digest: result.digest });
+      }
+      if (!answer.reviews.length && ++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
+      if (answer.reviews.length) this.#noProgress = 0;
+      return this.#run(`\u68C0\u67E5\u9644\u5E26\u56FE\u50CF\uFF0C\u6309\u987A\u5E8F\u5BF9\u5E94\uFF1A${JSON.stringify(refs)}\u3002\u8FD4\u56DE deliver \u548C reviews\u3002`, images);
+    }
+    const evidence = await this.delivery.status(this.opened);
+    const batch = evidence.checks.batches.at(-1);
+    if (!batch || batch.stale || batch.status !== "complete" || !sameIdentity(batch.identity, current.binding.identity)) throw new Error("\u4EA4\u4ED8\u4E0E\u68C0\u67E5\u4E0D\u5C5E\u4E8E\u540C\u4E00\u5B8C\u6574\u72B6\u6001\u8EAB\u4EFD");
+    this.#state.lastSafeStage = "frames";
+    await this.#set("deliver");
+    await this.delivery.operate(this.opened, {
+      action: "describe",
+      deliveryId: current.id,
+      report: { goal: this.#state.instruction, summary: answer.summary, warnings: [.../* @__PURE__ */ new Set([...answer.warnings, ...snapshot.input.scenes.length === 0 ? ["\u6CA1\u6709\u53EF\u64AD\u653E Scene\uFF1B\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u6DFB\u52A0 Scene\u3002"] : snapshot.input.scenes.some((scene) => scene.time.source === "draft") ? ["\u7F3A\u5C11 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u4E0D\u80FD\u7528\u4E8E\u6700\u7EC8 Render\u3002"] : []])], suggestions: answer.suggestions }
+    });
+    await this.#fresh();
+    this.#state.pending = null;
+    this.#state.lastSafeStage = "deliver";
+    return this.#wait("CANDIDATE_READY", "\u5019\u9009\u5DF2\u5C31\u7EEA\uFF1B\u8BF7\u67E5\u770B\u4EA4\u4ED8\u3001\u68C0\u67E5\u7ED3\u679C\u4E0E\u8B66\u544A\uFF0C\u7531\u4F60\u51B3\u5B9A\u662F\u5426\u63A5\u53D7\u3002");
+  }
+  async #poll(read, done) {
+    for (; ; ) {
+      await this.#fresh();
+      const value = await read();
+      await this.#fresh();
+      if (done(value)) return value;
+      await new Promise((resolve4) => setTimeout(resolve4, 100));
+    }
+  }
+  async #wait(reason, pending) {
+    this.#assert();
+    if (reason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") this.#state.externalBaseline = (await this.opened.candidate({ action: "read" })).baseline;
+    this.#driver = null;
+    this.#state.status = "waiting";
+    this.#state.reason = reason;
+    this.#state.pending = pending;
+    await this.#save();
+  }
+  async #stop(error51) {
+    if (!this.#state || this.#closed) return;
+    if (this.ownsCandidate) {
+      try {
+        const snapshot = await this.#snapshot();
+        if (snapshot.baseline !== this.#state.candidateBaseline) error51 = Object.assign(new Error(externalMessage), { code: "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" });
+        else if (snapshot.signature !== this.#state.inputIdentity) {
+          await this.#catchUp(snapshot);
+          return;
+        }
+      } catch (next) {
+        error51 = next;
+      }
+    }
+    const driver = this.#driver;
+    this.#driver = null;
+    if (driver?.turnId && this.#state.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId }).catch(() => void 0);
+    if (error51.code === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") {
+      this.preview.invalidate();
+      this.delivery.invalidate();
+      this.checks.invalidate();
+      this.#state.externalBaseline = (await this.opened.candidate({ action: "read" })).baseline;
+      this.#state.status = "waiting";
+      this.#state.reason = "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED";
+      this.#state.pending = externalMessage;
+      await this.#save().catch(() => void 0);
+      return;
+    }
+    this.#state.status = "stopped";
+    this.#state.reason = ["CODEX_UNAVAILABLE", "CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "NO_PROGRESS"].includes(error51.message) ? error51.message : "CODEX_INTERRUPTED";
+    this.#state.pending = String(error51.message).slice(0, 4e3);
+    await this.#save().catch(() => void 0);
+  }
+  async terminate(reason) {
+    if (!this.#state) return;
+    this.#driver = null;
+    this.#state.status = "terminated";
+    this.#state.reason = reason;
+    this.#state.pending = null;
+    await this.#save();
+  }
+  async close() {
+    clearInterval(this.#timer);
+    this.#closed = true;
+    this.#unsubscribe();
+    const driver = this.#driver;
+    this.#driver = null;
+    if (driver?.turnId && this.#state?.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId }).catch(() => void 0);
+    await this.#pendingRun;
+  }
+};
+
+// src/server/project-acceptance.ts
+import { randomUUID as randomUUID6 } from "node:crypto";
 
 // src/server/preview-origin.ts
 import { createServer } from "node:http";
@@ -28009,6 +28131,9 @@ var ProjectPreview = class {
     entry.descriptor.revisionId = revision;
     entry.revision = revision;
   }
+  invalidate() {
+    for (const entry of this.#active.values()) entry.stale = true;
+  }
   latestCandidate() {
     return [...this.#active.values()].filter((entry) => entry.descriptor.target === "candidate").at(-1)?.descriptor.instanceId;
   }
@@ -28570,6 +28695,12 @@ var ProjectDelivery = class {
     const eligible = checks.gates.find((gate) => gate.operation === "delivery")?.status === "available";
     return { delivery, checks, warningsKey: batch ? warningKey(batch) : null, output: this.#output, collecting: this.#busy, status: delivery?.stale ? "stale" : delivery?.complete && eligible ? "ready" : "incomplete" };
   }
+  invalidate() {
+    this.#current?.invalidate(null);
+    this.#generation++;
+    this.#controller?.abort();
+    this.#busy = false;
+  }
   consume(instanceId) {
     if (this.#current?.binding.instanceId === instanceId) this.clear();
   }
@@ -28712,6 +28843,12 @@ var ProjectChecks = class {
   #view(latest) {
     const batches = this.#batches.map((batch) => batch.view());
     return { batches, gates: gateOperations(batches.at(-1) ?? null, latest, this.evidence?.(latest, batches.at(-1)), void 0, { preview: true, delivery: true, accept: true }) };
+  }
+  invalidate() {
+    for (const batch of this.#batches) {
+      batch.invalidate({ ...batch.view().identity, project: null });
+      batch.cancel();
+    }
   }
   clear() {
     this.#generation++;
@@ -31139,6 +31276,7 @@ var taskToolAnnotations = {
 var tools = [
   { name: "start_creation_task", description: "\u4ECE Composer \u539F\u6587\u53D1\u8D77\u4E13\u7528\u521B\u4F5C\u4EFB\u52A1\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "get_creation_task", description: "\u8BFB\u53D6\u5F53\u524D\u5355\u9879\u521B\u4F5C\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ["app"] } } },
+  { name: "continue_creation_task", description: "\u660E\u786E\u57FA\u4E8E\u5F53\u524D\u5916\u90E8\u5019\u9009\u7EE7\u7EED\u540C\u4E00\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "baseline"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, baseline: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: false }, _meta: { ui: { visibility: ["app"] } } },
   {
     name: "project_render",
     title: "\u6700\u7EC8 Render",
@@ -31752,12 +31890,12 @@ function credentialState(value) {
 var ProjectWorkspaceSession = class {
   creation = null;
   creationError = null;
-  async creationOperation(input, start = false) {
+  async creationOperation(input, start = false, resume = false) {
     if (!input || typeof input.projectDirectory !== "string" || typeof input.projectId !== "string" || start && typeof input.instruction !== "string") throw new Error("\u521B\u4F5C\u4EFB\u52A1\u53C2\u6570\u65E0\u6548\u3002");
     this.#requireOpened(input.projectDirectory, input.projectId);
     if (this.creationError) throw new Error(this.creationError);
     if (!this.creation) throw new Error("\u521B\u4F5C\u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002");
-    const creationTask = start ? await this.creation.start(input.instruction, input.parentOrigin ?? "null") : await this.creation.status();
+    const creationTask = resume ? await this.creation.continueExternal(input.baseline) : start ? await this.creation.start(input.instruction, input.parentOrigin ?? "null") : await this.creation.status();
     const candidate = await this.candidate({ projectDirectory: input.projectDirectory, projectId: input.projectId, action: "read" });
     return { creationTask, candidate };
   }
@@ -32151,9 +32289,9 @@ async function callTool(params, hostValidation, workspace) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
   const { name, arguments: argumentsValue } = params;
-  if (name === "start_creation_task" || name === "get_creation_task") {
+  if (name === "start_creation_task" || name === "get_creation_task" || name === "continue_creation_task") {
     try {
-      return { structuredContent: await workspace.creationOperation(argumentsValue, name === "start_creation_task"), content: [] };
+      return { structuredContent: await workspace.creationOperation(argumentsValue, name === "start_creation_task", name === "continue_creation_task"), content: [] };
     } catch (error51) {
       return { isError: true, structuredContent: { error: { code: "CREATION_TASK_FAILED", message: error51.message } }, content: [] };
     }

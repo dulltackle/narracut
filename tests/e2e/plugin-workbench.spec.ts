@@ -1512,3 +1512,39 @@ test('等待用户期间仍刷新任务终结，连接恢复清除错误且任�
   await expect(details).toBeFocused();
   await expect(page.getByText('task-refresh', { exact: true })).toBeVisible();
 });
+
+test('自动跟进保留 Composer 与 Scene，外部候选直接继续且防止重复提交', async ({ page }) => {
+  await loadWorkbench(page); await sendResult(page, validResult());
+  const task = { taskId: 'task-83', status: 'running', reason: null, instruction: '跟随最新内容', stage: 'check', pending: 'Scene、Speech 已更新，正在重新检查' };
+  let calls = 0, finish: ((value: unknown) => void) | undefined;
+  await installAppToolBridge(page, name => {
+    if (name === 'continue_creation_task') { calls++; return new Promise(resolve => { finish = resolve; }); }
+    if (name === 'get_creation_task') return { structuredContent: { creationTask: task } };
+    return { structuredContent: {} };
+  });
+  const draft = page.getByRole('textbox', { name: 'Composer' });
+  await draft.fill('保留正在输入的文字'); await draft.focus();
+  await sendResult(page, { creationTask: task });
+  await expect(draft).toBeFocused(); await expect(draft).toHaveValue('保留正在输入的文字');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    expect(await page.locator('.contact-sheet').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(200);
+    await page.screenshot({ path: `/tmp/narracut-83-table-${width}.png`, fullPage: true });
+  }
+  await page.getByRole('button', { name: '查看任务', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '运行中 · 正在跟进最新项目内容' })).toBeVisible();
+  const waiting = { ...task, status: 'waiting', reason: 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', pending: '已保留外部修改，已丢弃 Agent 未提交修改。继续后，Agent 将基于外部候选和最新项目内容重新检查并创作。' };
+  await sendResult(page, { creationTask: waiting });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(page.getByRole('button', { name: '基于外部候选继续' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `/tmp/narracut-83-${width}.png`, fullPage: true });
+  }
+  await page.getByRole('button', { name: '基于外部候选继续' }).click();
+  await expect(page.getByRole('button', { name: '正在核对候选' })).toBeDisabled();
+  expect(calls).toBe(1);
+  finish!({ structuredContent: { creationTask: task } });
+  await expect(page.getByRole('heading', { name: '运行中 · 正在跟进最新项目内容' })).toBeVisible();
+  await expect(draft).toHaveValue('保留正在输入的文字');
+});
