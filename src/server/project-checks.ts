@@ -67,7 +67,7 @@ export class ProjectChecks {
           if (snapshot.capture.status !== 'fulfilled' || snapshot.source.status !== 'fulfilled') return [fromError(snapshot.capture.status === 'rejected' ? snapshot.capture.reason : undefined, 'RUNTIME_CONTRACT_VIOLATION')];
           try {
             const value = snapshot.capture.value;
-            const bundle = await opened.buildCandidateBundle({ input: value.input, speech: value.speech, baseline: value.baseline, sourceIdentity: value.sourceIdentity, target: 'candidate', signal });
+            const bundle = await opened.buildCandidateBundle({ input: value.input, speech: value.speech, media: value.media, baseline: value.baseline, sourceIdentity: value.sourceIdentity, target: 'candidate', signal });
             if (bundle.environmentIdentity !== identity.environment) {
               batch.invalidate({ ...identity, environment: bundle.environmentIdentity });
               throw Object.assign(new Error('构建使用的执行环境身份已变化，请重新检查。'), { code: 'CHECK_IDENTITY_CHANGED' });

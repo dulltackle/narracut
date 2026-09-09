@@ -983,3 +983,22 @@ it('唯一依赖协调工具拒绝非法来源，并且普通候选工具不能�
     expect((await call('manage_project_candidate', { ...args, action: 'read' })).structuredContent.candidate).toEqual(first.structuredContent.candidate);
   } finally { await request.dispose(); }
 });
+
+it('最终 Render 工具仅供工作台，拒绝未接受状态并可核对未启动请求', async () => {
+  const projectDirectory = join(await mkdtemp(join(tmpdir(), 'render-tool-')), 'project');
+  const request = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+  let id = 1100;
+  const call = (name: string, args: Record<string, unknown>) => request({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } }) as Promise<any>;
+  try {
+    const listed = await request({ jsonrpc: '2.0', id: id++, method: 'tools/list' }) as any;
+    expect(listed.tools).toContainEqual(expect.objectContaining({ name: 'project_render', _meta: { ui: { visibility: ['app'] } } }));
+    const created = await call('create_project', { projectDirectory });
+    const args = { projectDirectory, projectId: created.structuredContent.project.projectId };
+    const state = await call('project_render', { ...args, action: 'status' });
+    expect(state.structuredContent.source).toMatchObject({ accepted: false, ready: false });
+    const requestId = '10000000-0000-4000-8000-000000000081';
+    const started = await call('project_render', { ...args, action: 'start', requestId, key: state.structuredContent.source.key, outputPath: join(projectDirectory, 'renders/result.mp4') });
+    expect(started.structuredContent.error.code).toBe('RENDER_NOT_READY');
+    expect((await call('project_render', { ...args, action: 'result', requestId })).structuredContent.status).toBe('not-started');
+  } finally { await request.dispose(); }
+});

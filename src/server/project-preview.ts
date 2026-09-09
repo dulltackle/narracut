@@ -11,7 +11,7 @@ import { createRenderProgramInput } from './render-program-input';
 import { PreviewOrigin, previewDigest, type PreviewFreshness, type PreviewDescriptor } from './preview-origin';
 
 /** 不跟随链接，且在读取前后核对普通文件身份；保留的媒体是字节副本。 */
-async function snapshotFile(root: string, path: string, limit: number) {
+export async function snapshotFile(root: string, path: string, limit: number) {
   const full = join(root, path), resolved = await realpath(full), rel = relative(await realpath(root), resolved);
   if (rel.startsWith('..') || isAbsolute(rel) || (await lstat(full)).isSymbolicLink()) throw new Error('Preview 文件越过项目边界。');
   const expected = await lstat(resolved);
@@ -26,17 +26,19 @@ async function snapshotFile(root: string, path: string, limit: number) {
 }
 export class ProjectPreview {
   readonly source = new PreviewOrigin();
+  #bundles = new Map<string, import('./program-bundle').ProgramBundle>();
+  cachedBundle(identity: string) { return this.#bundles.get(identity); }
   #active = new Map<string, { descriptor: PreviewDescriptor; brief: string; input: string; revision: string; sourceIdentity: string; identity: CheckIdentity; stale: boolean }>();
   async #observe(opened: OpenedProjectVNext, output: OutputFormat) {
     const root = opened.inspection.projectDirectory;
     const state = await inspectProjectVNext(root);
     if (state.manifest.projectId !== opened.inspection.manifest.projectId) throw new Error('项目身份失效，请重新打开。');
-    const media = new Map<string, Buffer>(), assetSources = new Map<string, string>();
+    const media = new Map<string, Buffer>(), assetSources = new Map<string, string>(), mediaPaths = new Map<string, string>();
     let total = 0;
     async function add(path: string) {
       const bytes = await snapshotFile(root, path, 256 * 1024 * 1024);
       total += bytes.length; if (total > 512 * 1024 * 1024) throw new Error('Preview 媒体超过 512 MiB，请缩小素材后重试。');
-      const key = `media/${previewDigest(bytes).slice(7)}`; media.set(key, bytes); return key;
+      const digest = previewDigest(bytes), key = `media/${digest.slice(7)}`; media.set(key, bytes); mediaPaths.set(path, digest); return key;
     }
     const referenced = new Set(state.project.scenes.flatMap(scene => scene.assetIds));
     for (const asset of state.assetStates) if (referenced.has(asset.id) && asset.status === 'available') assetSources.set(asset.id, await add(asset.path));
@@ -46,7 +48,7 @@ export class ProjectPreview {
       const source = state.project.scenes.find(item => item.id === scene.id)!.speech!;
       speech.push({ sceneId: scene.id, startFrame: scene.time.startFrame, durationInFrames: scene.time.durationInFrames, src: await add(source.path) });
     }
-    return { state, input, speech, media };
+    return { state, input, speech, media, mediaPaths };
   }
   async capture(opened: OpenedProjectVNext, target: 'current' | 'candidate', tolerateInvalidManifest = false) {
     const candidate = await opened.candidate({ action: 'read' });
@@ -54,17 +56,20 @@ export class ProjectPreview {
     const manifest = source.manifest;
     let output: OutputFormat;
     try { output = checkProgramManifest(manifest).output; } catch (error) { if (!tolerateInvalidManifest) throw error; output = { width: 1920, height: 1080, fps: 30 }; }
-    const { state, input, speech, media } = await this.#observe(opened, output);
+    const { state, input, speech, media, mediaPaths } = await this.#observe(opened, output);
     const signature = previewDigest(JSON.stringify([state.projectRevision, state.videoBriefRevision, target === 'candidate' ? candidate.baseline : source.revision, source.identity, manifest.toString(), [...media.keys()].sort(), input, speech]));
-    return { input, speech, media, signature, brief: state.videoBriefRevision, projectInput: previewDigest(JSON.stringify([state.projectRevision, input, speech])), baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
+    return { input, speech, media, mediaPaths, signature, brief: state.videoBriefRevision, projectInput: previewDigest(JSON.stringify([state.projectRevision, input, speech])), baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
   }
   async build(opened: OpenedProjectVNext, target: 'current' | 'candidate', parentOrigin: string) {
     if (this.#active.size >= 4) throw new Error('Preview 实例已达上限，请关闭隐藏实例后重试。');
     const before = await this.capture(opened, target);
-    const bundle = await opened.buildCandidateBundle({ input: before.input, speech: before.speech, baseline: before.baseline, sourceIdentity: before.sourceIdentity, target });
+    const bundle = await opened.buildCandidateBundle({ input: before.input, speech: before.speech, media: before.media, baseline: before.baseline, sourceIdentity: before.sourceIdentity, target });
     const after = await this.capture(opened, target);
     if (before.signature !== after.signature) throw new Error('构建期间输入或媒体已变化，请重试。');
+    this.#bundles.set(bundle.identity, bundle);
+    if (this.#bundles.size > 4) this.#bundles.delete(this.#bundles.keys().next().value!);
     const descriptor = await this.source.publish({ ...before, bundle, target, parentOrigin, key: randomBytes(24).toString('hex'), label: target === 'candidate' ? `候选 · ${before.candidate.candidate!.identity.slice(7, 15)}` : `当前 · ${before.revision.slice(0, 8)}` });
+    if (target === 'current') descriptor.revisionId = before.revision;
     this.#active.set(descriptor.instanceId, { descriptor, brief: before.brief, input: before.projectInput, revision: before.revision, sourceIdentity: before.sourceIdentity, stale: false, identity: { project: opened.inspection.manifest.projectId, program: before.sourceIdentity, baseline: before.baseline, brief: before.brief, input: before.projectInput, media: descriptor.identity.media, environment: descriptor.identity.environment } });
     descriptor.freshness = (await this.status(opened, descriptor.instanceId)).freshness;
     return descriptor;
@@ -106,10 +111,11 @@ export class ProjectPreview {
     const entry = this.#active.get(instanceId);
     if (!entry) return;
     entry.descriptor.target = 'current'; entry.descriptor.label = `当前 · ${revision.slice(0, 8)}`;
+    entry.descriptor.revisionId = revision;
     entry.revision = revision;
   }
   latestCandidate() { return [...this.#active.values()].filter(entry => entry.descriptor.target === 'candidate').at(-1)?.descriptor.instanceId; }
   release(instanceId: string) { const entry = this.#active.get(instanceId); if (entry) this.source.release(entry.descriptor.url); this.#active.delete(instanceId); }
-  clear() { for (const entry of this.#active.values()) this.source.release(entry.descriptor.url); this.#active.clear(); }
+  clear() { for (const entry of this.#active.values()) this.source.release(entry.descriptor.url); this.#active.clear(); this.#bundles.clear(); }
   async close() { this.clear(); await this.source.close(); }
 }

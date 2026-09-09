@@ -1,4 +1,5 @@
 import { ProjectAcceptance } from '../../../src/server/project-acceptance';
+import { ProjectRender } from '../../../src/server/project-render';
 import { ProjectDelivery } from '../../../src/server/project-delivery';
 import { ProjectChecks } from '../../../src/server/project-checks';
 import { ProjectPreview } from '../../../src/server/project-preview';
@@ -105,6 +106,14 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  {
+    name: 'project_render', title: '最终 Render',
+    description: '仅供用户工作台：从当前已接受完整状态准备、启动、查询或取消最终 Render；复用同一 Bundle，不覆盖输出文件。',
+    inputSchema: { type: 'object', required: ['projectDirectory', 'projectId', 'action'], additionalProperties: false, properties: {
+      projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['status', 'start', 'result', 'cancel'] },
+      requestId: { type: 'string' }, key: { type: 'string' }, outputPath: { type: 'string' }, jobId: { type: 'string' },
+    } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } },
+  },
   {
     name: "project_acceptance", title: "接受完整候选与查看修订历史",
     description: "仅供用户工作台：审阅、明确接受完整候选、核对提交结果、重试清理和从有效历史创建候选；不直接回退当前指针。",
@@ -566,7 +575,7 @@ function diagnosticSummary(diagnostics: readonly ProjectInspectionDiagnostic[]):
 }
 
 async function loadWorkbench(): Promise<string> {
-  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript, acceptanceScript] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript, acceptanceScript, renderScript] = await Promise.all([
     readFile(WORKBENCH_PATH, "utf8"),
     readFile(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile(PAPER_TEXTURE_PATH),
@@ -576,11 +585,12 @@ async function loadWorkbench(): Promise<string> {
     readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
     readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-delivery.js" : "../workbench-delivery.js", import.meta.url), "utf8"),
     readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-acceptance.js" : "../workbench-acceptance.js", import.meta.url), "utf8"),
+    readFile(new URL(import.meta.url.endsWith('/server.mjs') ? './workbench-render.js' : '../workbench-render.js', import.meta.url), 'utf8'),
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html
     .replace("/*__NARRACUT_MATERIALS__*/", materialVariables)
-    .replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + acceptanceScript + "\n" + script);
+    .replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + acceptanceScript + "\n" + renderScript + "\n" + script);
 }
 
 async function inspectProject(argumentsValue: unknown): Promise<ToolResult> {
@@ -692,6 +702,15 @@ class ProjectWorkspaceSession {
   checks = new ProjectChecks(this.preview);
   delivery = new ProjectDelivery(this.preview, this.checks);
   acceptance = new ProjectAcceptance(this.delivery, this.preview);
+  render = new ProjectRender(this.preview);
+  async renderOperation(input: any) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.action === 'status') return this.render.status(opened);
+    if (input.action === 'start') return this.render.start(opened, input);
+    if (input.action === 'result') return this.render.result(input.requestId);
+    if (input.action === 'cancel') return this.render.cancel(input.jobId);
+    throw new Error('最终 Render 参数无效。');
+  }
   async acceptanceOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const result = await this.acceptance.operate(opened, input);
@@ -749,7 +768,7 @@ class ProjectWorkspaceSession {
     });
     const previous = this.#opened;
     try {
-      if (previous !== null) await previous.release();
+      if (previous !== null) { await this.render.close(); await previous.release(); }
     } catch (error) {
       await next.release();
       throw error;
@@ -1101,6 +1120,7 @@ class ProjectWorkspaceSession {
   }
 
   async dispose(): Promise<void> {
+    await this.render.close();
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
     }
@@ -1146,6 +1166,10 @@ async function callTool(
   if (name === "project_acceptance") {
     try { return { structuredContent: await workspace.acceptanceOperation(argumentsValue), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? "ACCEPTANCE_FAILED", message: (error as Error).message } }, content: [] }; }
+  }
+  if (name === 'project_render') {
+    try { return { structuredContent: await workspace.renderOperation(argumentsValue), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? 'RENDER_OPERATION_FAILED', message: (error as Error).message } }, content: [] }; }
   }
   if (name === "project_delivery" || name === "project_delivery_display") {
     try {

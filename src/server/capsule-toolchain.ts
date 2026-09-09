@@ -7,6 +7,7 @@ import { arch, release } from 'node:os';
 import { rmSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { createRequire as createToolchainRequire } from 'node:module';
 
 const exec = promisify(execFile);
 
@@ -71,6 +72,16 @@ export async function snapshotCapsuleToolchain() {
     await tree(join(applicationRoot, 'node_modules/@fontsource-variable/noto-sans-sc/files'), '/runtime/fonts');
     // Chromium 的 Linux 字体平台需要一个可由 fontconfig 解析的基础字体；字节进入指纹。
     await add('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/runtime/fonts/fallback.ttf');
+    group = 'encoder';
+    const require = createToolchainRequire(import.meta.url);
+    const rendererRoot = dirname(require.resolve('@remotion/renderer/package.json'));
+    const { getExecutableDir } = require(join(rendererRoot, 'dist/compositor/get-executable-path.js'));
+    const binaries = getExecutableDir(false, 'error');
+    for (const name of await readdir(binaries)) if (/\.so(?:\.|$)/.test(name)) await add(join(binaries, name), `/runtime/${name}`, true);
+    for (const name of ['ffmpeg', 'ffprobe']) {
+      await add(join(binaries, name), `/runtime/${name}`, true);
+      await libraries(join(binaries, name));
+    }
     for (const path of ['inputs', 'output', 'tmp', 'proc', 'dev/shm', 'etc/fonts']) await mkdir(join(root, path), { recursive: true });
     await writeFile(join(root, 'supervisor.mjs'), '', { mode: 0o444 });
     const fontConfig = '<!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><dir>/runtime/fonts</dir><cachedir>/tmp/font-cache</cachedir></fontconfig>';

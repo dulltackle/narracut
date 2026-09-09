@@ -37,6 +37,7 @@ export type ProgramBuildRequest = {
   offline: ReadonlyMap<string, Buffer>;
   input: RenderProgramInputV1;
   speech: readonly RuntimeSpeech[];
+  media?: ReadonlyMap<string, Buffer>;
   signal?: AbortSignal;
 };
 function fingerprint(files: ReadonlyMap<string, Uint8Array>) {
@@ -81,7 +82,8 @@ async function programEnvironment(capsuleIdentity: string, toolchain: Awaited<Re
   const runtimeFiles = { ...toolchain.files, 'source/entry.tsx': Buffer.from(PROGRAM_RUNTIME_SOURCE), 'source/entry-contract.ts': Buffer.from(PROGRAM_ENTRY_CONTRACT), 'source/safe-jsx.ts': Buffer.from(PROGRAM_SAFE_JSX), 'source/safe-remotion.ts': Buffer.from(PROGRAM_SAFE_REMOTION), 'launch.mjs': Buffer.from("process.env.ESBUILD_BINARY_PATH='/tmp/tools/esbuild';await import('./worker.mjs');") };
   const metadataDriver = await bundleApplicationWorker('metadata');
   const evidenceDriver = await bundleApplicationWorker('evidence');
-  const identity = fingerprint(new Map([...Object.entries(runtimeFiles), ['capsule', Buffer.from(capsuleIdentity)], ['metadata-worker', metadataDriver], ['evidence-worker', evidenceDriver]]));
+  const encodeDriver = await bundleApplicationWorker('encode');
+  const identity = fingerprint(new Map([...Object.entries(runtimeFiles), ['capsule', Buffer.from(capsuleIdentity)], ['metadata-worker', metadataDriver], ['evidence-worker', evidenceDriver], ['encode-worker', encodeDriver]]));
   return { runtimeFiles, metadataDriver, identity };
 }
 export async function programEnvironmentIdentity() {
@@ -95,6 +97,8 @@ export async function buildProgramBundle(request: ProgramBuildRequest): Promise<
   const program = new Map([...request.program].map(([path, bytes]) => [path, Buffer.from(bytes)]));
   const offline = new Map([...request.offline].map(([key, bytes]) => [key, Buffer.from(bytes)]));
   const binding = JSON.parse(JSON.stringify({ input: request.input, speech: request.speech }));
+  const media = new Map([...(request.media ?? [])].map(([path, bytes]) => [path, Buffer.from(bytes)]));
+  for (const [path, bytes] of media) if (path !== `media/${createHash('sha256').update(bytes).digest('hex')}`) throw new ProgramBuildError('RUNTIME_CONTRACT_VIOLATION', '媒体读取地址与字节指纹不一致。');
   const manifest = checkProgramManifest(program.get('program.json'));
   checkBinding(binding.input, binding.speech, manifest.output);
   for (const path of program.keys()) if (!/^(?:src\/|resources\/|program\.json$|package\.json$|pnpm-lock\.yaml$)/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..') || /[\\\0]/.test(path)) throw new ProgramBuildError('BUNDLE_FAILED', '候选包含不支持的路径或构建配置。');
@@ -153,6 +157,7 @@ export async function buildProgramBundle(request: ProgramBuildRequest): Promise<
   const metadata = await capsule.run({ stage: 'metadata', entry: 'bundle/metadata.mjs', signal: request.signal, inputs: {
     ...Object.fromEntries([...bundle].map(([path, bytes]) => [`bundle/${path}`, bytes])),
     'bundle/metadata.mjs': metadataDriver, 'input/binding.json': Buffer.from(JSON.stringify(binding)),
+    ...Object.fromEntries(media),
   } }, files => {
     if (files.size !== 1 || !files.has('metadata.json')) return false;
     const value = JSON.parse(files.get('metadata.json')!.toString());

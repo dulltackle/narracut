@@ -35,12 +35,13 @@ const limits = (memory: number, disk: number, output: number, wallMs: number, pi
   Object.freeze({ memory: memory * MiB, pids, disk: disk * MiB, output: output * MiB, logs: MiB, wallMs });
 export const CAPSULE_POLICIES = Object.freeze({
   download: limits(256, 64, 32, 30_000), install: limits(512, 256, 128, 60_000),
-  build: limits(1024, 256, 128, 120_000), metadata: limits(1024, 64, 4, 30_000, 256),
-  preview: limits(1024, 128, 64, 120_000, 256), render: limits(2048, 512, 256, 300_000, 256),
+  // 媒体快照上限 512 MiB，另为 Bundle 与绑定输入保留空间。
+  build: limits(1024, 256, 128, 120_000), metadata: limits(1024, 640, 4, 30_000, 256),
+  preview: limits(1024, 640, 64, 120_000, 256), render: limits(2048, 640, 256, 300_000, 256),
 });
 const roles: Record<CapsuleStage, readonly string[]> = {
   download: ['dependencies'], install: ['dependencies'], build: ['program', 'runtime', 'dependencies'],
-  metadata: ['bundle', 'input'], preview: ['bundle', 'input', 'media'], render: ['bundle', 'input', 'media'],
+  metadata: ['bundle', 'input', 'media'], preview: ['bundle', 'input', 'media'], render: ['bundle', 'input', 'media'],
 };
 const safePath = (path: string) => path.length <= 512 && !path.includes('\\') && !path.includes('\0') &&
   path.split('/').every(part => part !== '' && part !== '.' && part !== '..');
@@ -197,6 +198,7 @@ export class ExecutionCapsule {
         '--tmpfs', '/',
         ...this.#toolchain.files.filter(file => file.roles.includes('node') ||
           (['install', 'build'].includes(stage) && file.roles.includes('shell')) ||
+          (stage === 'render' && file.roles.includes('encoder')) ||
           (['metadata', 'preview', 'render'].includes(stage) && file.roles.includes('browser')))
           .flatMap(file => ['--ro-bind', join(this.#toolchain!.root, file.path), file.path]),
         '--ro-bind', inputRoot, '/inputs', '--ro-bind', supervisor, '/supervisor.mjs',

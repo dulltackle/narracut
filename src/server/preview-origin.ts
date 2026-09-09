@@ -11,6 +11,7 @@ export type PreviewFreshness = {
   environment: { status: 'latest' | 'stale' | 'unknown'; captured?: string; latest?: string };
 };
 export type PreviewDescriptor = {
+  revisionId?: string;
   version: 1; parentOrigin?: string; instanceId: string; token: string; url: string; origin: string;
   identity: { bundle: string; input: string; media: string; environment: string };
   freshness?: PreviewFreshness;

@@ -8216,10 +8216,10 @@ var require_truncate = __commonJS({
   "node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/truncate.js"(exports, module) {
     "use strict";
     var parse4 = require_parse();
-    var constants3 = require_constants();
+    var constants4 = require_constants();
     var SemVer = require_semver();
     var truncate = (version2, truncation, options) => {
-      if (!constants3.RELEASE_TYPES.includes(truncation)) {
+      if (!constants4.RELEASE_TYPES.includes(truncation)) {
         return null;
       }
       const clonedVersion = cloneInputVersion(version2, options);
@@ -9268,7 +9268,7 @@ var require_semver2 = __commonJS({
   "node_modules/.pnpm/semver@7.8.5/node_modules/semver/index.js"(exports, module) {
     "use strict";
     var internalRe = require_re();
-    var constants3 = require_constants();
+    var constants4 = require_constants();
     var SemVer = require_semver();
     var identifiers = require_identifiers();
     var parse4 = require_parse();
@@ -9352,8 +9352,8 @@ var require_semver2 = __commonJS({
       re: internalRe.re,
       src: internalRe.src,
       tokens: internalRe.t,
-      SEMVER_SPEC_VERSION: constants3.SEMVER_SPEC_VERSION,
-      RELEASE_TYPES: constants3.RELEASE_TYPES,
+      SEMVER_SPEC_VERSION: constants4.SEMVER_SPEC_VERSION,
+      RELEASE_TYPES: constants4.RELEASE_TYPES,
       compareIdentifiers: identifiers.compareIdentifiers,
       rcompareIdentifiers: identifiers.rcompareIdentifiers
     };
@@ -23671,8 +23671,8 @@ function convertBaseSchema(schema, ctx) {
           break;
         }
         const objectSchema2 = z.object(shape).passthrough();
-        const recordSchema = z.looseRecord(keySchema, valueSchema);
-        zodSchema = z.intersection(objectSchema2, recordSchema);
+        const recordSchema2 = z.looseRecord(keySchema, valueSchema);
+        zodSchema = z.intersection(objectSchema2, recordSchema2);
         break;
       }
       if (schema.patternProperties) {
@@ -24587,6 +24587,7 @@ import { arch, release } from "node:os";
 import { rmSync } from "node:fs";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { createRequire as createToolchainRequire } from "node:module";
 var exec = promisify(execFile);
 async function reclaimOrphanSnapshots() {
   const parent = tmpdir();
@@ -24649,6 +24650,16 @@ async function snapshotCapsuleToolchain() {
     for (const name of ["libEGL.so", "libGLESv2.so", "libvk_swiftshader.so", "libvulkan.so.1"]) await libraries(join2(browser, name));
     await tree(join2(applicationRoot2, "node_modules/@fontsource-variable/noto-sans-sc/files"), "/runtime/fonts");
     await add("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/runtime/fonts/fallback.ttf");
+    group = "encoder";
+    const require3 = createToolchainRequire(import.meta.url);
+    const rendererRoot = dirname(require3.resolve("@remotion/renderer/package.json"));
+    const { getExecutableDir } = require3(join2(rendererRoot, "dist/compositor/get-executable-path.js"));
+    const binaries = getExecutableDir(false, "error");
+    for (const name of await readdir(binaries)) if (/\.so(?:\.|$)/.test(name)) await add(join2(binaries, name), `/runtime/${name}`, true);
+    for (const name of ["ffmpeg", "ffprobe"]) {
+      await add(join2(binaries, name), `/runtime/${name}`, true);
+      await libraries(join2(binaries, name));
+    }
     for (const path of ["inputs", "output", "tmp", "proc", "dev/shm", "etc/fonts"]) await mkdir2(join2(root, path), { recursive: true });
     await writeFile(join2(root, "supervisor.mjs"), "", { mode: 292 });
     const fontConfig = '<!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><dir>/runtime/fonts</dir><cachedir>/tmp/font-cache</cachedir></fontconfig>';
@@ -24712,8 +24723,8 @@ function registryURL(raw) {
   return url2.href;
 }
 async function fetchRegistryPackage(pin, cancellation) {
-  const basename4 = pin.name.split("/").at(-1);
-  let url2 = registryURL(`${REGISTRY}/${pin.name}/-/${basename4}-${pin.version}.tgz`);
+  const basename5 = pin.name.split("/").at(-1);
+  let url2 = registryURL(`${REGISTRY}/${pin.name}/-/${basename5}-${pin.version}.tgz`);
   const signal = AbortSignal.any([AbortSignal.timeout(3e4), ...cancellation ? [cancellation] : []]);
   for (let redirects = 0; redirects <= 4; redirects++) {
     let response;
@@ -24792,16 +24803,17 @@ var limits = (memory, disk, output, wallMs, pids = 64) => Object.freeze({ memory
 var CAPSULE_POLICIES = Object.freeze({
   download: limits(256, 64, 32, 3e4),
   install: limits(512, 256, 128, 6e4),
+  // 媒体快照上限 512 MiB，另为 Bundle 与绑定输入保留空间。
   build: limits(1024, 256, 128, 12e4),
-  metadata: limits(1024, 64, 4, 3e4, 256),
-  preview: limits(1024, 128, 64, 12e4, 256),
-  render: limits(2048, 512, 256, 3e5, 256)
+  metadata: limits(1024, 640, 4, 3e4, 256),
+  preview: limits(1024, 640, 64, 12e4, 256),
+  render: limits(2048, 640, 256, 3e5, 256)
 });
 var roles = {
   download: ["dependencies"],
   install: ["dependencies"],
   build: ["program", "runtime", "dependencies"],
-  metadata: ["bundle", "input"],
+  metadata: ["bundle", "input", "media"],
   preview: ["bundle", "input", "media"],
   render: ["bundle", "input", "media"]
 };
@@ -24991,7 +25003,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
         "narracut",
         "--tmpfs",
         "/",
-        ...this.#toolchain.files.filter((file2) => file2.roles.includes("node") || ["install", "build"].includes(stage) && file2.roles.includes("shell") || ["metadata", "preview", "render"].includes(stage) && file2.roles.includes("browser")).flatMap((file2) => ["--ro-bind", join3(this.#toolchain.root, file2.path), file2.path]),
+        ...this.#toolchain.files.filter((file2) => file2.roles.includes("node") || ["install", "build"].includes(stage) && file2.roles.includes("shell") || stage === "render" && file2.roles.includes("encoder") || ["metadata", "preview", "render"].includes(stage) && file2.roles.includes("browser")).flatMap((file2) => ["--ro-bind", join3(this.#toolchain.root, file2.path), file2.path]),
         "--ro-bind",
         inputRoot,
         "/inputs",
@@ -25359,10 +25371,10 @@ function readOfflineDependencyGraph(manifestBytes, lockBytes, store) {
 
 // src/server/program-toolchain.ts
 import { readFile as readFile2, readdir as readdir2 } from "node:fs/promises";
-import { createRequire as createToolchainRequire } from "node:module";
+import { createRequire as createToolchainRequire2 } from "node:module";
 import { dirname as dirname3, join as join4 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-var require2 = createToolchainRequire(import.meta.url);
+var require2 = createToolchainRequire2(import.meta.url);
 var applicationRoot = join4(dirname3(fileURLToPath2(import.meta.url)), "../..");
 async function programToolchain() {
   const files = /* @__PURE__ */ Object.create(null);
@@ -25380,15 +25392,15 @@ async function programToolchain() {
     }
   }
   for (const name of ["react", "react-dom", "scheduler", "remotion", "@remotion/player", "@types/react", "@types/react-dom", "csstype"]) {
-    const resolver = name === "scheduler" ? createToolchainRequire(require2.resolve("react-dom/package.json")) : name === "csstype" ? createToolchainRequire(require2.resolve("@types/react/package.json")) : require2;
+    const resolver = name === "scheduler" ? createToolchainRequire2(require2.resolve("react-dom/package.json")) : name === "csstype" ? createToolchainRequire2(require2.resolve("@types/react/package.json")) : require2;
     const root = dirname3(resolver.resolve(`${name}/package.json`));
     const collected = /* @__PURE__ */ new Map();
     await readTree2(root, `modules/${name}`, collected);
     packages.set(name, { version: JSON.parse(collected.get("package.json").toString()).version, files: collected });
   }
-  const esbuildRequire = createToolchainRequire(require2.resolve("esbuild/package.json"));
+  const esbuildRequire = createToolchainRequire2(require2.resolve("esbuild/package.json"));
   files["toolchain/esbuild"] = await readFile2(esbuildRequire.resolve(`@esbuild/${process.platform}-${process.arch}/bin/esbuild`));
-  const tsRequire = createToolchainRequire(require2.resolve("typescript/package.json"));
+  const tsRequire = createToolchainRequire2(require2.resolve("typescript/package.json"));
   const tsRoot = dirname3(tsRequire.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`));
   await readTree2(join4(tsRoot, "lib"), "toolchain/tsc");
   files["modules/@narracut/runtime/index.ts"] = await readFile2(join4(applicationRoot, "src/runtime/index.ts"));
@@ -25604,7 +25616,8 @@ async function programEnvironment(capsuleIdentity, toolchain) {
   const runtimeFiles = { ...toolchain.files, "source/entry.tsx": Buffer.from(PROGRAM_RUNTIME_SOURCE), "source/entry-contract.ts": Buffer.from(PROGRAM_ENTRY_CONTRACT), "source/safe-jsx.ts": Buffer.from(PROGRAM_SAFE_JSX), "source/safe-remotion.ts": Buffer.from(PROGRAM_SAFE_REMOTION), "launch.mjs": Buffer.from("process.env.ESBUILD_BINARY_PATH='/tmp/tools/esbuild';await import('./worker.mjs');") };
   const metadataDriver = await bundleApplicationWorker("metadata");
   const evidenceDriver = await bundleApplicationWorker("evidence");
-  const identity2 = fingerprint(new Map([...Object.entries(runtimeFiles), ["capsule", Buffer.from(capsuleIdentity)], ["metadata-worker", metadataDriver], ["evidence-worker", evidenceDriver]]));
+  const encodeDriver = await bundleApplicationWorker("encode");
+  const identity2 = fingerprint(new Map([...Object.entries(runtimeFiles), ["capsule", Buffer.from(capsuleIdentity)], ["metadata-worker", metadataDriver], ["evidence-worker", evidenceDriver], ["encode-worker", encodeDriver]]));
   return { runtimeFiles, metadataDriver, identity: identity2 };
 }
 async function programEnvironmentIdentity() {
@@ -25615,6 +25628,8 @@ async function buildProgramBundle(request) {
   const program = new Map([...request.program].map(([path, bytes]) => [path, Buffer.from(bytes)]));
   const offline = new Map([...request.offline].map(([key, bytes]) => [key, Buffer.from(bytes)]));
   const binding = JSON.parse(JSON.stringify({ input: request.input, speech: request.speech }));
+  const media = new Map([...request.media ?? []].map(([path, bytes]) => [path, Buffer.from(bytes)]));
+  for (const [path, bytes] of media) if (path !== `media/${createHash6("sha256").update(bytes).digest("hex")}`) throw new ProgramBuildError("RUNTIME_CONTRACT_VIOLATION", "\u5A92\u4F53\u8BFB\u53D6\u5730\u5740\u4E0E\u5B57\u8282\u6307\u7EB9\u4E0D\u4E00\u81F4\u3002");
   const manifest = checkProgramManifest(program.get("program.json"));
   checkBinding(binding.input, binding.speech, manifest.output);
   for (const path of program.keys()) if (!/^(?:src\/|resources\/|program\.json$|package\.json$|pnpm-lock\.yaml$)/.test(path) || path.split("/").some((part) => !part || part === "." || part === "..") || /[\\\0]/.test(path)) throw new ProgramBuildError("BUNDLE_FAILED", "\u5019\u9009\u5305\u542B\u4E0D\u652F\u6301\u7684\u8DEF\u5F84\u6216\u6784\u5EFA\u914D\u7F6E\u3002");
@@ -25672,7 +25687,8 @@ async function buildProgramBundle(request) {
   const metadata = await capsule.run({ stage: "metadata", entry: "bundle/metadata.mjs", signal: request.signal, inputs: {
     ...Object.fromEntries([...bundle].map(([path, bytes]) => [`bundle/${path}`, bytes])),
     "bundle/metadata.mjs": metadataDriver,
-    "input/binding.json": Buffer.from(JSON.stringify(binding))
+    "input/binding.json": Buffer.from(JSON.stringify(binding)),
+    ...Object.fromEntries(media)
   } }, (files) => {
     if (files.size !== 1 || !files.has("metadata.json")) return false;
     const value = JSON.parse(files.get("metadata.json").toString());
@@ -26089,7 +26105,7 @@ var ProjectAcceptance = class {
       batchId: batch.id,
       stages: batch.stages.map(({ id, status }) => ({ id, status })),
       warnings: [...delivery.report.warnings, ...batch.diagnostics.filter((item) => item.severity === "warning").map((item) => `${item.code}\uFF1A${item.message} ${item.suggestion}`), ...batch.visualWarnings.map((item) => `${item.message} ${item.suggestion}`)],
-      frames: delivery.frames.map(({ frame, reasons, digest: digest2 }) => ({ frame, reasons, digest: digest2 })),
+      frames: delivery.frames.map(({ frame, reasons, digest: digest3 }) => ({ frame, reasons, digest: digest3 })),
       zeroScenes: delivery.zeroScenes,
       gates: [{ operation: gate.operation, status: gate.status, reason: gate.reason }]
     };
@@ -26135,418 +26151,11 @@ var ProjectAcceptance = class {
   }
 };
 
-// src/server/project-delivery.ts
-import { randomUUID as randomUUID6 } from "node:crypto";
-
-// src/shared/representative-frames.ts
-function representativePlan(input, supplemental = []) {
-  const points = /* @__PURE__ */ new Map();
-  function add(frame, reason) {
-    if (!Number.isSafeInteger(frame) || frame < 0 || frame >= input.durationInFrames) throw new Error("\u4EE3\u8868\u5E27\u5FC5\u987B\u4F4D\u4E8E\u5B8C\u6574\u89C6\u9891\u65F6\u95F4\u8303\u56F4\u5185\u3002");
-    const reasons = points.get(frame) ?? [];
-    if (!reasons.some((item) => JSON.stringify(item) === JSON.stringify(reason))) reasons.push(reason);
-    points.set(frame, reasons);
-  }
-  if (input.scenes.length) {
-    add(0, { kind: "film-start", source: "system" });
-    add(input.durationInFrames - 1, { kind: "film-end", source: "system" });
-    for (const [index, scene] of input.scenes.entries()) {
-      const start = scene.time.startFrame, end = start + scene.time.durationInFrames - 1;
-      for (const [frame, kind] of [[start, "scene-start"], [start + Math.floor((scene.time.durationInFrames - 1) / 2), "scene-middle"], [end, "scene-end"]]) add(frame, { kind, sceneId: scene.id, source: "system" });
-      if (index) {
-        const boundary = `${input.scenes[index - 1].id}:${scene.id}`;
-        add(start - 1, { kind: "boundary-before", boundary, source: "system" });
-        add(start, { kind: "boundary-after", boundary, source: "system" });
-      }
-    }
-  }
-  for (const point of supplemental) {
-    if (!["transition", "motion"].includes(point.source) || typeof point.reason !== "string" || !point.reason.trim() || point.reason.length > 2e3) throw new Error("\u8865\u5145\u5173\u952E\u70B9\u9700\u8981\u6765\u6E90\u4E0E\u5177\u4F53\u7406\u7531\u3002");
-    add(point.frame, { kind: point.source, reason: point.reason, source: "agent" });
-  }
-  return [...points].sort(([a], [b]) => a - b).map(([frame, reasons]) => ({ frame, reasons }));
-}
-
-// src/shared/candidate-delivery.ts
-var CandidateDelivery = class {
-  constructor(id, binding, input, supplements = []) {
-    this.id = id;
-    this.input = input;
-    this.binding = structuredClone(binding);
-    this.input = structuredClone(input);
-    this.#frames = representativePlan(input, supplements).map((point) => ({ ...point, status: "pending" }));
-  }
-  id;
-  input;
-  binding;
-  #frames;
-  #stale = false;
-  #report;
-  #revision = 0;
-  #displayed = -1;
-  invalidate(latest) {
-    if (!latest || latest.instanceId !== this.binding.instanceId || latest.bundle !== this.binding.bundle || !sameIdentity(latest.identity, this.binding.identity) || Object.values(latest.identity).some((value) => !value)) this.#stale = true;
-  }
-  #frame(frame) {
-    if (this.#stale) throw new Error("\u6574\u5957\u8BC1\u636E\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u9488\u5BF9\u6700\u65B0 Preview \u91CD\u65B0\u51C6\u5907\u3002");
-    const item = this.#frames.find((item2) => item2.frame === frame);
-    if (!item) throw new Error("\u5E27\u4E0D\u5C5E\u4E8E\u5B8C\u6574\u8BA1\u5212\u3002");
-    return item;
-  }
-  capture(frame, digest2) {
-    const item = this.#frame(frame);
-    item.status = "captured";
-    item.digest = digest2;
-    delete item.error;
-    delete item.observation;
-  }
-  fail(frame, reason) {
-    const item = this.#frame(frame);
-    item.status = "failed";
-    item.error = reason;
-    delete item.digest;
-    delete item.observation;
-  }
-  review(frame, digest2, observation) {
-    const item = this.#frame(frame);
-    if (item.status !== "captured" || item.digest !== digest2 || !observation.trim() || observation.length > 4e3) throw new Error("\u68C0\u67E5\u5FC5\u987B\u5F15\u7528\u5DF2\u91C7\u96C6\u56FE\u50CF\u7684\u51C6\u786E\u6458\u8981\u5E76\u63D0\u4F9B\u89C2\u5BDF\u3002");
-    item.observation = observation;
-  }
-  describe(report) {
-    if (this.#stale) throw new Error("\u5DF2\u8FC7\u671F\u4EA4\u4ED8\u4E0D\u80FD\u66F4\u65B0\u62A5\u544A\u3002");
-    if (!report.goal.trim() || !report.summary.trim() || report.suggestions.some((item) => !this.input.scenes.some((scene) => scene.id === item.sceneId))) throw new Error("\u4EA4\u4ED8\u9700\u8981\u76EE\u6807\u3001\u53D8\u66F4\u6458\u8981\u53CA\u5B58\u5728\u7684\u7A33\u5B9A Scene ID\u3002");
-    this.#report = structuredClone(report);
-    this.#revision++;
-    this.#displayed = -1;
-  }
-  displayWarnings(revision) {
-    if (!this.#stale && this.#report && revision === this.#revision) this.#displayed = revision;
-  }
-  evidence() {
-    return { ...structuredClone(this.binding), previewReady: !this.#stale, representativeFrames: !this.#stale && this.#frames.every((item) => item.status === "captured" && !!item.observation), warningsDisplayed: !this.#stale && !!this.#report && this.#displayed === this.#revision, explicitAcceptance: false, zeroScenes: this.input.scenes.length === 0 };
-  }
-  complete() {
-    const evidence = this.evidence();
-    return !this.#stale && !!this.#report && evidence.representativeFrames && evidence.warningsDisplayed;
-  }
-  view() {
-    return structuredClone({ version: 1, id: this.id, binding: this.binding, stale: this.#stale, frames: this.#frames, captured: this.#frames.filter((item) => item.status === "captured").length, checked: this.#frames.filter((item) => !!item.observation).length, report: this.#report ?? null, reportRevision: this.#revision, warningsDisplayed: this.#displayed === this.#revision, zeroScenes: !this.input.scenes.length, complete: this.complete() });
-  }
-};
-
-// src/server/preview-evidence.ts
-import { createRequire as createEvidenceRequire } from "node:module";
-var sharp = createEvidenceRequire(import.meta.url)("sharp");
-async function capturePreviewFrames(descriptor, files, frames, signal) {
-  if (!descriptor.parentOrigin || frames.length < 1 || frames.length > 12 || new Set(frames).size !== frames.length || frames.some((frame) => !Number.isSafeInteger(frame) || frame < 0 || frame >= descriptor.input.durationInFrames)) throw new Error("\u91C7\u96C6\u8BF7\u6C42\u9700\u5305\u542B\u51C6\u786E\u5B9E\u4F8B\u53CA 1\u201312 \u4E2A\u6709\u6548\u5E27\u3002");
-  const { width, height } = descriptor.input.output;
-  if (width > 4096 || height > 4096 || width * height > 8294400) throw new Error("\u91C7\u96C6\u8F93\u51FA\u8D85\u8FC7 4096 \u8FB9\u957F\u6216 8294400 \u50CF\u7D20\u4E0A\u9650\u3002");
-  if (await programEnvironmentIdentity() !== descriptor.identity.environment) throw new Error("\u6267\u884C\u73AF\u5883\u5DF2\u53D8\u5316\uFF0C\u4E0D\u80FD\u91C7\u96C6\u65E7 Preview\u3002");
-  const inputs = { "bundle/driver.mjs": await bundleApplicationWorker("evidence") };
-  const urls = {};
-  for (const [path, bytes] of files) {
-    const target = path.startsWith("media/") ? path : `bundle/${path}`;
-    inputs[target] = bytes;
-    urls[new URL(path, descriptor.url).href] = target;
-  }
-  inputs["input/capture.json"] = Buffer.from(JSON.stringify({ descriptor, frames, files: urls, parentOrigin: descriptor.parentOrigin }));
-  const capsule = await localExecutionCapsule();
-  const output = await capsule.run({ stage: "preview", entry: "bundle/driver.mjs", inputs, signal }, async (values) => {
-    const report2 = JSON.parse(values.get("result.json")?.toString() ?? "null");
-    if (report2?.instanceId !== descriptor.instanceId || JSON.stringify(report2.identity) !== JSON.stringify(descriptor.identity) || JSON.stringify(report2.results?.map((item) => item.frame)) !== JSON.stringify(frames)) return false;
-    if ([...values.keys()].some((name) => name !== "result.json" && !frames.some((frame) => name === `${frame}.png`))) return false;
-    for (const result of report2.results) if (!result.error) {
-      const png = values.get(`${result.frame}.png`);
-      if (!png || png.length > 8 * 1024 * 1024) return false;
-      const metadata = await sharp(png).metadata();
-      if (metadata.format !== "png" || metadata.width !== width || metadata.height !== height) return false;
-    }
-    return true;
-  });
-  if (await programEnvironmentIdentity() !== descriptor.identity.environment) throw new Error("\u91C7\u96C6\u671F\u95F4\u6267\u884C\u73AF\u5883\u53D1\u751F\u53D8\u5316\uFF0C\u7ED3\u679C\u5DF2\u4E22\u5F03\u3002");
-  const report = JSON.parse(output.get("result.json").toString());
-  return report.results.map((item) => ({ ...item, image: item.error ? void 0 : output.get(`${item.frame}.png`) }));
-}
-
-// src/server/project-delivery.ts
-var warningKey = (batch) => previewDigest(JSON.stringify([batch.id, batch.status, batch.identity, batch.diagnostics.filter((item) => item.severity === "warning"), batch.visualWarnings, batch.truncated, batch.warningsTruncated]));
-var text = external_exports.string().trim().min(1).max(4e3);
-var reportSchema = external_exports.object({ goal: text, summary: text, warnings: external_exports.array(text).max(100), suggestions: external_exports.array(external_exports.object({ sceneId: text, observation: text, action: text, content: text, reason: text }).strict()).max(100) }).strict();
-var supplementsSchema = external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), source: external_exports.enum(["transition", "motion"]), reason: text.max(2e3) }).strict()).max(1e3);
-var ProjectDelivery = class {
-  constructor(preview, checks) {
-    this.preview = preview;
-    this.checks = checks;
-    checks.evidence = (latest, batch) => this.evidence(latest, batch);
-  }
-  preview;
-  checks;
-  #displayedKey;
-  #read = /* @__PURE__ */ new Set();
-  #output;
-  #current;
-  #images = /* @__PURE__ */ new Map();
-  #controller;
-  #busy = false;
-  #generation = 0;
-  evidence(latest, batch) {
-    const current = this.#current;
-    if (!current || current.view().stale || !latest || !sameIdentity(current.binding.identity, latest) || this.preview.latestCandidate() !== current.binding.instanceId) return void 0;
-    const evidence = current.evidence();
-    evidence.warningsDisplayed &&= current.complete() && !!batch && batch.status === "complete" && this.#displayedKey === warningKey(batch);
-    return evidence;
-  }
-  async #fresh(opened, current) {
-    try {
-      const state = await this.preview.status(opened, current.binding.instanceId);
-      current.invalidate(state.stale || this.preview.latestCandidate() !== current.binding.instanceId ? null : this.preview.evidenceSnapshot(current.binding.instanceId).binding);
-    } catch {
-      current.invalidate(null);
-    }
-    return current === this.#current && !current.view().stale;
-  }
-  async operate(opened, args) {
-    if (args.action === "prepare") {
-      const snapshot = this.preview.evidenceSnapshot(args.instanceId);
-      if (this.#current && this.#current.binding.instanceId === args.instanceId && !args.supplements && await this.#fresh(opened, this.#current)) return this.status(opened);
-      const supplements = supplementsSchema.parse(args.supplements ?? []);
-      this.clear();
-      const current2 = new CandidateDelivery(randomUUID6(), snapshot.binding, snapshot.descriptor.input, supplements);
-      this.#current = current2;
-      this.#output = snapshot.descriptor.input.output;
-      if (!await this.#fresh(opened, current2)) throw new Error("\u5019\u9009 Preview \u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6784\u5EFA\u3002");
-      this.#collect(opened, current2);
-      return this.status(opened);
-    }
-    if (args.action === "status") return this.status(opened);
-    const current = this.#current;
-    if (!current || args.deliveryId !== current.id || !await this.#fresh(opened, current)) throw new Error("\u4EA4\u4ED8\u8EAB\u4EFD\u4E0D\u5B58\u5728\u6216\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u65B0\u8BC1\u636E\u3002");
-    if (args.action === "retry") this.#collect(opened, current);
-    else if (args.action === "describe") current.describe(reportSchema.parse(args.report));
-    else if (args.action === "review") {
-      const records = external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), digest: text, observation: text }).strict()).min(1).max(12).parse(args.reviews);
-      const view = current.view();
-      if (records.some((item) => !view.frames.some((frame) => frame.frame === item.frame && frame.status === "captured" && frame.digest === item.digest))) throw new Error("\u68C0\u67E5\u5F15\u7528\u7684\u56FE\u50CF\u6216\u6458\u8981\u4E0D\u5339\u914D\u3002");
-      if (records.some((item) => !this.#read.has(`${item.frame}:${item.digest}`))) throw new Error("\u8BF7\u5148\u8BFB\u53D6\u51C6\u786E\u5E27\u56FE\u50CF\uFF0C\u518D\u63D0\u4EA4\u68C0\u67E5\u89C2\u5BDF\u3002");
-      for (const record3 of records) current.review(record3.frame, record3.digest, record3.observation);
-    } else if (args.action === "displayed") {
-      const checks = await this.checks.status(opened);
-      const batch = checks.batches.at(-1);
-      if (current !== this.#current) throw new Error("\u4EA4\u4ED8\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u3002");
-      if (batch && batch.status === "complete" && !batch.stale && batch.id === args.batchId && args.warningsKey === warningKey(batch) && sameIdentity(batch.identity, current.binding.identity) && !batch.truncated && !batch.warningsTruncated) {
-        current.displayWarnings(args.reportRevision);
-        this.#displayedKey = warningKey(batch);
-      }
-    } else if (args.action === "image") {
-      const image = this.#images.get(args.frame), frame = current.view().frames.find((item) => item.frame === args.frame);
-      if (!image || !frame?.digest) throw new Error("\u6B64\u5E27\u5C1A\u672A\u6210\u529F\u91C7\u96C6\uFF0C\u8BF7\u91CD\u8BD5\u5931\u8D25\u9879\u3002");
-      this.#read.add(`${args.frame}:${frame.digest}`);
-      return { image: image.toString("base64"), mimeType: "image/png", deliveryId: current.id, binding: current.binding, frame: args.frame, digest: frame.digest };
-    } else throw new Error("\u4E0D\u652F\u6301\u7684\u4EA4\u4ED8\u64CD\u4F5C\u3002");
-    return this.status(opened);
-  }
-  #collect(opened, current) {
-    if (this.#busy || !current.view().frames.some((frame) => frame.status !== "captured")) return;
-    this.#busy = true;
-    const controller = new AbortController();
-    this.#controller = controller;
-    const generation = this.#generation;
-    void (async () => {
-      try {
-        const todo = current.view().frames.filter((item) => item.status !== "captured");
-        for (let offset = 0; offset < todo.length; offset += 12) {
-          if (generation !== this.#generation || !await this.#fresh(opened, current)) break;
-          const frames = todo.slice(offset, offset + 12).map((item) => item.frame);
-          try {
-            const snapshot = this.preview.evidenceSnapshot(current.binding.instanceId);
-            const results = await capturePreviewFrames(snapshot.descriptor, this.preview.source.snapshot(snapshot.descriptor.url), frames, controller.signal);
-            if (generation !== this.#generation || !await this.#fresh(opened, current)) break;
-            for (const item of results) {
-              if (!item.image || item.error) {
-                current.fail(item.frame, item.error ?? "\u91C7\u96C6\u6CA1\u6709\u8FD4\u56DE\u56FE\u50CF");
-                continue;
-              }
-              const total = [...this.#images.values()].reduce((sum, image) => sum + image.length, 0);
-              if (total + item.image.length > 64 * 1024 * 1024) {
-                current.fail(item.frame, "\u6574\u5957\u56FE\u50CF\u8D85\u8FC7 64 MiB\uFF0C\u8BF7\u51CF\u5C0F\u8F93\u51FA\u5C3A\u5BF8\u540E\u91CD\u65B0\u51C6\u5907");
-                continue;
-              }
-              this.#images.set(item.frame, item.image);
-              current.capture(item.frame, previewDigest(item.image));
-            }
-          } catch (error51) {
-            if (generation !== this.#generation || !await this.#fresh(opened, current)) break;
-            for (const frame of frames) current.fail(frame, error51.message);
-          }
-        }
-      } finally {
-        if (generation === this.#generation) this.#busy = false;
-      }
-    })();
-  }
-  async status(opened) {
-    const current = this.#current;
-    if (current) await this.#fresh(opened, current);
-    const checks = await this.checks.status(opened);
-    if (current !== this.#current) return { delivery: null, checks, collecting: false };
-    const delivery = current?.view() ?? null;
-    const batch = checks.batches.at(-1);
-    if (delivery) {
-      delivery.warningsDisplayed = this.evidence(batch?.identity ?? null, batch)?.warningsDisplayed ?? false;
-      delivery.complete &&= delivery.warningsDisplayed;
-    }
-    const eligible = checks.gates.find((gate) => gate.operation === "delivery")?.status === "available";
-    return { delivery, checks, warningsKey: batch ? warningKey(batch) : null, output: this.#output, collecting: this.#busy, status: delivery?.stale ? "stale" : delivery?.complete && eligible ? "ready" : "incomplete" };
-  }
-  consume(instanceId) {
-    if (this.#current?.binding.instanceId === instanceId) this.clear();
-  }
-  clear() {
-    this.#generation++;
-    this.#controller?.abort();
-    this.#current = void 0;
-    this.#images.clear();
-    this.#read.clear();
-    this.#displayedKey = void 0;
-    this.#output = void 0;
-    this.#busy = false;
-  }
-};
-
-// src/server/project-checks.ts
-import { randomUUID as randomUUID7 } from "node:crypto";
-var ProjectChecks = class {
-  constructor(preview) {
-    this.preview = preview;
-  }
-  preview;
-  evidence;
-  #batches = [];
-  #starting = false;
-  #generation = 0;
-  async #capture(opened) {
-    const [candidate, source, capture, environment2] = await Promise.allSettled([
-      opened.candidate({ action: "read" }),
-      opened.readPreviewSource("candidate"),
-      this.preview.capture(opened, "candidate", true),
-      programEnvironmentIdentity()
-    ]);
-    const baselines = [
-      candidate.status === "fulfilled" ? candidate.value.baseline : null,
-      source.status === "fulfilled" ? source.value.baseline : null,
-      capture.status === "fulfilled" ? capture.value.baseline : null
-    ].filter((value) => value !== null);
-    const programs = [
-      source.status === "fulfilled" ? source.value.identity : null,
-      capture.status === "fulfilled" ? capture.value.sourceIdentity : null
-    ].filter((value) => value !== null);
-    const coherent = new Set(baselines).size <= 1 && new Set(programs).size <= 1;
-    const identity2 = {
-      project: opened.inspection.manifest.projectId,
-      program: source.status === "fulfilled" ? source.value.identity : candidate.status === "fulfilled" ? candidate.value.candidate?.identity ?? null : null,
-      baseline: candidate.status === "fulfilled" ? candidate.value.baseline : null,
-      brief: capture.status === "fulfilled" ? capture.value.brief : null,
-      input: capture.status === "fulfilled" ? capture.value.projectInput : null,
-      media: capture.status === "fulfilled" ? previewDigest(JSON.stringify([...capture.value.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())) : null,
-      environment: environment2.status === "fulfilled" ? environment2.value : null
-    };
-    return { identity: coherent ? identity2 : { ...identity2, program: null, baseline: null }, candidate, source, capture, environment: environment2, coherent };
-  }
-  async start(opened) {
-    if (this.#starting || this.#batches.at(-1)?.view().status === "running") throw new Error("\u5DF2\u6709\u68C0\u67E5\u6B63\u5728\u8FD0\u884C\u3002");
-    this.#starting = true;
-    const generation = this.#generation;
-    try {
-      const snapshot = await this.#capture(opened);
-      if (generation !== this.#generation) throw new Error("\u68C0\u67E5\u6240\u5C5E\u9879\u76EE\u5DF2\u5173\u95ED\u3002");
-      for (const batch2 of this.#batches) batch2.invalidate(snapshot.identity);
-      if (!snapshot.coherent) throw new Error("\u68C0\u67E5\u51C6\u5907\u671F\u95F4\u5019\u9009\u5DF2\u53D8\u5316\uFF1B\u672A\u521B\u5EFA\u6DF7\u5408\u6279\u6B21\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002");
-      const { identity: identity2 } = snapshot;
-      const fromError = (error51, fallback) => {
-        const code = error51?.code;
-        const item = diagnostic(code && diagnosticCatalog[code] ? code : fallback, identity2);
-        if (code && !diagnosticCatalog[code]) item.externalCode = code;
-        if (item.stage === "manifest") item.location = { kind: "file", path: "program.json" };
-        return item;
-      };
-      const checks = [
-        { id: "layout", dependencies: [], run: async () => snapshot.source.status === "rejected" ? [fromError(snapshot.source.reason, "LAYOUT_INVALID")] : [] },
-        { id: "manifest", dependencies: ["layout"], run: async () => {
-          try {
-            return checkProgramManifest(snapshot.source.status === "fulfilled" ? snapshot.source.value.manifest : void 0).warnings.map((code) => diagnostic(code, identity2, { kind: "file", path: "program.json" }));
-          } catch (error51) {
-            return [fromError(error51, "MANIFEST_INVALID")];
-          }
-        } },
-        { id: "dependencies", dependencies: ["layout"], run: async () => {
-          if (snapshot.source.status !== "fulfilled") return [];
-          const { program, offline } = snapshot.source.value;
-          try {
-            readOfflineDependencyGraph(program.get("package.json") ?? Buffer.alloc(0), program.get("pnpm-lock.yaml") ?? Buffer.alloc(0), offline);
-            return [];
-          } catch (error51) {
-            return [fromError(error51, "DEPENDENCY_LOCK_INVALID")];
-          }
-        } },
-        { id: "capsule", dependencies: [], run: async () => snapshot.environment.status === "rejected" ? [fromError(snapshot.environment.reason, "CAPSULE_UNAVAILABLE")] : [] },
-        { id: "build", dependencies: ["manifest", "dependencies", "capsule"], run: async (signal) => {
-          if (snapshot.capture.status !== "fulfilled" || snapshot.source.status !== "fulfilled") return [fromError(snapshot.capture.status === "rejected" ? snapshot.capture.reason : void 0, "RUNTIME_CONTRACT_VIOLATION")];
-          try {
-            const value = snapshot.capture.value;
-            const bundle = await opened.buildCandidateBundle({ input: value.input, speech: value.speech, baseline: value.baseline, sourceIdentity: value.sourceIdentity, target: "candidate", signal });
-            if (bundle.environmentIdentity !== identity2.environment) {
-              batch.invalidate({ ...identity2, environment: bundle.environmentIdentity });
-              throw Object.assign(new Error("\u6784\u5EFA\u4F7F\u7528\u7684\u6267\u884C\u73AF\u5883\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002"), { code: "CHECK_IDENTITY_CHANGED" });
-            }
-            return [];
-          } catch (error51) {
-            if (["CANDIDATE_BASELINE_CONFLICT", "CHECK_IDENTITY_CHANGED"].includes(error51.code ?? "")) throw error51;
-            const facts = error51.diagnostics;
-            return facts?.length ? facts.map((fact) => {
-              const item = fromError(fact, "BUNDLE_FAILED");
-              if (fact.path) item.location = { kind: "file", path: fact.path };
-              return item;
-            }) : [fromError(error51, "BUNDLE_FAILED")];
-          }
-        } }
-      ];
-      const batch = new CheckBatch(randomUUID7(), identity2, checks);
-      this.#batches.push(batch);
-      this.#batches = this.#batches.slice(-2);
-      void batch.run().then(async () => {
-        if (generation !== this.#generation) return;
-        try {
-          batch.invalidate((await this.#capture(opened)).identity);
-        } catch {
-          batch.invalidate({ ...identity2, project: null });
-        }
-      });
-      return this.#view(identity2);
-    } finally {
-      this.#starting = false;
-    }
-  }
-  cancel(id) {
-    const batch = this.#batches.find((item) => item.id === id);
-    batch?.cancel();
-    return this.#view(null);
-  }
-  async status(opened) {
-    if (!this.#batches.length) return this.#view(null);
-    const latest = (await this.#capture(opened)).identity;
-    for (const batch of this.#batches) batch.invalidate(latest);
-    return this.#view(latest);
-  }
-  #view(latest) {
-    const batches = this.#batches.map((batch) => batch.view());
-    return { batches, gates: gateOperations(batches.at(-1) ?? null, latest, this.evidence?.(latest, batches.at(-1)), void 0, { preview: true, delivery: true, accept: true }) };
-  }
-  clear() {
-    this.#generation++;
-    for (const batch of this.#batches) batch.cancel();
-    this.#batches = [];
-  }
-};
+// src/server/project-render.ts
+import { randomUUID as randomUUID7, randomBytes as randomBytes3 } from "node:crypto";
+import { constants as constants3, watch } from "node:fs";
+import { open as open5, realpath as realpath4, link, unlink, lstat as lstat6 } from "node:fs/promises";
+import { basename, dirname as dirname6, isAbsolute as isAbsolute3, join as join9 } from "node:path";
 
 // src/server/project-preview.ts
 import { constants as constants2 } from "node:fs";
@@ -26561,7 +26170,7 @@ import { isAbsolute, join as join7, relative, resolve as resolve2, sep } from "n
 
 // src/server/project-speech-vnext.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash8, randomUUID as randomUUID8 } from "node:crypto";
+import { createHash as createHash8, randomUUID as randomUUID6 } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { lstat as lstat3, open as open2, readFile as readFile4, rename as rename3, rm as rm5 } from "node:fs/promises";
 import { dirname as dirname5, join as join6 } from "node:path";
@@ -26681,7 +26290,7 @@ async function readProjectTtsConfig(projectDirectory) {
 async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
   const config2 = validateProjectTtsConfig(input);
   const path = join6(projectDirectory, "tts.json");
-  const temporaryPath = join6(projectDirectory, `.tts.json.${randomUUID8()}.tmp`);
+  const temporaryPath = join6(projectDirectory, `.tts.json.${randomUUID6()}.tmp`);
   let committed = false;
   try {
     const handle = await open2(temporaryPath, "wx", 384);
@@ -27937,19 +27546,24 @@ async function snapshotFile(root, path, limit) {
 }
 var ProjectPreview = class {
   source = new PreviewOrigin();
+  #bundles = /* @__PURE__ */ new Map();
+  cachedBundle(identity2) {
+    return this.#bundles.get(identity2);
+  }
   #active = /* @__PURE__ */ new Map();
   async #observe(opened, output) {
     const root = opened.inspection.projectDirectory;
     const state = await inspectProjectVNext(root);
     if (state.manifest.projectId !== opened.inspection.manifest.projectId) throw new Error("\u9879\u76EE\u8EAB\u4EFD\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-    const media = /* @__PURE__ */ new Map(), assetSources = /* @__PURE__ */ new Map();
+    const media = /* @__PURE__ */ new Map(), assetSources = /* @__PURE__ */ new Map(), mediaPaths = /* @__PURE__ */ new Map();
     let total = 0;
     async function add(path) {
       const bytes = await snapshotFile(root, path, 256 * 1024 * 1024);
       total += bytes.length;
       if (total > 512 * 1024 * 1024) throw new Error("Preview \u5A92\u4F53\u8D85\u8FC7 512 MiB\uFF0C\u8BF7\u7F29\u5C0F\u7D20\u6750\u540E\u91CD\u8BD5\u3002");
-      const key = `media/${previewDigest(bytes).slice(7)}`;
+      const digest3 = previewDigest(bytes), key = `media/${digest3.slice(7)}`;
       media.set(key, bytes);
+      mediaPaths.set(path, digest3);
       return key;
     }
     const referenced = new Set(state.project.scenes.flatMap((scene) => scene.assetIds));
@@ -27960,7 +27574,7 @@ var ProjectPreview = class {
       const source = state.project.scenes.find((item) => item.id === scene.id).speech;
       speech.push({ sceneId: scene.id, startFrame: scene.time.startFrame, durationInFrames: scene.time.durationInFrames, src: await add(source.path) });
     }
-    return { state, input, speech, media };
+    return { state, input, speech, media, mediaPaths };
   }
   async capture(opened, target, tolerateInvalidManifest = false) {
     const candidate = await opened.candidate({ action: "read" });
@@ -27973,17 +27587,20 @@ var ProjectPreview = class {
       if (!tolerateInvalidManifest) throw error51;
       output = { width: 1920, height: 1080, fps: 30 };
     }
-    const { state, input, speech, media } = await this.#observe(opened, output);
+    const { state, input, speech, media, mediaPaths } = await this.#observe(opened, output);
     const signature = previewDigest(JSON.stringify([state.projectRevision, state.videoBriefRevision, target === "candidate" ? candidate.baseline : source.revision, source.identity, manifest.toString(), [...media.keys()].sort(), input, speech]));
-    return { input, speech, media, signature, brief: state.videoBriefRevision, projectInput: previewDigest(JSON.stringify([state.projectRevision, input, speech])), baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
+    return { input, speech, media, mediaPaths, signature, brief: state.videoBriefRevision, projectInput: previewDigest(JSON.stringify([state.projectRevision, input, speech])), baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
   }
   async build(opened, target, parentOrigin) {
     if (this.#active.size >= 4) throw new Error("Preview \u5B9E\u4F8B\u5DF2\u8FBE\u4E0A\u9650\uFF0C\u8BF7\u5173\u95ED\u9690\u85CF\u5B9E\u4F8B\u540E\u91CD\u8BD5\u3002");
     const before = await this.capture(opened, target);
-    const bundle = await opened.buildCandidateBundle({ input: before.input, speech: before.speech, baseline: before.baseline, sourceIdentity: before.sourceIdentity, target });
+    const bundle = await opened.buildCandidateBundle({ input: before.input, speech: before.speech, media: before.media, baseline: before.baseline, sourceIdentity: before.sourceIdentity, target });
     const after = await this.capture(opened, target);
     if (before.signature !== after.signature) throw new Error("\u6784\u5EFA\u671F\u95F4\u8F93\u5165\u6216\u5A92\u4F53\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u8BD5\u3002");
+    this.#bundles.set(bundle.identity, bundle);
+    if (this.#bundles.size > 4) this.#bundles.delete(this.#bundles.keys().next().value);
     const descriptor = await this.source.publish({ ...before, bundle, target, parentOrigin, key: randomBytes2(24).toString("hex"), label: target === "candidate" ? `\u5019\u9009 \xB7 ${before.candidate.candidate.identity.slice(7, 15)}` : `\u5F53\u524D \xB7 ${before.revision.slice(0, 8)}` });
+    if (target === "current") descriptor.revisionId = before.revision;
     this.#active.set(descriptor.instanceId, { descriptor, brief: before.brief, input: before.projectInput, revision: before.revision, sourceIdentity: before.sourceIdentity, stale: false, identity: { project: opened.inspection.manifest.projectId, program: before.sourceIdentity, baseline: before.baseline, brief: before.brief, input: before.projectInput, media: descriptor.identity.media, environment: descriptor.identity.environment } });
     descriptor.freshness = (await this.status(opened, descriptor.instanceId)).freshness;
     return descriptor;
@@ -28030,6 +27647,7 @@ var ProjectPreview = class {
     if (!entry) return;
     entry.descriptor.target = "current";
     entry.descriptor.label = `\u5F53\u524D \xB7 ${revision.slice(0, 8)}`;
+    entry.descriptor.revisionId = revision;
     entry.revision = revision;
   }
   latestCandidate() {
@@ -28043,6 +27661,7 @@ var ProjectPreview = class {
   clear() {
     for (const entry of this.#active.values()) this.source.release(entry.descriptor.url);
     this.#active.clear();
+    this.#bundles.clear();
   }
   async close() {
     this.clear();
@@ -28050,10 +27669,702 @@ var ProjectPreview = class {
   }
 };
 
+// src/server/preview-evidence.ts
+import { createRequire as createEvidenceRequire } from "node:module";
+var sharp = createEvidenceRequire(import.meta.url)("sharp");
+async function capturePreviewFrames(descriptor, files, frames, signal, stage = "preview") {
+  if (!descriptor.parentOrigin || frames.length < 1 || frames.length > 12 || new Set(frames).size !== frames.length || frames.some((frame) => !Number.isSafeInteger(frame) || frame < 0 || frame >= descriptor.input.durationInFrames)) throw new Error("\u91C7\u96C6\u8BF7\u6C42\u9700\u5305\u542B\u51C6\u786E\u5B9E\u4F8B\u53CA 1\u201312 \u4E2A\u6709\u6548\u5E27\u3002");
+  const { width, height } = descriptor.input.output;
+  if (width > 4096 || height > 4096 || width * height > 8294400) throw new Error("\u91C7\u96C6\u8F93\u51FA\u8D85\u8FC7 4096 \u8FB9\u957F\u6216 8294400 \u50CF\u7D20\u4E0A\u9650\u3002");
+  if (await programEnvironmentIdentity() !== descriptor.identity.environment) throw new Error("\u6267\u884C\u73AF\u5883\u5DF2\u53D8\u5316\uFF0C\u4E0D\u80FD\u91C7\u96C6\u65E7 Preview\u3002");
+  const inputs = { "bundle/driver.mjs": await bundleApplicationWorker("evidence") };
+  const urls = {};
+  for (const [path, bytes] of files) {
+    const target = path.startsWith("media/") ? path : `bundle/${path}`;
+    inputs[target] = bytes;
+    urls[new URL(path, descriptor.url).href] = target;
+  }
+  inputs["input/capture.json"] = Buffer.from(JSON.stringify({ descriptor, frames, files: urls, parentOrigin: descriptor.parentOrigin }));
+  const capsule = await localExecutionCapsule();
+  const output = await capsule.run({ stage, entry: "bundle/driver.mjs", inputs, signal }, async (values) => {
+    const report2 = JSON.parse(values.get("result.json")?.toString() ?? "null");
+    if (report2?.instanceId !== descriptor.instanceId || JSON.stringify(report2.identity) !== JSON.stringify(descriptor.identity) || JSON.stringify(report2.results?.map((item) => item.frame)) !== JSON.stringify(frames)) return false;
+    if ([...values.keys()].some((name) => name !== "result.json" && !frames.some((frame) => name === `${frame}.png`))) return false;
+    for (const result of report2.results) if (!result.error) {
+      const png = values.get(`${result.frame}.png`);
+      if (!png || png.length > 8 * 1024 * 1024) return false;
+      const metadata = await sharp(png).metadata();
+      if (metadata.format !== "png" || metadata.width !== width || metadata.height !== height) return false;
+    }
+    return true;
+  });
+  if (await programEnvironmentIdentity() !== descriptor.identity.environment) throw new Error("\u91C7\u96C6\u671F\u95F4\u6267\u884C\u73AF\u5883\u53D1\u751F\u53D8\u5316\uFF0C\u7ED3\u679C\u5DF2\u4E22\u5F03\u3002");
+  const report = JSON.parse(output.get("result.json").toString());
+  return report.results.map((item) => ({ ...item, image: item.error ? void 0 : output.get(`${item.frame}.png`) }));
+}
+
+// src/server/program-render.ts
+var FinalRenderError = class extends Error {
+  constructor(code, message, location) {
+    super(message);
+    this.code = code;
+    this.location = location;
+  }
+  code;
+  location;
+};
+async function renderAcceptedProgram(descriptor, files, speech, signal, progress) {
+  const capsule = await localExecutionCapsule(), driver = await bundleApplicationWorker("encode");
+  const segments = [];
+  let segmentBytes = 0;
+  async function encode3(config2, media2, final) {
+    const output = await capsule.run({ stage: "render", entry: "bundle/encode.mjs", signal, inputs: {
+      "bundle/encode.mjs": driver,
+      "input/encode.json": Buffer.from(JSON.stringify(config2)),
+      ...media2
+    } }, (values) => {
+      const failure2 = values.get("failure.json");
+      if (failure2) throw new FinalRenderError("RENDER_ENCODE_FAILED", "\u7F16\u7801\u6216\u97F3\u8F68\u9A8C\u8BC1\u5931\u8D25\uFF1B\u6062\u590D\u7F16\u7801\u5668\u4E0E\u5A92\u4F53\u89E3\u7801\u6761\u4EF6\u540E\u53EF\u91CD\u8BD5\u3002");
+      if (!final) return values.size === 1 && (values.get("segment.mkv")?.length ?? 0) > 0;
+      const verified = JSON.parse(values.get("verified.json")?.toString() ?? "null");
+      return values.size === 2 && (values.get("out.mp4")?.length ?? 0) > 0 && verified?.frames === descriptor.input.durationInFrames && JSON.stringify(verified.output) === JSON.stringify(descriptor.input.output);
+    });
+    return output.get(final ? "out.mp4" : "segment.mkv");
+  }
+  for (let start = 0; start < descriptor.input.durationInFrames; start += 12) {
+    signal.throwIfAborted();
+    const frames = Array.from({ length: Math.min(12, descriptor.input.durationInFrames - start) }, (_, index) => start + index);
+    progress({ stage: "frames", renderedFrames: start });
+    const captured = await capturePreviewFrames(descriptor, files, frames, signal, "render");
+    const failed = captured.find((item) => item.error || !item.image);
+    if (failed) throw new FinalRenderError(failed.errorCode === "RUNTIME_FRAME_FAILED" ? "RENDER_FRAME_FAILED" : "CAPSULE_EXECUTION_FAILED", failed.errorCode === "RUNTIME_FRAME_FAILED" ? "\u6B64\u5E27\u5185\u5BB9\u6267\u884C\u5931\u8D25\uFF0C\u8BF7\u4FEE\u590D\u5019\u9009\u5E76\u91CD\u65B0\u9A8C\u6536\u3002" : `\u5E27\u91C7\u96C6\u64CD\u4F5C\u5931\u8D25\uFF1B\u6062\u590D\u6D4F\u89C8\u5668\u6216\u6267\u884C\u80F6\u56CA\u6761\u4EF6\u540E\u53EF\u91CD\u8BD5\u3002${failed.error?.slice(0, 256) ?? ""}`, { frame: failed.frame });
+    const segment = await encode3({ mode: "segment", fps: descriptor.input.output.fps, frames: frames.length }, Object.fromEntries(captured.map((item, i) => [`media/${i}.png`, item.image])), false);
+    segmentBytes += segment.length;
+    if (segmentBytes > 256 * 1024 * 1024) throw new FinalRenderError("CAPSULE_RESOURCE_EXCEEDED", "\u65E0\u635F\u5E27\u6BB5\u8D85\u8FC7\u5355\u6B21\u6267\u884C\u5185\u5B58\u9884\u7B97\uFF0C\u672A\u751F\u6210\u5B8C\u6574\u4EA7\u7269\u3002");
+    segments.push(segment);
+    progress({ stage: "frames", renderedFrames: start + frames.length });
+  }
+  progress({ stage: "encoding" });
+  const media = Object.fromEntries(segments.map((bytes, index) => [`media/${index}.mkv`, bytes]));
+  for (const track of speech) {
+    const bytes = files.get(track.src);
+    if (!bytes) throw new FinalRenderError("RENDER_MEDIA_CHANGED", "Speech \u5B57\u8282\u7F3A\u5931\uFF0C\u8BF7\u6062\u590D\u539F\u5B57\u8282\u540E\u91CD\u65B0\u68C0\u67E5\u3002");
+    media[track.src] = bytes;
+  }
+  return encode3({ mode: "final", output: descriptor.input.output, frames: descriptor.input.durationInFrames, segments: segments.length, speech }, media, true);
+}
+
+// src/server/project-render.ts
+var digest2 = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
+var recordSchema = external_exports.object({
+  protocolVersion: external_exports.literal(1),
+  checkerVersion: external_exports.literal(1),
+  bridgeVersion: external_exports.literal(1),
+  bundle: digest2,
+  identity: external_exports.object({ project: external_exports.string(), program: digest2, brief: digest2, input: digest2, media: digest2, environment: digest2 }),
+  gates: external_exports.array(external_exports.object({ operation: external_exports.string(), status: external_exports.string() }))
+});
+var contentCodes = /* @__PURE__ */ new Set(["RENDER_FRAME_FAILED", "RUNTIME_FRAME_FAILED", "RUNTIME_CONTRACT_VIOLATION", "STATIC_NONDETERMINISTIC_API", "STATIC_FORBIDDEN_CAPABILITY"]);
+var problem = (error51) => ({ code: error51?.code ?? "RENDER_OPERATION_FAILED", message: error51?.message ?? "\u65E0\u6CD5\u786E\u8BA4 Render \u72B6\u6001\u3002", ...error51?.location ? { location: error51.location } : {} });
+var ProjectRender = class {
+  constructor(preview) {
+    this.preview = preview;
+  }
+  preview;
+  #jobs = /* @__PURE__ */ new Map();
+  #blocked = /* @__PURE__ */ new Map();
+  #pending = /* @__PURE__ */ new Set();
+  #preparing;
+  #closing = false;
+  #abort;
+  #running;
+  async #inspect(opened) {
+    return opened.programTransaction(async (manager) => {
+      const history = await manager.history(), current = history.revisions.find((item) => item.current);
+      const source = { revisionId: history.current, summary: current.summary ?? "\u5F53\u524D\u4FEE\u8BA2", key: "", accepted: !!current.acceptance, ready: false, issues: [] };
+      try {
+        if (!current.valid) throw new FinalRenderError("REVISION_INTEGRITY_FAILED", current.error ?? "\u5F53\u524D\u4FEE\u8BA2\u5B8C\u6574\u6027\u65E0\u6CD5\u786E\u8BA4\u3002");
+        if (!current.acceptance) throw new FinalRenderError("RENDER_NOT_ACCEPTED", "\u5F53\u524D\u89C6\u9891\u72B6\u6001\u5C1A\u672A\u9A8C\u6536\uFF0C\u8BF7\u524D\u5F80\u5019\u9009\u68C0\u67E5\u4E0E\u63A5\u53D7\u6D41\u7A0B\u3002");
+        const parsed = recordSchema.safeParse(current.acceptance);
+        if (!parsed.success || !parsed.data.gates.some((gate) => gate.operation === "accept" && gate.status === "available")) throw new FinalRenderError("RENDER_ACCEPTANCE_INVALID", "\u9A8C\u6536\u8BB0\u5F55\u6216\u534F\u8BAE\u8EAB\u4EFD\u65E0\u6CD5\u786E\u8BA4\uFF0C\u8BF7\u91CD\u65B0\u5F62\u6210\u5019\u9009\u5E76\u9A8C\u6536\u3002");
+        const record3 = parsed.data;
+        const local2 = { ...opened, candidate: manager, readPreviewSource: manager.previewSource };
+        const capture = await this.preview.capture(local2, "current");
+        source.durationInFrames = capture.input.durationInFrames;
+        source.output = capture.input.output;
+        const environment2 = await programEnvironmentIdentity();
+        const identity2 = {
+          project: opened.inspection.manifest.projectId,
+          program: capture.sourceIdentity,
+          brief: capture.brief,
+          input: capture.projectInput,
+          media: previewDigest(JSON.stringify([...capture.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())),
+          environment: environment2
+        };
+        source.key = previewDigest(JSON.stringify([source.revisionId, record3.bundle, identity2]));
+        source.details = { bundle: record3.bundle, ...identity2 };
+        if (!capture.input.scenes.length) source.issues.push({ code: "RENDER_ZERO_SCENES", message: "\u96F6 Scene \u65E0\u6CD5\u6700\u7EC8 Render\uFF0C\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u8865\u5145\u5185\u5BB9\u540E\u91CD\u65B0\u9A8C\u6536\u3002" });
+        for (const scene of capture.input.scenes) {
+          if (!scene.narration.trim()) source.issues.push({ code: "RENDER_EMPTY_NARRATION", message: "Narration \u4E3A\u7A7A\uFF0C\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u8865\u5145\u5E76\u91CD\u65B0\u9A8C\u6536\u3002", location: { sceneId: scene.id } });
+          if (scene.time.source !== "speech") source.issues.push({ code: "RENDER_DRAFT_DURATION", message: "\u7F3A\u5C11\u6709\u6548 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u8BF7\u751F\u6210 Speech \u540E\u91CD\u65B0\u9A8C\u6536\u3002", location: { sceneId: scene.id } });
+        }
+        for (const asset of capture.input.assets) if (asset.availability !== "available") source.issues.push({ code: "RENDER_MEDIA_MISSING", message: "\u6267\u884C\u6240\u9700 Asset \u7F3A\u5931\uFF0C\u6062\u590D\u539F\u5B57\u8282\u540E\u91CD\u65B0\u68C0\u67E5\uFF1B\u5B57\u8282\u53D8\u5316\u5219\u91CD\u65B0\u9A8C\u6536\u3002", location: { path: asset.path } });
+        if (Object.keys(identity2).some((key) => identity2[key] !== record3.identity[key])) source.issues.push({ code: "RENDER_NOT_ACCEPTED", message: "\u5F53\u524D\u8F93\u5165\u3001\u5A92\u4F53\u6216\u6267\u884C\u73AF\u5883\u5DF2\u4E0D\u5BF9\u5E94\u9A8C\u6536\u8BB0\u5F55\uFF1B\u6062\u590D\u539F\u72B6\u6001\uFF0C\u6216\u5F62\u6210\u65B0\u5019\u9009\u91CD\u65B0\u9A8C\u6536\u3002" });
+        const blocked = this.#blocked.get(source.key);
+        if (blocked) source.issues.push(blocked);
+        source.ready = source.issues.length === 0;
+        return { source, capture, record: record3, program: await manager.previewSource("current") };
+      } catch (error51) {
+        source.issues.push(problem(error51));
+        return { source };
+      }
+    });
+  }
+  async status(opened) {
+    return { source: (await this.#inspect(opened)).source, jobs: structuredClone([...this.#jobs.values()]) };
+  }
+  async start(opened, args) {
+    if (this.#closing) throw new FinalRenderError("RENDER_BUSY", "\u9879\u76EE\u6B63\u5728\u5173\u95ED\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210\u3002");
+    external_exports.string().uuid().parse(args.requestId);
+    const known = [...this.#jobs.values()].find((job) => job.requestId === args.requestId);
+    if (known) return { job: structuredClone(known) };
+    if (this.#abort) throw new FinalRenderError("RENDER_BUSY", "\u5F53\u524D\u9879\u76EE\u5DF2\u6709\u6700\u7EC8 Render\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210\u6216\u53D6\u6D88\u3002");
+    if (!isAbsolute3(args.outputPath) || !args.outputPath.endsWith(".mp4") || /[\0\r\n]/.test(args.outputPath)) throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8BF7\u901A\u8FC7\u7CFB\u7EDF\u9009\u62E9\u5668\u6307\u5B9A\u65B0\u7684 MP4 \u8F93\u51FA\u4F4D\u7F6E\u3002");
+    const abort = this.#abort = new AbortController();
+    let preparedDone;
+    this.#preparing = new Promise((resolve4) => {
+      preparedDone = resolve4;
+    });
+    this.#pending.add(args.requestId);
+    try {
+      const prepared = await this.#inspect(opened);
+      if (!prepared.source.ready || prepared.source.key !== args.key || !prepared.capture || !prepared.record || !prepared.program) throw new FinalRenderError("RENDER_NOT_READY", prepared.source.issues.map((issue2) => issue2.message).join("\uFF1B") || "\u51C6\u5907\u671F\u95F4\u63A5\u53D7\u72B6\u6001\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
+      const parent = await realpath4(dirname6(args.outputPath));
+      const outputPath = join9(parent, basename(args.outputPath));
+      try {
+        await lstat6(outputPath);
+        throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8F93\u51FA\u6587\u4EF6\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u4F4D\u7F6E\uFF1B\u4E0D\u4F1A\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002");
+      } catch (error51) {
+        if (error51.code !== "ENOENT") throw error51;
+      }
+      abort.signal.throwIfAborted();
+      const job = { id: randomUUID7(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
+      this.#jobs.set(job.id, job);
+      this.#running = this.#run(opened, prepared, job, abort);
+      this.#pending.delete(args.requestId);
+      return { job: structuredClone(job) };
+    } catch (error51) {
+      this.#pending.delete(args.requestId);
+      this.#abort = void 0;
+      throw error51;
+    } finally {
+      preparedDone();
+      this.#preparing = void 0;
+    }
+  }
+  result(requestId) {
+    const job = [...this.#jobs.values()].find((job2) => job2.requestId === requestId);
+    return { status: job ? "known" : this.#pending.has(requestId) ? "preparing" : "not-started", ...job ? { job: structuredClone(job) } : {} };
+  }
+  cancel(id) {
+    const job = this.#jobs.get(id);
+    if (!job) throw new FinalRenderError("RENDER_UNKNOWN", "\u627E\u4E0D\u5230\u6B64 Render\u3002");
+    if (job.status === "running") {
+      job.status = "cancelling";
+      this.#abort?.abort();
+    }
+    return { job: structuredClone(job) };
+  }
+  async close() {
+    this.#closing = true;
+    this.#abort?.abort();
+    try {
+      await this.#preparing;
+      await this.#running;
+      this.#jobs.clear();
+      this.#blocked.clear();
+      this.#pending.clear();
+    } finally {
+      this.#closing = false;
+    }
+  }
+  async #run(opened, prepared, job, abort) {
+    const { capture, record: record3 } = prepared, watchers = [];
+    const origin = new PreviewOrigin();
+    let mediaFailure;
+    let temporary, published = false;
+    let outcome = {};
+    const changed = (path) => {
+      mediaFailure ??= new FinalRenderError("RENDER_MEDIA_CHANGED", "Render \u671F\u95F4\u5A92\u4F53\u53D1\u751F\u53D8\u5316\uFF0C\u5DF2\u7EC8\u6B62\u5E76\u4E22\u5F03\u4EA7\u7269\uFF1B\u8BF7\u6062\u590D\u5A92\u4F53\u540E\u91CD\u65B0\u68C0\u67E5\u3002", { path });
+      abort.abort();
+    };
+    const verifyMedia = async () => {
+      for (const [path, digest3] of capture.mediaPaths) {
+        try {
+          if (previewDigest(await snapshotFile(opened.inspection.projectDirectory, path, 256 * 1024 * 1024)) !== digest3) changed(path);
+        } catch {
+          changed(path);
+        }
+      }
+      if (mediaFailure) throw mediaFailure;
+      abort.signal.throwIfAborted();
+    };
+    try {
+      const parents = /* @__PURE__ */ new Map();
+      for (const path of capture.mediaPaths.keys()) {
+        const parent2 = dirname6(path);
+        if (!parents.has(parent2)) parents.set(parent2, /* @__PURE__ */ new Set());
+        parents.get(parent2).add(basename(path));
+      }
+      for (const [parent2, names] of parents) {
+        const watcher = watch(join9(opened.inspection.projectDirectory, parent2), (_event, file3) => {
+          if (!file3 || names.has(String(file3))) changed(join9(parent2, String(file3 ?? "")));
+        });
+        watcher.on("error", () => changed(parent2));
+        watchers.push(watcher);
+      }
+      await verifyMedia();
+      let bundle = this.preview.cachedBundle(record3.bundle);
+      if (!bundle) {
+        job.stage = "rebuilding";
+        bundle = await buildProgramBundle({ program: prepared.program.program, offline: prepared.program.offline, input: capture.input, speech: capture.speech, media: capture.media, signal: abort.signal });
+      }
+      if (bundle.identity !== record3.bundle || bundle.environmentIdentity !== record3.identity.environment || await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("BUNDLE_FINGERPRINT_MISMATCH", "\u65E0\u6CD5\u91CD\u5EFA\u540C\u4E00\u5DF2\u63A5\u53D7 Bundle\uFF1B\u6062\u590D\u539F\u8BA4\u8BC1\u73AF\u5883\u4E0E\u79BB\u7EBF\u4F9D\u8D56\u540E\u91CD\u8BD5\uFF0C\u4E0D\u540C\u7ED3\u679C\u5FC5\u987B\u901A\u8FC7\u65B0\u5019\u9009\u9A8C\u6536\u3002");
+      const latest = await this.#inspect(opened);
+      if (!latest.source.ready || latest.source.key !== job.source.key) throw new FinalRenderError("RENDER_NOT_READY", "\u542F\u52A8\u524D\u63A5\u53D7\u8BB0\u5F55\u6216\u8F93\u5165\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
+      const descriptor = await origin.publish({ bundle, input: capture.input, speech: capture.speech, media: capture.media, parentOrigin: "https://narracut.invalid", target: "current", baseline: capture.baseline, label: job.source.summary, key: randomBytes3(24).toString("hex") });
+      const bytes = await renderAcceptedProgram(descriptor, origin.snapshot(descriptor.url), capture.speech, abort.signal, (value) => Object.assign(job, value));
+      job.stage = "publishing";
+      await verifyMedia();
+      if (await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("CAPSULE_UNAVAILABLE", "\u6267\u884C\u73AF\u5883\u5728 Render \u671F\u95F4\u53D8\u5316\uFF0C\u672A\u751F\u6210\u4EA7\u7269\u3002");
+      temporary = join9(dirname6(job.outputPath), `.narracut-render-${randomUUID7()}.tmp`);
+      const file2 = await open5(temporary, constants3.O_WRONLY | constants3.O_CREAT | constants3.O_EXCL | constants3.O_NOFOLLOW, 384);
+      try {
+        await file2.writeFile(bytes);
+        await file2.sync();
+      } finally {
+        await file2.close();
+      }
+      await verifyMedia();
+      await link(temporary, job.outputPath);
+      published = true;
+      await verifyMedia();
+      const parent = await open5(dirname6(job.outputPath), constants3.O_RDONLY | constants3.O_DIRECTORY);
+      try {
+        await parent.sync();
+      } finally {
+        await parent.close();
+      }
+      job.projectUpdated = (await this.#inspect(opened)).source.key !== job.source.key;
+      await verifyMedia();
+      outcome = { status: "succeeded", stage: "completed" };
+    } catch (error51) {
+      if (published && temporary) {
+        const [own, target] = await Promise.all([lstat6(temporary), lstat6(job.outputPath)]).catch(() => []);
+        if (own && target && own.dev === target.dev && own.ino === target.ino) await unlink(job.outputPath).catch(() => {
+        });
+      }
+      if (abort.signal.aborted && !mediaFailure) outcome = { status: "cancelled" };
+      else {
+        const issue2 = problem(mediaFailure ?? error51), retryable = !contentCodes.has(issue2.code);
+        outcome = { status: "failed", error: issue2, retryable };
+        if (!retryable) this.#blocked.set(job.source.key, issue2);
+      }
+    } finally {
+      for (const watcher of watchers) watcher.close();
+      if (temporary) await unlink(temporary).catch(() => {
+      });
+      await origin.close();
+      this.#abort = void 0;
+      this.#running = void 0;
+      Object.assign(job, outcome);
+    }
+  }
+};
+
+// src/server/project-delivery.ts
+import { randomUUID as randomUUID8 } from "node:crypto";
+
+// src/shared/representative-frames.ts
+function representativePlan(input, supplemental = []) {
+  const points = /* @__PURE__ */ new Map();
+  function add(frame, reason) {
+    if (!Number.isSafeInteger(frame) || frame < 0 || frame >= input.durationInFrames) throw new Error("\u4EE3\u8868\u5E27\u5FC5\u987B\u4F4D\u4E8E\u5B8C\u6574\u89C6\u9891\u65F6\u95F4\u8303\u56F4\u5185\u3002");
+    const reasons = points.get(frame) ?? [];
+    if (!reasons.some((item) => JSON.stringify(item) === JSON.stringify(reason))) reasons.push(reason);
+    points.set(frame, reasons);
+  }
+  if (input.scenes.length) {
+    add(0, { kind: "film-start", source: "system" });
+    add(input.durationInFrames - 1, { kind: "film-end", source: "system" });
+    for (const [index, scene] of input.scenes.entries()) {
+      const start = scene.time.startFrame, end = start + scene.time.durationInFrames - 1;
+      for (const [frame, kind] of [[start, "scene-start"], [start + Math.floor((scene.time.durationInFrames - 1) / 2), "scene-middle"], [end, "scene-end"]]) add(frame, { kind, sceneId: scene.id, source: "system" });
+      if (index) {
+        const boundary = `${input.scenes[index - 1].id}:${scene.id}`;
+        add(start - 1, { kind: "boundary-before", boundary, source: "system" });
+        add(start, { kind: "boundary-after", boundary, source: "system" });
+      }
+    }
+  }
+  for (const point of supplemental) {
+    if (!["transition", "motion"].includes(point.source) || typeof point.reason !== "string" || !point.reason.trim() || point.reason.length > 2e3) throw new Error("\u8865\u5145\u5173\u952E\u70B9\u9700\u8981\u6765\u6E90\u4E0E\u5177\u4F53\u7406\u7531\u3002");
+    add(point.frame, { kind: point.source, reason: point.reason, source: "agent" });
+  }
+  return [...points].sort(([a], [b]) => a - b).map(([frame, reasons]) => ({ frame, reasons }));
+}
+
+// src/shared/candidate-delivery.ts
+var CandidateDelivery = class {
+  constructor(id, binding, input, supplements = []) {
+    this.id = id;
+    this.input = input;
+    this.binding = structuredClone(binding);
+    this.input = structuredClone(input);
+    this.#frames = representativePlan(input, supplements).map((point) => ({ ...point, status: "pending" }));
+  }
+  id;
+  input;
+  binding;
+  #frames;
+  #stale = false;
+  #report;
+  #revision = 0;
+  #displayed = -1;
+  invalidate(latest) {
+    if (!latest || latest.instanceId !== this.binding.instanceId || latest.bundle !== this.binding.bundle || !sameIdentity(latest.identity, this.binding.identity) || Object.values(latest.identity).some((value) => !value)) this.#stale = true;
+  }
+  #frame(frame) {
+    if (this.#stale) throw new Error("\u6574\u5957\u8BC1\u636E\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u9488\u5BF9\u6700\u65B0 Preview \u91CD\u65B0\u51C6\u5907\u3002");
+    const item = this.#frames.find((item2) => item2.frame === frame);
+    if (!item) throw new Error("\u5E27\u4E0D\u5C5E\u4E8E\u5B8C\u6574\u8BA1\u5212\u3002");
+    return item;
+  }
+  capture(frame, digest3) {
+    const item = this.#frame(frame);
+    item.status = "captured";
+    item.digest = digest3;
+    delete item.error;
+    delete item.observation;
+  }
+  fail(frame, reason) {
+    const item = this.#frame(frame);
+    item.status = "failed";
+    item.error = reason;
+    delete item.digest;
+    delete item.observation;
+  }
+  review(frame, digest3, observation) {
+    const item = this.#frame(frame);
+    if (item.status !== "captured" || item.digest !== digest3 || !observation.trim() || observation.length > 4e3) throw new Error("\u68C0\u67E5\u5FC5\u987B\u5F15\u7528\u5DF2\u91C7\u96C6\u56FE\u50CF\u7684\u51C6\u786E\u6458\u8981\u5E76\u63D0\u4F9B\u89C2\u5BDF\u3002");
+    item.observation = observation;
+  }
+  describe(report) {
+    if (this.#stale) throw new Error("\u5DF2\u8FC7\u671F\u4EA4\u4ED8\u4E0D\u80FD\u66F4\u65B0\u62A5\u544A\u3002");
+    if (!report.goal.trim() || !report.summary.trim() || report.suggestions.some((item) => !this.input.scenes.some((scene) => scene.id === item.sceneId))) throw new Error("\u4EA4\u4ED8\u9700\u8981\u76EE\u6807\u3001\u53D8\u66F4\u6458\u8981\u53CA\u5B58\u5728\u7684\u7A33\u5B9A Scene ID\u3002");
+    this.#report = structuredClone(report);
+    this.#revision++;
+    this.#displayed = -1;
+  }
+  displayWarnings(revision) {
+    if (!this.#stale && this.#report && revision === this.#revision) this.#displayed = revision;
+  }
+  evidence() {
+    return { ...structuredClone(this.binding), previewReady: !this.#stale, representativeFrames: !this.#stale && this.#frames.every((item) => item.status === "captured" && !!item.observation), warningsDisplayed: !this.#stale && !!this.#report && this.#displayed === this.#revision, explicitAcceptance: false, zeroScenes: this.input.scenes.length === 0 };
+  }
+  complete() {
+    const evidence = this.evidence();
+    return !this.#stale && !!this.#report && evidence.representativeFrames && evidence.warningsDisplayed;
+  }
+  view() {
+    return structuredClone({ version: 1, id: this.id, binding: this.binding, stale: this.#stale, frames: this.#frames, captured: this.#frames.filter((item) => item.status === "captured").length, checked: this.#frames.filter((item) => !!item.observation).length, report: this.#report ?? null, reportRevision: this.#revision, warningsDisplayed: this.#displayed === this.#revision, zeroScenes: !this.input.scenes.length, complete: this.complete() });
+  }
+};
+
+// src/server/project-delivery.ts
+var warningKey = (batch) => previewDigest(JSON.stringify([batch.id, batch.status, batch.identity, batch.diagnostics.filter((item) => item.severity === "warning"), batch.visualWarnings, batch.truncated, batch.warningsTruncated]));
+var text = external_exports.string().trim().min(1).max(4e3);
+var reportSchema = external_exports.object({ goal: text, summary: text, warnings: external_exports.array(text).max(100), suggestions: external_exports.array(external_exports.object({ sceneId: text, observation: text, action: text, content: text, reason: text }).strict()).max(100) }).strict();
+var supplementsSchema = external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), source: external_exports.enum(["transition", "motion"]), reason: text.max(2e3) }).strict()).max(1e3);
+var ProjectDelivery = class {
+  constructor(preview, checks) {
+    this.preview = preview;
+    this.checks = checks;
+    checks.evidence = (latest, batch) => this.evidence(latest, batch);
+  }
+  preview;
+  checks;
+  #displayedKey;
+  #read = /* @__PURE__ */ new Set();
+  #output;
+  #current;
+  #images = /* @__PURE__ */ new Map();
+  #controller;
+  #busy = false;
+  #generation = 0;
+  evidence(latest, batch) {
+    const current = this.#current;
+    if (!current || current.view().stale || !latest || !sameIdentity(current.binding.identity, latest) || this.preview.latestCandidate() !== current.binding.instanceId) return void 0;
+    const evidence = current.evidence();
+    evidence.warningsDisplayed &&= current.complete() && !!batch && batch.status === "complete" && this.#displayedKey === warningKey(batch);
+    return evidence;
+  }
+  async #fresh(opened, current) {
+    try {
+      const state = await this.preview.status(opened, current.binding.instanceId);
+      current.invalidate(state.stale || this.preview.latestCandidate() !== current.binding.instanceId ? null : this.preview.evidenceSnapshot(current.binding.instanceId).binding);
+    } catch {
+      current.invalidate(null);
+    }
+    return current === this.#current && !current.view().stale;
+  }
+  async operate(opened, args) {
+    if (args.action === "prepare") {
+      const snapshot = this.preview.evidenceSnapshot(args.instanceId);
+      if (this.#current && this.#current.binding.instanceId === args.instanceId && !args.supplements && await this.#fresh(opened, this.#current)) return this.status(opened);
+      const supplements = supplementsSchema.parse(args.supplements ?? []);
+      this.clear();
+      const current2 = new CandidateDelivery(randomUUID8(), snapshot.binding, snapshot.descriptor.input, supplements);
+      this.#current = current2;
+      this.#output = snapshot.descriptor.input.output;
+      if (!await this.#fresh(opened, current2)) throw new Error("\u5019\u9009 Preview \u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6784\u5EFA\u3002");
+      this.#collect(opened, current2);
+      return this.status(opened);
+    }
+    if (args.action === "status") return this.status(opened);
+    const current = this.#current;
+    if (!current || args.deliveryId !== current.id || !await this.#fresh(opened, current)) throw new Error("\u4EA4\u4ED8\u8EAB\u4EFD\u4E0D\u5B58\u5728\u6216\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u65B0\u8BC1\u636E\u3002");
+    if (args.action === "retry") this.#collect(opened, current);
+    else if (args.action === "describe") current.describe(reportSchema.parse(args.report));
+    else if (args.action === "review") {
+      const records = external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), digest: text, observation: text }).strict()).min(1).max(12).parse(args.reviews);
+      const view = current.view();
+      if (records.some((item) => !view.frames.some((frame) => frame.frame === item.frame && frame.status === "captured" && frame.digest === item.digest))) throw new Error("\u68C0\u67E5\u5F15\u7528\u7684\u56FE\u50CF\u6216\u6458\u8981\u4E0D\u5339\u914D\u3002");
+      if (records.some((item) => !this.#read.has(`${item.frame}:${item.digest}`))) throw new Error("\u8BF7\u5148\u8BFB\u53D6\u51C6\u786E\u5E27\u56FE\u50CF\uFF0C\u518D\u63D0\u4EA4\u68C0\u67E5\u89C2\u5BDF\u3002");
+      for (const record3 of records) current.review(record3.frame, record3.digest, record3.observation);
+    } else if (args.action === "displayed") {
+      const checks = await this.checks.status(opened);
+      const batch = checks.batches.at(-1);
+      if (current !== this.#current) throw new Error("\u4EA4\u4ED8\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u3002");
+      if (batch && batch.status === "complete" && !batch.stale && batch.id === args.batchId && args.warningsKey === warningKey(batch) && sameIdentity(batch.identity, current.binding.identity) && !batch.truncated && !batch.warningsTruncated) {
+        current.displayWarnings(args.reportRevision);
+        this.#displayedKey = warningKey(batch);
+      }
+    } else if (args.action === "image") {
+      const image = this.#images.get(args.frame), frame = current.view().frames.find((item) => item.frame === args.frame);
+      if (!image || !frame?.digest) throw new Error("\u6B64\u5E27\u5C1A\u672A\u6210\u529F\u91C7\u96C6\uFF0C\u8BF7\u91CD\u8BD5\u5931\u8D25\u9879\u3002");
+      this.#read.add(`${args.frame}:${frame.digest}`);
+      return { image: image.toString("base64"), mimeType: "image/png", deliveryId: current.id, binding: current.binding, frame: args.frame, digest: frame.digest };
+    } else throw new Error("\u4E0D\u652F\u6301\u7684\u4EA4\u4ED8\u64CD\u4F5C\u3002");
+    return this.status(opened);
+  }
+  #collect(opened, current) {
+    if (this.#busy || !current.view().frames.some((frame) => frame.status !== "captured")) return;
+    this.#busy = true;
+    const controller = new AbortController();
+    this.#controller = controller;
+    const generation = this.#generation;
+    void (async () => {
+      try {
+        const todo = current.view().frames.filter((item) => item.status !== "captured");
+        for (let offset = 0; offset < todo.length; offset += 12) {
+          if (generation !== this.#generation || !await this.#fresh(opened, current)) break;
+          const frames = todo.slice(offset, offset + 12).map((item) => item.frame);
+          try {
+            const snapshot = this.preview.evidenceSnapshot(current.binding.instanceId);
+            const results = await capturePreviewFrames(snapshot.descriptor, this.preview.source.snapshot(snapshot.descriptor.url), frames, controller.signal);
+            if (generation !== this.#generation || !await this.#fresh(opened, current)) break;
+            for (const item of results) {
+              if (!item.image || item.error) {
+                current.fail(item.frame, item.error ?? "\u91C7\u96C6\u6CA1\u6709\u8FD4\u56DE\u56FE\u50CF");
+                continue;
+              }
+              const total = [...this.#images.values()].reduce((sum, image) => sum + image.length, 0);
+              if (total + item.image.length > 64 * 1024 * 1024) {
+                current.fail(item.frame, "\u6574\u5957\u56FE\u50CF\u8D85\u8FC7 64 MiB\uFF0C\u8BF7\u51CF\u5C0F\u8F93\u51FA\u5C3A\u5BF8\u540E\u91CD\u65B0\u51C6\u5907");
+                continue;
+              }
+              this.#images.set(item.frame, item.image);
+              current.capture(item.frame, previewDigest(item.image));
+            }
+          } catch (error51) {
+            if (generation !== this.#generation || !await this.#fresh(opened, current)) break;
+            for (const frame of frames) current.fail(frame, error51.message);
+          }
+        }
+      } finally {
+        if (generation === this.#generation) this.#busy = false;
+      }
+    })();
+  }
+  async status(opened) {
+    const current = this.#current;
+    if (current) await this.#fresh(opened, current);
+    const checks = await this.checks.status(opened);
+    if (current !== this.#current) return { delivery: null, checks, collecting: false };
+    const delivery = current?.view() ?? null;
+    const batch = checks.batches.at(-1);
+    if (delivery) {
+      delivery.warningsDisplayed = this.evidence(batch?.identity ?? null, batch)?.warningsDisplayed ?? false;
+      delivery.complete &&= delivery.warningsDisplayed;
+    }
+    const eligible = checks.gates.find((gate) => gate.operation === "delivery")?.status === "available";
+    return { delivery, checks, warningsKey: batch ? warningKey(batch) : null, output: this.#output, collecting: this.#busy, status: delivery?.stale ? "stale" : delivery?.complete && eligible ? "ready" : "incomplete" };
+  }
+  consume(instanceId) {
+    if (this.#current?.binding.instanceId === instanceId) this.clear();
+  }
+  clear() {
+    this.#generation++;
+    this.#controller?.abort();
+    this.#current = void 0;
+    this.#images.clear();
+    this.#read.clear();
+    this.#displayedKey = void 0;
+    this.#output = void 0;
+    this.#busy = false;
+  }
+};
+
+// src/server/project-checks.ts
+import { randomUUID as randomUUID9 } from "node:crypto";
+var ProjectChecks = class {
+  constructor(preview) {
+    this.preview = preview;
+  }
+  preview;
+  evidence;
+  #batches = [];
+  #starting = false;
+  #generation = 0;
+  async #capture(opened) {
+    const [candidate, source, capture, environment2] = await Promise.allSettled([
+      opened.candidate({ action: "read" }),
+      opened.readPreviewSource("candidate"),
+      this.preview.capture(opened, "candidate", true),
+      programEnvironmentIdentity()
+    ]);
+    const baselines = [
+      candidate.status === "fulfilled" ? candidate.value.baseline : null,
+      source.status === "fulfilled" ? source.value.baseline : null,
+      capture.status === "fulfilled" ? capture.value.baseline : null
+    ].filter((value) => value !== null);
+    const programs = [
+      source.status === "fulfilled" ? source.value.identity : null,
+      capture.status === "fulfilled" ? capture.value.sourceIdentity : null
+    ].filter((value) => value !== null);
+    const coherent = new Set(baselines).size <= 1 && new Set(programs).size <= 1;
+    const identity2 = {
+      project: opened.inspection.manifest.projectId,
+      program: source.status === "fulfilled" ? source.value.identity : candidate.status === "fulfilled" ? candidate.value.candidate?.identity ?? null : null,
+      baseline: candidate.status === "fulfilled" ? candidate.value.baseline : null,
+      brief: capture.status === "fulfilled" ? capture.value.brief : null,
+      input: capture.status === "fulfilled" ? capture.value.projectInput : null,
+      media: capture.status === "fulfilled" ? previewDigest(JSON.stringify([...capture.value.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())) : null,
+      environment: environment2.status === "fulfilled" ? environment2.value : null
+    };
+    return { identity: coherent ? identity2 : { ...identity2, program: null, baseline: null }, candidate, source, capture, environment: environment2, coherent };
+  }
+  async start(opened) {
+    if (this.#starting || this.#batches.at(-1)?.view().status === "running") throw new Error("\u5DF2\u6709\u68C0\u67E5\u6B63\u5728\u8FD0\u884C\u3002");
+    this.#starting = true;
+    const generation = this.#generation;
+    try {
+      const snapshot = await this.#capture(opened);
+      if (generation !== this.#generation) throw new Error("\u68C0\u67E5\u6240\u5C5E\u9879\u76EE\u5DF2\u5173\u95ED\u3002");
+      for (const batch2 of this.#batches) batch2.invalidate(snapshot.identity);
+      if (!snapshot.coherent) throw new Error("\u68C0\u67E5\u51C6\u5907\u671F\u95F4\u5019\u9009\u5DF2\u53D8\u5316\uFF1B\u672A\u521B\u5EFA\u6DF7\u5408\u6279\u6B21\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002");
+      const { identity: identity2 } = snapshot;
+      const fromError = (error51, fallback) => {
+        const code = error51?.code;
+        const item = diagnostic(code && diagnosticCatalog[code] ? code : fallback, identity2);
+        if (code && !diagnosticCatalog[code]) item.externalCode = code;
+        if (item.stage === "manifest") item.location = { kind: "file", path: "program.json" };
+        return item;
+      };
+      const checks = [
+        { id: "layout", dependencies: [], run: async () => snapshot.source.status === "rejected" ? [fromError(snapshot.source.reason, "LAYOUT_INVALID")] : [] },
+        { id: "manifest", dependencies: ["layout"], run: async () => {
+          try {
+            return checkProgramManifest(snapshot.source.status === "fulfilled" ? snapshot.source.value.manifest : void 0).warnings.map((code) => diagnostic(code, identity2, { kind: "file", path: "program.json" }));
+          } catch (error51) {
+            return [fromError(error51, "MANIFEST_INVALID")];
+          }
+        } },
+        { id: "dependencies", dependencies: ["layout"], run: async () => {
+          if (snapshot.source.status !== "fulfilled") return [];
+          const { program, offline } = snapshot.source.value;
+          try {
+            readOfflineDependencyGraph(program.get("package.json") ?? Buffer.alloc(0), program.get("pnpm-lock.yaml") ?? Buffer.alloc(0), offline);
+            return [];
+          } catch (error51) {
+            return [fromError(error51, "DEPENDENCY_LOCK_INVALID")];
+          }
+        } },
+        { id: "capsule", dependencies: [], run: async () => snapshot.environment.status === "rejected" ? [fromError(snapshot.environment.reason, "CAPSULE_UNAVAILABLE")] : [] },
+        { id: "build", dependencies: ["manifest", "dependencies", "capsule"], run: async (signal) => {
+          if (snapshot.capture.status !== "fulfilled" || snapshot.source.status !== "fulfilled") return [fromError(snapshot.capture.status === "rejected" ? snapshot.capture.reason : void 0, "RUNTIME_CONTRACT_VIOLATION")];
+          try {
+            const value = snapshot.capture.value;
+            const bundle = await opened.buildCandidateBundle({ input: value.input, speech: value.speech, media: value.media, baseline: value.baseline, sourceIdentity: value.sourceIdentity, target: "candidate", signal });
+            if (bundle.environmentIdentity !== identity2.environment) {
+              batch.invalidate({ ...identity2, environment: bundle.environmentIdentity });
+              throw Object.assign(new Error("\u6784\u5EFA\u4F7F\u7528\u7684\u6267\u884C\u73AF\u5883\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002"), { code: "CHECK_IDENTITY_CHANGED" });
+            }
+            return [];
+          } catch (error51) {
+            if (["CANDIDATE_BASELINE_CONFLICT", "CHECK_IDENTITY_CHANGED"].includes(error51.code ?? "")) throw error51;
+            const facts = error51.diagnostics;
+            return facts?.length ? facts.map((fact) => {
+              const item = fromError(fact, "BUNDLE_FAILED");
+              if (fact.path) item.location = { kind: "file", path: fact.path };
+              return item;
+            }) : [fromError(error51, "BUNDLE_FAILED")];
+          }
+        } }
+      ];
+      const batch = new CheckBatch(randomUUID9(), identity2, checks);
+      this.#batches.push(batch);
+      this.#batches = this.#batches.slice(-2);
+      void batch.run().then(async () => {
+        if (generation !== this.#generation) return;
+        try {
+          batch.invalidate((await this.#capture(opened)).identity);
+        } catch {
+          batch.invalidate({ ...identity2, project: null });
+        }
+      });
+      return this.#view(identity2);
+    } finally {
+      this.#starting = false;
+    }
+  }
+  cancel(id) {
+    const batch = this.#batches.find((item) => item.id === id);
+    batch?.cancel();
+    return this.#view(null);
+  }
+  async status(opened) {
+    if (!this.#batches.length) return this.#view(null);
+    const latest = (await this.#capture(opened)).identity;
+    for (const batch of this.#batches) batch.invalidate(latest);
+    return this.#view(latest);
+  }
+  #view(latest) {
+    const batches = this.#batches.map((batch) => batch.view());
+    return { batches, gates: gateOperations(batches.at(-1) ?? null, latest, this.evidence?.(latest, batches.at(-1)), void 0, { preview: true, delivery: true, accept: true }) };
+  }
+  clear() {
+    this.#generation++;
+    for (const batch of this.#batches) batch.cancel();
+    this.#batches = [];
+  }
+};
+
 // plugins/narracut/src/server.ts
-import { randomUUID as randomUUID11 } from "node:crypto";
+import { randomUUID as randomUUID12 } from "node:crypto";
 import { readFile as readFile6 } from "node:fs/promises";
-import { basename as basename3, isAbsolute as isAbsolute4 } from "node:path";
+import { basename as basename4, isAbsolute as isAbsolute5 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -28061,7 +28372,7 @@ import { spawn as spawn2 } from "node:child_process";
 import { createInterface } from "node:readline";
 
 // plugins/narracut/src/codex-host.ts
-import { randomUUID as randomUUID9 } from "node:crypto";
+import { randomUUID as randomUUID10 } from "node:crypto";
 var CodexThreadUnavailableError = class extends Error {
   threadId;
   constructor(threadId) {
@@ -28126,7 +28437,7 @@ var AgentHostValidationService = class {
   #unsubscribe;
   constructor(host, options = {}) {
     this.#host = host;
-    this.#idFactory = options.idFactory ?? randomUUID9;
+    this.#idFactory = options.idFactory ?? randomUUID10;
     this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
   }
   async start(request) {
@@ -28620,24 +28931,24 @@ var CodexAppServerHost = class {
 };
 
 // src/server/project-lifecycle.ts
-import { createHash as createHash10, randomUUID as randomUUID10 } from "node:crypto";
+import { createHash as createHash10, randomUUID as randomUUID11 } from "node:crypto";
 import { constants as fsConstants2 } from "node:fs";
 import {
   access,
-  link,
-  lstat as lstat6,
+  link as link2,
+  lstat as lstat7,
   mkdir as mkdir5,
   open as openFile,
   readFile as readFile5,
   readdir as readdir5,
-  realpath as realpath4,
+  realpath as realpath5,
   rename as rename4,
   rmdir,
   rm as rm6,
-  unlink,
+  unlink as unlink2,
   writeFile as writeFile3
 } from "node:fs/promises";
-import { basename, dirname as dirname6, isAbsolute as isAbsolute3, join as join9, relative as relative3, resolve as resolve3, sep as sep2 } from "node:path";
+import { basename as basename2, dirname as dirname7, isAbsolute as isAbsolute4, join as join10, relative as relative3, resolve as resolve3, sep as sep2 } from "node:path";
 var STARTER_REACT_VERSION = "19.2.8";
 var STARTER_REMOTION_VERSION = RUNTIME_REMOTION_VERSION;
 var ProjectLifecycleError = class extends Error {
@@ -28668,7 +28979,7 @@ function isCreateOperationMarker(value, projectDirectory, operationToken) {
 }
 async function pathExists(path) {
   try {
-    await lstat6(path);
+    await lstat7(path);
     return true;
   } catch (error51) {
     if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return false;
@@ -28676,7 +28987,7 @@ async function pathExists(path) {
   }
 }
 async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory, confirmed) {
-  const facts = await lstat6(temporaryDirectory);
+  const facts = await lstat7(temporaryDirectory);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -28684,10 +28995,10 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u8DEF\u5F84\u4E0D\u662F\u53EF\u786E\u8BA4\u5F52\u5C5E\u7684\u666E\u901A\u76EE\u5F55\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  const markerPath = join9(temporaryDirectory, OPERATION_MARKER);
+  const markerPath = join10(temporaryDirectory, OPERATION_MARKER);
   let marker;
   try {
-    const markerFacts = await lstat6(markerPath);
+    const markerFacts = await lstat7(markerPath);
     if (!markerFacts.isFile() || markerFacts.isSymbolicLink() || markerFacts.nlink !== 1 || markerFacts.size > 4096) {
       throw new Error("invalid marker");
     }
@@ -28713,7 +29024,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u53D1\u73B0\u4E0E\u672C\u6B21\u76EE\u6807\u5339\u914D\u7684\u521B\u5EFA\u6B8B\u7559\uFF1A${temporaryDirectory}\u3002\u8BF7\u786E\u8BA4\u6E05\u7406\u540E\u4ECE\u5934\u91CD\u8BD5\u3002`
     );
   }
-  const currentFacts = await lstat6(temporaryDirectory);
+  const currentFacts = await lstat7(temporaryDirectory);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino || !currentFacts.isDirectory()) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
@@ -28813,7 +29124,7 @@ function starterSource() {
   return 'import { AbsoluteFill } from "remotion";\n\ntype RenderProgramInputV1 = Readonly<{ apiVersion: 1 }>;\n\nexport function RenderProgram(input: RenderProgramInputV1) {\n  void input;\n  return <AbsoluteFill style={{ backgroundColor: "#090d0e" }} />;\n}\n';
 }
 async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join9(
+  const renderProgramDirectory = join10(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -28821,29 +29132,29 @@ async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
     "render-program"
   );
   await Promise.all([
-    mkdir5(join9(temporaryDirectory, "assets"), { recursive: true }),
-    mkdir5(join9(temporaryDirectory, "speech"), { recursive: true }),
-    mkdir5(join9(temporaryDirectory, "renders"), { recursive: true }),
-    mkdir5(join9(renderProgramDirectory, "src"), { recursive: true }),
-    mkdir5(join9(renderProgramDirectory, "resources"), { recursive: true })
+    mkdir5(join10(temporaryDirectory, "assets"), { recursive: true }),
+    mkdir5(join10(temporaryDirectory, "speech"), { recursive: true }),
+    mkdir5(join10(temporaryDirectory, "renders"), { recursive: true }),
+    mkdir5(join10(renderProgramDirectory, "src"), { recursive: true }),
+    mkdir5(join10(renderProgramDirectory, "resources"), { recursive: true })
   ]);
   await Promise.all([
-    writeFile3(join9(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
-    writeFile3(join9(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
-    writeFile3(join9(temporaryDirectory, "video.md"), ""),
-    writeFile3(join9(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
+    writeFile3(join10(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
+    writeFile3(join10(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
+    writeFile3(join10(temporaryDirectory, "video.md"), ""),
+    writeFile3(join10(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
     writeFile3(
-      join9(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
+      join10(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
       starterRevision(revisionId)
     ),
-    writeFile3(join9(renderProgramDirectory, "program.json"), starterProgramManifest()),
-    writeFile3(join9(renderProgramDirectory, "package.json"), starterPackageManifest()),
-    writeFile3(join9(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
-    writeFile3(join9(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
+    writeFile3(join10(renderProgramDirectory, "program.json"), starterProgramManifest()),
+    writeFile3(join10(renderProgramDirectory, "package.json"), starterPackageManifest()),
+    writeFile3(join10(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
+    writeFile3(join10(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
   ]);
 }
 async function validateStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join9(
+  const renderProgramDirectory = join10(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -28863,15 +29174,15 @@ async function validateStarterProject(temporaryDirectory, projectId, revisionId)
     source
   ] = await Promise.all([
     inspectProjectVNext(temporaryDirectory),
-    readFile5(join9(temporaryDirectory, "narracut.json"), "utf8"),
-    readFile5(join9(temporaryDirectory, "project.json"), "utf8"),
-    readFile5(join9(temporaryDirectory, "video.md"), "utf8"),
-    readFile5(join9(temporaryDirectory, ".narracut", "current.json"), "utf8"),
-    readFile5(join9(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
-    readFile5(join9(renderProgramDirectory, "program.json"), "utf8"),
-    readFile5(join9(renderProgramDirectory, "package.json"), "utf8"),
-    readFile5(join9(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
-    readFile5(join9(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
+    readFile5(join10(temporaryDirectory, "narracut.json"), "utf8"),
+    readFile5(join10(temporaryDirectory, "project.json"), "utf8"),
+    readFile5(join10(temporaryDirectory, "video.md"), "utf8"),
+    readFile5(join10(temporaryDirectory, ".narracut", "current.json"), "utf8"),
+    readFile5(join10(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
+    readFile5(join10(renderProgramDirectory, "program.json"), "utf8"),
+    readFile5(join10(renderProgramDirectory, "package.json"), "utf8"),
+    readFile5(join10(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
+    readFile5(join10(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
   ]);
   if (inspection.manifest.projectId !== projectId || inspection.project.assets.length !== 0 || inspection.project.scenes.length !== 0 || inspection.videoBrief !== "" || manifest !== starterManifest(projectId) || projectDsl !== '{"assets":[],"scenes":[]}' || videoBrief !== "" || current !== starterCurrent(revisionId) || revision !== starterRevision(revisionId) || programManifest !== starterProgramManifest() || packageManifest2 !== starterPackageManifest() || lockfile !== starterLockfile() || source !== starterSource()) {
     throw new Error("starter \u9879\u76EE\u590D\u6838\u7ED3\u679C\u4E0E\u521B\u5EFA\u8F93\u5165\u4E0D\u4E00\u81F4\u3002");
@@ -28891,7 +29202,7 @@ function isPlainRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 async function readRegularUtf8(path, maxBytes) {
-  const facts = await lstat6(path);
+  const facts = await lstat7(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > maxBytes) {
     throw new Error(`\u4E0D\u662F\u53D7\u652F\u6301\u7684\u666E\u901A\u6587\u4EF6\uFF1A${path}`);
   }
@@ -28899,23 +29210,23 @@ async function readRegularUtf8(path, maxBytes) {
 }
 async function validateCurrentProjectState(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const currentPath = join9(projectDirectory, ".narracut", "current.json");
+  const currentPath = join10(projectDirectory, ".narracut", "current.json");
   let briefRevision = null;
   try {
     const current = await readCurrentPointer(projectDirectory);
     await verifyRevision(projectDirectory, current.revisionId);
     const revisionId = current.revisionId;
-    const revisionDirectory = join9(projectDirectory, ".narracut", "revisions", revisionId);
-    const renderProgramDirectory = join9(revisionDirectory, "render-program");
+    const revisionDirectory = join10(projectDirectory, ".narracut", "revisions", revisionId);
+    const renderProgramDirectory = join10(revisionDirectory, "render-program");
     if (!inspection.renderPrograms.directories.includes(renderProgramDirectory)) {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6CA1\u6709\u53EF\u68C0\u67E5\u7684 Render Program\u3002");
     }
     const [revision, program, packageJson, lockfile, source] = await Promise.all([
-      readRegularUtf8(join9(revisionDirectory, "revision.json"), 1048576).then((value) => JSON.parse(value)),
-      readRegularUtf8(join9(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join9(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join9(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
-      readRegularUtf8(join9(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
+      readRegularUtf8(join10(revisionDirectory, "revision.json"), 1048576).then((value) => JSON.parse(value)),
+      readRegularUtf8(join10(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join10(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join10(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
+      readRegularUtf8(join10(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
     ]);
     if (!isPlainRecord(revision) || Object.keys(revision).some(
       (key) => !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary", "programFingerprint", "acceptedAt", "inputFingerprint", "sourceRevision", "acceptance", "requestId"].includes(key)
@@ -28954,7 +29265,7 @@ async function validateCurrentProjectState(inspection) {
   return briefRevision;
 }
 async function captureDirectoryIdentity(path) {
-  const facts = await lstat6(path);
+  const facts = await lstat7(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
     throw new Error(`\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u76EE\u5F55\uFF1A${path}`);
   }
@@ -28966,7 +29277,7 @@ function hasIdentity(facts, identity2) {
 async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, markerWritten, projectDirectory, operationToken) {
   let facts;
   try {
-    facts = await lstat6(temporaryDirectory);
+    facts = await lstat7(temporaryDirectory);
   } catch (error51) {
     if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return;
     throw error51;
@@ -28976,7 +29287,7 @@ async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, mar
   }
   if (markerWritten) {
     const marker = JSON.parse(await readRegularUtf8(
-      join9(temporaryDirectory, OPERATION_MARKER),
+      join10(temporaryDirectory, OPERATION_MARKER),
       4096
     ));
     if (!isCreateOperationMarker(marker, projectDirectory, operationToken)) {
@@ -28988,7 +29299,7 @@ async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, mar
 async function cleanupTargetReservation(projectDirectory, identity2) {
   let facts;
   try {
-    facts = await lstat6(projectDirectory);
+    facts = await lstat7(projectDirectory);
   } catch (error51) {
     if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return;
     throw error51;
@@ -29003,7 +29314,7 @@ async function cleanupTargetReservation(projectDirectory, identity2) {
 }
 async function createProjectVNext(inputPath, options = {}) {
   const projectDirectory = resolve3(inputPath);
-  const projectName = basename(projectDirectory);
+  const projectName = basename2(projectDirectory);
   if (projectName === "" || projectName === "." || projectName === "..") {
     throw new ProjectLifecycleError(
       "PROJECT_CREATE_TARGET_INVALID",
@@ -29011,11 +29322,11 @@ async function createProjectVNext(inputPath, options = {}) {
       "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
     );
   }
-  const temporaryDirectory = join9(dirname6(projectDirectory), `.${projectName}.narracut-tmp`);
-  const createId = options.createId ?? randomUUID10;
+  const temporaryDirectory = join10(dirname7(projectDirectory), `.${projectName}.narracut-tmp`);
+  const createId = options.createId ?? randomUUID11;
   const projectId = createId();
   const revisionId = createId();
-  const operationToken = randomUUID10();
+  const operationToken = randomUUID11();
   let temporaryIdentity = null;
   let markerWritten = false;
   let targetReservationIdentity = null;
@@ -29036,7 +29347,7 @@ async function createProjectVNext(inputPath, options = {}) {
     }
     await mkdir5(temporaryDirectory);
     temporaryIdentity = await captureDirectoryIdentity(temporaryDirectory);
-    await writeFile3(join9(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
+    await writeFile3(join10(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
       kind: "narracut-operation",
       version: 1,
       operation: "create",
@@ -29068,10 +29379,10 @@ async function createProjectVNext(inputPath, options = {}) {
         `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`
       );
     }
-    await unlink(join9(temporaryDirectory, OPERATION_MARKER));
+    await unlink2(join10(temporaryDirectory, OPERATION_MARKER));
     markerWritten = false;
     if (targetReservationIdentity !== null) {
-      const currentReservation = await lstat6(projectDirectory);
+      const currentReservation = await lstat7(projectDirectory);
       if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir5(projectDirectory)).length !== 0) {
         throw new ProjectLifecycleError(
           "PROJECT_CREATE_TARGET_EXISTS",
@@ -29147,21 +29458,21 @@ async function clearStaleLease(leasePath) {
   let facts;
   let marker;
   try {
-    facts = await lstat6(leasePath);
+    facts = await lstat7(leasePath);
     if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 4096) return false;
     marker = JSON.parse(await readFile5(leasePath, "utf8"));
   } catch {
     return false;
   }
   if (!isLeaseMarker(marker) || await leaseHolderIsAlive(marker)) return false;
-  const currentFacts = await lstat6(leasePath);
+  const currentFacts = await lstat7(leasePath);
   if (currentFacts.dev !== facts.dev || currentFacts.ino !== facts.ino) return false;
-  await unlink(leasePath);
+  await unlink2(leasePath);
   return true;
 }
 async function acquireProjectLease(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const leasePath = join9(projectDirectory, ".narracut", "workspace.lease");
+  const leasePath = join10(projectDirectory, ".narracut", "workspace.lease");
   if (activeLeasePaths.has(leasePath)) {
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -29176,7 +29487,7 @@ async function acquireProjectLease(inspection) {
     projectId: inspection.manifest.projectId,
     pid: process.pid,
     processIdentity: await readProcessIdentity(process.pid),
-    token: randomUUID10()
+    token: randomUUID11()
   };
   let handle;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -29217,7 +29528,7 @@ async function acquireProjectLease(inspection) {
   await handle.close();
   let leaseDirectoryHandle;
   try {
-    leaseDirectoryHandle = await openFile(dirname6(leasePath), "r");
+    leaseDirectoryHandle = await openFile(dirname7(leasePath), "r");
   } catch (cause) {
     await rm6(leasePath, { force: true });
     throw new ProjectLifecycleError(
@@ -29256,7 +29567,7 @@ async function acquireProjectLease(inspection) {
     const anchoredLeasePath = process.platform === "win32" ? leasePath : `/dev/fd/${leaseDirectoryHandle.fd}/workspace.lease`;
     try {
       const current = JSON.parse(await readFile5(anchoredLeasePath, "utf8"));
-      if (current.token === marker.token) await unlink(anchoredLeasePath);
+      if (current.token === marker.token) await unlink2(anchoredLeasePath);
     } catch (error51) {
       if (!(error51 instanceof Error && "code" in error51 && error51.code === "ENOENT")) throw error51;
     } finally {
@@ -29327,7 +29638,7 @@ function truncateUtf8(value, maxBytes) {
   return result;
 }
 function safeAssetFilename(sourcePath) {
-  const original = basename(sourcePath).replace(/[\u0000-\u001f\u007f]/gu, "_");
+  const original = basename2(sourcePath).replace(/[\u0000-\u001f\u007f]/gu, "_");
   const fallback = original === "" || original === "." || original === ".." ? "asset" : original;
   if (Buffer.byteLength(fallback, "utf8") <= MAX_ASSET_FILENAME_BYTES) return fallback;
   const extensionIndex = fallback.lastIndexOf(".");
@@ -29352,19 +29663,19 @@ async function uniqueAssetPath(assetsDirectory, sourcePath) {
     const candidate = suffixedAssetFilename(filename, suffix);
     const relativePath = `assets/${candidate}`;
     try {
-      await access(join9(assetsDirectory, candidate));
+      await access(join10(assetsDirectory, candidate));
     } catch (error51) {
       if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return relativePath;
       throw error51;
     }
   }
-  return `assets/${randomUUID10()}`;
+  return `assets/${randomUUID11()}`;
 }
 async function isProjectControlFile(projectDirectory, sourcePath, sourceFacts) {
   for (const name of ["narracut.json", "project.json", "video.md"]) {
-    const controlPath = join9(projectDirectory, name);
+    const controlPath = join10(projectDirectory, name);
     if (resolve3(sourcePath) === controlPath) return true;
-    const controlFacts = await lstat6(controlPath);
+    const controlFacts = await lstat7(controlPath);
     if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
   }
   return false;
@@ -29396,7 +29707,7 @@ async function copyStableFile(source, opened, temporaryPath, assertDestinationCu
   }
 }
 async function replaceProjectFile(projectFile, bytes, assertWritable) {
-  const temporaryFile = join9(dirname6(projectFile), `.${basename(projectFile)}.${randomUUID10()}.tmp`);
+  const temporaryFile = join10(dirname7(projectFile), `.${basename2(projectFile)}.${randomUUID11()}.tmp`);
   let committed = false;
   try {
     const handle = await openFile(temporaryFile, "wx", 384);
@@ -29410,7 +29721,7 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
     await rename4(temporaryFile, projectFile);
     committed = true;
     try {
-      const directory2 = await openFile(dirname6(projectFile), "r");
+      const directory2 = await openFile(dirname7(projectFile), "r");
       try {
         await directory2.sync();
       } finally {
@@ -29423,7 +29734,7 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
   }
 }
 async function openProjectVNext(inputPath, options = {}) {
-  const projectDirectory = await realpath4(resolve3(inputPath)).catch(() => resolve3(inputPath));
+  const projectDirectory = await realpath5(resolve3(inputPath)).catch(() => resolve3(inputPath));
   try {
     const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
@@ -29446,7 +29757,7 @@ async function openProjectVNext(inputPath, options = {}) {
           `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
         );
       }
-      const assetsDirectory = join9(projectDirectory, "assets");
+      const assetsDirectory = join10(projectDirectory, "assets");
       const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
       assetsDirectoryHandle = await openFile(assetsDirectory, "r");
       const openedAssetsDirectory = await assetsDirectoryHandle.stat();
@@ -29458,7 +29769,7 @@ async function openProjectVNext(inputPath, options = {}) {
         );
       }
       const anchoredAssetsDirectory = process.platform === "win32" ? assetsDirectory : `/dev/fd/${assetsDirectoryHandle.fd}`;
-      const speechDirectory = join9(projectDirectory, "speech");
+      const speechDirectory = join10(projectDirectory, "speech");
       const speechDirectoryIdentity = await captureDirectoryIdentity(speechDirectory);
       speechDirectoryHandle = await openFile(speechDirectory, "r");
       const openedSpeechDirectory = await speechDirectoryHandle.stat();
@@ -29478,7 +29789,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await lease.assertCurrent();
         let facts;
         try {
-          facts = await lstat6(projectDirectory);
+          facts = await lstat7(projectDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -29495,8 +29806,8 @@ async function openProjectVNext(inputPath, options = {}) {
           );
         }
         try {
-          const manifestPath = join9(projectDirectory, "narracut.json");
-          const manifestFacts = await lstat6(manifestPath);
+          const manifestPath = join10(projectDirectory, "narracut.json");
+          const manifestFacts = await lstat7(manifestPath);
           if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
             throw new Error("\u9879\u76EE\u6E05\u5355\u6587\u4EF6\u8EAB\u4EFD\u65E0\u6548");
           }
@@ -29525,7 +29836,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await assertWritable();
         let facts;
         try {
-          facts = await lstat6(assetsDirectory);
+          facts = await lstat7(assetsDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -29546,7 +29857,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await assertWritable();
         let facts;
         try {
-          facts = await lstat6(speechDirectory);
+          facts = await lstat7(speechDirectory);
         } catch (cause) {
           throw new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -29572,7 +29883,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join9(projectDirectory, "project.json");
+          const projectFile = join10(projectDirectory, "project.json");
           try {
             await assertWritable();
             if (await currentProjectRevision(
@@ -29645,7 +29956,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const videoBriefPath = join9(projectDirectory, "video.md");
+          const videoBriefPath = join10(projectDirectory, "video.md");
           try {
             await assertWritable();
             const bytes = Buffer.from(content, "utf8");
@@ -29719,7 +30030,7 @@ async function openProjectVNext(inputPath, options = {}) {
             "Video Brief LOCAL \u5FC5\u987B\u662F\u6700\u591A 2 MiB \u7684\u4E25\u683C UTF-8\uFF1BNarracut \u62D2\u7EDD\u5BFC\u51FA\u3002"
           );
         }
-        const destinationDirectory = await realpath4(resolve3(targetDirectory)).catch((cause) => {
+        const destinationDirectory = await realpath5(resolve3(targetDirectory)).catch((cause) => {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
             resolve3(targetDirectory),
@@ -29728,14 +30039,14 @@ async function openProjectVNext(inputPath, options = {}) {
           );
         });
         const relation = relative3(projectDirectory, destinationDirectory);
-        if (relation === "" || !relation.startsWith(`..${sep2}`) && relation !== ".." && !isAbsolute3(relation)) {
+        if (relation === "" || !relation.startsWith(`..${sep2}`) && relation !== ".." && !isAbsolute4(relation)) {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
             destinationDirectory,
             "Video Brief LOCAL \u53EA\u80FD\u5BFC\u51FA\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002"
           );
         }
-        const facts = await lstat6(destinationDirectory);
+        const facts = await lstat7(destinationDirectory);
         if (!facts.isDirectory() || facts.isSymbolicLink()) {
           throw new ProjectLifecycleError(
             "PROJECT_SAVE_FAILED",
@@ -29745,7 +30056,7 @@ async function openProjectVNext(inputPath, options = {}) {
         }
         for (let suffix = 1; suffix <= 1e4; suffix += 1) {
           const filename = suffix === 1 ? "video-brief-local.md" : `video-brief-local-${suffix}.md`;
-          const path = join9(destinationDirectory, filename);
+          const path = join10(destinationDirectory, filename);
           let handle = null;
           try {
             handle = await openFile(path, "wx", 384);
@@ -29756,8 +30067,8 @@ async function openProjectVNext(inputPath, options = {}) {
             if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") continue;
             if (handle !== null) {
               const openedFacts = await handle.stat().catch(() => null);
-              const currentFacts = await lstat6(path).catch(() => null);
-              if (openedFacts !== null && currentFacts !== null && openedFacts.dev === currentFacts.dev && openedFacts.ino === currentFacts.ino) await unlink(path).catch(() => void 0);
+              const currentFacts = await lstat7(path).catch(() => null);
+              if (openedFacts !== null && currentFacts !== null && openedFacts.dev === currentFacts.dev && openedFacts.ino === currentFacts.ino) await unlink2(path).catch(() => void 0);
             }
             throw new ProjectLifecycleError(
               "PROJECT_SAVE_FAILED",
@@ -29784,7 +30095,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join9(projectDirectory, "project.json");
+          const projectFile = join10(projectDirectory, "project.json");
           const sourcePath = resolve3(input.sourcePath);
           await assertWritable();
           if (await currentProjectRevision(
@@ -29799,7 +30110,7 @@ async function openProjectVNext(inputPath, options = {}) {
           }
           let pathFacts;
           try {
-            pathFacts = await lstat6(sourcePath);
+            pathFacts = await lstat7(sourcePath);
           } catch (cause) {
             return {
               status: "failed",
@@ -29860,29 +30171,29 @@ async function openProjectVNext(inputPath, options = {}) {
             }
             await assertAssetsDirectoryCurrent();
             const asset = {
-              id: randomUUID10(),
+              id: randomUUID11(),
               path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath)
             };
-            const temporaryPath = join9(anchoredAssetsDirectory, `.import-${randomUUID10()}.tmp`);
-            let finalPath = join9(anchoredAssetsDirectory, basename(asset.path));
+            const temporaryPath = join10(anchoredAssetsDirectory, `.import-${randomUUID11()}.tmp`);
+            let finalPath = join10(anchoredAssetsDirectory, basename2(asset.path));
             let published = false;
             try {
               await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
               for (let attempt = 0; attempt < 1e4; attempt += 1) {
                 try {
                   await assertAssetsDirectoryCurrent();
-                  await link(temporaryPath, finalPath);
+                  await link2(temporaryPath, finalPath);
                   published = true;
                   break;
                 } catch (cause) {
                   if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
                   asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
-                  finalPath = join9(anchoredAssetsDirectory, basename(asset.path));
+                  finalPath = join10(anchoredAssetsDirectory, basename2(asset.path));
                 }
               }
               if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
               await assertAssetsDirectoryCurrent();
-              await unlink(temporaryPath);
+              await unlink2(temporaryPath);
               const project = structuredClone(currentInspection.project);
               project.assets.push(asset);
               const targetScene = input.targetSceneId === void 0 ? void 0 : project.scenes.find((scene) => scene.id === input.targetSceneId);
@@ -29928,8 +30239,8 @@ async function openProjectVNext(inputPath, options = {}) {
                 inspection: currentInspection
               };
             } catch (cause) {
-              if (published) await unlink(finalPath).catch(() => void 0);
-              await unlink(temporaryPath).catch(() => void 0);
+              if (published) await unlink2(finalPath).catch(() => void 0);
+              await unlink2(temporaryPath).catch(() => void 0);
               if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
               return {
                 status: "failed",
@@ -29955,7 +30266,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join9(projectDirectory, "project.json");
+          const projectFile = join10(projectDirectory, "project.json");
           await assertWritable();
           if (await currentProjectRevision(
             projectFile,
@@ -30054,7 +30365,7 @@ async function openProjectVNext(inputPath, options = {}) {
             if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
             throw new ProjectLifecycleError(
               "PROJECT_SAVE_FAILED",
-              join9(projectDirectory, "tts.json"),
+              join10(projectDirectory, "tts.json"),
               "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1BNarracut \u5DF2\u4FDD\u7559\u539F\u914D\u7F6E\u4E0E Scene \u5185\u5BB9\u3002",
               { cause }
             );
@@ -30065,8 +30376,8 @@ async function openProjectVNext(inputPath, options = {}) {
       };
       const probeSpeechAudio = async (input) => {
         await assertSpeechDirectoryCurrent();
-        const probeFile = join9(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
-        const decoderPath = process.platform === "linux" ? join9(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join9(speechDirectory, `.probe-${input.jobId}.mp3`);
+        const probeFile = join10(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
+        const decoderPath = process.platform === "linux" ? join10(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join10(speechDirectory, `.probe-${input.jobId}.mp3`);
         let created = false;
         try {
           const handle = await openFile(probeFile, "wx", 384);
@@ -30132,9 +30443,9 @@ async function openProjectVNext(inputPath, options = {}) {
               inspection: currentInspection
             };
           }
-          const finalFile = join9(anchoredSpeechDirectory, `${scene.id}.mp3`);
-          const temporaryFile = join9(anchoredSpeechDirectory, `.speech-${randomUUID10()}.tmp`);
-          const backupFile = join9(anchoredSpeechDirectory, `.speech-${randomUUID10()}.previous`);
+          const finalFile = join10(anchoredSpeechDirectory, `${scene.id}.mp3`);
+          const temporaryFile = join10(anchoredSpeechDirectory, `.speech-${randomUUID11()}.tmp`);
+          const backupFile = join10(anchoredSpeechDirectory, `.speech-${randomUUID11()}.previous`);
           let previousFile = false;
           let published = false;
           try {
@@ -30146,7 +30457,7 @@ async function openProjectVNext(inputPath, options = {}) {
               await handle.close();
             }
             try {
-              const finalFacts = await lstat6(finalFile);
+              const finalFacts = await lstat7(finalFile);
               if (!finalFacts.isFile() || finalFacts.isSymbolicLink()) {
                 throw new ProjectLifecycleError(
                   "PROJECT_IDENTITY_LOST",
@@ -30154,8 +30465,8 @@ async function openProjectVNext(inputPath, options = {}) {
                   "\u65E2\u6709 Speech \u4E0D\u518D\u662F\u666E\u901A\u6587\u4EF6\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
                 );
               }
-              await link(finalFile, backupFile);
-              const backupFacts = await lstat6(backupFile);
+              await link2(finalFile, backupFile);
+              const backupFacts = await lstat7(backupFile);
               if (!backupFacts.isFile() || backupFacts.isSymbolicLink() || !hasIdentity(backupFacts, finalFacts)) {
                 throw new ProjectLifecycleError(
                   "PROJECT_IDENTITY_LOST",
@@ -30180,7 +30491,7 @@ async function openProjectVNext(inputPath, options = {}) {
               ttsProfileId: input.ttsProfileId,
               audioContentHash: `sha256:${createHash10("sha256").update(input.audio).digest("hex")}`
             };
-            const projectFile = join9(projectDirectory, "project.json");
+            const projectFile = join10(projectDirectory, "project.json");
             const baselineRevision = currentInspection.projectRevision;
             const validated = validateProjectVNextForSave(project, projectFile);
             const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
@@ -30334,8 +30645,8 @@ async function openProjectVNext(inputPath, options = {}) {
 
 // src/server/project-asset-preview.ts
 import { constants as fsConstants3 } from "node:fs";
-import { lstat as lstat7, open as openFile2 } from "node:fs/promises";
-import { basename as basename2, join as join10 } from "node:path";
+import { lstat as lstat8, open as openFile2 } from "node:fs/promises";
+import { basename as basename3, join as join11 } from "node:path";
 var MAX_INLINE_PREVIEW_BYTES = 32 * 1024 * 1024;
 function startsWith(bytes, signature) {
   return signature.every((byte, index) => bytes[index] === byte);
@@ -30374,7 +30685,7 @@ async function readProjectAssetPreview(inspection, assetId) {
   if (asset === void 0) {
     return { status: "dangling", id: assetId, reason: "\u672A\u627E\u5230\u767B\u8BB0\u7684 Asset\u3002" };
   }
-  const absolutePath = join10(inspection.projectDirectory, asset.path);
+  const absolutePath = join11(inspection.projectDirectory, asset.path);
   try {
     const { assetStates: [runtime] } = await validateProjectVNextResources(
       inspection.projectDirectory,
@@ -30388,7 +30699,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         reason: runtime?.reason ?? "Asset \u6587\u4EF6\u4E0D\u53EF\u7528\u3002"
       };
     }
-    const before = await lstat7(absolutePath);
+    const before = await lstat8(absolutePath);
     const handle = await openFile2(absolutePath, fsConstants3.O_RDONLY | (fsConstants3.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
@@ -30402,7 +30713,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         status: "available",
         id: asset.id,
         path: asset.path,
-        filename: basename2(asset.path),
+        filename: basename3(asset.path),
         size: opened.size,
         ...detected
       };
@@ -30467,6 +30778,23 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  {
+    name: "project_render",
+    title: "\u6700\u7EC8 Render",
+    description: "\u4EC5\u4F9B\u7528\u6237\u5DE5\u4F5C\u53F0\uFF1A\u4ECE\u5F53\u524D\u5DF2\u63A5\u53D7\u5B8C\u6574\u72B6\u6001\u51C6\u5907\u3001\u542F\u52A8\u3001\u67E5\u8BE2\u6216\u53D6\u6D88\u6700\u7EC8 Render\uFF1B\u590D\u7528\u540C\u4E00 Bundle\uFF0C\u4E0D\u8986\u76D6\u8F93\u51FA\u6587\u4EF6\u3002",
+    inputSchema: { type: "object", required: ["projectDirectory", "projectId", "action"], additionalProperties: false, properties: {
+      projectDirectory: { type: "string" },
+      projectId: { type: "string" },
+      action: { enum: ["status", "start", "result", "cancel"] },
+      requestId: { type: "string" },
+      key: { type: "string" },
+      outputPath: { type: "string" },
+      jobId: { type: "string" }
+    } },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
   {
     name: "project_acceptance",
     title: "\u63A5\u53D7\u5B8C\u6574\u5019\u9009\u4E0E\u67E5\u770B\u4FEE\u8BA2\u5386\u53F2",
@@ -30909,7 +31237,7 @@ function serializeInspection(inspection, writable = false, credential = { status
     timeline: inspection.timeline,
     project: {
       directory: inspection.projectDirectory,
-      folderName: basename3(inspection.projectDirectory),
+      folderName: basename4(inspection.projectDirectory),
       projectId: inspection.manifest.projectId,
       sceneCount: inspection.project.scenes.length,
       assetCount: inspection.project.assets.length
@@ -30950,7 +31278,7 @@ function diagnosticSummary(diagnostics) {
   }));
 }
 async function loadWorkbench() {
-  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript, acceptanceScript] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript, acceptanceScript, renderScript] = await Promise.all([
     readFile6(WORKBENCH_PATH, "utf8"),
     readFile6(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile6(PAPER_TEXTURE_PATH),
@@ -30959,10 +31287,11 @@ async function loadWorkbench() {
     readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8"),
     readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
     readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-delivery.js" : "../workbench-delivery.js", import.meta.url), "utf8"),
-    readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-acceptance.js" : "../workbench-acceptance.js", import.meta.url), "utf8")
+    readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-acceptance.js" : "../workbench-acceptance.js", import.meta.url), "utf8"),
+    readFile6(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-render.js" : "../workbench-render.js", import.meta.url), "utf8")
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
-  return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + acceptanceScript + "\n" + script);
+  return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + acceptanceScript + "\n" + renderScript + "\n" + script);
 }
 async function inspectProject(argumentsValue) {
   if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue) || typeof argumentsValue.projectDirectory !== "string") {
@@ -30977,7 +31306,7 @@ async function inspectProject(argumentsValue) {
     };
   }
   const projectDirectory = argumentsValue.projectDirectory;
-  if (!isAbsolute4(projectDirectory)) {
+  if (!isAbsolute5(projectDirectory)) {
     return {
       isError: true,
       structuredContent: {
@@ -30995,7 +31324,7 @@ async function inspectProject(argumentsValue) {
       structuredContent,
       content: [{
         type: "text",
-        text: `${basename3(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
+        text: `${basename4(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
       }]
     };
   } catch (error51) {
@@ -31005,7 +31334,7 @@ async function inspectProject(argumentsValue) {
         structuredContent: {
           status: "invalid",
           connection: connectedState(),
-          project: { directory: projectDirectory, folderName: basename3(projectDirectory) },
+          project: { directory: projectDirectory, folderName: basename4(projectDirectory) },
           error: {
             code: error51.code,
             path: error51.path,
@@ -31064,6 +31393,15 @@ var ProjectWorkspaceSession = class {
   checks = new ProjectChecks(this.preview);
   delivery = new ProjectDelivery(this.preview, this.checks);
   acceptance = new ProjectAcceptance(this.delivery, this.preview);
+  render = new ProjectRender(this.preview);
+  async renderOperation(input) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.action === "status") return this.render.status(opened);
+    if (input.action === "start") return this.render.start(opened, input);
+    if (input.action === "result") return this.render.result(input.requestId);
+    if (input.action === "cancel") return this.render.cancel(input.jobId);
+    throw new Error("\u6700\u7EC8 Render \u53C2\u6570\u65E0\u6548\u3002");
+  }
   async acceptanceOperation(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const result = await this.acceptance.operate(opened, input);
@@ -31118,7 +31456,10 @@ var ProjectWorkspaceSession = class {
     });
     const previous = this.#opened;
     try {
-      if (previous !== null) await previous.release();
+      if (previous !== null) {
+        await this.render.close();
+        await previous.release();
+      }
     } catch (error51) {
       await next.release();
       throw error51;
@@ -31233,7 +31574,7 @@ var ProjectWorkspaceSession = class {
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const job = {
-      id: randomUUID11(),
+      id: randomUUID12(),
       sceneId: scene.id,
       status: "queued",
       stage: "\u6392\u961F",
@@ -31388,6 +31729,7 @@ var ProjectWorkspaceSession = class {
     }
   }
   async dispose() {
+    await this.render.close();
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
     }
@@ -31427,6 +31769,13 @@ async function callTool(params, hostValidation, workspace) {
       return { structuredContent: await workspace.acceptanceOperation(argumentsValue), content: [] };
     } catch (error51) {
       return { isError: true, structuredContent: { error: { code: error51.code ?? "ACCEPTANCE_FAILED", message: error51.message } }, content: [] };
+    }
+  }
+  if (name === "project_render") {
+    try {
+      return { structuredContent: await workspace.renderOperation(argumentsValue), content: [] };
+    } catch (error51) {
+      return { isError: true, structuredContent: { error: { code: error51.code ?? "RENDER_OPERATION_FAILED", message: error51.message } }, content: [] };
     }
   }
   if (name === "project_delivery" || name === "project_delivery_display") {
@@ -31472,7 +31821,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "create_project" || name === "open_project") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute4(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute5(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {
@@ -31499,7 +31848,7 @@ async function callTool(params, hostValidation, workspace) {
         structuredContent: { ...workspace.serialize(inspection), operation },
         content: [{
           type: "text",
-          text: operation === "created" ? `${basename3(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename3(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
+          text: operation === "created" ? `${basename4(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename4(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
         }]
       };
     } catch (error51) {
@@ -31510,7 +31859,7 @@ async function callTool(params, hostValidation, workspace) {
           structuredContent: {
             status: "created-not-opened",
             connection: launcherConnectionState(),
-            project: { directory: projectDirectory, folderName: basename3(projectDirectory) },
+            project: { directory: projectDirectory, folderName: basename4(projectDirectory) },
             error: {
               code: "PROJECT_CREATED_NOT_OPENED",
               causeCode,
@@ -31532,7 +31881,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "coordinate_project_dependencies") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
       return { isError: true, structuredContent: { status: "dependency-failed", error: { code: "DEPENDENCY_SOURCE_UNSUPPORTED", message: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" } }, content: [{ type: "text", text: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" }] };
     }
     try {
@@ -31547,7 +31896,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "manage_project_candidate") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
       return { isError: true, structuredContent: { status: "candidate-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" } }, content: [{ type: "text", text: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" }] };
     }
     try {
@@ -31572,7 +31921,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
       return {
         isError: true,
         structuredContent: {
@@ -31621,7 +31970,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -31674,7 +32023,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute4(input.targetDirectory) || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute5(input.targetDirectory) || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -31718,7 +32067,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute4(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute5(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -31769,7 +32118,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
       return {
         isError: true,
         structuredContent: { assetPreview: { status: "dangling", id: "", reason: "\u9879\u76EE\u8EAB\u4EFD\u6216 Asset ID \u65E0\u6548\u3002" } },
@@ -31812,7 +32161,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
       return {
         isError: true,
         structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u914D\u7F6E\u6216\u51ED\u636E\u64CD\u4F5C\u65E0\u6548\u3002" } },
@@ -31869,7 +32218,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute4(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute5(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
       return {
         isError: true,
         structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u6216 Scene ID \u65E0\u6548\u3002" } },
@@ -31933,7 +32282,7 @@ async function callTool(params, hostValidation, workspace) {
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute4(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute5(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {

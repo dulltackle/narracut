@@ -9,6 +9,8 @@ const pipe = browser.stdio[3] as import('node:stream').Writable;
 const output = browser.stdio[4] as import('node:stream').Readable;
 let sequence = 0, wire = '';
 const pending = new Map<number, { resolve: (value: any) => void; reject: (error: unknown) => void }>();
+let pageLoaded: (() => void) | undefined;
+let requestFailure: unknown;
 function command(method: string, params: object = {}, sessionId?: string): Promise<any> {
   return new Promise((resolve,reject) => { const id = ++sequence; pending.set(id, { resolve,reject }); pipe.write(JSON.stringify({ id,method,params,sessionId }) + '\0'); });
 }
@@ -17,8 +19,13 @@ output.on('data', bytes => {
   while ((cut = wire.indexOf('\0')) >= 0) {
     const message = JSON.parse(wire.slice(0, cut)); wire = wire.slice(cut + 1);
     const wait = pending.get(message.id);
+    if (message.method === 'Page.loadEventFired') pageLoaded?.();
     if (wait) { pending.delete(message.id); message.error ? wait.reject(message.error) : wait.resolve(message.result); }
-    else if (message.method === 'Fetch.requestPaused') void respond(message.params, message.sessionId).catch(() => process.exit(1));
+    else if (message.method === 'Fetch.requestPaused') void respond(message.params, message.sessionId).catch(error => {
+      // 媒体 seek 可在应答前取消请求；失效 ID 不影响当前帧的就绪证明。
+      if (error?.code === -32602 && error?.message === 'Invalid InterceptionId.') return;
+      requestFailure = error;
+    });
   }
 });
 const parentUrl = request.parentOrigin + '/__narracut_capture__';
@@ -35,17 +42,25 @@ async function respond(params: any, sessionId: string) {
   if (!bytes) { await command('Fetch.failRequest', { requestId: params.requestId, errorReason: 'BlockedByClient' }, sessionId); return; }
   await command('Fetch.fulfillRequest', { requestId: params.requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: type }], body: bytes.toString('base64') }, sessionId);
 }
-const results: Array<{ frame: number; error?: string }> = [];
+const results: Array<{ frame: number; error?: string; errorCode?: string }> = [];
+function frameFailure(error: unknown) {
+  return { error: (error as Error).message, errorCode: (error as any).code === 'RUNTIME_FRAME_FAILED' ? 'RUNTIME_FRAME_FAILED' : 'EVIDENCE_CAPTURE_FAILED' };
+}
 try {
   const { targetId } = await command('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await command('Target.attachToTarget', { targetId, flatten: true });
   await command('Page.enable', {}, sessionId);
   await command('Fetch.enable', { patterns: [{ urlPattern: '*' }] }, sessionId);
   await command('Emulation.setDeviceMetricsOverride', { width: descriptor.input.output.width, height: descriptor.input.output.height, deviceScaleFactor: 1, mobile: false }, sessionId);
+  const loaded = new Promise<void>(resolve => { pageLoaded = resolve; });
   await command('Page.navigate', { url: parentUrl }, sessionId);
+  await loaded;
   async function evaluate(expression: string) {
     const value = await command('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId);
-    if (value.exceptionDetails) throw new Error('帧执行或媒体就绪检查失败');
+    if (value.exceptionDetails) {
+      const description = value.exceptionDetails.exception?.description ?? '';
+      throw Object.assign(new Error('帧执行或媒体就绪检查失败'), { code: /RUNTIME_FRAME_FAILED|STATIC_FORBIDDEN_CAPABILITY|STATIC_NONDETERMINISTIC_API/.test(description) ? 'RUNTIME_FRAME_FAILED' : 'EVIDENCE_CAPTURE_FAILED' });
+    }
     return value.result.value;
   }
   async function wait(condition: string) {
@@ -61,12 +76,16 @@ try {
       if (!child) throw new Error('Preview 文档未就绪');
       const { executionContextId } = await command('Page.createIsolatedWorld', { frameId: child, worldName: 'narracut-evidence' }, sessionId);
       const settled = await command('Runtime.evaluate', { contextId: executionContextId, expression: 'Promise.all([document.fonts.ready,...Array.from(document.images).map(img=>img.decode())]).then(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))', awaitPromise: true }, sessionId);
-      if (settled.exceptionDetails) throw new Error('图片解码失败');
+      if (settled.exceptionDetails) throw Object.assign(new Error('图片解码失败'), { code: 'RUNTIME_FRAME_FAILED' });
       await wait(`window.proof.frame===${frame}`);
+      if (requestFailure) throw new Error(`快照请求失败：${JSON.stringify(requestFailure)}`);
       const image = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }, sessionId);
       const png = Buffer.from(image.data, 'base64'); if (png.length > 8 * 1024 * 1024) throw new Error('单帧图像超过 8 MiB');
       await writeFile(`/output/${frame}.png`, png); results.push({ frame });
-    } catch (error) { results.push({ frame, error: (error as Error).message }); }
+    } catch (error) { results.push({ frame, ...frameFailure(error) }); }
   }
+  await writeFile('/output/result.json', JSON.stringify({ instanceId: descriptor.instanceId, identity: descriptor.identity, results }));
+} catch (error) {
+  for (const frame of request.frames) if (!results.some(item => item.frame === frame)) results.push({ frame, ...frameFailure(error) });
   await writeFile('/output/result.json', JSON.stringify({ instanceId: descriptor.instanceId, identity: descriptor.identity, results }));
 } finally { browser.kill('SIGKILL'); process.exit(0); }

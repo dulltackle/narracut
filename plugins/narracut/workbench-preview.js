@@ -166,10 +166,17 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
     accepted(instanceId, revisionId) {
       for (const previous of slots.values()) if (previous.target === 'current' && previous.instanceId !== instanceId) { previous.label = previous.label.replace(/^当前/, '历史修订'); previous.buildStale = true; }
       const slot = slots.get(instanceId); if (!slot) { update(); return; }
-      slot.target = 'current'; slot.label = `当前 · ${revisionId.slice(0, 8)}`;
+      slot.target = 'current'; slot.revisionId = revisionId; slot.label = `当前 · ${revisionId.slice(0, 8)}`;
       slot.iframe.title = slot.label; update();
     },
     pauseHidden,
+    viewingRevision() { return active?.target === 'current' ? active.revisionId : undefined; },
+    showCurrent(revisionId) {
+      const slot = [...slots.values()].find(item => item.revisionId === revisionId && item.ready && !item.failed);
+      if (slot) switchTo(slot);
+      else { sceneNotice = `目标修订 ${revisionId.slice(0, 8)} 的 Preview 尚不可用，请在此构建并核对当前修订。`; update(); }
+      region?.scrollIntoView({ block: 'start' }); const target = region?.querySelector('[data-preview-title]'); if (target) { target.setAttribute('tabindex', '-1'); target.focus({ preventScroll: true }); }
+    },
     candidateInstance() { return versionFor('candidate')?.instanceId; },
     showCandidate() { switchTo(versionFor('candidate')); },
     locateEvidence(location) {

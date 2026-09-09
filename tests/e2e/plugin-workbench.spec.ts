@@ -87,8 +87,9 @@ async function installAppToolBridge(
   handler: (name: string, args: Record<string, any>) => unknown,
 ): Promise<void> {
   await page.exposeFunction("handleNarracutAppTool", (name: string, args: Record<string, any>) => {
-    // 修订历史是新增只读查询；本文件的编辑计数只记录被测的写操作。
+    // 只读后台查询不计入本文件被测的编辑操作。
     if (name === 'project_acceptance' && args.action === 'history') return { structuredContent: { revisions: [] } };
+    if (name === 'project_render' && args.action === 'status') return { structuredContent: { source: { revisionId: 'current', summary: '当前修订', accepted: false, ready: false, issues: [] }, jobs: [] } };
     return handler(name, args);
   });
   await page.evaluate(() => {

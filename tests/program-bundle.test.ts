@@ -148,3 +148,11 @@ it('超过100个静态问题保留完整有界事实，展示层可计算准确�
   try { await buildProgramBundle(request); throw new Error('应阻断'); }
   catch (error: any) { expect(error.diagnostics).toHaveLength(105); expect(error.diagnostics.every((item: any) => item.code === 'STATIC_NONDETERMINISTIC_API')).toBe(true); }
 }, 120000);
+
+it('Metadata 可读取超过旧 64 MiB 预算的不可变媒体快照', async () => {
+  const request = await fixture();
+  const bytes = Buffer.alloc(70 * 1024 * 1024, 1);
+  const path = `media/${createHash('sha256').update(bytes).digest('hex')}`;
+  const bundle = await buildProgramBundle({ ...request, media: new Map([[path, bytes]]) });
+  expect(bundle.runtime).toBe('passed');
+}, 120000);

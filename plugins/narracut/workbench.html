@@ -117,6 +117,30 @@
 @media(max-width:680px){.revision-history{width:100vw;border-left:0;padding:20px}.accept-actions [data-current-revision]{margin-left:0;flex-basis:100%}[data-accept-confirm]{padding:16px}}
 
 </style>
+<style>
+[data-final-render]{margin:14px;flex:none;color:var(--paper)}
+[data-final-render] header,.render-output,.render-actions,.render-status{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+[data-final-render] header,.render-output{justify-content:space-between}
+[data-final-render] h2{margin:0;font-size:1.08rem}
+[data-final-render] p{line-height:1.75;overflow-wrap:anywhere;white-space:pre-line;max-width:75ch}
+[data-final-render] button,[data-final-render] summary{min-height:44px;font:inherit;cursor:pointer}
+[data-final-render] button{padding:8px 16px;border:1px solid var(--preview-control-line);border-radius:6px;background:var(--control);color:var(--paper)}
+[data-final-render] button:hover:not(:disabled){border-color:var(--focus-blue);background:var(--line)}
+[data-final-render] button:disabled{opacity:.5;cursor:not-allowed}
+[data-final-render] .render-primary{background:var(--blue-deep);border-color:var(--blue)}
+[data-final-render] :focus-visible{outline:2px solid var(--focus-blue);outline-offset:3px}
+.render-status{font-size:.84rem;color:var(--preview-copy)}
+[data-render-preparation]{margin-top:24px;padding-top:16px;border-top:1px solid var(--separator)}
+.render-output{margin:16px 0;align-items:flex-start}.render-output>div{flex:1;min-width:160px}
+[data-render-location]{font-variant-numeric:tabular-nums}
+.render-issues,[data-render-mismatch]{color:var(--asset-capacity-copy)}
+[data-render-feedback]{min-height:1.75em}
+[data-final-render] details{margin-top:16px;color:var(--muted)}
+[data-final-render] summary{display:flex;align-items:center}
+[data-final-render] pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.79rem;color:var(--preview-copy)}
+[data-final-render] [hidden]{display:none}
+@media(max-width:700px){[data-final-render]{margin:10px;padding:16px}[data-final-render] header,.render-output{align-items:stretch;flex-direction:column}[data-final-render] header>button,.render-output>button{width:100%}}
+</style>
 </head>
 <body data-surface="narracut-vnext-contact-sheet">
   <!--
