@@ -13,7 +13,7 @@ type JsonRpcResponse = {
   method?: string;
   params?: unknown;
   result?: unknown;
-  error?: { code?: number; message?: string };
+  error?: { code?: number; message?: string; data?: unknown };
 };
 
 type PendingRequest = {
@@ -40,7 +40,24 @@ function objectValue(value: unknown): Record<string, unknown> | null {
 
 function rpcError(method: string, error: JsonRpcResponse["error"]): Error {
   const message = error?.message?.trim() || "未知 App Server 错误";
-  return new Error(`${method} 失败：${message}`);
+  const data = objectValue(error?.data);
+  const reason = upstreamStopReason(data?.codexErrorInfo, data?.httpStatusCode ?? error?.code);
+  const missingThread = method === 'thread/resume' && reason === 'CODEX_INTERRUPTED' && /(?:thread|conversation).*(?:not found|does not exist)|no rollout found/i.test(message);
+  return Object.assign(new Error(`${method} 失败：${message}`), { code: missingThread ? 'CODEX_THREAD_UNAVAILABLE' : reason });
+}
+
+function upstreamStopReason(info: unknown, status?: unknown): string {
+  if (info === 'usageLimitExceeded' || info === 'rateLimitExceeded' || status === 429) return 'CODEX_USAGE_LIMIT';
+  if (info === 'unauthorized' || status === 401 || status === 403) return 'CODEX_AUTH_REQUIRED';
+  if (info === 'serverOverloaded' || info === 'internalServerError' || typeof status === 'number' && status >= 500) return 'CODEX_UNAVAILABLE';
+  const details = objectValue(info);
+  for (const key of ['httpConnectionFailed', 'responseStreamConnectionFailed', 'responseStreamDisconnected', 'responseTooManyFailedAttempts']) {
+    if (details && key in details) {
+      const nested = upstreamStopReason(null, objectValue(details[key])?.httpStatusCode);
+      return nested === 'CODEX_INTERRUPTED' ? 'CODEX_UNAVAILABLE' : nested;
+    }
+  }
+  return 'CODEX_INTERRUPTED';
 }
 
 export class CodexAppServerHost implements CodexHostAdapter {
@@ -51,6 +68,7 @@ export class CodexAppServerHost implements CodexHostAdapter {
   readonly #pending = new Map<number, PendingRequest>();
   readonly #agentMessages = new Map<string, string>();
   readonly #activeTurns = new Map<string, string>();
+  readonly #approvals = new Map<string, { rpcId: number; threadId: string; turnId: string; approved?: boolean }>();
   #child: ChildProcessWithoutNullStreams | null = null;
   #lineReader: Interface | null = null;
   #ready: Promise<void> | null = null;
@@ -100,8 +118,9 @@ export class CodexAppServerHost implements CodexHostAdapter {
         sandbox: "read-only",
         excludeTurns: true,
       }) as ThreadResponse;
-    } catch {
-      throw new CodexThreadUnavailableError(input.threadId);
+    } catch (error) {
+      if ((error as { code?: string }).code === 'CODEX_THREAD_UNAVAILABLE') throw new CodexThreadUnavailableError(input.threadId);
+      throw error;
     }
     const threadId = result.thread?.id;
     if (threadId !== input.threadId) throw new CodexThreadUnavailableError(input.threadId);
@@ -129,6 +148,12 @@ export class CodexAppServerHost implements CodexHostAdapter {
   async interruptTurn(input: { threadId: string; turnId: string }): Promise<void> {
     await this.#ensureReady();
     await this.#request("turn/interrupt", input);
+  }
+  async resolveApproval(approvalId: string, approved: boolean): Promise<void> {
+    const approval = this.#approvals.get(approvalId), child = this.#child;
+    if (!approval || !child || approval.approved !== undefined) throw new Error('工具审批已过期或回执待核对');
+    approval.approved = approved;
+    await new Promise<void>((resolve, reject) => child.stdin.write(`${JSON.stringify({ id: approval.rpcId, result: { decision: approved ? 'accept' : 'decline' } })}\n`, error => error ? reject(error) : resolve()));
   }
 
   async dispose(): Promise<void> {
@@ -195,7 +220,7 @@ export class CodexAppServerHost implements CodexHostAdapter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!this.#pending.delete(id)) return;
-        const error = new Error(`${method} 超过 ${this.#requestTimeoutMs}ms 未响应。`);
+        const error = Object.assign(new Error(`${method} 超过 ${this.#requestTimeoutMs}ms 未响应。`), { code: 'CODEX_UNAVAILABLE' });
         reject(error);
         this.#handleExit(child, error);
       }, this.#requestTimeoutMs);
@@ -239,6 +264,13 @@ export class CodexAppServerHost implements CodexHostAdapter {
     }
 
     if (message.id !== undefined && message.method !== undefined) {
+      const params = objectValue(message.params);
+      if (message.method === 'item/commandExecution/requestApproval' && typeof params?.threadId === 'string' && typeof params.turnId === 'string') {
+        const approvalId = `${params.threadId}:${params.turnId}:${message.id}`;
+        this.#approvals.set(approvalId, { rpcId: message.id, threadId: params.threadId, turnId: params.turnId });
+        this.#emit({ type: 'approval-required', approvalId, threadId: params.threadId, turnId: params.turnId, summary: [params.reason, params.command].filter(value => typeof value === 'string').join('\n').slice(0, 4000) || 'Codex 请求批准工具操作' });
+        return;
+      }
       this.#child?.stdin.write(`${JSON.stringify({
         id: message.id,
         error: { code: -32601, message: `Narracut 不支持宿主请求 ${message.method}。` },
@@ -247,6 +279,19 @@ export class CodexAppServerHost implements CodexHostAdapter {
     }
 
     const params = objectValue(message.params);
+    if (message.method === 'serverRequest/resolved' && params) {
+      for (const [approvalId, approval] of this.#approvals) {
+        if (approval.threadId === params.threadId && approval.rpcId === params.requestId) {
+          this.#approvals.delete(approvalId);
+          this.#emit({ type: 'approval-resolved', approvalId, threadId: approval.threadId, turnId: approval.turnId, approved: approval.approved === true });
+        }
+      }
+      return;
+    }
+    if (message.method === 'error' && typeof params?.threadId === 'string' && typeof params.turnId === 'string') {
+      this.#emit({ type: 'turn-completed', threadId: params.threadId, turnId: params.turnId, status: 'failed', error: upstreamStopReason(objectValue(params.error)?.codexErrorInfo) });
+      return;
+    }
     if (message.method === "item/completed" && params !== null) {
       const item = objectValue(params.item);
       if (
@@ -281,7 +326,7 @@ export class CodexAppServerHost implements CodexHostAdapter {
         ? finalMessage
         : this.#agentMessages.get(messageKey);
       this.#agentMessages.delete(messageKey);
-      this.#activeTurns.delete(threadId);
+      if (this.#activeTurns.get(threadId) === turnId) this.#activeTurns.delete(threadId);
       this.#emit({
         type: "turn-completed",
         threadId,
@@ -290,7 +335,7 @@ export class CodexAppServerHost implements CodexHostAdapter {
         ...(output === undefined ? {} : { output }),
         ...(turn.error === null || turn.error === undefined
           ? {}
-          : { error: JSON.stringify(turn.error).slice(0, 240) }),
+          : { error: upstreamStopReason(objectValue(turn.error)?.codexErrorInfo, objectValue(turn.error)?.httpStatusCode) }),
       });
       return;
     }
@@ -310,6 +355,7 @@ export class CodexAppServerHost implements CodexHostAdapter {
   }
 
   #clearTransientState(error: Error): void {
+    this.#approvals.clear();
     this.#lineReader?.close();
     this.#lineReader = null;
     for (const pending of this.#pending.values()) {

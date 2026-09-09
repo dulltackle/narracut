@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 export type CodexHostEvent =
+  | { type: 'approval-required'; threadId: string; turnId: string; approvalId: string; summary: string }
+  | { type: 'approval-resolved'; threadId: string; turnId: string; approvalId: string; approved: boolean }
   | {
     type: "turn-completed";
     threadId: string;
@@ -27,10 +29,12 @@ export interface CodexHostAdapter {
   resumeThread(input: { threadId: string; projectDirectory: string }): Promise<{ threadId: string }>;
   startTurn(input: StartCodexTurnInput): Promise<{ turnId: string }>;
   interruptTurn(input: { threadId: string; turnId: string }): Promise<void>;
+  resolveApproval?(approvalId: string, approved: boolean): Promise<void>;
   dispose(): Promise<void>;
 }
 
 export class CodexThreadUnavailableError extends Error {
+  readonly code = "CODEX_THREAD_UNAVAILABLE";
   readonly threadId: string;
 
   constructor(threadId: string) {
@@ -38,6 +42,13 @@ export class CodexThreadUnavailableError extends Error {
     this.name = "CodexThreadUnavailableError";
     this.threadId = threadId;
   }
+}
+
+/** 只依赖宿主明确提供的错误代码，不从自由文本推断额度或认证。 */
+export function codexStopReason(error: unknown): string {
+  const value = error as { code?: unknown; message?: unknown } | null;
+  const codes = ['CODEX_USAGE_LIMIT', 'CODEX_AUTH_REQUIRED', 'CODEX_UNAVAILABLE', 'CODEX_INTERRUPTED', 'CODEX_THREAD_UNAVAILABLE', 'NO_PROGRESS', 'PROJECT_IDENTITY_LOST'];
+  return codes.find(code => value?.code === code || value?.message === code) ?? 'CODEX_INTERRUPTED';
 }
 
 type ValidationStatus = "running" | "stopped" | "succeeded";
@@ -295,6 +306,7 @@ export class AgentHostValidationService {
   }
 
   #handleHostEvent(event: CodexHostEvent): void {
+    if (event.type === 'approval-required' || event.type === 'approval-resolved') return;
     if (event.type === "host-unavailable") {
       for (const task of this.#tasks.values()) {
         if (task.state.status === "succeeded") continue;

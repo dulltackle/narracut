@@ -187,7 +187,7 @@ describe("Narracut Codex 插件", () => {
     expect(result.content[0]?.text).toContain("product-demo");
   });
 
-  it("提供无项目启动器，并让 create/open 复用严格创建与独占租约语义", async () => {
+  it("提供无项目启动器，严格创建项目并在工作台间交接独占租约", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-launcher-"));
     const projectDirectory = join(parentDirectory, "new-project");
     const pluginRequest = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
@@ -241,12 +241,10 @@ describe("Narracut Codex 插件", () => {
       method: "tools/call",
       params: { name: "open_project", arguments: { projectDirectory } },
     }) as { isError: boolean; structuredContent: Record<string, unknown> };
-    expect(occupied).toMatchObject({
-      isError: true,
-      structuredContent: {
-        status: "invalid",
-        error: { code: "PROJECT_IN_USE", path: projectDirectory },
-      },
+    expect(occupied.isError).not.toBe(true);
+    expect(occupied.structuredContent).toMatchObject({
+      status: "valid", operation: "opened", writable: true,
+      project: { directory: projectDirectory, sceneCount: 0 },
     });
 
     await pluginRequest.dispose();

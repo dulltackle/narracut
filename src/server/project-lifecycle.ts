@@ -1,3 +1,4 @@
+import { listenForProjectHandoff, requestProjectHandoff } from './project-lease-handoff';
 import { readCurrentPointer, verifyRevision } from './project-revisions';
 import { RUNTIME_REMOTION_VERSION } from './project-dependencies';
 import { createCandidateManager, type CandidateRequest, type CandidateStatus } from "./project-candidate";
@@ -659,6 +660,7 @@ export async function createProjectVNext(
 }
 
 export type OpenedProjectVNext = {
+  transferred?: boolean;
   programTransaction: <T>(run: (manager: Awaited<ReturnType<typeof createCandidateManager>>) => Promise<T>) => Promise<T>;
   candidate: (request: CandidateRequest) => Promise<CandidateStatus>;
   readPreviewSource: Awaited<ReturnType<typeof createCandidateManager>>["previewSource"];
@@ -718,6 +720,7 @@ export type OpenedProjectVNext = {
 };
 
 type LeaseMarker = {
+  handoffPort?: number;
   kind: "narracut-project-lease";
   version: 1;
   projectDirectory: string;
@@ -782,15 +785,25 @@ async function clearStaleLease(leasePath: string): Promise<boolean> {
 }
 
 type ProjectLease = {
+  transferred: boolean;
   assertCurrent: () => Promise<void>;
   release: () => Promise<void>;
 };
 
 async function acquireProjectLease(
   inspection: ProjectVNextInspection,
+  onHandoff?: () => Promise<void>,
 ): Promise<ProjectLease> {
   const projectDirectory = inspection.projectDirectory;
   const leasePath = join(projectDirectory, ".narracut", "workspace.lease");
+  let transferred = false;
+  if (onHandoff) {
+    const existing = await readFile(leasePath, "utf8").then(bytes => JSON.parse(bytes) as LeaseMarker).catch(() => null);
+    if (existing && isLeaseMarker(existing) && existing.projectId === inspection.manifest.projectId && existing.projectDirectory === projectDirectory && existing.handoffPort && await leaseHolderIsAlive(existing)) {
+      try { await requestProjectHandoff(existing.handoffPort, existing.token); transferred = true; }
+      catch (cause) { throw new ProjectLifecycleError("PROJECT_IN_USE", projectDirectory, "线程连接结果待核对；尚未取得任务控制权。", { cause }); }
+    }
+  }
   if (activeLeasePaths.has(leasePath)) {
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -830,10 +843,13 @@ async function acquireProjectLease(
       `无法取得项目写入租约：${projectDirectory}。`,
     );
   }
+  let endpoint: Awaited<ReturnType<typeof listenForProjectHandoff>> | undefined;
   try {
+    if (onHandoff) { endpoint = await listenForProjectHandoff(marker.token, onHandoff); marker.handoffPort = endpoint.port; }
     await handle.writeFile(JSON.stringify(marker));
     await handle.sync();
   } catch (cause) {
+    endpoint?.close();
     await handle.close();
     await rm(leasePath, { force: true });
     throw new ProjectLifecycleError(
@@ -848,6 +864,7 @@ async function acquireProjectLease(
   try {
     leaseDirectoryHandle = await openFile(dirname(leasePath), "r");
   } catch (cause) {
+    endpoint?.close();
     await rm(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -881,6 +898,7 @@ async function acquireProjectLease(
   const release = async () => {
     if (released) return;
     released = true;
+    endpoint?.close();
     activeLeasePaths.delete(leasePath);
     const anchoredLeasePath = process.platform === "win32"
       ? leasePath
@@ -894,7 +912,7 @@ async function acquireProjectLease(
       await leaseDirectoryHandle.close();
     }
   };
-  return { assertCurrent, release };
+  return { assertCurrent, release, transferred };
 }
 
 function revisionOf(bytes: Buffer): string {
@@ -1095,14 +1113,14 @@ async function replaceProjectFile(
 
 export async function openProjectVNext(
   inputPath: string,
-  options: { probeSpeechDurationMs?: (path: string) => Promise<number> } = {},
+  options: { probeSpeechDurationMs?: (path: string) => Promise<number>; onHandoff?: () => Promise<void> } = {},
 ): Promise<OpenedProjectVNext> {
   const projectDirectory = await realpath(resolve(inputPath)).catch(() => resolve(inputPath));
   try {
     const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
     const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
-    const lease = await acquireProjectLease(initialInspection);
+    const lease = await acquireProjectLease(initialInspection, options.onHandoff);
     let assetsDirectoryHandle: FileHandle | null = null;
     let speechDirectoryHandle: FileHandle | null = null;
     try {
@@ -1984,6 +2002,7 @@ export async function openProjectVNext(
         await releasePromise;
       };
       return {
+        transferred: lease.transferred,
         candidate,
         programTransaction: (run) => {
           if (closing) return Promise.reject(new Error('项目正在关闭。'));

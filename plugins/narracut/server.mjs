@@ -23923,12 +23923,308 @@ function authorizesBrief(instruction) {
 }
 
 // plugins/narracut/src/creation-task.ts
-import { randomUUID as randomUUID4 } from "node:crypto";
+import { randomUUID as randomUUID5 } from "node:crypto";
 import { join as join6 } from "node:path";
 import { rename as rename3, rm as rm5, open as open2 } from "node:fs/promises";
 
+// plugins/narracut/src/codex-host.ts
+import { randomUUID } from "node:crypto";
+var CodexThreadUnavailableError = class extends Error {
+  code = "CODEX_THREAD_UNAVAILABLE";
+  threadId;
+  constructor(threadId) {
+    super(`Codex \u521B\u4F5C\u7EBF\u7A0B ${threadId} \u4E0D\u53EF\u7528\u3002`);
+    this.name = "CodexThreadUnavailableError";
+    this.threadId = threadId;
+  }
+};
+function codexStopReason(error51) {
+  const value = error51;
+  const codes = ["CODEX_USAGE_LIMIT", "CODEX_AUTH_REQUIRED", "CODEX_UNAVAILABLE", "CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "NO_PROGRESS", "PROJECT_IDENTITY_LOST"];
+  return codes.find((code) => value?.code === code || value?.message === code) ?? "CODEX_INTERRUPTED";
+}
+var validationOutputSchema = {
+  type: "object",
+  required: ["verificationToken", "projectId", "sceneCount", "summary"],
+  properties: {
+    verificationToken: { type: "string" },
+    projectId: { type: "string" },
+    sceneCount: { type: "integer", minimum: 0 },
+    summary: { type: "string", maxLength: 240 }
+  },
+  additionalProperties: false
+};
+function checkpointFor(task) {
+  if (task.state.status === "succeeded") return null;
+  return {
+    taskId: task.state.taskId,
+    status: task.state.status,
+    reason: task.state.reason,
+    threadPointer: task.state.connection.threadId
+  };
+}
+function availableActions(status) {
+  if (status === "running") return ["stop"];
+  if (status === "stopped") return ["continue"];
+  return [];
+}
+function publicState(task) {
+  return {
+    ...task.state,
+    connection: { ...task.state.connection },
+    result: task.state.result === null ? null : { ...task.state.result, verification: { ...task.state.result.verification } },
+    diagnostic: task.state.diagnostic === null ? null : { ...task.state.diagnostic },
+    checkpoint: checkpointFor(task),
+    availableActions: [...task.state.availableActions]
+  };
+}
+function boundedMessage(message, fallback) {
+  if (typeof message !== "string" || message.trim() === "") return fallback;
+  return message.trim().slice(0, 240);
+}
+function validationPrompt(task, verificationToken) {
+  return [
+    "\u8FD9\u662F Narracut \u7684\u4E00\u6B21\u56FA\u5B9A Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\uFF0C\u4E0D\u662F\u521B\u4F5C\u4EFB\u52A1\u3002",
+    "\u53EA\u8BFB\u68C0\u67E5\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\u4E2D\u7684 narracut.json \u4E0E project.json\uFF1B\u4E0D\u8981\u521B\u5EFA\u3001\u4FEE\u6539\u6216\u5220\u9664\u4EFB\u4F55\u6587\u4EF6\uFF0C\u4E5F\u4E0D\u8981\u6267\u884C\u7F51\u7EDC\u64CD\u4F5C\u3002",
+    `\u786E\u8BA4 Project ID \u662F ${task.request.projectId}\uFF0CScene \u6570\u91CF\u662F ${task.request.sceneCount}\u3002`,
+    `\u6700\u7EC8\u53EA\u8FD4\u56DE\u7B26\u5408\u7ED9\u5B9A JSON Schema \u7684\u5BF9\u8C61\uFF0C\u5176\u4E2D verificationToken \u5FC5\u987B\u539F\u6837\u8FD4\u56DE ${verificationToken}\u3002`,
+    "summary \u7528\u4E00\u53E5\u4E2D\u6587\u8BF4\u660E\u5DF2\u5728\u53EA\u8BFB\u8FB9\u754C\u5185\u6838\u5BF9 Project VNext \u8EAB\u4EFD\u3002"
+  ].join("\n");
+}
+var AgentHostValidationService = class {
+  #host;
+  #idFactory;
+  #tasks = /* @__PURE__ */ new Map();
+  #driverOwners = /* @__PURE__ */ new Map();
+  #unsubscribe;
+  constructor(host, options = {}) {
+    this.#host = host;
+    this.#idFactory = options.idFactory ?? randomUUID;
+    this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
+  }
+  async start(request2) {
+    const taskId = this.#idFactory();
+    const task = {
+      request: request2,
+      activeDriver: null,
+      state: {
+        taskId,
+        status: "stopped",
+        reason: "CODEX_UNAVAILABLE",
+        connection: { status: "unavailable", threadId: null, replaced: false },
+        result: null,
+        diagnostic: null,
+        checkpoint: null,
+        availableActions: ["continue"],
+        projectModified: false
+      }
+    };
+    this.#tasks.set(taskId, task);
+    await this.#bindAndRun(task, null);
+    return publicState(task);
+  }
+  get(taskId) {
+    return publicState(this.#requireTask(taskId));
+  }
+  async stop(taskId) {
+    const task = this.#requireTask(taskId);
+    const driver = task.activeDriver;
+    task.activeDriver = null;
+    this.#setStopped(task, "USER_STOPPED");
+    if (driver !== null) {
+      try {
+        await this.#host.interruptTurn({ threadId: driver.threadId, turnId: driver.turnId });
+      } catch (error51) {
+        task.state.diagnostic = {
+          code: "HOST_INTERRUPT_FAILED",
+          message: boundedMessage(error51 instanceof Error ? error51.message : error51, "Codex Turn \u672A\u80FD\u786E\u8BA4\u4E2D\u65AD\u3002")
+        };
+      }
+    }
+    return publicState(task);
+  }
+  async continue(taskId) {
+    const task = this.#requireTask(taskId);
+    if (task.state.status !== "stopped") {
+      throw new Error("\u53EA\u6709\u5DF2\u505C\u6B62\u7684\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\u53EF\u4EE5\u7EE7\u7EED\u3002");
+    }
+    const threadPointer = task.state.connection.threadId;
+    await this.#bindAndRun(task, threadPointer);
+    return publicState(task);
+  }
+  async dispose() {
+    this.#unsubscribe();
+    await this.#host.dispose();
+  }
+  #requireTask(taskId) {
+    const task = this.#tasks.get(taskId);
+    if (task === void 0) throw new Error(`\u672A\u77E5\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\uFF1A${taskId}`);
+    return task;
+  }
+  async #bindAndRun(task, threadPointer) {
+    task.state.diagnostic = null;
+    let threadId = threadPointer;
+    let replaced = false;
+    try {
+      if (threadPointer === null) {
+        ({ threadId } = await this.#host.createThread({
+          projectDirectory: task.request.projectDirectory
+        }));
+      } else {
+        try {
+          ({ threadId } = await this.#host.resumeThread({
+            threadId: threadPointer,
+            projectDirectory: task.request.projectDirectory
+          }));
+        } catch (error51) {
+          if (!(error51 instanceof CodexThreadUnavailableError)) throw error51;
+          ({ threadId } = await this.#host.createThread({
+            projectDirectory: task.request.projectDirectory
+          }));
+          replaced = true;
+        }
+      }
+      if (threadId === null) throw new Error("Codex Thread \u7ED1\u5B9A\u672A\u8FD4\u56DE\u6709\u6548\u6307\u9488\u3002");
+      const driverId = this.#idFactory();
+      const verificationToken = this.#idFactory();
+      const { turnId } = await this.#host.startTurn({
+        threadId,
+        projectDirectory: task.request.projectDirectory,
+        verificationToken,
+        prompt: validationPrompt(task, verificationToken),
+        outputSchema: validationOutputSchema
+      });
+      const driver = { id: driverId, threadId, turnId, verificationToken };
+      task.activeDriver = driver;
+      this.#driverOwners.set(`${threadId}:${turnId}`, task.state.taskId);
+      task.state.status = "running";
+      task.state.reason = null;
+      task.state.connection = { status: "connected", threadId, replaced };
+      task.state.result = null;
+      task.state.availableActions = availableActions("running");
+      task.state.checkpoint = checkpointFor(task);
+    } catch (error51) {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_UNAVAILABLE");
+      task.state.connection = {
+        status: "unavailable",
+        threadId,
+        replaced
+      };
+      task.state.diagnostic = {
+        code: "CODEX_HOST_UNAVAILABLE",
+        message: boundedMessage(error51 instanceof Error ? error51.message : error51, "Codex \u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002")
+      };
+    }
+  }
+  #setStopped(task, reason) {
+    task.state.status = "stopped";
+    task.state.reason = reason;
+    task.state.result = null;
+    task.state.availableActions = availableActions("stopped");
+    task.state.checkpoint = checkpointFor(task);
+  }
+  #handleHostEvent(event) {
+    if (event.type === "approval-required" || event.type === "approval-resolved") return;
+    if (event.type === "host-unavailable") {
+      for (const task2 of this.#tasks.values()) {
+        if (task2.state.status === "succeeded") continue;
+        if (task2.activeDriver !== null) {
+          task2.activeDriver = null;
+          this.#setStopped(task2, "CODEX_UNAVAILABLE");
+        }
+        task2.state.connection.status = "unavailable";
+        task2.state.diagnostic = {
+          code: "CODEX_HOST_UNAVAILABLE",
+          message: boundedMessage(event.error, "Codex \u5BBF\u4E3B\u8FDE\u63A5\u5DF2\u4E2D\u65AD\u3002")
+        };
+      }
+      return;
+    }
+    const turnKey = event.turnId === void 0 ? null : `${event.threadId}:${event.turnId}`;
+    let task = turnKey === null ? void 0 : this.#tasks.get(this.#driverOwners.get(turnKey) ?? "");
+    task ??= [...this.#tasks.values()].find(
+      (candidate) => candidate.state.connection.threadId === event.threadId
+    );
+    if (task === void 0) return;
+    const driver = task.activeDriver;
+    if (event.type === "thread-unavailable" && driver === null && task.state.status === "stopped" && task.state.connection.threadId === event.threadId) {
+      task.state.connection.status = "unavailable";
+      task.state.diagnostic = {
+        code: "CODEX_THREAD_UNAVAILABLE",
+        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
+      };
+      return;
+    }
+    const isCurrent = driver !== null && driver.threadId === event.threadId && (event.turnId === void 0 || driver.turnId === event.turnId);
+    if (!isCurrent) {
+      task.state.diagnostic = {
+        code: "LATE_DRIVER_CALLBACK_REJECTED",
+        message: "\u5DF2\u62D2\u7EDD\u5931\u53BB\u5199\u6743\u7684\u65E7 Codex \u521B\u4F5C\u7EBF\u7A0B\u56DE\u8C03\uFF1B\u5F53\u524D\u4EFB\u52A1\u72B6\u6001\u672A\u6539\u53D8\u3002"
+      };
+      return;
+    }
+    if (event.type === "thread-unavailable") {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_THREAD_UNAVAILABLE");
+      task.state.connection.status = "unavailable";
+      task.state.diagnostic = {
+        code: "CODEX_THREAD_UNAVAILABLE",
+        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
+      };
+      return;
+    }
+    if (event.status !== "completed" || event.output === void 0) {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_INTERRUPTED");
+      task.state.diagnostic = {
+        code: "CODEX_TURN_INTERRUPTED",
+        message: boundedMessage(event.error, "Codex \u9A8C\u8BC1 Turn \u672A\u5B8C\u6210\u3002")
+      };
+      return;
+    }
+    let parsed;
+    try {
+      const value = JSON.parse(event.output);
+      if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error();
+      parsed = value;
+    } catch {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_INTERRUPTED");
+      task.state.diagnostic = {
+        code: "HOST_VALIDATION_RESULT_INVALID",
+        message: "Codex \u8FD4\u56DE\u4E86\u65E0\u6CD5\u9A8C\u8BC1\u7684\u7ED3\u6784\u5316\u7ED3\u679C\u3002"
+      };
+      return;
+    }
+    const summary = parsed.summary;
+    const normalizedSummary = typeof summary === "string" ? summary.trim() : "";
+    const valid2 = parsed.verificationToken === driver.verificationToken && parsed.projectId === task.request.projectId && parsed.sceneCount === task.request.sceneCount && typeof summary === "string" && normalizedSummary !== "" && summary.length <= 240;
+    if (!valid2) {
+      task.activeDriver = null;
+      this.#setStopped(task, "CODEX_INTERRUPTED");
+      task.state.diagnostic = {
+        code: "HOST_VALIDATION_IDENTITY_MISMATCH",
+        message: "Codex \u7ED3\u679C\u672A\u901A\u8FC7\u4EFB\u52A1\u3001\u9A71\u52A8\u6216\u9879\u76EE\u8EAB\u4EFD\u6821\u9A8C\u3002"
+      };
+      return;
+    }
+    task.activeDriver = null;
+    task.state.status = "succeeded";
+    task.state.reason = null;
+    task.state.result = {
+      projectId: task.request.projectId,
+      sceneCount: task.request.sceneCount,
+      summary: normalizedSummary,
+      verification: { taskId: task.state.taskId, driverId: driver.id }
+    };
+    task.state.availableActions = availableActions("succeeded");
+    task.state.checkpoint = null;
+  }
+};
+
 // src/server/project-revisions.ts
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID as randomUUID2, createHash } from "node:crypto";
 import { join } from "node:path";
 import { rename, rm, mkdir, lstat } from "node:fs/promises";
 var uuid3 = external_exports.string().uuid();
@@ -24007,7 +24303,7 @@ function createRevisionStore(project, assertWritable) {
         }
         if (bytes && hash2(bytes) === pointer.consumed.pointer) {
           const state = JSON.parse(bytes.toString());
-          const temp = join(internal, `consumed-${randomUUID()}.json`);
+          const temp = join(internal, `consumed-${randomUUID2()}.json`);
           try {
             await writeBytes(temp, Buffer.from(JSON.stringify({ ...state, candidate: null, checkpoint: null })));
             await assertWritable();
@@ -24037,13 +24333,13 @@ function createRevisionStore(project, assertWritable) {
       return { cleanupPending: true, cleanupError: error51.message };
     }
   }
-  async function accept(request, tree, raw, state, validate) {
+  async function accept(request2, tree, raw, state, validate) {
     if ((await cleanup()).cleanupPending) throw new CandidateError("ACCEPTANCE_CLEANUP_PENDING", "\u8BF7\u5148\u91CD\u8BD5\u4E0A\u6B21\u63A5\u53D7\u7684\u6E05\u7406\u3002");
     const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project);
     const previous = await verifyRevision(project, before.revisionId);
-    const id = randomUUID(), requestId = request.requestId ?? randomUUID();
-    const record3 = request.acceptance;
-    const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: state.sourceRevision, acceptedAt: (/* @__PURE__ */ new Date()).toISOString(), programFingerprint: identity(tree), briefFingerprint: record3.identity?.brief, inputFingerprint: record3.identity?.input, summary: request.summary, source: request.source, acceptance: request.acceptance, requestId });
+    const id = randomUUID2(), requestId = request2.requestId ?? randomUUID2();
+    const record3 = request2.acceptance;
+    const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: state.sourceRevision, acceptedAt: (/* @__PURE__ */ new Date()).toISOString(), programFingerprint: identity(tree), briefFingerprint: record3.identity?.brief, inputFingerprint: record3.identity?.input, summary: request2.summary, source: request2.source, acceptance: request2.acceptance, requestId });
     const root = join(internal, "revisions", id), temporary = join(internal, `accept-${id}.json`);
     let committed = false;
     try {
@@ -24303,7 +24599,7 @@ import { createHash as createHash5 } from "node:crypto";
 
 // src/server/execution-capsule.ts
 import { execFile as execFile2, spawn } from "node:child_process";
-import { createHash as createHash4, randomUUID as randomUUID2 } from "node:crypto";
+import { createHash as createHash4, randomUUID as randomUUID3 } from "node:crypto";
 import { mkdir as mkdir3, mkdtemp as mkdtemp2, rm as rm3, writeFile as writeFile2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
 import { dirname as dirname2, join as join3 } from "node:path";
@@ -24727,17 +25023,17 @@ var ExecutionCapsule = class _ExecutionCapsule {
       throw failure("CAPSULE_SELF_TEST_FAILED");
     }
   }
-  async run(request, validate) {
+  async run(request2, validate) {
     await this.certify();
-    if (request.signal?.aborted) throw failure("CAPSULE_CANCELLED");
-    if (!Object.hasOwn(CAPSULE_POLICIES, request.stage) || request.stage === "download") throw failure("CAPSULE_REQUEST_INVALID");
-    const entries = Object.entries(request.inputs);
-    if (entries.length > 4096 || entries.some(([path, bytes]) => !safePath(path) || !roles[request.stage].includes(path.split("/")[0]) || !(bytes instanceof Uint8Array)) || !Object.hasOwn(request.inputs, request.entry) || entries.reduce((sum, [, bytes]) => sum + bytes.byteLength, 0) > CAPSULE_POLICIES[request.stage].disk) throw failure("CAPSULE_REQUEST_INVALID");
+    if (request2.signal?.aborted) throw failure("CAPSULE_CANCELLED");
+    if (!Object.hasOwn(CAPSULE_POLICIES, request2.stage) || request2.stage === "download") throw failure("CAPSULE_REQUEST_INVALID");
+    const entries = Object.entries(request2.inputs);
+    if (entries.length > 4096 || entries.some(([path, bytes]) => !safePath(path) || !roles[request2.stage].includes(path.split("/")[0]) || !(bytes instanceof Uint8Array)) || !Object.hasOwn(request2.inputs, request2.entry) || entries.reduce((sum, [, bytes]) => sum + bytes.byteLength, 0) > CAPSULE_POLICIES[request2.stage].disk) throw failure("CAPSULE_REQUEST_INVALID");
     const inputs = Object.fromEntries(entries.map(([path, bytes]) => [path, Buffer.from(bytes)]));
-    const output = await this.#execute(request.stage, inputs, request.entry, request.signal);
-    if (request.signal?.aborted) throw failure("CAPSULE_CANCELLED");
+    const output = await this.#execute(request2.stage, inputs, request2.entry, request2.signal);
+    if (request2.signal?.aborted) throw failure("CAPSULE_CANCELLED");
     if (!await validate(output)) throw failure("CAPSULE_OUTPUT_INVALID");
-    if (request.signal?.aborted) throw failure("CAPSULE_CANCELLED");
+    if (request2.signal?.aborted) throw failure("CAPSULE_CANCELLED");
     return output;
   }
   /** 下载阶段唯一宿主能力是固定 registry 的无凭据字节代理，不能运行调用者代码。 */
@@ -24763,7 +25059,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
     if (!this.#toolchain) throw failure("CAPSULE_UNAVAILABLE");
     const policy = certificationLimits ?? CAPSULE_POLICIES[stage];
     const directory2 = await mkdtemp2(join3(tmpdir2(), "narracut-capsule-"));
-    const unit = `narracut-capsule-${randomUUID2()}.service`;
+    const unit = `narracut-capsule-${randomUUID3()}.service`;
     const controlEnv = { PATH: "/usr/bin:/bin", LC_ALL: "C", XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`, DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus` };
     const control = (...args) => exec2("/usr/bin/systemctl", ["--user", ...args], { env: controlEnv, timeout: 5e3, maxBuffer: 64 * 1024 });
     try {
@@ -25031,14 +25327,14 @@ function packageManifest(bytes, pin, files) {
   if (manifest.bundledDependencies?.length || manifest.bundleDependencies?.length) fail3("\u4E0D\u63A5\u53D7\u5305\u5185\u5D4C\u5957\u4F9D\u8D56\uFF1B\u8BF7\u4E3A\u5B8C\u6574\u9501\u56FE\u63D0\u4F9B\u7CBE\u786E\u5305\u3002");
   return manifest;
 }
-async function coordinateDependencies(manifestBytes, lockBytes, stored, request, retainedLocks = [], retainedKeys = []) {
-  if (Object.keys(request).some((key) => !["action", "baseline", "dependencies", "packages"].includes(key))) fail3("\u4F9D\u8D56\u534F\u8C03\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49 registry\u3001\u6765\u6E90\u6216\u51ED\u636E\u5B57\u6BB5\u3002");
-  if (!record2(request.dependencies) || !Array.isArray(request.packages) || request.packages.length > 256) fail3("\u4F9D\u8D56\u534F\u8C03\u5FC5\u987B\u63D0\u4F9B\u4F9D\u8D56\u58F0\u660E\u4E0E\u7CBE\u786E\u5305\u5217\u8868\uFF08\u6700\u591A 256 \u9879\uFF09\u3002");
-  for (const [name, version2] of Object.entries(request.dependencies)) if (!nameValid(name) || !versionValid(version2)) fail3("\u53EA\u63A5\u53D7\u7CBE\u786E\u516C\u5171 npm \u7248\u672C\uFF1B\u62D2\u7EDD\u7248\u672C\u8303\u56F4\u3001Git\u3001URL\u3001file \u4E0E\u79C1\u6709\u6765\u6E90\u3002");
+async function coordinateDependencies(manifestBytes, lockBytes, stored, request2, retainedLocks = [], retainedKeys = []) {
+  if (Object.keys(request2).some((key) => !["action", "baseline", "dependencies", "packages"].includes(key))) fail3("\u4F9D\u8D56\u534F\u8C03\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49 registry\u3001\u6765\u6E90\u6216\u51ED\u636E\u5B57\u6BB5\u3002");
+  if (!record2(request2.dependencies) || !Array.isArray(request2.packages) || request2.packages.length > 256) fail3("\u4F9D\u8D56\u534F\u8C03\u5FC5\u987B\u63D0\u4F9B\u4F9D\u8D56\u58F0\u660E\u4E0E\u7CBE\u786E\u5305\u5217\u8868\uFF08\u6700\u591A 256 \u9879\uFF09\u3002");
+  for (const [name, version2] of Object.entries(request2.dependencies)) if (!nameValid(name) || !versionValid(version2)) fail3("\u53EA\u63A5\u53D7\u7CBE\u786E\u516C\u5171 npm \u7248\u672C\uFF1B\u62D2\u7EDD\u7248\u672C\u8303\u56F4\u3001Git\u3001URL\u3001file \u4E0E\u79C1\u6709\u6765\u6E90\u3002");
   const original = JSON.parse(manifestBytes.toString());
   const lock = (0, import_yaml.parse)(lockBytes.toString(), { maxAliasCount: 0 });
   if (!record2(original) || !record2(original.dependencies) || !record2(lock) || !record2(lock.packages)) fail3("\u5019\u9009\u4F9D\u8D56\u58F0\u660E\u6216\u9501\u56FE\u65E0\u6548\u3002");
-  const dependencies = { ...original.dependencies, ...request.dependencies };
+  const dependencies = { ...original.dependencies, ...request2.dependencies };
   const pins = /* @__PURE__ */ new Map();
   for (const [key, value] of Object.entries(lock.packages)) {
     const split = key.lastIndexOf("@");
@@ -25049,7 +25345,7 @@ async function coordinateDependencies(manifestBytes, lockBytes, stored, request,
   }
   const retained = [...pins.values()];
   const supplied = /* @__PURE__ */ new Set();
-  for (const pin of request.packages) {
+  for (const pin of request2.packages) {
     validatePin(pin);
     const id = `${pin.name}@${pin.version}`;
     if (supplied.has(id)) fail3("\u7CBE\u786E\u5305\u5217\u8868\u4E0D\u80FD\u5305\u542B\u91CD\u590D\u5305\u540D\u548C\u7248\u672C\u3002");
@@ -25071,7 +25367,7 @@ async function coordinateDependencies(manifestBytes, lockBytes, stored, request,
       retained.push(pin);
     }
   }
-  for (const pin of request.packages) if (retainedKeys.includes(integrityKey(pin.integrity))) retained.push(pin);
+  for (const pin of request2.packages) if (retainedKeys.includes(integrityKey(pin.integrity))) retained.push(pin);
   for (const pin of retained) {
     const key = integrityKey(pin.integrity);
     if (!nextStore.has(key)) {
@@ -25438,11 +25734,11 @@ async function programEnvironmentIdentity() {
   const capsule = await localExecutionCapsule();
   return (await programEnvironment(await capsule.certify(), await programToolchain())).identity;
 }
-async function buildProgramBundle(request) {
-  const program = new Map([...request.program].map(([path, bytes]) => [path, Buffer.from(bytes)]));
-  const offline = new Map([...request.offline].map(([key, bytes]) => [key, Buffer.from(bytes)]));
-  const binding = JSON.parse(JSON.stringify({ input: request.input, speech: request.speech }));
-  const media = new Map([...request.media ?? []].map(([path, bytes]) => [path, Buffer.from(bytes)]));
+async function buildProgramBundle(request2) {
+  const program = new Map([...request2.program].map(([path, bytes]) => [path, Buffer.from(bytes)]));
+  const offline = new Map([...request2.offline].map(([key, bytes]) => [key, Buffer.from(bytes)]));
+  const binding = JSON.parse(JSON.stringify({ input: request2.input, speech: request2.speech }));
+  const media = new Map([...request2.media ?? []].map(([path, bytes]) => [path, Buffer.from(bytes)]));
   for (const [path, bytes] of media) if (path !== `media/${createHash5("sha256").update(bytes).digest("hex")}`) throw new ProgramBuildError("RUNTIME_CONTRACT_VIOLATION", "\u5A92\u4F53\u8BFB\u53D6\u5730\u5740\u4E0E\u5B57\u8282\u6307\u7EB9\u4E0D\u4E00\u81F4\u3002");
   const manifest = checkProgramManifest(program.get("program.json"));
   checkBinding(binding.input, binding.speech, manifest.output);
@@ -25466,7 +25762,7 @@ async function buildProgramBundle(request) {
     }
     return true;
   };
-  const installed = await capsule.run({ stage: "install", entry: "dependencies/worker.mjs", signal: request.signal, inputs: {
+  const installed = await capsule.run({ stage: "install", entry: "dependencies/worker.mjs", signal: request2.signal, inputs: {
     "dependencies/worker.mjs": toolchain.files["worker.mjs"],
     "dependencies/config.json": Buffer.from(JSON.stringify({ stage: "install", packages })),
     ...Object.fromEntries(pins.map(([, item], index2) => [`dependencies/${index2}.tgz`, item.bytes]))
@@ -25489,7 +25785,7 @@ async function buildProgramBundle(request) {
   const environment2 = await programEnvironment(capsuleIdentity, toolchain);
   const runtimeFiles = { ...environment2.runtimeFiles, "config.json": config2 };
   const { metadataDriver, identity: environmentIdentity } = environment2;
-  const bundle = await capsule.run({ stage: "build", entry: "runtime/launch.mjs", signal: request.signal, inputs: {
+  const bundle = await capsule.run({ stage: "build", entry: "runtime/launch.mjs", signal: request2.signal, inputs: {
     ...Object.fromEntries([...program].map(([path, bytes]) => [`program/${path}`, bytes])),
     ...Object.fromEntries([...installed].map(([path, bytes]) => [`dependencies/${path}`, bytes])),
     ...Object.fromEntries(Object.entries(runtimeFiles).map(([path, bytes]) => [`runtime/${path}`, bytes]))
@@ -25498,7 +25794,7 @@ async function buildProgramBundle(request) {
     if (!files.has("bundle.js.map")) throw new ProgramBuildError("BUNDLE_SOURCEMAP_MISSING", "\u6784\u5EFA\u7F3A\u5C11\u5B8C\u6574 Source Map\u3002");
     return files.size === 3 && files.has("bundle.js") && files.has("index.html") && JSON.parse(files.get("bundle.js.map").toString()).version === 3;
   });
-  const metadata = await capsule.run({ stage: "metadata", entry: "bundle/metadata.mjs", signal: request.signal, inputs: {
+  const metadata = await capsule.run({ stage: "metadata", entry: "bundle/metadata.mjs", signal: request2.signal, inputs: {
     ...Object.fromEntries([...bundle].map(([path, bytes]) => [`bundle/${path}`, bytes])),
     "bundle/metadata.mjs": metadataDriver,
     "input/binding.json": Buffer.from(JSON.stringify(binding)),
@@ -25522,7 +25818,7 @@ async function buildProgramBundle(request) {
 }
 
 // src/server/project-candidate.ts
-import { createHash as createHash6, randomUUID as randomUUID3 } from "node:crypto";
+import { createHash as createHash6, randomUUID as randomUUID4 } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat as lstat2, mkdir as mkdir4, open, readdir as readdir3, rename as rename2, rm as rm4 } from "node:fs/promises";
 import { dirname as dirname4, join as join5 } from "node:path";
@@ -25725,20 +26021,20 @@ async function createCandidateManager(project, assertWritable) {
       } };
     }
   }
-  const operate = async (request, validate) => {
-    if (request.action !== "read") await revisions.cleanup();
+  const operate = async (request2, validate) => {
+    if (request2.action !== "read") await revisions.cleanup();
     const before = await inspect();
-    if (request.action === "read") return before.view;
-    if (request.action === "create" && before.view.status !== "absent") fail4("CANDIDATE_ALREADY_EXISTS", "\u9879\u76EE\u5DF2\u7ECF\u5B58\u5728\u552F\u4E00\u5019\u9009\uFF1B\u8BF7\u7EE7\u7EED\u4F7F\u7528\u6216\u660E\u786E\u653E\u5F03\u3002");
-    if (request.action !== "create" && request.baseline !== before.view.baseline) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u57FA\u7EBF\u5DF2\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u5916\u90E8\u5B57\u8282\u4E0E\u6062\u590D\u68C0\u67E5\u70B9\u5DF2\u4FDD\u7559\u3002");
-    if (request.action === "discard") {
-      if (!request.confirmed) fail4("CANDIDATE_DISCARD_CONFIRMATION_REQUIRED", "\u653E\u5F03\u4E0D\u53EF\u64A4\u9500\uFF0C\u9700\u8981\u660E\u786E\u786E\u8BA4\u3002");
+    if (request2.action === "read") return before.view;
+    if (request2.action === "create" && before.view.status !== "absent") fail4("CANDIDATE_ALREADY_EXISTS", "\u9879\u76EE\u5DF2\u7ECF\u5B58\u5728\u552F\u4E00\u5019\u9009\uFF1B\u8BF7\u7EE7\u7EED\u4F7F\u7528\u6216\u660E\u786E\u653E\u5F03\u3002");
+    if (request2.action !== "create" && request2.baseline !== before.view.baseline) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u57FA\u7EBF\u5DF2\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u5916\u90E8\u5B57\u8282\u4E0E\u6062\u590D\u68C0\u67E5\u70B9\u5DF2\u4FDD\u7559\u3002");
+    if (request2.action === "discard") {
+      if (!request2.confirmed) fail4("CANDIDATE_DISCARD_CONFIRMATION_REQUIRED", "\u653E\u5F03\u4E0D\u53EF\u64A4\u9500\uFF0C\u9700\u8981\u660E\u786E\u786E\u8BA4\u3002");
       if (before.view.status === "absent") return before.view;
       await assertCurrent();
       if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u6307\u9488\u5DF2\u53D8\u5316\uFF0C\u672A\u653E\u5F03\u3002");
       if (before.state?.offline) {
         const tombstone = Buffer.from(JSON.stringify({ ...before.state, candidate: null, checkpoint: null }));
-        const temporary = join5(internal, `discard-${randomUUID3()}.json`);
+        const temporary = join5(internal, `discard-${randomUUID4()}.json`);
         try {
           await writeBytes(temporary, tombstone);
           await rename2(temporary, pointer);
@@ -25753,23 +26049,23 @@ async function createCandidateManager(project, assertWritable) {
       if (before.state?.candidate) await rm4(dirname4(join5(project, before.state.candidate.path)), { recursive: true, force: true }).catch(() => void 0);
       return { status: "absent", baseline: hash3("absent"), sourceRevision: await currentRevision(), candidate: null, checkpoint: null };
     }
-    if (request.action === "adopt" && !request.confirmed) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u9700\u8981\u660E\u786E\u786E\u8BA4\u5916\u90E8\u5019\u9009\u3002");
-    if (request.action !== "create" && (before.view.status !== "saved" && !(request.action === "adopt" && before.view.status === "external-change") && !(request.action === "dependencies" && before.view.error?.code === "DEPENDENCY_INTEGRITY_FAILED") || !before.tree)) {
+    if (request2.action === "adopt" && !request2.confirmed) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u9700\u8981\u660E\u786E\u786E\u8BA4\u5916\u90E8\u5019\u9009\u3002");
+    if (request2.action !== "create" && (before.view.status !== "saved" && !(request2.action === "adopt" && before.view.status === "external-change") && !(request2.action === "dependencies" && before.view.error?.code === "DEPENDENCY_INTEGRITY_FAILED") || !before.tree)) {
       fail4(before.view.error?.code ?? "CANDIDATE_MISSING", before.view.error?.message ?? "\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\u3002");
     }
     const sourceRevision = await currentRevision();
-    const creationRevision = request.action === "create" && request.sourceRevision ? request.sourceRevision : sourceRevision;
-    if (request.action === "create") await revisions.verify(creationRevision);
+    const creationRevision = request2.action === "create" && request2.sourceRevision ? request2.sourceRevision : sourceRevision;
+    if (request2.action === "create") await revisions.verify(creationRevision);
     const currentRoot = join5(internal, "revisions", creationRevision, "render-program");
     let next;
-    let offline = request.action === "create" ? before.offline?.rawStore : before.offline?.store;
-    if (request.action === "create") {
+    let offline = request2.action === "create" ? before.offline?.rawStore : before.offline?.store;
+    if (request2.action === "create") {
       await directory(join5(internal, "revisions"));
       await directory(dirname4(currentRoot));
       next = await readTree(currentRoot);
-    } else if (request.action === "adopt") {
+    } else if (request2.action === "adopt") {
       next = new Map(before.tree);
-    } else if (request.action === "dependencies") {
+    } else if (request2.action === "dependencies") {
       const retainedLocks = [];
       await directory(join5(internal, "revisions"));
       for (const revision of await readdir3(join5(internal, "revisions"))) {
@@ -25779,7 +26075,7 @@ async function createCandidateManager(project, assertWritable) {
         retainedLocks.push(retained.get("pnpm-lock.yaml"));
       }
       if (before.state?.checkpoint) retainedLocks.push((await readTree(join5(project, before.state.checkpoint.path))).get("pnpm-lock.yaml"));
-      const update = await coordinateDependencies(before.tree.get("package.json"), before.tree.get("pnpm-lock.yaml"), offline ?? /* @__PURE__ */ new Map(), request, retainedLocks, before.state?.offlineKeys);
+      const update = await coordinateDependencies(before.tree.get("package.json"), before.tree.get("pnpm-lock.yaml"), offline ?? /* @__PURE__ */ new Map(), request2, retainedLocks, before.state?.offlineKeys);
       if (before.state?.offlineKeys?.some((key) => !update.store.has(key))) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u4ECD\u6709\u4FDD\u7559\u79BB\u7EBF\u5305\u65E0\u6CD5\u4FEE\u590D\uFF1B\u8BF7\u63D0\u4F9B\u5176\u7CBE\u786E\u7248\u672C\u548C\u6458\u8981\u3002");
       next = new Map(before.tree);
       next.set("package.json", update.manifest);
@@ -25787,9 +26083,9 @@ async function createCandidateManager(project, assertWritable) {
       offline = update.store;
     } else {
       next = new Map(before.tree);
-      if (!Array.isArray(request.changes) || request.changes.length === 0 || request.changes.length > 256) fail4("CANDIDATE_BATCH_INVALID", "\u4FEE\u6539\u6279\u6B21\u5FC5\u987B\u5305\u542B 1\u2013256 \u9879\u3002");
+      if (!Array.isArray(request2.changes) || request2.changes.length === 0 || request2.changes.length > 256) fail4("CANDIDATE_BATCH_INVALID", "\u4FEE\u6539\u6279\u6B21\u5FC5\u987B\u5305\u542B 1\u2013256 \u9879\u3002");
       const seen = /* @__PURE__ */ new Set();
-      for (const change of request.changes) {
+      for (const change of request2.changes) {
         if (!change || typeof change.path !== "string" || !safePath2(change.path) || !(change.path === "program.json" || change.path.startsWith("src/") || change.path.startsWith("resources/")) || !(change.content === null || typeof change.content === "string") || seen.has(change.path)) fail4("CANDIDATE_BATCH_INVALID", "\u6279\u6B21\u8DEF\u5F84\u3001\u5185\u5BB9\u6216\u91CD\u590D\u9879\u65E0\u6548\uFF1B\u4F9D\u8D56\u6587\u4EF6\u53EA\u80FD\u7531\u4F9D\u8D56\u534F\u8C03\u4FEE\u6539\u3002");
         seen.add(change.path);
         if (next.get(change.path) === null) fail4("CANDIDATE_BATCH_INVALID", "\u4E0D\u80FD\u5C06\u76EE\u5F55\u4F5C\u4E3A\u6587\u4EF6\u4FEE\u6539\u3002");
@@ -25807,7 +26103,7 @@ async function createCandidateManager(project, assertWritable) {
         }
       }
     }
-    const generation = `.narracut/candidate-${randomUUID3()}`;
+    const generation = `.narracut/candidate-${randomUUID4()}`;
     const root = join5(project, generation);
     let committed = false;
     try {
@@ -25823,25 +26119,25 @@ async function createCandidateManager(project, assertWritable) {
       if (before.tree) await writeTree(join5(root, "checkpoint"), before.tree);
       const state = {
         version: 1,
-        sourceRevision: request.action === "create" ? creationRevision : before.state?.sourceRevision ?? sourceRevision,
+        sourceRevision: request2.action === "create" ? creationRevision : before.state?.sourceRevision ?? sourceRevision,
         candidate: { path: `${generation}/candidate`, identity: treeId },
         checkpoint: before.tree ? { path: `${generation}/checkpoint`, identity: identity(before.tree) } : null,
-        ...offline ? { offline: `${generation}/dependencies`, offlineIdentity: request.action === "create" && before.offline && !before.offline.intact ? before.state.offlineIdentity : offlineIdentity(offline), offlineKeys: request.action === "create" && before.offline && !before.offline.intact ? before.state.offlineKeys : [...offline.keys()].sort() } : {}
+        ...offline ? { offline: `${generation}/dependencies`, offlineIdentity: request2.action === "create" && before.offline && !before.offline.intact ? before.state.offlineIdentity : offlineIdentity(offline), offlineKeys: request2.action === "create" && before.offline && !before.offline.intact ? before.state.offlineKeys : [...offline.keys()].sort() } : {}
       };
       const bytes = Buffer.from(JSON.stringify(state));
       await writeBytes(join5(root, "state.json"), bytes);
       await syncDirectory(root);
       await assertCurrent();
       const latest = await inspect();
-      if (latest.view.baseline !== before.view.baseline || latest.view.status !== before.view.status || await currentRevision() !== sourceRevision || request.action === "create" && identity(await readTree(currentRoot)) !== treeId) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u5DF2\u4FDD\u7559\u3002");
+      if (latest.view.baseline !== before.view.baseline || latest.view.status !== before.view.status || await currentRevision() !== sourceRevision || request2.action === "create" && identity(await readTree(currentRoot)) !== treeId) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u5DF2\u4FDD\u7559\u3002");
       await validate?.();
       await rename2(join5(root, "state.json"), pointer);
       committed = true;
       await syncDirectory(internal).catch(() => void 0);
       if (before.state?.candidate || before.state?.offline) await rm4(dirname4(join5(project, before.state.candidate?.path ?? before.state.offline)), { recursive: true, force: true }).catch(() => void 0);
       return {
-        status: request.action === "create" && before.offline && !before.offline.intact ? "integrity-failed" : "saved",
-        ...request.action === "create" && before.offline && !before.offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u79BB\u7EBF\u4F9D\u8D56\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\uFF0C\u666E\u901A\u64CD\u4F5C\u4E0D\u4F1A\u8865\u5305\u3002" } } : {},
+        status: request2.action === "create" && before.offline && !before.offline.intact ? "integrity-failed" : "saved",
+        ...request2.action === "create" && before.offline && !before.offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u79BB\u7EBF\u4F9D\u8D56\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\uFF0C\u666E\u901A\u64CD\u4F5C\u4E0D\u4F1A\u8865\u5305\u3002" } } : {},
         sourceRevision: state.sourceRevision,
         baseline: hash3(JSON.stringify([hash3(bytes), treeId, state.checkpoint?.identity ?? null, offline ? offlineSignature(offline) : null])),
         candidate: state.candidate,
@@ -25858,10 +26154,10 @@ async function createCandidateManager(project, assertWritable) {
   return Object.assign(operate, {
     history: revisions.history,
     cleanupAcceptance: revisions.cleanup,
-    async accept(request, validate) {
+    async accept(request2, validate) {
       const before = await inspect();
-      if (before.view.status !== "saved" || !before.tree || !before.raw || before.view.baseline !== request.baseline) fail4("ACCEPTANCE_STALE", "\u5019\u9009\u5DF2\u53D8\u5316\u6216\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u91CD\u65B0\u5BA1\u9605\u3002");
-      return revisions.accept(request, before.tree, before.raw, before.state, async () => {
+      if (before.view.status !== "saved" || !before.tree || !before.raw || before.view.baseline !== request2.baseline) fail4("ACCEPTANCE_STALE", "\u5019\u9009\u5DF2\u53D8\u5316\u6216\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u91CD\u65B0\u5BA1\u9605\u3002");
+      return revisions.accept(request2, before.tree, before.raw, before.state, async () => {
         await validate();
         const latest = await inspect();
         if (latest.view.status !== "saved" || latest.view.baseline !== before.view.baseline) fail4("ACCEPTANCE_STALE", "\u63D0\u4EA4\u524D\u5019\u9009\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u5BA1\u9605\u3002");
@@ -25875,18 +26171,18 @@ async function createCandidateManager(project, assertWritable) {
       if (!tree || target === "candidate" && snapshot.view.status !== "saved") fail4("CANDIDATE_BASELINE_CONFLICT", "\u6CA1\u6709\u5B8C\u6574\u53EF\u64AD\u653E\u7A0B\u5E8F\u3002");
       return { revision, identity: identity(tree), manifest: Buffer.from(tree.get("program.json") ?? ""), baseline: snapshot.view.baseline, program: new Map([...tree].filter((entry) => entry[1] !== null).map(([path, bytes]) => [path, Buffer.from(bytes)])), offline: new Map([...snapshot.offline?.store ?? []].map(([key, bytes]) => [key, Buffer.from(bytes)])) };
     },
-    async build(request) {
+    async build(request2) {
       const before = await inspect();
-      if (request.target !== "current" && (before.view.status !== "saved" || !before.tree) || before.view.baseline !== request.baseline) {
+      if (request2.target !== "current" && (before.view.status !== "saved" || !before.tree) || before.view.baseline !== request2.baseline) {
         throw new CandidateError("CANDIDATE_BASELINE_CONFLICT", "\u5019\u9009\u4E0D\u5B8C\u6574\u6216\u5DF2\u53D8\u5316\uFF1B\u8BF7\u91CD\u65B0\u8BFB\u53D6\u540E\u6784\u5EFA\u3002");
       }
       const revision = await currentRevision();
-      const tree = request.target === "current" ? await readTree(join5(internal, "revisions", revision, "render-program")) : before.tree;
-      if (request.sourceIdentity && request.sourceIdentity !== identity(tree)) fail4("CANDIDATE_BASELINE_CONFLICT", "\u7A0B\u5E8F\u5728\u6784\u5EFA\u524D\u5DF2\u53D8\u5316\u3002");
+      const tree = request2.target === "current" ? await readTree(join5(internal, "revisions", revision, "render-program")) : before.tree;
+      if (request2.sourceIdentity && request2.sourceIdentity !== identity(tree)) fail4("CANDIDATE_BASELINE_CONFLICT", "\u7A0B\u5E8F\u5728\u6784\u5EFA\u524D\u5DF2\u53D8\u5316\u3002");
       const program = new Map([...tree].filter((entry) => entry[1] !== null));
-      const bundle = await buildProgramBundle({ ...request, program, offline: before.offline?.store ?? /* @__PURE__ */ new Map() });
+      const bundle = await buildProgramBundle({ ...request2, program, offline: before.offline?.store ?? /* @__PURE__ */ new Map() });
       const after = await inspect();
-      if (request.target !== "current" && after.view.status !== "saved" || after.view.baseline !== before.view.baseline || request.target === "current" && (await currentRevision() !== revision || identity(await readTree(join5(internal, "revisions", revision, "render-program"))) !== identity(tree))) {
+      if (request2.target !== "current" && after.view.status !== "saved" || after.view.baseline !== before.view.baseline || request2.target === "current" && (await currentRevision() !== revision || identity(await readTree(join5(internal, "revisions", revision, "render-program"))) !== identity(tree))) {
         throw new CandidateError("CANDIDATE_BASELINE_CONFLICT", "\u6784\u5EFA\u671F\u95F4\u5019\u9009\u6216\u79BB\u7EBF\u5E93\u5DF2\u53D8\u5316\uFF1B\u7ED3\u679C\u5DF2\u4E22\u5F03\u3002");
       }
       return bundle;
@@ -26046,7 +26342,8 @@ var checkpointSchema = external_exports.object({
   waitingReason: external_exports.string().nullable().default(null),
   suggestions: external_exports.array(pendingSuggestion).max(100).default([]),
   briefProposal: briefProposal.nullable().default(null),
-  pendingMessage: pendingMessage.nullable().default(null)
+  pendingMessage: pendingMessage.nullable().default(null),
+  toolApproval: external_exports.object({ approvalId: external_exports.string(), threadId: external_exports.string(), turnId: external_exports.string(), summary: external_exports.string().max(4e3) }).nullable().default(null)
 }).strict();
 var reportText = external_exports.string().min(1).max(4e3);
 var answerSchema = external_exports.object({
@@ -26098,6 +26395,8 @@ var CreationTask = class {
   #operation = null;
   #interrupted = null;
   #replacementThread = false;
+  #transferred = false;
+  #connectionNotice = null;
   #recovery = null;
   get recovery() {
     return this.#recovery ? { ...this.#recovery } : null;
@@ -26122,13 +26421,13 @@ var CreationTask = class {
   #parentOrigin = "null";
   #pendingRun = Promise.resolve();
   get ownsCandidate() {
-    return this.#state?.status === "running" && !this.#operation && !this.#recovery;
+    return !this.#closed && !this.#transferred && this.#state?.status === "running" && !this.#operation && !this.#recovery;
   }
   get blocksCandidateWrites() {
     return this.ownsCandidate || this.#operation !== null;
   }
   async status() {
-    if (!this.#operation && !this.#recovery && this.#state?.status === "waiting" && this.#state.reason === "CANDIDATE_READY") {
+    if (!this.#closed && !this.#operation && !this.#recovery && this.#state?.status === "waiting" && this.#state.reason === "CANDIDATE_READY") {
       const latest = await this.delivery.status(this.opened);
       if (!latest.delivery || latest.delivery.stale) {
         this.#state.reason = "USER_DECISION_REQUIRED";
@@ -26139,13 +26438,23 @@ var CreationTask = class {
     return this.value;
   }
   get value() {
-    return this.#state ? { ...structuredClone(this.#state), briefChange: this.#briefChange, discussion: this.#discussion, operation: this.#operation, replacementThread: this.#replacementThread } : null;
+    return this.#state ? { ...structuredClone(this.#state), briefChange: this.#briefChange, discussion: this.#discussion, operation: this.#operation, replacementThread: this.#replacementThread, transferred: this.#transferred, connectionNotice: this.#connectionNotice } : null;
   }
-  async load() {
+  async load(transferred = false) {
     try {
       const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 2e7)).toString()));
       if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error("\u4EFB\u52A1\u9879\u76EE\u8EAB\u4EFD\u4E0D\u5339\u914D");
       this.#state = { ...checkpoint, externalBaseline: null, status: checkpoint.status === "terminated" ? "terminated" : "stopped", reason: checkpoint.status === "terminated" ? checkpoint.reason : "APP_RESTARTED", waitingReason: checkpoint.waitingReason ?? (checkpoint.status === "waiting" ? checkpoint.reason : null), stage: "read", divergence: "", preview: null, deliveryId: null };
+      if (transferred) {
+        this.#state.status = checkpoint.status;
+        this.#state.reason = checkpoint.reason;
+        this.#connectionNotice = "taken-over";
+      }
+      if (transferred && checkpoint.pendingMessage) {
+        this.#state.status = checkpoint.pendingMessage.previousStatus === "stopped" ? "stopped" : "waiting";
+        this.#state.reason = this.#state.status === "stopped" ? checkpoint.pendingMessage.previousReason : "INSTRUCTION_CONFIRMATION_REQUIRED";
+        this.#state.pendingMessage.reply = "\u7EBF\u7A0B\u5DF2\u8F6C\u79FB\uFF0C\u6D88\u606F\u8BC6\u522B\u672A\u5B8C\u6210\u3002\u539F\u6587\u4ECD\u4FDD\u7559\uFF0C\u8BF7\u8FD4\u56DE\u4FEE\u6539\u6216\u4EC5\u4F5C\u8BA8\u8BBA\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002";
+      }
       const candidate = await this.opened.candidate({ action: "read" });
       if (checkpoint.status !== "terminated" && checkpoint.candidateBaseline !== candidate.baseline) throw new Error("\u4EFB\u52A1\u5019\u9009\u68C0\u67E5\u70B9\u4E0D\u5339\u914D");
       if (checkpoint.briefProposal?.status === "saved") {
@@ -26156,6 +26465,49 @@ var CreationTask = class {
     } catch (error51) {
       if (error51.code === "ENOENT" && (await this.opened.candidate({ action: "read" })).status === "absent") return;
       await this.#invalid();
+    }
+    if (transferred && this.#state && !this.#recovery && this.#state.status !== "terminated") {
+      this.#operation = "reconciling";
+      try {
+        await this.#bindThread();
+        this.#operation = null;
+        if (this.#state.status === "running") this.#pendingRun = this.#run("\u4EFB\u52A1\u7531\u53E6\u4E00\u5DE5\u4F5C\u53F0\u63A5\u7BA1\u3002\u4F9D\u636E\u68C0\u67E5\u70B9\u3001\u5F53\u524D\u5019\u9009\u548C\u6700\u65B0\u9879\u76EE\u5185\u5BB9\u91CD\u65B0\u5F00\u59CB\u3002").catch((error51) => this.#stop(error51));
+      } catch (error51) {
+        this.#operation = null;
+        this.#state.status = "stopped";
+        this.#state.reason = codexStopReason(error51);
+        await this.#save();
+      }
+    }
+  }
+  /** 交接屏障先撤销写权，再等待正在落盘的批次与中断回执；失败不能释放项目租约。 */
+  async transfer() {
+    if (this.#busy) throw new Error("\u4EFB\u52A1\u64CD\u4F5C\u5C1A\u672A\u5B8C\u6210\uFF0C\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
+    if (this.#transferred) return;
+    this.#operation = "reconciling";
+    const driver = this.#driver;
+    this.#driver = null;
+    if (driver?.turnId && this.#state?.threadPointer) this.#interrupted = { threadId: this.#state.threadPointer, turnId: driver.turnId };
+    try {
+      if (this.#interrupted) {
+        await this.host.interruptTurn(this.#interrupted);
+        this.#interrupted = null;
+      }
+      await this.#pendingRun;
+      if (this.#interrupted) {
+        await this.host.interruptTurn(this.#interrupted);
+        this.#interrupted = null;
+      }
+      if (this.#state) {
+        this.#state.threadPointer = null;
+        await this.#save();
+      }
+      this.#transferred = true;
+      this.#operation = null;
+      await this.close();
+    } catch (error51) {
+      this.#operation = "transfer-uncertain";
+      throw error51;
     }
   }
   #path() {
@@ -26169,7 +26521,7 @@ var CreationTask = class {
   }
   async #writeCheckpoint(bytes, validate) {
     const parent = join6(this.opened.inspection.projectDirectory, ".narracut");
-    const identity2 = await directory(parent), temporary = join6(parent, `task-${randomUUID4()}.tmp`);
+    const identity2 = await directory(parent), temporary = join6(parent, `task-${randomUUID5()}.tmp`);
     try {
       const handle = await open2(temporary, "wx", 384);
       try {
@@ -26192,6 +26544,7 @@ var CreationTask = class {
     }
   }
   async start(instruction, parentOrigin = "null") {
+    if (this.#closed || this.#transferred) throw new Error("\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B");
     if (this.#recovery) throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u8BF7\u660E\u786E\u7528\u65B0\u4EFB\u52A1\u63A5\u7BA1\u5019\u9009\u3002");
     if (this.#busy || this.#state && this.#state.status !== "terminated") throw new Error("\u5DF2\u6709\u521B\u4F5C\u4EFB\u52A1\uFF1B\u8FFD\u52A0\u8981\u6C42\u4E0E\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
     if (!instruction.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u586B\u5199 1\u20134000 \u5B57\u7684\u660E\u786E\u521B\u4F5C\u76EE\u6807\u3002");
@@ -26201,7 +26554,7 @@ var CreationTask = class {
       const candidate = await this.opened.candidate({ action: "read" });
       if (candidate.status !== "absent") throw new Error("\u5DF2\u6709\u5019\u9009\uFF1B\u672C\u6B21\u4E0D\u4F1A\u66FF\u6362\u6216\u63A5\u7BA1\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
       this.#state = {
-        taskId: randomUUID4(),
+        taskId: randomUUID5(),
         projectId: this.opened.inspection.manifest.projectId,
         instruction,
         externalBaseline: null,
@@ -26216,6 +26569,7 @@ var CreationTask = class {
         suggestions: [],
         briefProposal: null,
         pendingMessage: null,
+        toolApproval: null,
         stage: "read",
         divergence: "",
         preview: null,
@@ -26236,6 +26590,7 @@ var CreationTask = class {
   }
   /** 接管只替换单一任务检查点；候选文件字节保持不变。 */
   async takeover(instruction, baseline, parentOrigin = "null") {
+    if (this.#closed || this.#transferred) throw new Error("\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B");
     if (this.#busy || this.#operation || this.ownsCandidate || !instruction?.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u505C\u6B62\u6D3B\u52A8\u4EFB\u52A1\u5E76\u586B\u5199 1\u20134000 \u5B57\u7684\u65B0\u76EE\u6807\u3002");
     this.#busy = true;
     const previous = this.#state;
@@ -26247,7 +26602,7 @@ var CreationTask = class {
         if (candidate.status === "external-change") candidate = await manager({ action: "adopt", baseline, confirmed: true });
         if (candidate.status !== "saved") throw new Error(candidate.error?.message ?? "\u8BF7\u5148\u5728\u5019\u9009\u533A\u57DF\u5904\u7406\u5B8C\u6574\u6027\u95EE\u9898\u3002");
         const checkpoint = {
-          taskId: randomUUID4(),
+          taskId: randomUUID5(),
           projectId: this.opened.inspection.manifest.projectId,
           instruction,
           status: "running",
@@ -26260,7 +26615,8 @@ var CreationTask = class {
           waitingReason: null,
           suggestions: [],
           briefProposal: null,
-          pendingMessage: null
+          pendingMessage: null,
+          toolApproval: null
         };
         await this.#writeCheckpoint(JSON.stringify(checkpoint), async () => {
           if ((await manager({ action: "read" })).baseline !== candidate.baseline) throw new Error("\u5019\u9009\u518D\u6B21\u53D8\u5316\uFF0C\u8BF7\u6838\u5BF9\u5019\u9009\u5BF9\u8C61\u540E\u518D\u6B21\u660E\u786E\u63D0\u4EA4\u3002");
@@ -26390,6 +26746,7 @@ var CreationTask = class {
     await this.#run("\u65E7\u8EAB\u4EFD\u4E0B\u7684\u7ED3\u679C\u5747\u5DF2\u4F5C\u5E9F\u3002\u8BF7\u4F9D\u636E\u6700\u65B0\u9879\u76EE\u5185\u5BB9\u91CD\u65B0\u68C0\u67E5\u5E76\u521B\u4F5C\u3002");
   }
   async continueExternal(baseline) {
+    if (this.#closed || this.#transferred) throw new Error("\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B");
     if (this.#busy || this.#operation || this.#recovery || !this.#state || !["waiting", "stopped"].includes(this.#state.status) || (this.#state.waitingReason ?? this.#state.reason) !== "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") throw new Error("\u5F53\u524D\u4EFB\u52A1\u4E0D\u5728\u7B49\u5F85\u5916\u90E8\u5019\u9009\u786E\u8BA4\u3002");
     this.#busy = true;
     try {
@@ -26405,14 +26762,7 @@ var CreationTask = class {
       const adopted = await this.opened.candidate({ action: "adopt", baseline, confirmed: true });
       this.#state.candidateBaseline = adopted.baseline;
       this.#state.externalBaseline = null;
-      if (this.#state.status === "stopped" && this.#state.threadPointer) {
-        try {
-          this.#state.threadPointer = (await this.host.resumeThread({ threadId: this.#state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory })).threadId;
-        } catch {
-          this.#state.threadPointer = null;
-          this.#replacementThread = true;
-        }
-      }
+      if (this.#state.status === "stopped") await this.#bindThread();
       this.#state.waitingReason = null;
       this.#state.status = "running";
       this.#state.reason = null;
@@ -26426,7 +26776,9 @@ var CreationTask = class {
       return this.value;
     } catch (error51) {
       if (this.#recovery) throw error51;
-      this.#state.pending = `${externalMessage} ${error51.message}`;
+      this.#state.status = "stopped";
+      this.#state.reason = codexStopReason(error51);
+      this.#state.pending = externalMessage;
       await this.#save();
       throw error51;
     } finally {
@@ -26439,6 +26791,7 @@ var CreationTask = class {
     if (driver?.turnId && this.#state?.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId });
   }
   async respond(input) {
+    if (this.#closed || this.#transferred) throw new Error("\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B");
     if (this.#busy || !this.#state || this.#state.status === "terminated" || this.#operation && input.action !== "stop" || this.#recovery) throw new Error("\u5F53\u524D\u6CA1\u6709\u53EF\u64CD\u4F5C\u4EFB\u52A1\u6216\u64CD\u4F5C\u5C1A\u672A\u5B8C\u6210");
     this.#busy = true;
     try {
@@ -26446,12 +26799,32 @@ var CreationTask = class {
       await this.#pendingRun;
       const state = this.#state;
       if (state.status === "stopped") await this.#validateCheckpoint();
-      if (input.action === "message") {
+      if (input.action === "approve-tool" || input.action === "reject-tool") {
+        if (!state.toolApproval || state.toolApproval.approvalId !== input.id) throw new Error("\u5DE5\u5177\u5BA1\u6279\u5DF2\u8FC7\u671F");
+        if (!this.#driver || state.toolApproval.threadId !== state.threadPointer) {
+          state.toolApproval = null;
+          state.waitingReason = null;
+          state.pending = "\u539F\u5DE5\u5177\u8BF7\u6C42\u5DF2\u5931\u6548\uFF1B\u7EE7\u7EED\u65F6\u4F1A\u91CD\u65B0\u5224\u65AD\u5E76\u6309\u9700\u7533\u8BF7\u6279\u51C6\u3002";
+          await this.#save();
+          if (state.status !== "stopped") {
+            if (input.action === "approve-tool") await this.#resume("\u539F\u5DE5\u5177\u8BF7\u6C42\u5DF2\u5931\u6548\uFF0C\u4E22\u5F03\u65E7\u5DE5\u5177\u8C03\u7528\uFF1B\u91CD\u65B0\u5224\u65AD\u5E76\u6309\u9700\u7533\u8BF7\u6279\u51C6\u3002");
+            else {
+              state.status = "stopped";
+              state.reason = "CODEX_INTERRUPTED";
+              await this.#save();
+            }
+          }
+          return this.value;
+        }
+        if (!this.host.resolveApproval) throw new Error("\u5F53\u524D\u5BBF\u4E3B\u4E0D\u652F\u6301\u5DE5\u5177\u5BA1\u6279\u56DE\u6267");
+        await this.host.resolveApproval(input.id, input.action === "approve-tool");
+      } else if (input.action === "message") {
+        if (state.toolApproval) throw new Error("\u8BF7\u5148\u5904\u7406\u5DE5\u5177\u5BA1\u6279\uFF1B\u666E\u901A\u6D88\u606F\u4E0D\u80FD\u4EE3\u66FF\u6279\u51C6\u3002");
         const original = input.instruction;
         if (!original?.trim() || original.length > 4e3 || state.pendingMessage) throw new Error("\u8BF7\u5148\u5904\u7406\u62DF\u4FDD\u5B58\u7684\u539F\u6587\u7247\u6BB5\uFF0C\u6216\u586B\u5199 1\u20134000 \u5B57\u6D88\u606F");
         const resume = state.status === "running";
         await this.#interrupt();
-        state.pendingMessage = { id: randomUUID4(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
+        state.pendingMessage = { id: randomUUID5(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
         this.#messageMode = { original, resume, stopped: state.status === "stopped" };
         state.status = "running";
         await this.#save();
@@ -26534,14 +26907,28 @@ var CreationTask = class {
   async #resume(feedback = "") {
     const state = this.#state;
     if (state.status === "stopped") await this.#validateCheckpoint();
-    this.#operation = "reconciling";
-    if (state.status === "stopped" && state.threadPointer) {
-      try {
-        state.threadPointer = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory })).threadId;
-      } catch {
-        state.threadPointer = null;
-        this.#replacementThread = true;
+    if ((state.waitingReason ?? state.reason) === "SCENE_CHANGE_REQUIRED") {
+      const snapshot = await this.#snapshot();
+      state.suggestions = state.suggestions.map((item) => evaluateSuggestion(item, snapshot.input));
+      if (state.suggestions.some((item) => item.required && !item.satisfied && !item.missing)) {
+        state.status = "waiting";
+        state.reason = "SCENE_CHANGE_REQUIRED";
+        state.waitingReason = "SCENE_CHANGE_REQUIRED";
+        state.pending = "\u5FC5\u8981 Scene \u6761\u4EF6\u5C1A\u672A\u6EE1\u8DB3\u3002\u5B8C\u6210\u5E76\u4FDD\u5B58\u6240\u7B49\u5F85\u4FEE\u6539\u540E\uFF0C\u540C\u4E00\u4EFB\u52A1\u4F1A\u7EE7\u7EED\u3002";
+        await this.#save();
+        return;
       }
+    }
+    this.#operation = "reconciling";
+    try {
+      if (state.status === "stopped") await this.#bindThread();
+    } catch (error51) {
+      this.#operation = null;
+      state.status = "stopped";
+      state.reason = codexStopReason(error51);
+      state.pending = null;
+      await this.#save();
+      return;
     }
     this.#operation = null;
     state.status = "running";
@@ -26556,12 +26943,36 @@ var CreationTask = class {
     await this.#save();
     this.#pendingRun = this.#run(feedback).catch((error51) => this.#stop(error51));
   }
+  async #bindThread() {
+    const state = this.#state, projectDirectory = this.opened.inspection.projectDirectory;
+    let replacement = false;
+    let threadId;
+    if (state.threadPointer) {
+      try {
+        threadId = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory })).threadId;
+      } catch (error51) {
+        if (codexStopReason(error51) !== "CODEX_THREAD_UNAVAILABLE") throw error51;
+        threadId = (await this.host.createThread({ projectDirectory, purpose: "creation" })).threadId;
+        replacement = true;
+      }
+    } else threadId = (await this.host.createThread({ projectDirectory, purpose: "creation" })).threadId;
+    if (this.#closed) throw new Error("\u5F53\u524D\u9A71\u52A8\u5DF2\u5931\u53BB\u5199\u6743\u3002");
+    const previous = state.threadPointer;
+    state.threadPointer = threadId;
+    try {
+      await this.#save();
+    } catch (error51) {
+      state.threadPointer = previous;
+      throw error51;
+    }
+    this.#replacementThread = replacement;
+  }
   async #classify(original) {
     this.#assert();
     const state = this.#state, snapshot = await this.#snapshot();
     state.inputIdentity = snapshot.signature;
     if (!state.threadPointer) state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
-    const driver = { token: randomUUID4(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID5(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -26613,7 +27024,7 @@ var CreationTask = class {
     state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
     await this.#save();
     this.#assert();
-    const driver = { token: randomUUID4(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID5(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -26654,17 +27065,51 @@ var CreationTask = class {
     }
   }
   async #event(event) {
-    if (!this.ownsCandidate || this.#closed) return;
-    if (event.type === "host-unavailable") throw new Error("CODEX_UNAVAILABLE");
+    if (this.#closed) return;
+    if (event.type === "approval-resolved") {
+      const state = this.#state, approval = state?.toolApproval;
+      if (!state || !approval || approval.approvalId !== event.approvalId || approval.threadId !== event.threadId || approval.turnId !== event.turnId) return;
+      state.toolApproval = null;
+      if (state.waitingReason === "TOOL_APPROVAL_REQUIRED") state.waitingReason = null;
+      if (state.status === "stopped" || this.#operation) {
+        await this.#save();
+        return;
+      }
+      if (state.status !== "waiting" || state.reason !== "TOOL_APPROVAL_REQUIRED") return;
+      if (!event.approved) throw new Error("CODEX_INTERRUPTED");
+      else {
+        state.status = "running";
+        state.reason = null;
+      }
+      state.pending = null;
+      await this.#save();
+      return;
+    }
+    if (event.type === "host-unavailable" && this.#state && ["running", "waiting"].includes(this.#state.status)) throw new Error("CODEX_UNAVAILABLE");
+    if (!this.#operation && this.#state?.status === "waiting" && event.type !== "host-unavailable" && event.threadId === this.#state.threadPointer && this.#driver && (!event.turnId || event.turnId === this.#driver.turnId)) {
+      if (event.type === "thread-unavailable") throw new Error("CODEX_THREAD_UNAVAILABLE");
+      if (event.type === "turn-completed") throw new Error(codexStopReason({ message: event.error }));
+    }
+    if (!this.ownsCandidate || this.#closed || event.type === "host-unavailable") return;
     if (event.threadId !== this.#state.threadPointer) return;
     const driver = this.#driver;
+    if (event.type === "approval-required") {
+      if (!driver || driver.turnId !== event.turnId) return;
+      this.#state.toolApproval = { approvalId: event.approvalId, threadId: event.threadId, turnId: event.turnId, summary: event.summary.slice(0, 4e3) };
+      this.#state.status = "waiting";
+      this.#state.reason = "TOOL_APPROVAL_REQUIRED";
+      this.#state.waitingReason = "TOOL_APPROVAL_REQUIRED";
+      this.#state.pending = event.summary.slice(0, 4e3);
+      await this.#save();
+      return;
+    }
     if (event.type === "thread-unavailable") {
       if (event.turnId && event.turnId !== driver?.turnId) return;
       throw new Error("CODEX_THREAD_UNAVAILABLE");
     }
     if (!driver || event.turnId !== driver.turnId) return;
+    if (event.status !== "completed" || !event.output) throw new Error(codexStopReason({ message: event.error }));
     this.#driver = null;
-    if (event.status !== "completed" || !event.output) throw new Error("CODEX_INTERRUPTED");
     if (this.#messageMode) {
       const mode = this.#messageMode;
       const answer2 = messageDecision.parse(JSON.parse(event.output));
@@ -26728,7 +27173,7 @@ var CreationTask = class {
     if (answer.action === "wait") return this.#wait(this.#state.suggestions.some((item) => item.required && !item.satisfied) ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
     if (answer.action === "brief") {
       if (!answer.brief) throw new Error("Brief \u63D0\u6848\u7F3A\u5C11\u5B8C\u6574\u7ED3\u679C");
-      const proposal = { id: randomUUID4(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
+      const proposal = { id: randomUUID5(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
       this.#state.briefProposal = proposal;
       if (!authorizesBrief(this.#state.instruction)) return this.#wait("BRIEF_REVIEW_REQUIRED", answer.brief.purpose);
       const saved = await this.opened.saveVideoBrief(proposal.content, proposal.baseline, () => this.#assert());
@@ -26854,7 +27299,7 @@ var CreationTask = class {
       try {
         const snapshot = await this.#snapshot();
         if (snapshot.baseline !== this.#state.candidateBaseline) error51 = Object.assign(new Error(externalMessage), { code: "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" });
-        else if (snapshot.signature !== this.#state.inputIdentity) {
+        else if (!["CODEX_USAGE_LIMIT", "CODEX_AUTH_REQUIRED", "CODEX_UNAVAILABLE", "CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "NO_PROGRESS"].some((code) => error51.code === code || error51.message === code) && snapshot.signature !== this.#state.inputIdentity) {
           await this.#catchUp(snapshot);
           return;
         }
@@ -26864,7 +27309,17 @@ var CreationTask = class {
     }
     const driver = this.#driver;
     this.#driver = null;
-    if (driver?.turnId && this.#state.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId }).catch(() => void 0);
+    if (driver?.turnId && this.#state.threadPointer) {
+      this.#interrupted = { threadId: this.#state.threadPointer, turnId: driver.turnId };
+      try {
+        await this.host.interruptTurn(this.#interrupted);
+        this.#interrupted = null;
+      } catch {
+        this.#operation = "stop-uncertain";
+      }
+    }
+    this.#state.toolApproval = null;
+    if (this.#state.waitingReason === "TOOL_APPROVAL_REQUIRED") this.#state.waitingReason = null;
     if (error51.code === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") {
       this.preview.invalidate();
       this.delivery.invalidate();
@@ -26877,8 +27332,8 @@ var CreationTask = class {
       return;
     }
     this.#state.status = "stopped";
-    this.#state.reason = ["CODEX_UNAVAILABLE", "CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "NO_PROGRESS"].includes(error51.message) ? error51.message : "CODEX_INTERRUPTED";
-    this.#state.pending = String(error51.message).slice(0, 4e3);
+    this.#state.reason = codexStopReason(error51);
+    this.#state.pending = null;
     await this.#save().catch(() => void 0);
   }
   async terminate(reason) {
@@ -26906,11 +27361,11 @@ var CreationTask = class {
 };
 
 // src/server/project-acceptance.ts
-import { randomUUID as randomUUID6 } from "node:crypto";
+import { randomUUID as randomUUID7 } from "node:crypto";
 
 // src/server/preview-origin.ts
 import { createServer } from "node:http";
-import { createHash as createHash7, randomBytes, randomUUID as randomUUID5 } from "node:crypto";
+import { createHash as createHash7, randomBytes, randomUUID as randomUUID6 } from "node:crypto";
 var previewDigest = (value) => `sha256:${createHash7("sha256").update(value).digest("hex")}`;
 var CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
 var PreviewOrigin = class {
@@ -26974,7 +27429,7 @@ var PreviewOrigin = class {
     const boundIdentity = previewDigest(Buffer.concat([Buffer.from(JSON.stringify(["binding", bindingBytes.length]) + "\n"), bindingBytes]));
     if (boundIdentity !== args.bundle.inputIdentity) throw new Error("Preview \u8F93\u5165\u4E0E Bundle \u6784\u5EFA\u7ED1\u5B9A\u4E0D\u4E00\u81F4\u3002");
     const identity2 = { bundle: args.bundle.identity, input: args.bundle.inputIdentity, media: previewDigest(JSON.stringify([...args.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())), environment: args.bundle.environmentIdentity };
-    const instanceId = randomUUID5(), token = randomBytes(32).toString("hex");
+    const instanceId = randomUUID6(), token = randomBytes(32).toString("hex");
     if (!/^[a-f0-9]{48}$/.test(args.key) || this.#instances.has(args.key)) throw new Error("Preview \u5B9E\u4F8B\u4E0D\u80FD\u91CD\u590D\u7ED1\u5B9A\u3002");
     const files = /* @__PURE__ */ new Map([["bundle.js", args.bundle.files().get("bundle.js")]]);
     for (const [path, bytes] of args.media) {
@@ -27043,7 +27498,7 @@ var ProjectAcceptance = class {
     };
     const summary = delivery.report.summary;
     const key = previewDigest(JSON.stringify([delivery, batch, history.current, history.revisions.map((item) => item.revisionId), record3]));
-    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID6() };
+    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID7() };
   }
   async operate(opened, args) {
     if (args.action === "review") return { confirmation: await this.review(opened) };
@@ -27084,7 +27539,7 @@ var ProjectAcceptance = class {
 };
 
 // src/server/project-render.ts
-import { randomUUID as randomUUID8, randomBytes as randomBytes3 } from "node:crypto";
+import { randomUUID as randomUUID9, randomBytes as randomBytes3 } from "node:crypto";
 import { constants as constants3, watch } from "node:fs";
 import { open as open6, realpath as realpath4, link, unlink, lstat as lstat6 } from "node:fs/promises";
 import { basename, dirname as dirname6, isAbsolute as isAbsolute3, join as join10 } from "node:path";
@@ -27102,7 +27557,7 @@ import { isAbsolute, join as join8, relative, resolve as resolve2, sep } from "n
 
 // src/server/project-speech-vnext.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash8, randomUUID as randomUUID7 } from "node:crypto";
+import { createHash as createHash8, randomUUID as randomUUID8 } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { lstat as lstat3, open as open3, readFile as readFile4, rename as rename4, rm as rm6 } from "node:fs/promises";
 import { dirname as dirname5, join as join7 } from "node:path";
@@ -27222,7 +27677,7 @@ async function readProjectTtsConfig(projectDirectory) {
 async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
   const config2 = validateProjectTtsConfig(input);
   const path = join7(projectDirectory, "tts.json");
-  const temporaryPath = join7(projectDirectory, `.tts.json.${randomUUID7()}.tmp`);
+  const temporaryPath = join7(projectDirectory, `.tts.json.${randomUUID8()}.tmp`);
   let committed = false;
   try {
     const handle = await open3(temporaryPath, "wx", 384);
@@ -28783,7 +29238,7 @@ var ProjectRender = class {
         if (error51.code !== "ENOENT") throw error51;
       }
       abort.signal.throwIfAborted();
-      const job = { id: randomUUID8(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
+      const job = { id: randomUUID9(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
       this.#jobs.set(job.id, job);
       this.#running = this.#run(opened, prepared, job, abort);
       this.#pending.delete(args.requestId);
@@ -28872,7 +29327,7 @@ var ProjectRender = class {
       job.stage = "publishing";
       await verifyMedia();
       if (await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("CAPSULE_UNAVAILABLE", "\u6267\u884C\u73AF\u5883\u5728 Render \u671F\u95F4\u53D8\u5316\uFF0C\u672A\u751F\u6210\u4EA7\u7269\u3002");
-      temporary = join10(dirname6(job.outputPath), `.narracut-render-${randomUUID8()}.tmp`);
+      temporary = join10(dirname6(job.outputPath), `.narracut-render-${randomUUID9()}.tmp`);
       const file2 = await open6(temporary, constants3.O_WRONLY | constants3.O_CREAT | constants3.O_EXCL | constants3.O_NOFOLLOW, 384);
       try {
         await file2.writeFile(bytes);
@@ -28918,7 +29373,7 @@ var ProjectRender = class {
 };
 
 // src/server/project-delivery.ts
-import { randomUUID as randomUUID9 } from "node:crypto";
+import { randomUUID as randomUUID10 } from "node:crypto";
 
 // src/shared/representative-frames.ts
 function representativePlan(input, supplemental = []) {
@@ -29059,7 +29514,7 @@ var ProjectDelivery = class {
       if (this.#current && this.#current.binding.instanceId === args.instanceId && !args.supplements && await this.#fresh(opened, this.#current)) return this.status(opened);
       const supplements = supplementsSchema.parse(args.supplements ?? []);
       this.clear();
-      const current2 = new CandidateDelivery(randomUUID9(), snapshot.binding, snapshot.descriptor.input, supplements);
+      const current2 = new CandidateDelivery(randomUUID10(), snapshot.binding, snapshot.descriptor.input, supplements);
       this.#current = current2;
       this.#output = snapshot.descriptor.input.output;
       if (!await this.#fresh(opened, current2)) throw new Error("\u5019\u9009 Preview \u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6784\u5EFA\u3002");
@@ -29168,7 +29623,7 @@ var ProjectDelivery = class {
 };
 
 // src/server/project-checks.ts
-import { randomUUID as randomUUID10 } from "node:crypto";
+import { randomUUID as randomUUID11 } from "node:crypto";
 var ProjectChecks = class {
   constructor(preview) {
     this.preview = preview;
@@ -29264,7 +29719,7 @@ var ProjectChecks = class {
           }
         } }
       ];
-      const batch = new CheckBatch(randomUUID10(), identity2, checks);
+      const batch = new CheckBatch(randomUUID11(), identity2, checks);
       this.#batches.push(batch);
       this.#batches = this.#batches.slice(-2);
       void batch.run().then(async () => {
@@ -29317,303 +29772,28 @@ import { fileURLToPath as fileURLToPath3 } from "node:url";
 // plugins/narracut/src/codex-app-server-host.ts
 import { spawn as spawn2 } from "node:child_process";
 import { createInterface } from "node:readline";
-
-// plugins/narracut/src/codex-host.ts
-import { randomUUID as randomUUID11 } from "node:crypto";
-var CodexThreadUnavailableError = class extends Error {
-  threadId;
-  constructor(threadId) {
-    super(`Codex \u521B\u4F5C\u7EBF\u7A0B ${threadId} \u4E0D\u53EF\u7528\u3002`);
-    this.name = "CodexThreadUnavailableError";
-    this.threadId = threadId;
-  }
-};
-var validationOutputSchema = {
-  type: "object",
-  required: ["verificationToken", "projectId", "sceneCount", "summary"],
-  properties: {
-    verificationToken: { type: "string" },
-    projectId: { type: "string" },
-    sceneCount: { type: "integer", minimum: 0 },
-    summary: { type: "string", maxLength: 240 }
-  },
-  additionalProperties: false
-};
-function checkpointFor(task) {
-  if (task.state.status === "succeeded") return null;
-  return {
-    taskId: task.state.taskId,
-    status: task.state.status,
-    reason: task.state.reason,
-    threadPointer: task.state.connection.threadId
-  };
-}
-function availableActions(status) {
-  if (status === "running") return ["stop"];
-  if (status === "stopped") return ["continue"];
-  return [];
-}
-function publicState(task) {
-  return {
-    ...task.state,
-    connection: { ...task.state.connection },
-    result: task.state.result === null ? null : { ...task.state.result, verification: { ...task.state.result.verification } },
-    diagnostic: task.state.diagnostic === null ? null : { ...task.state.diagnostic },
-    checkpoint: checkpointFor(task),
-    availableActions: [...task.state.availableActions]
-  };
-}
-function boundedMessage(message, fallback) {
-  if (typeof message !== "string" || message.trim() === "") return fallback;
-  return message.trim().slice(0, 240);
-}
-function validationPrompt(task, verificationToken) {
-  return [
-    "\u8FD9\u662F Narracut \u7684\u4E00\u6B21\u56FA\u5B9A Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\uFF0C\u4E0D\u662F\u521B\u4F5C\u4EFB\u52A1\u3002",
-    "\u53EA\u8BFB\u68C0\u67E5\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\u4E2D\u7684 narracut.json \u4E0E project.json\uFF1B\u4E0D\u8981\u521B\u5EFA\u3001\u4FEE\u6539\u6216\u5220\u9664\u4EFB\u4F55\u6587\u4EF6\uFF0C\u4E5F\u4E0D\u8981\u6267\u884C\u7F51\u7EDC\u64CD\u4F5C\u3002",
-    `\u786E\u8BA4 Project ID \u662F ${task.request.projectId}\uFF0CScene \u6570\u91CF\u662F ${task.request.sceneCount}\u3002`,
-    `\u6700\u7EC8\u53EA\u8FD4\u56DE\u7B26\u5408\u7ED9\u5B9A JSON Schema \u7684\u5BF9\u8C61\uFF0C\u5176\u4E2D verificationToken \u5FC5\u987B\u539F\u6837\u8FD4\u56DE ${verificationToken}\u3002`,
-    "summary \u7528\u4E00\u53E5\u4E2D\u6587\u8BF4\u660E\u5DF2\u5728\u53EA\u8BFB\u8FB9\u754C\u5185\u6838\u5BF9 Project VNext \u8EAB\u4EFD\u3002"
-  ].join("\n");
-}
-var AgentHostValidationService = class {
-  #host;
-  #idFactory;
-  #tasks = /* @__PURE__ */ new Map();
-  #driverOwners = /* @__PURE__ */ new Map();
-  #unsubscribe;
-  constructor(host, options = {}) {
-    this.#host = host;
-    this.#idFactory = options.idFactory ?? randomUUID11;
-    this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
-  }
-  async start(request) {
-    const taskId = this.#idFactory();
-    const task = {
-      request,
-      activeDriver: null,
-      state: {
-        taskId,
-        status: "stopped",
-        reason: "CODEX_UNAVAILABLE",
-        connection: { status: "unavailable", threadId: null, replaced: false },
-        result: null,
-        diagnostic: null,
-        checkpoint: null,
-        availableActions: ["continue"],
-        projectModified: false
-      }
-    };
-    this.#tasks.set(taskId, task);
-    await this.#bindAndRun(task, null);
-    return publicState(task);
-  }
-  get(taskId) {
-    return publicState(this.#requireTask(taskId));
-  }
-  async stop(taskId) {
-    const task = this.#requireTask(taskId);
-    const driver = task.activeDriver;
-    task.activeDriver = null;
-    this.#setStopped(task, "USER_STOPPED");
-    if (driver !== null) {
-      try {
-        await this.#host.interruptTurn({ threadId: driver.threadId, turnId: driver.turnId });
-      } catch (error51) {
-        task.state.diagnostic = {
-          code: "HOST_INTERRUPT_FAILED",
-          message: boundedMessage(error51 instanceof Error ? error51.message : error51, "Codex Turn \u672A\u80FD\u786E\u8BA4\u4E2D\u65AD\u3002")
-        };
-      }
-    }
-    return publicState(task);
-  }
-  async continue(taskId) {
-    const task = this.#requireTask(taskId);
-    if (task.state.status !== "stopped") {
-      throw new Error("\u53EA\u6709\u5DF2\u505C\u6B62\u7684\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\u53EF\u4EE5\u7EE7\u7EED\u3002");
-    }
-    const threadPointer = task.state.connection.threadId;
-    await this.#bindAndRun(task, threadPointer);
-    return publicState(task);
-  }
-  async dispose() {
-    this.#unsubscribe();
-    await this.#host.dispose();
-  }
-  #requireTask(taskId) {
-    const task = this.#tasks.get(taskId);
-    if (task === void 0) throw new Error(`\u672A\u77E5\u5BBF\u4E3B\u9A8C\u8BC1\u4EFB\u52A1\uFF1A${taskId}`);
-    return task;
-  }
-  async #bindAndRun(task, threadPointer) {
-    task.state.diagnostic = null;
-    let threadId = threadPointer;
-    let replaced = false;
-    try {
-      if (threadPointer === null) {
-        ({ threadId } = await this.#host.createThread({
-          projectDirectory: task.request.projectDirectory
-        }));
-      } else {
-        try {
-          ({ threadId } = await this.#host.resumeThread({
-            threadId: threadPointer,
-            projectDirectory: task.request.projectDirectory
-          }));
-        } catch (error51) {
-          if (!(error51 instanceof CodexThreadUnavailableError)) throw error51;
-          ({ threadId } = await this.#host.createThread({
-            projectDirectory: task.request.projectDirectory
-          }));
-          replaced = true;
-        }
-      }
-      if (threadId === null) throw new Error("Codex Thread \u7ED1\u5B9A\u672A\u8FD4\u56DE\u6709\u6548\u6307\u9488\u3002");
-      const driverId = this.#idFactory();
-      const verificationToken = this.#idFactory();
-      const { turnId } = await this.#host.startTurn({
-        threadId,
-        projectDirectory: task.request.projectDirectory,
-        verificationToken,
-        prompt: validationPrompt(task, verificationToken),
-        outputSchema: validationOutputSchema
-      });
-      const driver = { id: driverId, threadId, turnId, verificationToken };
-      task.activeDriver = driver;
-      this.#driverOwners.set(`${threadId}:${turnId}`, task.state.taskId);
-      task.state.status = "running";
-      task.state.reason = null;
-      task.state.connection = { status: "connected", threadId, replaced };
-      task.state.result = null;
-      task.state.availableActions = availableActions("running");
-      task.state.checkpoint = checkpointFor(task);
-    } catch (error51) {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_UNAVAILABLE");
-      task.state.connection = {
-        status: "unavailable",
-        threadId,
-        replaced
-      };
-      task.state.diagnostic = {
-        code: "CODEX_HOST_UNAVAILABLE",
-        message: boundedMessage(error51 instanceof Error ? error51.message : error51, "Codex \u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002")
-      };
-    }
-  }
-  #setStopped(task, reason) {
-    task.state.status = "stopped";
-    task.state.reason = reason;
-    task.state.result = null;
-    task.state.availableActions = availableActions("stopped");
-    task.state.checkpoint = checkpointFor(task);
-  }
-  #handleHostEvent(event) {
-    if (event.type === "host-unavailable") {
-      for (const task2 of this.#tasks.values()) {
-        if (task2.state.status === "succeeded") continue;
-        if (task2.activeDriver !== null) {
-          task2.activeDriver = null;
-          this.#setStopped(task2, "CODEX_UNAVAILABLE");
-        }
-        task2.state.connection.status = "unavailable";
-        task2.state.diagnostic = {
-          code: "CODEX_HOST_UNAVAILABLE",
-          message: boundedMessage(event.error, "Codex \u5BBF\u4E3B\u8FDE\u63A5\u5DF2\u4E2D\u65AD\u3002")
-        };
-      }
-      return;
-    }
-    const turnKey = event.turnId === void 0 ? null : `${event.threadId}:${event.turnId}`;
-    let task = turnKey === null ? void 0 : this.#tasks.get(this.#driverOwners.get(turnKey) ?? "");
-    task ??= [...this.#tasks.values()].find(
-      (candidate) => candidate.state.connection.threadId === event.threadId
-    );
-    if (task === void 0) return;
-    const driver = task.activeDriver;
-    if (event.type === "thread-unavailable" && driver === null && task.state.status === "stopped" && task.state.connection.threadId === event.threadId) {
-      task.state.connection.status = "unavailable";
-      task.state.diagnostic = {
-        code: "CODEX_THREAD_UNAVAILABLE",
-        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
-      };
-      return;
-    }
-    const isCurrent = driver !== null && driver.threadId === event.threadId && (event.turnId === void 0 || driver.turnId === event.turnId);
-    if (!isCurrent) {
-      task.state.diagnostic = {
-        code: "LATE_DRIVER_CALLBACK_REJECTED",
-        message: "\u5DF2\u62D2\u7EDD\u5931\u53BB\u5199\u6743\u7684\u65E7 Codex \u521B\u4F5C\u7EBF\u7A0B\u56DE\u8C03\uFF1B\u5F53\u524D\u4EFB\u52A1\u72B6\u6001\u672A\u6539\u53D8\u3002"
-      };
-      return;
-    }
-    if (event.type === "thread-unavailable") {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_THREAD_UNAVAILABLE");
-      task.state.connection.status = "unavailable";
-      task.state.diagnostic = {
-        code: "CODEX_THREAD_UNAVAILABLE",
-        message: "Codex \u521B\u4F5C\u7EBF\u7A0B\u4E0D\u53EF\u7528\uFF1B\u7EE7\u7EED\u65F6\u5C06\u81EA\u52A8\u521B\u5EFA\u66FF\u4EE3\u7EBF\u7A0B\u3002"
-      };
-      return;
-    }
-    if (event.status !== "completed" || event.output === void 0) {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_INTERRUPTED");
-      task.state.diagnostic = {
-        code: "CODEX_TURN_INTERRUPTED",
-        message: boundedMessage(event.error, "Codex \u9A8C\u8BC1 Turn \u672A\u5B8C\u6210\u3002")
-      };
-      return;
-    }
-    let parsed;
-    try {
-      const value = JSON.parse(event.output);
-      if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error();
-      parsed = value;
-    } catch {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_INTERRUPTED");
-      task.state.diagnostic = {
-        code: "HOST_VALIDATION_RESULT_INVALID",
-        message: "Codex \u8FD4\u56DE\u4E86\u65E0\u6CD5\u9A8C\u8BC1\u7684\u7ED3\u6784\u5316\u7ED3\u679C\u3002"
-      };
-      return;
-    }
-    const summary = parsed.summary;
-    const normalizedSummary = typeof summary === "string" ? summary.trim() : "";
-    const valid2 = parsed.verificationToken === driver.verificationToken && parsed.projectId === task.request.projectId && parsed.sceneCount === task.request.sceneCount && typeof summary === "string" && normalizedSummary !== "" && summary.length <= 240;
-    if (!valid2) {
-      task.activeDriver = null;
-      this.#setStopped(task, "CODEX_INTERRUPTED");
-      task.state.diagnostic = {
-        code: "HOST_VALIDATION_IDENTITY_MISMATCH",
-        message: "Codex \u7ED3\u679C\u672A\u901A\u8FC7\u4EFB\u52A1\u3001\u9A71\u52A8\u6216\u9879\u76EE\u8EAB\u4EFD\u6821\u9A8C\u3002"
-      };
-      return;
-    }
-    task.activeDriver = null;
-    task.state.status = "succeeded";
-    task.state.reason = null;
-    task.state.result = {
-      projectId: task.request.projectId,
-      sceneCount: task.request.sceneCount,
-      summary: normalizedSummary,
-      verification: { taskId: task.state.taskId, driverId: driver.id }
-    };
-    task.state.availableActions = availableActions("succeeded");
-    task.state.checkpoint = null;
-  }
-};
-
-// plugins/narracut/src/codex-app-server-host.ts
 function objectValue(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
 }
 function rpcError(method, error51) {
   const message = error51?.message?.trim() || "\u672A\u77E5 App Server \u9519\u8BEF";
-  return new Error(`${method} \u5931\u8D25\uFF1A${message}`);
+  const data = objectValue(error51?.data);
+  const reason = upstreamStopReason(data?.codexErrorInfo, data?.httpStatusCode ?? error51?.code);
+  const missingThread = method === "thread/resume" && reason === "CODEX_INTERRUPTED" && /(?:thread|conversation).*(?:not found|does not exist)|no rollout found/i.test(message);
+  return Object.assign(new Error(`${method} \u5931\u8D25\uFF1A${message}`), { code: missingThread ? "CODEX_THREAD_UNAVAILABLE" : reason });
+}
+function upstreamStopReason(info, status) {
+  if (info === "usageLimitExceeded" || info === "rateLimitExceeded" || status === 429) return "CODEX_USAGE_LIMIT";
+  if (info === "unauthorized" || status === 401 || status === 403) return "CODEX_AUTH_REQUIRED";
+  if (info === "serverOverloaded" || info === "internalServerError" || typeof status === "number" && status >= 500) return "CODEX_UNAVAILABLE";
+  const details = objectValue(info);
+  for (const key of ["httpConnectionFailed", "responseStreamConnectionFailed", "responseStreamDisconnected", "responseTooManyFailedAttempts"]) {
+    if (details && key in details) {
+      const nested = upstreamStopReason(null, objectValue(details[key])?.httpStatusCode);
+      return nested === "CODEX_INTERRUPTED" ? "CODEX_UNAVAILABLE" : nested;
+    }
+  }
+  return "CODEX_INTERRUPTED";
 }
 var CodexAppServerHost = class {
   #command;
@@ -29623,6 +29803,7 @@ var CodexAppServerHost = class {
   #pending = /* @__PURE__ */ new Map();
   #agentMessages = /* @__PURE__ */ new Map();
   #activeTurns = /* @__PURE__ */ new Map();
+  #approvals = /* @__PURE__ */ new Map();
   #child = null;
   #lineReader = null;
   #ready = null;
@@ -29668,8 +29849,9 @@ var CodexAppServerHost = class {
         sandbox: "read-only",
         excludeTurns: true
       });
-    } catch {
-      throw new CodexThreadUnavailableError(input.threadId);
+    } catch (error51) {
+      if (error51.code === "CODEX_THREAD_UNAVAILABLE") throw new CodexThreadUnavailableError(input.threadId);
+      throw error51;
     }
     const threadId = result.thread?.id;
     if (threadId !== input.threadId) throw new CodexThreadUnavailableError(input.threadId);
@@ -29695,6 +29877,13 @@ var CodexAppServerHost = class {
   async interruptTurn(input) {
     await this.#ensureReady();
     await this.#request("turn/interrupt", input);
+  }
+  async resolveApproval(approvalId, approved) {
+    const approval = this.#approvals.get(approvalId), child = this.#child;
+    if (!approval || !child || approval.approved !== void 0) throw new Error("\u5DE5\u5177\u5BA1\u6279\u5DF2\u8FC7\u671F\u6216\u56DE\u6267\u5F85\u6838\u5BF9");
+    approval.approved = approved;
+    await new Promise((resolve4, reject) => child.stdin.write(`${JSON.stringify({ id: approval.rpcId, result: { decision: approved ? "accept" : "decline" } })}
+`, (error51) => error51 ? reject(error51) : resolve4()));
   }
   async dispose() {
     this.#disposed = true;
@@ -29756,7 +29945,7 @@ var CodexAppServerHost = class {
     return new Promise((resolve4, reject) => {
       const timer = setTimeout(() => {
         if (!this.#pending.delete(id)) return;
-        const error51 = new Error(`${method} \u8D85\u8FC7 ${this.#requestTimeoutMs}ms \u672A\u54CD\u5E94\u3002`);
+        const error51 = Object.assign(new Error(`${method} \u8D85\u8FC7 ${this.#requestTimeoutMs}ms \u672A\u54CD\u5E94\u3002`), { code: "CODEX_UNAVAILABLE" });
         reject(error51);
         this.#handleExit(child, error51);
       }, this.#requestTimeoutMs);
@@ -29798,6 +29987,13 @@ var CodexAppServerHost = class {
       return;
     }
     if (message.id !== void 0 && message.method !== void 0) {
+      const params2 = objectValue(message.params);
+      if (message.method === "item/commandExecution/requestApproval" && typeof params2?.threadId === "string" && typeof params2.turnId === "string") {
+        const approvalId = `${params2.threadId}:${params2.turnId}:${message.id}`;
+        this.#approvals.set(approvalId, { rpcId: message.id, threadId: params2.threadId, turnId: params2.turnId });
+        this.#emit({ type: "approval-required", approvalId, threadId: params2.threadId, turnId: params2.turnId, summary: [params2.reason, params2.command].filter((value) => typeof value === "string").join("\n").slice(0, 4e3) || "Codex \u8BF7\u6C42\u6279\u51C6\u5DE5\u5177\u64CD\u4F5C" });
+        return;
+      }
       this.#child?.stdin.write(`${JSON.stringify({
         id: message.id,
         error: { code: -32601, message: `Narracut \u4E0D\u652F\u6301\u5BBF\u4E3B\u8BF7\u6C42 ${message.method}\u3002` }
@@ -29806,6 +30002,19 @@ var CodexAppServerHost = class {
       return;
     }
     const params = objectValue(message.params);
+    if (message.method === "serverRequest/resolved" && params) {
+      for (const [approvalId, approval] of this.#approvals) {
+        if (approval.threadId === params.threadId && approval.rpcId === params.requestId) {
+          this.#approvals.delete(approvalId);
+          this.#emit({ type: "approval-resolved", approvalId, threadId: approval.threadId, turnId: approval.turnId, approved: approval.approved === true });
+        }
+      }
+      return;
+    }
+    if (message.method === "error" && typeof params?.threadId === "string" && typeof params.turnId === "string") {
+      this.#emit({ type: "turn-completed", threadId: params.threadId, turnId: params.turnId, status: "failed", error: upstreamStopReason(objectValue(params.error)?.codexErrorInfo) });
+      return;
+    }
     if (message.method === "item/completed" && params !== null) {
       const item = objectValue(params.item);
       if (typeof params.threadId === "string" && typeof params.turnId === "string" && item?.type === "agentMessage" && typeof item.text === "string") {
@@ -29824,14 +30033,14 @@ var CodexAppServerHost = class {
       const messageKey = `${threadId}:${turnId}`;
       const output = typeof finalMessage === "string" ? finalMessage : this.#agentMessages.get(messageKey);
       this.#agentMessages.delete(messageKey);
-      this.#activeTurns.delete(threadId);
+      if (this.#activeTurns.get(threadId) === turnId) this.#activeTurns.delete(threadId);
       this.#emit({
         type: "turn-completed",
         threadId,
         turnId,
         status,
         ...output === void 0 ? {} : { output },
-        ...turn.error === null || turn.error === void 0 ? {} : { error: JSON.stringify(turn.error).slice(0, 240) }
+        ...turn.error === null || turn.error === void 0 ? {} : { error: upstreamStopReason(objectValue(turn.error)?.codexErrorInfo, objectValue(turn.error)?.httpStatusCode) }
       });
       return;
     }
@@ -29849,6 +30058,7 @@ var CodexAppServerHost = class {
     }
   }
   #clearTransientState(error51) {
+    this.#approvals.clear();
     this.#lineReader?.close();
     this.#lineReader = null;
     for (const pending of this.#pending.values()) {
@@ -29876,6 +30086,46 @@ var CodexAppServerHost = class {
     for (const listener of this.#listeners) listener(event);
   }
 };
+
+// src/server/project-lease-handoff.ts
+import { createServer as createServer2, request } from "node:http";
+async function listenForProjectHandoff(token, handoff) {
+  let pending = null;
+  const server = createServer2((req, res) => {
+    if (req.method !== "POST" || req.url !== "/handoff" || req.headers.authorization !== `Bearer ${token}`) {
+      res.writeHead(403).end();
+      return;
+    }
+    req.resume();
+    pending ??= handoff().catch((error51) => {
+      pending = null;
+      throw error51;
+    });
+    void pending.then(() => res.writeHead(204).end(), () => res.writeHead(409).end());
+  });
+  server.requestTimeout = 15e3;
+  server.headersTimeout = 1e4;
+  await new Promise((resolve4, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve4);
+  });
+  server.unref();
+  return { port: server.address().port, close: () => {
+    server.close();
+  } };
+}
+async function requestProjectHandoff(port, token) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
+  await new Promise((resolve4, reject) => {
+    const req = request({ hostname: "127.0.0.1", port, path: "/handoff", method: "POST", headers: { authorization: `Bearer ${token}` }, agent: false }, (res) => {
+      res.resume();
+      res.once("end", () => res.statusCode === 204 ? resolve4() : reject(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
+    });
+    req.setTimeout(15e3, () => req.destroy(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 // src/server/project-lifecycle.ts
 import { createHash as createHash10, randomUUID as randomUUID12 } from "node:crypto";
@@ -30417,9 +30667,21 @@ async function clearStaleLease(leasePath) {
   await unlink2(leasePath);
   return true;
 }
-async function acquireProjectLease(inspection) {
+async function acquireProjectLease(inspection, onHandoff) {
   const projectDirectory = inspection.projectDirectory;
   const leasePath = join11(projectDirectory, ".narracut", "workspace.lease");
+  let transferred = false;
+  if (onHandoff) {
+    const existing = await readFile5(leasePath, "utf8").then((bytes) => JSON.parse(bytes)).catch(() => null);
+    if (existing && isLeaseMarker(existing) && existing.projectId === inspection.manifest.projectId && existing.projectDirectory === projectDirectory && existing.handoffPort && await leaseHolderIsAlive(existing)) {
+      try {
+        await requestProjectHandoff(existing.handoffPort, existing.token);
+        transferred = true;
+      } catch (cause) {
+        throw new ProjectLifecycleError("PROJECT_IN_USE", projectDirectory, "\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9\uFF1B\u5C1A\u672A\u53D6\u5F97\u4EFB\u52A1\u63A7\u5236\u6743\u3002", { cause });
+      }
+    }
+  }
   if (activeLeasePaths.has(leasePath)) {
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -30459,10 +30721,16 @@ async function acquireProjectLease(inspection) {
       `\u65E0\u6CD5\u53D6\u5F97\u9879\u76EE\u5199\u5165\u79DF\u7EA6\uFF1A${projectDirectory}\u3002`
     );
   }
+  let endpoint;
   try {
+    if (onHandoff) {
+      endpoint = await listenForProjectHandoff(marker.token, onHandoff);
+      marker.handoffPort = endpoint.port;
+    }
     await handle.writeFile(JSON.stringify(marker));
     await handle.sync();
   } catch (cause) {
+    endpoint?.close();
     await handle.close();
     await rm7(leasePath, { force: true });
     throw new ProjectLifecycleError(
@@ -30477,6 +30745,7 @@ async function acquireProjectLease(inspection) {
   try {
     leaseDirectoryHandle = await openFile(dirname7(leasePath), "r");
   } catch (cause) {
+    endpoint?.close();
     await rm7(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -30510,6 +30779,7 @@ async function acquireProjectLease(inspection) {
   const release2 = async () => {
     if (released) return;
     released = true;
+    endpoint?.close();
     activeLeasePaths.delete(leasePath);
     const anchoredLeasePath = process.platform === "win32" ? leasePath : `/dev/fd/${leaseDirectoryHandle.fd}/workspace.lease`;
     try {
@@ -30521,7 +30791,7 @@ async function acquireProjectLease(inspection) {
       await leaseDirectoryHandle.close();
     }
   };
-  return { assertCurrent, release: release2 };
+  return { assertCurrent, release: release2, transferred };
 }
 function revisionOf(bytes) {
   return `sha256:${createHash10("sha256").update(bytes).digest("hex")}`;
@@ -30686,7 +30956,7 @@ async function openProjectVNext(inputPath, options = {}) {
     const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
     const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
-    const lease = await acquireProjectLease(initialInspection);
+    const lease = await acquireProjectLease(initialInspection, options.onHandoff);
     let assetsDirectoryHandle = null;
     let speechDirectoryHandle = null;
     try {
@@ -30772,9 +31042,9 @@ async function openProjectVNext(inputPath, options = {}) {
         }
       };
       const candidateManager = await createCandidateManager(projectDirectory, assertWritable);
-      const candidate = (request) => {
+      const candidate = (request2) => {
         if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002"));
-        const operation = saveQueue.then(() => candidateManager(request));
+        const operation = saveQueue.then(() => candidateManager(request2));
         saveQueue = operation.then(() => void 0, () => void 0);
         return operation;
       };
@@ -31535,6 +31805,7 @@ async function openProjectVNext(inputPath, options = {}) {
         await releasePromise;
       };
       return {
+        transferred: lease.transferred,
         candidate,
         programTransaction: (run) => {
           if (closing) return Promise.reject(new Error("\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002"));
@@ -31556,9 +31827,9 @@ async function openProjectVNext(inputPath, options = {}) {
           await saveQueue;
           return candidateManager.previewSource(target);
         },
-        buildCandidateBundle: async (request) => {
+        buildCandidateBundle: async (request2) => {
           await saveQueue;
-          return candidateManager.build(request);
+          return candidateManager.build(request2);
         },
         inspection,
         saveProject,
@@ -31727,7 +31998,7 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
-  { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop", "takeover"] }, id: { type: "string" }, baseline: { type: "string" }, parentOrigin: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
+  { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop", "takeover", "approve-tool", "reject-tool"] }, id: { type: "string" }, baseline: { type: "string" }, parentOrigin: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "start_creation_task", description: "\u4ECE Composer \u539F\u6587\u53D1\u8D77\u4E13\u7528\u521B\u4F5C\u4EFB\u52A1\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "get_creation_task", description: "\u8BFB\u53D6\u5F53\u524D\u5355\u9879\u521B\u4F5C\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ["app"] } } },
   { name: "continue_creation_task", description: "\u660E\u786E\u57FA\u4E8E\u5F53\u524D\u5916\u90E8\u5019\u9009\u7EE7\u7EED\u540C\u4E00\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "baseline"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, baseline: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: false }, _meta: { ui: { visibility: ["app"] } } },
@@ -32342,10 +32613,14 @@ function credentialState(value) {
   return { status: "available", storage: "session", masked: `\u2022\u2022\u2022\u2022${value.slice(-4)}` };
 }
 var ProjectWorkspaceSession = class {
+  #transferred = false;
+  #handoffPending = false;
+  #opening = false;
   creation = null;
   creationError = null;
   async creationOperation(input, start = false, resume = false, respond = false) {
     if (!input || typeof input.projectDirectory !== "string" || typeof input.projectId !== "string" || start && typeof input.instruction !== "string") throw new Error("\u521B\u4F5C\u4EFB\u52A1\u53C2\u6570\u65E0\u6548\u3002");
+    if ((this.#transferred || this.#handoffPending) && !start && !resume && !respond && this.#opened?.inspection.projectDirectory === input.projectDirectory && this.#opened?.inspection.manifest.projectId === input.projectId) return { creationTask: this.creation?.value ?? null, candidate: this.#candidateStatus, creationRecovery: this.creation?.recovery ?? null, transferred: this.#transferred };
     this.#requireOpened(input.projectDirectory, input.projectId);
     if (this.creationError) throw new Error(this.creationError);
     if (!this.creation) throw new Error("\u521B\u4F5C\u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002");
@@ -32420,8 +32695,27 @@ var ProjectWorkspaceSession = class {
     return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
   }
   async open(projectDirectory) {
+    if (this.#opening) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
+    if (!this.#transferred && !this.#handoffPending && this.#opened?.inspection.projectDirectory === projectDirectory) return this.#opened.inspection;
+    this.#opening = true;
+    try {
+      return await this.#open(projectDirectory);
+    } finally {
+      this.#opening = false;
+    }
+  }
+  async #open(projectDirectory) {
     const next = await openProjectVNext(projectDirectory, {
-      probeSpeechDurationMs: this.#probeSpeechDurationMs
+      probeSpeechDurationMs: this.#probeSpeechDurationMs,
+      onHandoff: async () => {
+        if (this.#opening) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
+        this.#handoffPending = true;
+        await this.creation?.transfer();
+        await this.render.close();
+        for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
+        await this.#opened?.release();
+        this.#transferred = true;
+      }
     });
     const previous = this.#opened;
     try {
@@ -32438,11 +32732,13 @@ var ProjectWorkspaceSession = class {
     this.checks.clear();
     this.preview.clear();
     this.#opened = next;
+    this.#transferred = false;
+    this.#handoffPending = false;
     this.#candidateStatus = await next.candidate({ action: "read" });
     this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery) : null;
     this.creationError = null;
     try {
-      await this.creation?.load();
+      await this.creation?.load(next.transferred);
     } catch (error51) {
       this.creationError = error51.message;
     }
@@ -32450,14 +32746,15 @@ var ProjectWorkspaceSession = class {
   }
   async candidate(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
-    const { projectDirectory: _directory, projectId: _id, ...request } = input;
-    if (this.creation?.blocksCandidateWrites && request.action !== "read") throw new Error("\u53EA\u6709\u5F53\u524D\u521B\u4F5C\u9A71\u52A8\u53EF\u4EE5\u4FEE\u6539\u5019\u9009\uFF1B\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\u3002");
-    this.#candidateStatus = await opened.candidate(request);
-    if (request.action === "discard") await this.creation?.terminate("CANDIDATE_ABANDONED");
+    const { projectDirectory: _directory, projectId: _id, ...request2 } = input;
+    if (this.creation?.blocksCandidateWrites && request2.action !== "read") throw new Error("\u53EA\u6709\u5F53\u524D\u521B\u4F5C\u9A71\u52A8\u53EF\u4EE5\u4FEE\u6539\u5019\u9009\uFF1B\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\u3002");
+    this.#candidateStatus = await opened.candidate(request2);
+    if (request2.action === "discard") await this.creation?.terminate("CANDIDATE_ABANDONED");
     return this.#candidateStatus;
   }
   async save(input) {
     const opened = this.#opened;
+    if (this.#transferred || this.#handoffPending) throw new ProjectLifecycleError("PROJECT_IDENTITY_LOST", opened?.inspection.projectDirectory ?? "", this.#transferred ? "\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B" : "\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
     if (opened === null || opened.inspection.projectDirectory !== input.projectDirectory || opened.inspection.manifest.projectId !== input.projectId) {
       throw new ProjectLifecycleError(
         "PROJECT_IDENTITY_LOST",
@@ -32482,6 +32779,7 @@ var ProjectWorkspaceSession = class {
   }
   async importAsset(input) {
     const opened = this.#opened;
+    if (this.#transferred || this.#handoffPending) throw new ProjectLifecycleError("PROJECT_IDENTITY_LOST", opened?.inspection.projectDirectory ?? "", this.#transferred ? "\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B" : "\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
     if (opened === null || opened.inspection.projectDirectory !== input.projectDirectory || opened.inspection.manifest.projectId !== input.projectId) {
       throw new ProjectLifecycleError(
         "PROJECT_IDENTITY_LOST",
@@ -32500,6 +32798,7 @@ var ProjectWorkspaceSession = class {
   }
   async readAssetPreview(input) {
     const opened = this.#opened;
+    if (this.#transferred || this.#handoffPending) throw new ProjectLifecycleError("PROJECT_IDENTITY_LOST", opened?.inspection.projectDirectory ?? "", this.#transferred ? "\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B" : "\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
     if (opened === null || opened.inspection.projectDirectory !== input.projectDirectory || opened.inspection.manifest.projectId !== input.projectId) {
       throw new ProjectLifecycleError(
         "PROJECT_IDENTITY_LOST",
@@ -32592,6 +32891,7 @@ var ProjectWorkspaceSession = class {
   }
   #requireOpened(projectDirectory, projectId) {
     const opened = this.#opened;
+    if (this.#transferred || this.#handoffPending) throw new ProjectLifecycleError("PROJECT_IDENTITY_LOST", opened?.inspection.projectDirectory ?? "", this.#transferred ? "\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B" : "\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
     if (opened === null || opened.inspection.projectDirectory !== projectDirectory || opened.inspection.manifest.projectId !== projectId) {
       throw new ProjectLifecycleError(
         "PROJECT_IDENTITY_LOST",
@@ -33329,8 +33629,8 @@ function createNarracutRequestHandler(options = {}) {
     ttsFetch: options.ttsFetch,
     probeSpeechDurationMs: options.probeSpeechDurationMs
   });
-  const requestHandler = async (request) => {
-    switch (request.method) {
+  const requestHandler = async (request2) => {
+    switch (request2.method) {
       case "initialize": {
         return {
           protocolVersion: MCP_PROTOCOL_VERSION,
@@ -33344,7 +33644,7 @@ function createNarracutRequestHandler(options = {}) {
       case "tools/list":
         return { tools };
       case "tools/call":
-        return callTool(request.params, hostValidation, workspace);
+        return callTool(request2.params, hostValidation, workspace);
       case "resources/list":
         return {
           resources: [{
@@ -33355,7 +33655,7 @@ function createNarracutRequestHandler(options = {}) {
           }]
         };
       case "resources/read": {
-        const uri = typeof request.params === "object" && request.params !== null ? request.params.uri : void 0;
+        const uri = typeof request2.params === "object" && request2.params !== null ? request2.params.uri : void 0;
         if (uri !== WORKBENCH_URI) throw new Error(`\u672A\u77E5\u8D44\u6E90\uFF1A${String(uri)}`);
         return {
           contents: [{
@@ -33372,7 +33672,7 @@ function createNarracutRequestHandler(options = {}) {
         };
       }
       default:
-        throw new Error(`\u4E0D\u652F\u6301\u7684\u65B9\u6CD5\uFF1A${request.method}`);
+        throw new Error(`\u4E0D\u652F\u6301\u7684\u65B9\u6CD5\uFF1A${request2.method}`);
     }
   };
   return Object.assign(requestHandler, {
@@ -33389,20 +33689,20 @@ function writeMessage(message) {
 }
 async function handleLine(line, requestHandler) {
   if (line.trim() === "") return;
-  let request;
+  let request2;
   try {
-    request = JSON.parse(line);
+    request2 = JSON.parse(line);
   } catch {
     writeMessage({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" } });
     return;
   }
-  if (request.id === void 0) return;
+  if (request2.id === void 0) return;
   try {
-    writeMessage({ jsonrpc: "2.0", id: request.id, result: await requestHandler(request) });
+    writeMessage({ jsonrpc: "2.0", id: request2.id, result: await requestHandler(request2) });
   } catch (error51) {
     writeMessage({
       jsonrpc: "2.0",
-      id: request.id,
+      id: request2.id,
       error: { code: -32603, message: error51 instanceof Error ? error51.message : "Internal error" }
     });
   }

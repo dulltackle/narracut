@@ -107,7 +107,7 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
-  { name: 'respond_creation_task', description: '用户处理同一任务的消息、Scene 待办与 Brief 审核。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'action'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['message','confirm-message','discuss-message','edit-message','accept-brief','ack-brief','reject-brief','regenerate-brief','continue','stop','takeover'] }, id: { type: 'string' }, baseline: { type: 'string' }, parentOrigin: { type: 'string' }, instruction: { type: 'string', maxLength: 4000 } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
+  { name: 'respond_creation_task', description: '用户处理同一任务的消息、Scene 待办与 Brief 审核。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'action'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['message','confirm-message','discuss-message','edit-message','accept-brief','ack-brief','reject-brief','regenerate-brief','continue','stop','takeover','approve-tool','reject-tool'] }, id: { type: 'string' }, baseline: { type: 'string' }, parentOrigin: { type: 'string' }, instruction: { type: 'string', maxLength: 4000 } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'start_creation_task', description: '从 Composer 原文发起专用创作任务；只修改候选，不自动接受。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'instruction'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, instruction: { type: 'string', minLength: 1, maxLength: 4000 }, parentOrigin: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'get_creation_task', description: '读取当前单项创作任务。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ['app'] } } },
   { name: 'continue_creation_task', description: '明确基于当前外部候选继续同一任务。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'baseline'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, baseline: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: { ...taskToolAnnotations, readOnlyHint: false }, _meta: { ui: { visibility: ['app'] } } },
@@ -703,10 +703,14 @@ function credentialState(value: string | undefined): TtsCredentialState {
 }
 
 class ProjectWorkspaceSession {
+  #transferred = false;
+  #handoffPending = false;
+  #opening = false;
   creation: CreationTask | null = null;
   creationError: string | null = null;
   async creationOperation(input: any, start = false, resume = false, respond = false) {
     if (!input || typeof input.projectDirectory !== 'string' || typeof input.projectId !== 'string' || start && typeof input.instruction !== 'string') throw new Error('创作任务参数无效。');
+    if ((this.#transferred || this.#handoffPending) && !start && !resume && !respond && this.#opened?.inspection.projectDirectory === input.projectDirectory && this.#opened?.inspection.manifest.projectId === input.projectId) return { creationTask: this.creation?.value ?? null, candidate: this.#candidateStatus, creationRecovery: this.creation?.recovery ?? null, transferred: this.#transferred };
     this.#requireOpened(input.projectDirectory, input.projectId);
     if (this.creationError) throw new Error(this.creationError);
     if (!this.creation) throw new Error('创作宿主不可用。');
@@ -785,8 +789,24 @@ class ProjectWorkspaceSession {
   }
 
   async open(projectDirectory: string): Promise<ProjectVNextInspection> {
+    if (this.#opening) throw new Error('线程连接结果待核对');
+    if (!this.#transferred && !this.#handoffPending && this.#opened?.inspection.projectDirectory === projectDirectory) return this.#opened.inspection;
+    this.#opening = true;
+    try { return await this.#open(projectDirectory); }
+    finally { this.#opening = false; }
+  }
+  async #open(projectDirectory: string): Promise<ProjectVNextInspection> {
     const next = await openProjectVNext(projectDirectory, {
       probeSpeechDurationMs: this.#probeSpeechDurationMs,
+      onHandoff: async () => {
+        if (this.#opening) throw new Error('线程连接结果待核对');
+        this.#handoffPending = true;
+        await this.creation?.transfer();
+        await this.render.close();
+        for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
+        await this.#opened?.release();
+        this.#transferred = true;
+      },
     });
     const previous = this.#opened;
     try {
@@ -799,10 +819,11 @@ class ProjectWorkspaceSession {
     this.checks.clear();
     this.preview.clear();
     this.#opened = next;
+    this.#transferred = false; this.#handoffPending = false;
     this.#candidateStatus = await next.candidate({ action: "read" });
     this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery) : null;
     this.creationError = null;
-    try { await this.creation?.load(); } catch (error) { this.creationError = (error as Error).message; }
+    try { await this.creation?.load(next.transferred); } catch (error) { this.creationError = (error as Error).message; }
     return next.inspection;
   }
 
@@ -822,6 +843,7 @@ class ProjectWorkspaceSession {
     project: unknown;
   }): Promise<ProjectVNextInspection> {
     const opened = this.#opened;
+    if (this.#transferred || this.#handoffPending) throw new ProjectLifecycleError("PROJECT_IDENTITY_LOST", opened?.inspection.projectDirectory ?? "", this.#transferred ? "任务已转移到另一线程" : "线程连接结果待核对");
     if (
       opened === null ||
       opened.inspection.projectDirectory !== input.projectDirectory ||
@@ -869,6 +891,7 @@ class ProjectWorkspaceSession {
     targetSceneId?: string;
   }): Promise<Awaited<ReturnType<OpenedProjectVNext["importAsset"]>>> {
     const opened = this.#opened;
+    if (this.#transferred || this.#handoffPending) throw new ProjectLifecycleError("PROJECT_IDENTITY_LOST", opened?.inspection.projectDirectory ?? "", this.#transferred ? "任务已转移到另一线程" : "线程连接结果待核对");
     if (
       opened === null ||
       opened.inspection.projectDirectory !== input.projectDirectory ||
@@ -896,6 +919,7 @@ class ProjectWorkspaceSession {
     assetId: string;
   }): Promise<Awaited<ReturnType<typeof readProjectAssetPreview>>> {
     const opened = this.#opened;
+    if (this.#transferred || this.#handoffPending) throw new ProjectLifecycleError("PROJECT_IDENTITY_LOST", opened?.inspection.projectDirectory ?? "", this.#transferred ? "任务已转移到另一线程" : "线程连接结果待核对");
     if (
       opened === null ||
       opened.inspection.projectDirectory !== input.projectDirectory ||
@@ -1018,6 +1042,7 @@ class ProjectWorkspaceSession {
 
   #requireOpened(projectDirectory: string, projectId: string): OpenedProjectVNext {
     const opened = this.#opened;
+    if (this.#transferred || this.#handoffPending) throw new ProjectLifecycleError("PROJECT_IDENTITY_LOST", opened?.inspection.projectDirectory ?? "", this.#transferred ? "任务已转移到另一线程" : "线程连接结果待核对");
     if (
       opened === null || opened.inspection.projectDirectory !== projectDirectory ||
       opened.inspection.manifest.projectId !== projectId

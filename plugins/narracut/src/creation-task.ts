@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { rename, rm, open } from 'node:fs/promises';
 import { z } from 'zod';
 import type { CodexHostAdapter, CodexHostEvent } from './codex-host';
+import { codexStopReason } from './codex-host';
 import type { OpenedProjectVNext } from '../../../src/server/project-lifecycle';
 import { directory, regular } from '../../../src/server/project-candidate';
 import { ProjectPreview } from '../../../src/server/project-preview';
@@ -23,6 +24,7 @@ const checkpointSchema = z.object({
   suggestions: z.array(pendingSuggestion).max(100).default([]),
   briefProposal: briefProposal.nullable().default(null),
   pendingMessage: pendingMessage.nullable().default(null),
+  toolApproval: z.object({ approvalId: z.string(), threadId: z.string(), turnId: z.string(), summary: z.string().max(4000) }).nullable().default(null),
 }).strict();
 export type CreationCheckpoint = z.infer<typeof checkpointSchema>;
 const reportText = z.string().min(1).max(4000);
@@ -44,9 +46,11 @@ type Driver = { token: string; turnId: string | null; signature: string };
 export class CreationTask {
   #state: CreationState | null = null;
   #driver: Driver | null = null;
-  #operation: 'stopping' | 'stop-uncertain' | 'reconciling' | null = null;
+  #operation: 'stopping' | 'stop-uncertain' | 'reconciling' | 'transfer-uncertain' | null = null;
   #interrupted: { threadId: string; turnId: string } | null = null;
   #replacementThread = false;
+  #transferred = false;
+  #connectionNotice: 'taken-over' | null = null;
   #recovery: { code: 'TASK_CHECKPOINT_INVALID'; candidateBaseline: string; candidatePath: string | null; previousTaskId: string | null } | null = null;
   get recovery() { return this.#recovery ? { ...this.#recovery } : null; }
   async #invalid() {
@@ -82,10 +86,10 @@ export class CreationTask {
       this.#pendingRun = this.#pendingRun.then(() => this.#event(event)).catch(error => this.#stop(error));
     });
   }
-  get ownsCandidate() { return this.#state?.status === 'running' && !this.#operation && !this.#recovery; }
+  get ownsCandidate() { return !this.#closed && !this.#transferred && this.#state?.status === 'running' && !this.#operation && !this.#recovery; }
   get blocksCandidateWrites() { return this.ownsCandidate || this.#operation !== null; }
   async status() {
-    if (!this.#operation && !this.#recovery && this.#state?.status === 'waiting' && this.#state.reason === 'CANDIDATE_READY') {
+    if (!this.#closed && !this.#operation && !this.#recovery && this.#state?.status === 'waiting' && this.#state.reason === 'CANDIDATE_READY') {
       const latest = await this.delivery.status(this.opened);
       if (!latest.delivery || latest.delivery.stale) {
         this.#state.reason = 'USER_DECISION_REQUIRED';
@@ -95,12 +99,18 @@ export class CreationTask {
     }
     return this.value;
   }
-  get value() { return this.#state ? { ...structuredClone(this.#state), briefChange: this.#briefChange, discussion: this.#discussion, operation: this.#operation, replacementThread: this.#replacementThread } : null; }
-  async load() {
+  get value() { return this.#state ? { ...structuredClone(this.#state), briefChange: this.#briefChange, discussion: this.#discussion, operation: this.#operation, replacementThread: this.#replacementThread, transferred: this.#transferred, connectionNotice: this.#connectionNotice } : null; }
+  async load(transferred = false) {
     try {
       const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 20_000_000)).toString()));
       if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error('任务项目身份不匹配');
       this.#state = { ...checkpoint, externalBaseline: null, status: checkpoint.status === 'terminated' ? 'terminated' : 'stopped', reason: checkpoint.status === 'terminated' ? checkpoint.reason : 'APP_RESTARTED', waitingReason: checkpoint.waitingReason ?? (checkpoint.status === 'waiting' ? checkpoint.reason : null), stage: 'read', divergence: '', preview: null, deliveryId: null };
+      if (transferred) { this.#state.status = checkpoint.status; this.#state.reason = checkpoint.reason; this.#connectionNotice = 'taken-over'; }
+      if (transferred && checkpoint.pendingMessage) {
+        this.#state.status = checkpoint.pendingMessage.previousStatus === 'stopped' ? 'stopped' : 'waiting';
+        this.#state.reason = this.#state.status === 'stopped' ? checkpoint.pendingMessage.previousReason : 'INSTRUCTION_CONFIRMATION_REQUIRED';
+        this.#state.pendingMessage!.reply = '线程已转移，消息识别未完成。原文仍保留，请返回修改或仅作讨论；尚未追加创作指令。';
+      }
       const candidate = await this.opened.candidate({ action: 'read' });
       if (checkpoint.status !== 'terminated' && checkpoint.candidateBaseline !== candidate.baseline) throw new Error('任务候选检查点不匹配');
       if (checkpoint.briefProposal?.status === 'saved') { const proposal = checkpoint.briefProposal; this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: this.opened.inspection.videoBriefRevision }; }
@@ -109,6 +119,34 @@ export class CreationTask {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT' && (await this.opened.candidate({ action: 'read' })).status === 'absent') return;
       await this.#invalid();
     }
+    if (transferred && this.#state && !this.#recovery && this.#state.status !== 'terminated') {
+      this.#operation = 'reconciling';
+      try {
+        await this.#bindThread(); this.#operation = null;
+        if (this.#state.status === 'running') this.#pendingRun = this.#run('任务由另一工作台接管。依据检查点、当前候选和最新项目内容重新开始。').catch(error => this.#stop(error));
+      } catch (error) {
+        this.#operation = null; this.#state.status = 'stopped'; this.#state.reason = codexStopReason(error); await this.#save();
+      }
+    }
+  }
+  /** 交接屏障先撤销写权，再等待正在落盘的批次与中断回执；失败不能释放项目租约。 */
+  async transfer() {
+    if (this.#busy) throw new Error('任务操作尚未完成，线程连接结果待核对');
+    if (this.#transferred) return;
+    this.#operation = 'reconciling';
+    const driver = this.#driver; this.#driver = null;
+    if (driver?.turnId && this.#state?.threadPointer) this.#interrupted = { threadId: this.#state.threadPointer, turnId: driver.turnId };
+    try {
+      if (this.#interrupted) { await this.host.interruptTurn(this.#interrupted); this.#interrupted = null; }
+      await this.#pendingRun;
+      if (this.#interrupted) { await this.host.interruptTurn(this.#interrupted); this.#interrupted = null; }
+      if (this.#state) {
+        this.#state.threadPointer = null;
+        await this.#save();
+      }
+      this.#transferred = true; this.#operation = null;
+      await this.close();
+    } catch (error) { this.#operation = 'transfer-uncertain'; throw error; }
   }
   #path() { return join(this.opened.inspection.projectDirectory, '.narracut', 'agent-task.json'); }
   async #save() {
@@ -131,6 +169,7 @@ export class CreationTask {
       } finally { await rm(temporary, { force: true }); }
   }
   async start(instruction: string, parentOrigin = 'null') {
+    if (this.#closed || this.#transferred) throw new Error('任务已转移到另一线程');
     if (this.#recovery) throw new Error('TASK_CHECKPOINT_INVALID：请明确用新任务接管候选。');
     if (this.#busy || this.#state && this.#state.status !== 'terminated') throw new Error('已有创作任务；追加要求与接管尚未接入，草稿已保留。');
     if (!instruction.trim() || instruction.length > 4000) throw new Error('请填写 1–4000 字的明确创作目标。');
@@ -141,7 +180,7 @@ export class CreationTask {
       if (candidate.status !== 'absent') throw new Error('已有候选；本次不会替换或接管，草稿已保留。');
       this.#state = { taskId: randomUUID(), projectId: this.opened.inspection.manifest.projectId, instruction,
         externalBaseline: null, status: 'running', reason: null, threadPointer: null, lastSafeStage: null, candidateBaseline: null,
-        inputIdentity: null, pending: null, waitingReason: null, suggestions: [], briefProposal: null, pendingMessage: null, stage: 'read', divergence: '', preview: null, deliveryId: null };
+        inputIdentity: null, pending: null, waitingReason: null, suggestions: [], briefProposal: null, pendingMessage: null, toolApproval: null, stage: 'read', divergence: '', preview: null, deliveryId: null };
       await this.#save();
       const created = await this.opened.candidate({ action: 'create' });
       this.#state.candidateBaseline = created.baseline;
@@ -155,6 +194,7 @@ export class CreationTask {
   }
   /** 接管只替换单一任务检查点；候选文件字节保持不变。 */
   async takeover(instruction: string, baseline: string, parentOrigin = 'null') {
+    if (this.#closed || this.#transferred) throw new Error('任务已转移到另一线程');
     if (this.#busy || this.#operation || this.ownsCandidate || !instruction?.trim() || instruction.length > 4000) throw new Error('请停止活动任务并填写 1–4000 字的新目标。');
     this.#busy = true;
     const previous = this.#state;
@@ -167,7 +207,7 @@ export class CreationTask {
         if (candidate.status !== 'saved') throw new Error(candidate.error?.message ?? '请先在候选区域处理完整性问题。');
         const checkpoint: CreationCheckpoint = { taskId: randomUUID(), projectId: this.opened.inspection.manifest.projectId, instruction,
           status: 'running', reason: null, threadPointer: null, lastSafeStage: null, candidateBaseline: candidate.baseline,
-          inputIdentity: null, pending: null, waitingReason: null, suggestions: [], briefProposal: null, pendingMessage: null };
+          inputIdentity: null, pending: null, waitingReason: null, suggestions: [], briefProposal: null, pendingMessage: null, toolApproval: null };
         await this.#writeCheckpoint(JSON.stringify(checkpoint), async () => {
           if ((await manager({ action: 'read' })).baseline !== candidate.baseline) throw new Error('候选再次变化，请核对候选对象后再次明确提交。');
         });
@@ -265,6 +305,7 @@ export class CreationTask {
     await this.#run('旧身份下的结果均已作废。请依据最新项目内容重新检查并创作。');
   }
   async continueExternal(baseline: string) {
+    if (this.#closed || this.#transferred) throw new Error('任务已转移到另一线程');
     if (this.#busy || this.#operation || this.#recovery || !this.#state || !['waiting', 'stopped'].includes(this.#state.status) || (this.#state.waitingReason ?? this.#state.reason) !== 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED') throw new Error('当前任务不在等待外部候选确认。');
     this.#busy = true;
     try {
@@ -274,17 +315,14 @@ export class CreationTask {
       if (baseline !== candidate.baseline) { this.#state.externalBaseline = candidate.baseline; this.#state.pending = `候选再次变化。${externalMessage}`; await this.#save(); return this.value; }
       const adopted = await this.opened.candidate({ action: 'adopt', baseline, confirmed: true });
       this.#state.candidateBaseline = adopted.baseline; this.#state.externalBaseline = null;
-      if (this.#state.status === 'stopped' && this.#state.threadPointer) {
-        try { this.#state.threadPointer = (await this.host.resumeThread({ threadId: this.#state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory })).threadId; }
-        catch { this.#state.threadPointer = null; this.#replacementThread = true; }
-      }
+      if (this.#state.status === 'stopped') await this.#bindThread();
       this.#state.waitingReason = null;
       this.#state.status = 'running'; this.#state.reason = null; this.#state.preview = null; this.#state.deliveryId = null; this.#state.stage = 'read';
       this.#state.pending = '正在基于外部候选重新检查并创作'; this.#noProgress = 0;
       await this.#save();
       this.#pendingRun = this.#run().catch(error => this.#stop(error));
       return this.value;
-    } catch (error) { if (this.#recovery) throw error; this.#state!.pending = `${externalMessage} ${(error as Error).message}`; await this.#save(); throw error; }
+    } catch (error) { if (this.#recovery) throw error; this.#state!.status = 'stopped'; this.#state!.reason = codexStopReason(error); this.#state!.pending = externalMessage; await this.#save(); throw error; }
     finally { this.#busy = false; }
   }
   async #interrupt() {
@@ -292,6 +330,7 @@ export class CreationTask {
     if (driver?.turnId && this.#state?.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId });
   }
   async respond(input: { action: string; id?: string; instruction?: string }) {
+    if (this.#closed || this.#transferred) throw new Error('任务已转移到另一线程');
     if (this.#busy || !this.#state || this.#state.status === 'terminated' || this.#operation && input.action !== 'stop' || this.#recovery) throw new Error('当前没有可操作任务或操作尚未完成');
     this.#busy = true;
     try {
@@ -299,7 +338,22 @@ export class CreationTask {
       await this.#pendingRun;
       const state = this.#state;
       if (state.status === 'stopped') await this.#validateCheckpoint();
-      if (input.action === 'message') {
+      if (input.action === 'approve-tool' || input.action === 'reject-tool') {
+        if (!state.toolApproval || state.toolApproval.approvalId !== input.id) throw new Error('工具审批已过期');
+        if (!this.#driver || state.toolApproval.threadId !== state.threadPointer) {
+          state.toolApproval = null; state.waitingReason = null;
+          state.pending = '原工具请求已失效；继续时会重新判断并按需申请批准。';
+          await this.#save();
+          if (state.status !== 'stopped') {
+            if (input.action === 'approve-tool') await this.#resume('原工具请求已失效，丢弃旧工具调用；重新判断并按需申请批准。');
+            else { state.status = 'stopped'; state.reason = 'CODEX_INTERRUPTED'; await this.#save(); }
+          }
+          return this.value;
+        }
+        if (!this.host.resolveApproval) throw new Error('当前宿主不支持工具审批回执');
+        await this.host.resolveApproval(input.id!, input.action === 'approve-tool');
+      } else if (input.action === 'message') {
+        if (state.toolApproval) throw new Error('请先处理工具审批；普通消息不能代替批准。');
         const original = input.instruction;
         if (!original?.trim() || original.length > 4000 || state.pendingMessage) throw new Error('请先处理拟保存的原文片段，或填写 1–4000 字消息');
         const resume = state.status === 'running';
@@ -367,16 +421,44 @@ export class CreationTask {
   async #resume(feedback = '') {
     const state = this.#state!;
     if (state.status === 'stopped') await this.#validateCheckpoint();
+    if ((state.waitingReason ?? state.reason) === 'SCENE_CHANGE_REQUIRED') {
+      const snapshot = await this.#snapshot();
+      state.suggestions = state.suggestions.map(item => evaluateSuggestion(item, snapshot.input));
+      if (state.suggestions.some(item => item.required && !item.satisfied && !item.missing)) {
+        state.status = 'waiting'; state.reason = 'SCENE_CHANGE_REQUIRED'; state.waitingReason = 'SCENE_CHANGE_REQUIRED';
+        state.pending = '必要 Scene 条件尚未满足。完成并保存所等待修改后，同一任务会继续。';
+        await this.#save(); return;
+      }
+    }
     this.#operation = 'reconciling';
-    if (state.status === 'stopped' && state.threadPointer) {
-      try { state.threadPointer = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory })).threadId; }
-      catch { state.threadPointer = null; this.#replacementThread = true; }
+    try { if (state.status === 'stopped') await this.#bindThread(); }
+    catch (error) {
+      this.#operation = null; state.status = 'stopped'; state.reason = codexStopReason(error);
+      state.pending = null; await this.#save(); return;
     }
     this.#operation = null;
     state.status = 'running'; state.reason = null; state.waitingReason = null; state.pending = null; state.stage = 'read';
     state.inputIdentity = null; state.preview = null; state.deliveryId = null; this.#noProgress = 0;
     await this.#save();
     this.#pendingRun = this.#run(feedback).catch(error => this.#stop(error));
+  }
+  async #bindThread() {
+    const state = this.#state!, projectDirectory = this.opened.inspection.projectDirectory;
+    let replacement = false;
+    let threadId: string;
+    if (state.threadPointer) {
+      try { threadId = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory })).threadId; }
+      catch (error) {
+        if (codexStopReason(error) !== 'CODEX_THREAD_UNAVAILABLE') throw error;
+        threadId = (await this.host.createThread({ projectDirectory, purpose: 'creation' })).threadId;
+        replacement = true;
+      }
+    } else threadId = (await this.host.createThread({ projectDirectory, purpose: 'creation' })).threadId;
+    if (this.#closed) throw new Error('当前驱动已失去写权。');
+    const previous = state.threadPointer;
+    state.threadPointer = threadId;
+    try { await this.#save(); } catch (error) { state.threadPointer = previous; throw error; }
+    this.#replacementThread = replacement;
   }
   async #classify(original: string) {
     this.#assert();
@@ -455,17 +537,39 @@ export class CreationTask {
     }
   }
   async #event(event: CodexHostEvent) {
-    if (!this.ownsCandidate || this.#closed) return;
-    if (event.type === 'host-unavailable') throw new Error('CODEX_UNAVAILABLE');
+    if (this.#closed) return;
+    if (event.type === 'approval-resolved') {
+      const state = this.#state, approval = state?.toolApproval;
+      if (!state || !approval || approval.approvalId !== event.approvalId || approval.threadId !== event.threadId || approval.turnId !== event.turnId) return;
+      state.toolApproval = null;
+      if (state.waitingReason === 'TOOL_APPROVAL_REQUIRED') state.waitingReason = null;
+      if (state.status === 'stopped' || this.#operation) { await this.#save(); return; }
+      if (state.status !== 'waiting' || state.reason !== 'TOOL_APPROVAL_REQUIRED') return;
+      if (!event.approved) throw new Error('CODEX_INTERRUPTED');
+      else { state.status = 'running'; state.reason = null; }
+      state.pending = null; await this.#save(); return;
+    }
+    if (event.type === 'host-unavailable' && this.#state && ['running', 'waiting'].includes(this.#state.status)) throw new Error('CODEX_UNAVAILABLE');
+    if (!this.#operation && this.#state?.status === 'waiting' && event.type !== 'host-unavailable' && event.threadId === this.#state.threadPointer && this.#driver && (!event.turnId || event.turnId === this.#driver.turnId)) {
+      if (event.type === 'thread-unavailable') throw new Error('CODEX_THREAD_UNAVAILABLE');
+      if (event.type === 'turn-completed') throw new Error(codexStopReason({ message: event.error }));
+    }
+    if (!this.ownsCandidate || this.#closed || event.type === 'host-unavailable') return;
     if (event.threadId !== this.#state!.threadPointer) return;
     const driver = this.#driver;
+    if (event.type === 'approval-required') {
+      if (!driver || driver.turnId !== event.turnId) return;
+      this.#state!.toolApproval = { approvalId: event.approvalId, threadId: event.threadId, turnId: event.turnId, summary: event.summary.slice(0, 4000) };
+      this.#state!.status = 'waiting'; this.#state!.reason = 'TOOL_APPROVAL_REQUIRED'; this.#state!.waitingReason = 'TOOL_APPROVAL_REQUIRED'; this.#state!.pending = event.summary.slice(0, 4000);
+      await this.#save(); return;
+    }
     if (event.type === 'thread-unavailable') {
       if (event.turnId && event.turnId !== driver?.turnId) return;
       throw new Error('CODEX_THREAD_UNAVAILABLE');
     }
     if (!driver || event.turnId !== driver.turnId) return;
+    if (event.status !== 'completed' || !event.output) throw new Error(codexStopReason({ message: event.error }));
     this.#driver = null;
-    if (event.status !== 'completed' || !event.output) throw new Error('CODEX_INTERRUPTED');
     if (this.#messageMode) {
       const mode = this.#messageMode;
       const answer = messageDecision.parse(JSON.parse(event.output));
@@ -613,14 +717,20 @@ export class CreationTask {
       try {
         const snapshot = await this.#snapshot();
         if (snapshot.baseline !== this.#state.candidateBaseline) error = Object.assign(new Error(externalMessage), { code: 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED' });
-        else if (snapshot.signature !== this.#state.inputIdentity) { await this.#catchUp(snapshot); return; }
+        else if (!['CODEX_USAGE_LIMIT', 'CODEX_AUTH_REQUIRED', 'CODEX_UNAVAILABLE', 'CODEX_INTERRUPTED', 'CODEX_THREAD_UNAVAILABLE', 'NO_PROGRESS'].some(code => (error as { code?: string }).code === code || (error as Error).message === code) && snapshot.signature !== this.#state.inputIdentity) { await this.#catchUp(snapshot); return; }
       } catch (next) { error = next; }
     }
     const driver = this.#driver; this.#driver = null;
-    if (driver?.turnId && this.#state.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId }).catch(() => undefined);
+    if (driver?.turnId && this.#state.threadPointer) {
+      this.#interrupted = { threadId: this.#state.threadPointer, turnId: driver.turnId };
+      try { await this.host.interruptTurn(this.#interrupted); this.#interrupted = null; }
+      catch { this.#operation = 'stop-uncertain'; }
+    }
+    this.#state.toolApproval = null;
+    if (this.#state.waitingReason === 'TOOL_APPROVAL_REQUIRED') this.#state.waitingReason = null;
     if ((error as { code?: string }).code === 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED') { this.preview.invalidate(); this.delivery.invalidate(); this.checks.invalidate(); this.#state.externalBaseline = (await this.opened.candidate({ action: 'read' })).baseline; this.#state.status = 'waiting'; this.#state.reason = 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED'; this.#state.pending = externalMessage; await this.#save().catch(() => undefined); return; }
-    this.#state.status = 'stopped'; this.#state.reason = ['CODEX_UNAVAILABLE','CODEX_INTERRUPTED','CODEX_THREAD_UNAVAILABLE','NO_PROGRESS'].includes((error as Error).message) ? (error as Error).message : 'CODEX_INTERRUPTED';
-    this.#state.pending = String((error as Error).message).slice(0, 4000);
+    this.#state.status = 'stopped'; this.#state.reason = codexStopReason(error);
+    this.#state.pending = null;
     await this.#save().catch(() => undefined);
   }
   async terminate(reason: 'CANDIDATE_ACCEPTED' | 'CANDIDATE_ABANDONED') {

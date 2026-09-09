@@ -6,14 +6,14 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createProjectVNext } from '../src/server/project-lifecycle';
 import { createNarracutRequestHandler } from '../plugins/narracut/src/server';
-import type { CodexHostAdapter, CodexHostEvent, StartCodexTurnInput } from '../plugins/narracut/src/codex-host';
+import { CodexThreadUnavailableError, type CodexHostAdapter, type CodexHostEvent, type StartCodexTurnInput } from '../plugins/narracut/src/codex-host';
 class Host implements CodexHostAdapter {
   listeners = new Set<(event: CodexHostEvent) => void>();
   turns: (StartCodexTurnInput & { turnId: string })[] = [];
   threads: unknown[] = [];
   subscribe(listener: (event: CodexHostEvent) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   async createThread(input: unknown) { this.threads.push(input); return { threadId: `thread-${this.threads.length}` }; }
-  async resumeThread(): Promise<{ threadId: string }> { throw new Error('不得自动恢复'); }
+  async resumeThread(): Promise<{ threadId: string }> { throw new CodexThreadUnavailableError('thread-1'); }
   async startTurn(input: StartCodexTurnInput) { const turnId = `turn-${this.turns.length}`; this.turns.push({ ...input, turnId }); return { turnId }; }
   async interruptTurn() {}
   async dispose() {}
@@ -58,7 +58,7 @@ test('MCP 原文创建单任务、唯一写权、专用线程；等待用户与�
     app.host.complete({ action: 'apply', changes: [{ path: 'resources/late.txt', content: '迟到' }] });
     expect((await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate.baseline).toBe(candidate.baseline);
     const checkpoint = JSON.parse(await readFile(join(app.projectDirectory, '.narracut/agent-task.json'), 'utf8'));
-    expect(Object.keys(checkpoint).sort()).toEqual(['candidateBaseline','inputIdentity','instruction','lastSafeStage','pending','suggestions','briefProposal','pendingMessage','projectId','reason','status','taskId','threadPointer','waitingReason'].sort());
+    expect(Object.keys(checkpoint).sort()).toEqual(['candidateBaseline','inputIdentity','instruction','lastSafeStage','pending','suggestions','briefProposal','pendingMessage','projectId','reason','status','taskId','threadPointer','waitingReason','toolApproval'].sort());
     expect(checkpoint.instruction).toBe(instruction);
     await app.handler.dispose();
     const reopened = createNarracutRequestHandler({ codexHost: app.host });
@@ -659,4 +659,173 @@ test('无法识别的失效任务在用户放弃候选后清除恢复入口，�
     expect((await call('get_creation_task')).structuredContent.creationRecovery).toBeNull();
     expect((await call('start_creation_task', { instruction: '新任务' })).isError).not.toBe(true);
   } finally { await reopened?.dispose(); await app.close(); }
+});
+
+test('恢复遇到额度错误保留原线程与检查点，不创建替代线程或后台重试', async () => {
+  const app = await setup();
+  try {
+    const task = (await app.call('start_creation_task', { instruction: '恢复时保留成果' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await app.call('respond_creation_task', { action: 'stop' });
+    vi.spyOn(app.host, 'resumeThread').mockRejectedValue(Object.assign(new Error('额度受限'), { code: 'CODEX_USAGE_LIMIT' }));
+    await app.call('respond_creation_task', { action: 'continue' });
+    expect((await app.call('get_creation_task')).structuredContent.creationTask).toMatchObject({ taskId: task.taskId, status: 'stopped', reason: 'CODEX_USAGE_LIMIT', threadPointer: 'thread-1', replacementThread: false });
+    expect(app.host.threads).toHaveLength(1);
+    expect(app.host.turns).toHaveLength(1);
+  } finally { await app.close(); }
+});
+
+test.each(['CODEX_USAGE_LIMIT', 'CODEX_AUTH_REQUIRED', 'CODEX_UNAVAILABLE', 'CODEX_INTERRUPTED'])('宿主以 %s 停止时即使项目输入变化也不后台重试', async reason => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '处理外部停止' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await writeFile(join(app.projectDirectory, 'video.md'), '# 最新目标');
+    const turn = app.host.turns[0]!;
+    for (const listener of app.host.listeners) listener({ type: 'turn-completed', threadId: turn.threadId, turnId: turn.turnId, status: 'failed', error: reason });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe(reason);
+    expect(app.host.turns).toHaveLength(1);
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('stopped');
+  } finally { await app.close(); }
+});
+
+test('另一工作台打开项目自动接管同一任务，旧端与迟到回调失去写权', async () => {
+  const app = await setup();
+  const host = new Host(), other = createNarracutRequestHandler({ codexHost: host });
+  const call = async (name: string, args = {}) => await other({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: { projectDirectory: app.projectDirectory, projectId: app.projectId, ...args } } }) as any;
+  try {
+    const task = (await app.call('start_creation_task', { instruction: '跨线程继续同一目标' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    const interrupted = vi.spyOn(app.host, 'interruptTurn');
+    const opened = await call('open_project');
+    expect(opened.isError).not.toBe(true);
+    await expect.poll(() => host.turns.length).toBe(1);
+    expect((await call('get_creation_task')).structuredContent.creationTask).toMatchObject({ taskId: task.taskId, status: 'running', transferred: false, connectionNotice: 'taken-over' });
+    expect(interrupted).toHaveBeenCalledOnce();
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.transferred).toBe(true);
+    expect((await app.call('respond_creation_task', { action: 'stop' })).isError).toBe(true);
+    app.host.complete({ action: 'apply', changes: [{ path: 'resources/late.txt', content: '迟到写入' }] });
+    host.complete({ action: 'wait' });
+    await expect.poll(async () => (await call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    const candidate = (await call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    await expect(readFile(join(app.projectDirectory, candidate.candidate.path, 'resources/late.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally { await other.dispose(); await app.close(); }
+});
+
+test('工具审批暂停 Agent，只有匹配批准恢复；主动停止后的批准不隐式运行', async () => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '等待具体工具批准' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    const turn = app.host.turns[0]!;
+    const emit = (event: any) => { for (const listener of app.host.listeners) listener(event); };
+    emit({ type: 'approval-required', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'approval-1', summary: '读取当前候选源码' });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('TOOL_APPROVAL_REQUIRED');
+    expect((await app.call('respond_creation_task', { action: 'continue' })).isError).toBe(true);
+    emit({ type: 'approval-resolved', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'wrong', approved: true });
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    emit({ type: 'approval-resolved', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'approval-1', approved: true });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('running');
+    expect(app.host.turns).toHaveLength(1);
+    emit({ type: 'approval-required', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'approval-2', summary: '再次读取候选' });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    await app.call('respond_creation_task', { action: 'stop' });
+    emit({ type: 'approval-resolved', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'approval-2', approved: true });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.waitingReason).toBe(null);
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('stopped');
+    expect(app.host.turns).toHaveLength(1);
+  } finally { await app.close(); }
+});
+
+test.each(['stopped', 'waiting'])('跨工作台接管保持 %s，不启动 Agent 或绕过待办', async status => {
+  const app = await setup();
+  const host = new Host(), other = createNarracutRequestHandler({ codexHost: host });
+  try {
+    await app.call('start_creation_task', { instruction: '保留等待与停止条件' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    if (status === 'stopped') await app.call('respond_creation_task', { action: 'stop' });
+    else { app.host.complete({ action: 'wait' }); await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting'); }
+    const result = await other({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'open_project', arguments: { projectDirectory: app.projectDirectory } } }) as any;
+    expect(result.structuredContent.creationTask).toMatchObject({ status, reason: status === 'stopped' ? 'USER_STOPPED' : 'USER_DECISION_REQUIRED', connectionNotice: 'taken-over' });
+    expect(host.turns).toHaveLength(0);
+  } finally { await other.dispose(); await app.close(); }
+});
+
+test('交接中断回执不明不释放旧租约，重试交接后仅有一个新驱动', async () => {
+  const app = await setup();
+  const host = new Host(), other = createNarracutRequestHandler({ codexHost: host });
+  const open = () => other({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'open_project', arguments: { projectDirectory: app.projectDirectory } } }) as Promise<any>;
+  try {
+    await app.call('start_creation_task', { instruction: '等待交接核对' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    vi.spyOn(app.host, 'interruptTurn').mockRejectedValueOnce(new Error('中断回执丢失'));
+    const failed = await open();
+    expect(failed.isError).toBe(true); expect(failed.structuredContent.error.message).toContain('线程连接结果待核对');
+    expect(host.threads).toHaveLength(0);
+    app.host.complete({ action: 'apply', changes: [{ path: 'resources/revoked.txt', content: '不应提交' }] });
+    expect((await open()).isError).not.toBe(true);
+    await expect.poll(() => host.turns.length).toBe(1);
+    expect((await app.call('get_creation_task')).structuredContent.creationTask.transferred).toBe(true);
+  } finally { await other.dispose(); await app.close(); }
+});
+
+test('连续三轮没有持久成果按固定 NO_PROGRESS 停止，明确继续后重新尝试', async () => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '产生持久成果' });
+    for (let index = 0; index < 3; index++) {
+      await expect.poll(() => app.host.turns.length).toBe(index + 1);
+      app.host.complete({ action: 'apply', changes: [] });
+    }
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('NO_PROGRESS');
+    expect(app.host.turns).toHaveLength(3);
+    vi.spyOn(app.host, 'resumeThread').mockResolvedValue({ threadId: 'thread-1' });
+    await app.call('respond_creation_task', { action: 'continue' });
+    await expect.poll(() => app.host.turns.length).toBe(4);
+  } finally { await app.close(); }
+});
+
+test('必需 Scene 条件未满足时明确继续仍等待，不借恢复或改绑启动 Agent', async () => {
+  const app = await setup(1);
+  try {
+    await app.call('start_creation_task', { instruction: '等待必要旁白修改' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    app.host.complete({ action: 'wait', suggestions: [{ sceneId: '30000000-0000-4000-8000-000000000001', action: '修改旁白', observation: '缺少结尾', content: '请补充结尾', reason: '需要结尾', required: true, condition: { field: 'narration', minLength: 1, maxLength: 4000, anyOf: ['感谢观看'], description: '旁白包含感谢观看' } }] });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('SCENE_CHANGE_REQUIRED');
+    await app.call('respond_creation_task', { action: 'stop' });
+    await app.call('respond_creation_task', { action: 'continue' });
+    expect((await app.call('get_creation_task')).structuredContent.creationTask).toMatchObject({ status: 'waiting', reason: 'SCENE_CHANGE_REQUIRED' });
+    expect(app.host.turns).toHaveLength(1);
+  } finally { await app.close(); }
+});
+
+test.each(['declined', 'failed', 'thread-lost'])('审批期间 %s 中断原驱动并清理失效等待', async eventKind => {
+  const app = await setup();
+  try {
+    await app.call('start_creation_task', { instruction: '审批失败保留成果' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    const turn = app.host.turns[0]!, interrupt = vi.spyOn(app.host, 'interruptTurn');
+    const emit = (event: any) => { for (const listener of app.host.listeners) listener(event); };
+    emit({ type: 'approval-required', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'approval', summary: '读取候选' });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    const event = eventKind === 'declined' ? { type: 'approval-resolved', approvalId: 'approval', approved: false } : eventKind === 'failed' ? { type: 'turn-completed', status: 'failed', error: 'CODEX_USAGE_LIMIT' } : { type: 'thread-unavailable' };
+    emit({ ...event, threadId: turn.threadId, turnId: turn.turnId });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('stopped');
+    expect((await app.call('get_creation_task')).structuredContent.creationTask).toMatchObject({ reason: eventKind === 'failed' ? 'CODEX_USAGE_LIMIT' : eventKind === 'thread-lost' ? 'CODEX_THREAD_UNAVAILABLE' : 'CODEX_INTERRUPTED', toolApproval: null, waitingReason: null });
+    expect(interrupt).toHaveBeenCalledWith({ threadId: turn.threadId, turnId: turn.turnId });
+  } finally { await app.close(); }
+});
+
+test('停止任务的消息分类遇到跨工作台接管时保留停止与原文，不启动创作', async () => {
+  const app = await setup(), host = new Host(), other = createNarracutRequestHandler({ codexHost: host });
+  try {
+    await app.call('start_creation_task', { instruction: '保留原目标' });
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await app.call('respond_creation_task', { action: 'stop' });
+    await app.call('respond_creation_task', { action: 'message', instruction: '现在进展如何？' });
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    const result = await other({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'open_project', arguments: { projectDirectory: app.projectDirectory } } }) as any;
+    expect(result.structuredContent.creationTask).toMatchObject({ status: 'stopped', reason: 'USER_STOPPED', pendingMessage: { original: '现在进展如何？' } });
+    expect(host.turns).toHaveLength(0);
+  } finally { await other.dispose(); await app.close(); }
 });

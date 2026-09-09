@@ -1716,3 +1716,43 @@ for (const width of [1440, 390]) test(`检查点失效内联接管保留目标�
   expect(submits[1].baseline).toBe('second'); expect(submits[1].instruction).toBe('  新目标\n保留完整中文  ');
   await expect(page.locator('#composer-draft')).toHaveValue('另一份 Composer 草稿');
 });
+
+for (const width of [1440, 390]) test(`外部停止指引与线程转移保留中文草稿和工作区 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await loadWorkbench(page);
+  let task: any = { taskId: 'task-86', status: 'stopped', reason: 'CODEX_USAGE_LIMIT', instruction: '调整开场节奏，保留旁白与已有素材', stage: 'read', lastSafeStage: 'modify', candidateBaseline: 'safe', threadPointer: 'thread-original', pending: null };
+  await installAppToolBridge(page, () => ({ structuredContent: { creationTask: task } }));
+  await sendResult(page, { ...validResult(), creationTask: task });
+  const draft = page.locator('#composer-draft');
+  await draft.fill('尚未发送的中文草稿');
+  for (const [reason, label, guidance] of [
+    ['CODEX_USAGE_LIMIT', 'Codex 额度受限', '额度恢复后点击“继续任务”'],
+    ['CODEX_AUTH_REQUIRED', 'Codex 需要认证', '完成 Codex 认证后点击“继续任务”'],
+    ['CODEX_UNAVAILABLE', 'Codex 服务不可用', '服务恢复后点击“继续任务”'],
+    ['CODEX_THREAD_UNAVAILABLE', '原线程不可用', '点击“继续任务”，自动尝试替代线程'],
+    ['CODEX_INTERRUPTED', 'Codex 已中断', '点击“继续任务”'],
+    ['NO_PROGRESS', '连续多轮没有新的持久成果', '查看当前指令与已有成果'],
+  ]) {
+    task = { ...task, reason }; await sendResult(page, { creationTask: task });
+    await expect(page.locator('[data-task-notice]')).toContainText(label);
+    await page.locator('[data-workspace="agent"]').click();
+    await expect(page.locator('.creation-state')).toContainText(label);
+    await expect(page.locator('[data-agent-content]')).toContainText(guidance);
+    await expect(page.getByRole('button', { name: '继续任务', exact: true })).toBeEnabled();
+    await page.locator('[data-workspace="table"]').click();
+  }
+  await page.locator('[data-workspace="agent"]').click();
+  await page.locator('[data-agent-content]').screenshot({ path: `/tmp/issue86-stopped-${width}.png` });
+  await draft.focus();
+  await draft.dispatchEvent('compositionstart');
+  task = { ...task, status: 'running', reason: null, transferred: true }; await sendResult(page, { creationTask: task });
+  await draft.dispatchEvent('compositionend');
+  await expect(draft).toBeFocused(); await expect(draft).toHaveValue('尚未发送的中文草稿');
+  await expect(page.locator('[data-agent-content]')).toContainText('任务已转移到另一线程');
+  await expect(page.locator('.composer-send')).toBeDisabled();
+  expect(await page.locator('[data-agent-content] [data-task-action]:enabled').count()).toBe(0);
+  await page.locator('[data-agent-content]').screenshot({ path: `/tmp/issue86-transferred-${width}.png` });
+  await page.locator('[data-workspace="table"]').click();
+  await expect(page.locator('[data-task-notice]')).toContainText('任务已转移到另一线程');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

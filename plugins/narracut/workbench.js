@@ -550,8 +550,9 @@
   }
   function taskInteractions(task) {
     if (!task || task.status === 'terminated' || state.creationRecovery) return '';
+    if (task.transferred) return '<div class="creation-details"><p>任务已转移到另一线程。请在新工作台继续操作；本地草稿仍保留。</p><button class="agent-action" disabled>任务由另一线程控制</button></div>';
     const proposal = task.briefProposal, message = task.pendingMessage;
-    return `${suggestionMarkup(task.suggestions ?? [], true)}${proposal && ['review','stale','rejected'].includes(proposal.status) ? `<section class="creation-details"><h3>Brief 提案</h3><p>${escapeHtml(proposal.purpose)}</p>${proposal.status === 'rejected' ? '<p>已拒绝提案，原 Brief 保留。</p><button class="agent-action" data-task-action="continue">按当前创作指令继续</button>' : `<button class="agent-action" data-review-proposal>审核 Brief 提案</button>${proposal.status === 'stale' ? '<p>Brief 已变化，需要重新生成提案。</p><button class="agent-action" data-task-action="regenerate-brief">重新生成提案</button>' : ''}`}</section>` : ''}${message ? `<section class="creation-details"><h3>确认保存的创作意图</h3><p>${escapeHtml(message.reply)}</p>${message.fragments.map(fragment => `<blockquote class="creation-instruction">${escapeHtml(fragment)}</blockquote>`).join('')}<div class="todo-actions"><button class="agent-action" data-task-action="confirm-message" ${!message.fragments.length ? 'disabled' : ''}>确认追加</button><button class="agent-action" data-task-action="discuss-message">仅作讨论</button><button class="agent-action" data-task-action="edit-message">返回修改</button></div></section>` : ''}${task.discussion ? `<p class="creation-details creation-instruction">${escapeHtml(task.discussion)}</p>` : ''}${taskControls(task)}`;
+    return `${task.toolApproval ? `<section class="creation-details"><h3>等待工具批准</h3><p>${escapeHtml(task.toolApproval.summary)}</p><div class="todo-actions"><button class="agent-action" data-task-action="approve-tool">批准此工具操作</button><button class="agent-action" data-task-action="reject-tool">拒绝此工具操作</button></div></section>` : ''}${suggestionMarkup(task.suggestions ?? [], true)}${proposal && ['review','stale','rejected'].includes(proposal.status) ? `<section class="creation-details"><h3>Brief 提案</h3><p>${escapeHtml(proposal.purpose)}</p>${proposal.status === 'rejected' ? '<p>已拒绝提案，原 Brief 保留。</p><button class="agent-action" data-task-action="continue">按当前创作指令继续</button>' : `<button class="agent-action" data-review-proposal>审核 Brief 提案</button>${proposal.status === 'stale' ? '<p>Brief 已变化，需要重新生成提案。</p><button class="agent-action" data-task-action="regenerate-brief">重新生成提案</button>' : ''}`}</section>` : ''}${message ? `<section class="creation-details"><h3>确认保存的创作意图</h3><p>${escapeHtml(message.reply)}</p>${message.fragments.map(fragment => `<blockquote class="creation-instruction">${escapeHtml(fragment)}</blockquote>`).join('')}<div class="todo-actions"><button class="agent-action" data-task-action="confirm-message" ${!message.fragments.length ? 'disabled' : ''}>确认追加</button><button class="agent-action" data-task-action="discuss-message">仅作讨论</button><button class="agent-action" data-task-action="edit-message">返回修改</button></div></section>` : ''}${task.discussion ? `<p class="creation-details creation-instruction">${escapeHtml(task.discussion)}</p>` : ''}${taskControls(task)}`;
   }
   function locateSuggestion(id, field = 'narration') {
     if (!state.project?.scenes.some(scene => scene.id === id)) { announce('目标 Scene 已删除，未定位其他 Scene。'); return; }
@@ -568,7 +569,7 @@
     return `--- 原 Brief\n+++ 提案结果\n@@ -1,${before.length} +1,${after.length} @@\n${before.map(line => '-'+line).join('\n')}\n${after.map(line => '+'+line).join('\n')}`;
   }
   async function respondTask(action) {
-    if (taskActionBusy) return;
+    if (taskActionBusy || state.creationTask?.transferred) return;
     const task = state.creationTask, project = state.result.project;
     const original = task?.pendingMessage?.original;
     if (action === 'edit-message' && state.composerDraft && state.composerDraft !== original) { announce('Composer 已有新草稿，请先保留或清空后再返回修改。'); return; }
@@ -578,7 +579,7 @@
     updateTaskRegion();
     document.querySelectorAll('[data-task-action]').forEach(button => { button.disabled = true; });
     try {
-      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action, id: action.includes('message') ? task.pendingMessage?.id : task.briefProposal?.id });
+      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action, id: action.endsWith('-tool') ? task.toolApproval?.approvalId : action.includes('message') ? task.pendingMessage?.id : task.briefProposal?.id });
       if (state.result.project !== project) return;
       if (response.isError || !response.structuredContent?.creationTask) throw new Error(response.structuredContent?.error?.message ?? '任务操作回执不完整，请重新核对');
       if (action === 'edit-message') { state.composerDraft = original; state.composerRevision++; document.getElementById('composer-draft').value = original; }
@@ -589,12 +590,13 @@
       if (proposalView) proposalView = state.creationTask.briefProposal;
       if (!['stop','continue'].includes(action)) render();
       if (action === 'edit-message') document.getElementById('composer-draft')?.focus();
-    } catch (error) { state.taskOperation = action === 'stop' ? 'stop-uncertain' : null; state.agentError = error.message; updateTaskRegion(); announce(error.message); schedulePoll(); }
+    } catch (error) { state.taskOperation = action === 'stop' ? 'stop-uncertain' : action === 'continue' ? 'connection-uncertain' : null; state.agentError = error.message; updateTaskRegion(); announce(error.message); schedulePoll(); }
     finally { taskActionBusy = false; updateTaskRegion(); bindings.abort(); bindings = new AbortController(); bind(); }
   }
   function taskControls(task) {
     if (!task || task.status === 'terminated' || state.creationRecovery) return '';
     const operation = state.taskOperation ?? task.operation;
+    if (operation === 'connection-uncertain' || operation === 'transfer-uncertain') return '<p class="creation-details" role="status" tabindex="-1" id="task-operation-status">线程连接结果待核对</p>';
     if (operation === 'stopping' || operation === 'reconciling') return `<p class="creation-details" role="status" tabindex="-1" id="task-operation-status">${operation === 'stopping' ? '正在停止…' : '正在核对恢复条件…'}</p>`;
     if (operation === 'stop-uncertain') return '<div class="creation-details"><p role="status">停止结果待核对</p><button class="agent-action" data-task-action="stop">重新核对停止结果</button></div>';
     const stop = ['running', 'waiting'].includes(task.status) ? '<button class="agent-action" data-task-action="stop">停止任务</button>' : '';
@@ -643,17 +645,28 @@
     } finally { state.takeoverBusy = false; updateRecoveryRegion(); }
   }
   const creationStages = { read: "读取项目", modify: "修改候选", check: "运行检查", preview: "构建 Preview", frames: "检查代表帧", deliver: "准备交付" };
+  const creationStopCopy = {
+    USER_STOPPED: ['你已停止任务', '点击“继续任务”，从检查点与最新项目内容重新开始。'],
+    APP_RESTARTED: ['应用已重启', '点击“继续任务”，重新核对检查点与最新项目内容。'],
+    CODEX_USAGE_LIMIT: ['Codex 额度受限', '额度恢复后点击“继续任务”。'],
+    CODEX_AUTH_REQUIRED: ['Codex 需要认证', '完成 Codex 认证后点击“继续任务”。'],
+    CODEX_UNAVAILABLE: ['Codex 服务不可用', '服务恢复后点击“继续任务”。'],
+    CODEX_THREAD_UNAVAILABLE: ['原线程不可用', '点击“继续任务”，自动尝试替代线程。'],
+    CODEX_INTERRUPTED: ['Codex 已中断', '点击“继续任务”。'],
+    NO_PROGRESS: ['连续多轮没有新的持久成果', '查看当前指令与已有成果，明确继续后重新尝试。'],
+  };
   function agent(result) {
     const task = state.creationTask;
     const briefPending = result.currentRenderProgram?.briefReviewPending;
-    const label = state.taskOperation === "stopping" || task?.operation === "stopping" ? "正在停止…" : state.taskOperation === "stop-uncertain" || task?.operation === "stop-uncertain" ? "停止结果待核对" : state.taskOperation === "reconciling" || task?.operation === "reconciling" ? "正在核对恢复条件…" : state.creationRecovery ? "原任务无法恢复" : state.agentBusy ? "正在创建创作任务" : !task ? "尚无任务" : { running: "运行中", waiting: "等待用户", stopped: "已停止", terminated: "已终结" }[task.status];
-    const reason = { USER_STOPPED: "你已停止任务", CODEX_INTERRUPTED: "Codex 已中断", CODEX_THREAD_UNAVAILABLE: "原线程不可用", CODEX_UNAVAILABLE: "Codex 暂不可用", NO_PROGRESS: "连续多轮没有新的持久成果", EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED: "候选已被外部修改", CANDIDATE_READY: "候选已就绪", CANDIDATE_ACCEPTED: "候选已接受", CANDIDATE_ABANDONED: "候选已放弃", TASK_SUPERSEDED: "已被新目标取代", APP_RESTARTED: "应用已重启" }[task?.reason];
+    const label = task?.transferred ? "任务已转移到另一线程" : [state.taskOperation, task?.operation].some(value => ["connection-uncertain", "transfer-uncertain"].includes(value)) ? "线程连接结果待核对" : state.taskOperation === "stopping" || task?.operation === "stopping" ? "正在停止…" : state.taskOperation === "stop-uncertain" || task?.operation === "stop-uncertain" ? "停止结果待核对" : state.taskOperation === "reconciling" || task?.operation === "reconciling" ? "正在核对恢复条件…" : state.creationRecovery ? "原任务无法恢复" : state.agentBusy ? "正在创建创作任务" : !task ? "尚无任务" : { running: "运行中", waiting: "等待用户", stopped: "已停止", terminated: "已终结" }[task.status];
+    const reason = task?.transferred ? null : creationStopCopy[task?.reason]?.[0] ?? { USER_STOPPED: "你已停止任务", CODEX_INTERRUPTED: "Codex 已中断", CODEX_THREAD_UNAVAILABLE: "原线程不可用", CODEX_UNAVAILABLE: "Codex 暂不可用", NO_PROGRESS: "连续多轮没有新的持久成果", EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED: "候选已被外部修改", CANDIDATE_READY: "候选已就绪", CANDIDATE_ACCEPTED: "候选已接受", CANDIDATE_ABANDONED: "候选已放弃", TASK_SUPERSEDED: "已被新目标取代", APP_RESTARTED: "应用已重启" }[task?.reason];
     return `<main class="stage"><section class="agent-panel creation-panel" aria-labelledby="creation-task-title">
       <header class="agent-head"><div><h1 id="creation-task-title" tabindex="-1">当前创作指令</h1>${task ? `<p class="creation-instruction">${escapeHtml(task.instruction.slice(0, 200))}${task.instruction.length > 200 ? "…" : ""}</p>${task.instruction.length > 200 ? `<details><summary>展开完整原文</summary><p class="creation-instruction">${escapeHtml(task.instruction)}</p></details>` : ""}` : '<p>在下方 Composer 描述这次希望如何调整成片表现。</p>'}</div></header>
-      <div class="creation-state"><span class="status-mark" data-status="${task?.status === "running" && !state.taskOperation && !task.operation ? "running" : task ? "stopped" : "idle"}" aria-hidden="true"></span><h2>${label}${task?.status === "running" && task.pending ? " · 正在跟进最新项目内容" : ""}${reason ? ` · ${reason}` : ""}</h2>${task?.status === "running" ? `<p>${creationStages[task.stage] ?? "读取项目"}</p>` : ""}</div>
+      <div class="creation-state"><span class="status-mark" data-status="${task?.status === "running" && !task.transferred && !state.taskOperation && !task.operation ? "running" : task ? "stopped" : "idle"}" aria-hidden="true"></span><h2>${label}${task?.status === "running" && task.pending ? " · 正在跟进最新项目内容" : ""}${reason ? ` · ${reason}` : ""}</h2>${task?.status === "running" && !task.transferred ? `<p>${creationStages[task.stage] ?? "读取项目"}</p>` : ""}</div>
+      ${task?.status === "stopped" && !task.transferred && creationStopCopy[task.reason] ? `<p class="creation-details">${creationStopCopy[task.reason][1]} 候选与有效检查点已保留，不会后台重试。</p>` : ""}
       ${state.agentError ? `<p class="agent-diagnostic" role="alert">${escapeHtml(state.agentError)} · 草稿已保留，可重试。</p>` : ""}
-      ${task ? `<section class="creation-details creation-saved"><h3>已保存成果</h3><p>${task.lastSafeStage ? `已保存至：${{read:'项目读取',modify:'候选修改',check:'候选检查',preview:'候选 Preview',frames:'代表帧检查',deliver:'候选交付'}[task.lastSafeStage]}` : '尚无已完成的安全阶段'}</p>${task.status === 'stopped' ? '<p>未完成的修改、工具调用和中间判断不会恢复，必要时会重新执行。检查与 Preview 证据需要重新核对；应用不会自动继续。</p>' : ''}${task.replacementThread ? '<p>原线程不可用，已连接替代线程；仍是同一任务。</p>' : ''}</section>` : ''}
-      ${task?.pending ? `<div class="agent-diagnostic"><h3>待处理事项</h3><p>${escapeHtml(task.pending)}</p>${(task.waitingReason ?? task.reason) === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" ? `<button class="agent-action" data-continue-external ${state.externalBusy ? "disabled" : ""}>${state.externalBusy ? "正在核对候选" : "基于外部候选继续"}</button>` : ""}${task.reason === "SCENE_CHANGE_REQUIRED" ? '<button class="agent-action" data-scene-suggestion>前往表格工作区修改 Scene</button>' : ""}</div>` : ""}
+      ${task ? `<section class="creation-details creation-saved"><h3>已保存成果</h3><p>${task.lastSafeStage ? `已保存至：${{read:'项目读取',modify:'候选修改',check:'候选检查',preview:'候选 Preview',frames:'代表帧检查',deliver:'候选交付'}[task.lastSafeStage]}` : '尚无已完成的安全阶段'}</p>${task.status === 'stopped' ? '<p>未完成的修改、工具调用和中间判断不会恢复，必要时会重新执行。检查与 Preview 证据需要重新核对；应用不会自动继续。</p>' : ''}${task.connectionNotice === 'taken-over' ? '<p>任务已由此工作台接管；仍是同一任务，原有停止与等待条件继续有效。</p>' : ''}${task.replacementThread && !task.transferred ? '<p>原线程不可用，已连接替代线程；仍是同一任务。</p>' : ''}</section>` : ''}
+      ${task?.pending && !task.transferred ? `<div class="agent-diagnostic"><h3>待处理事项</h3><p>${escapeHtml(task.pending)}</p>${(task.waitingReason ?? task.reason) === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" ? `<button class="agent-action" data-continue-external ${state.externalBusy ? "disabled" : ""}>${state.externalBusy ? "正在核对候选" : "基于外部候选继续"}</button>` : ""}${task.reason === "SCENE_CHANGE_REQUIRED" ? '<button class="agent-action" data-scene-suggestion>前往表格工作区修改 Scene</button>' : ""}</div>` : ""}
       ${taskInteractions(task)}
       ${briefPending !== false ? `<div class="agent-diagnostic" data-brief-review="${briefPending === true}"><strong>${briefPending ? "Brief 待复核" : "Brief 关系未检查"}</strong><p>${briefPending ? "当前 Render Program 与既有 Preview 保持不变" : "打开可写项目后校验当前 Render Program 的 Brief 指纹"}</p></div>` : ""}
       ${task?.divergence ? `<div class="agent-diagnostic"><h3>与 Video Brief 的分歧</h3><div class="brief-divergence"><section><h4>Video Brief</h4><p class="creation-instruction">${escapeHtml(state.brief.base)}</p></section><section><h4>本次用户要求</h4><p class="creation-instruction">${escapeHtml(task.instruction)}</p></section></div><p>${escapeHtml(task.divergence)}</p><p>本次成片表现遵循上方用户原文；Scene、Speech、时间与安全硬约束保持有效。</p></div>` : ""}
@@ -664,7 +677,7 @@
 
   function taskNotice() {
     const task = state.creationTask;
-    return task ? `<span>${state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${{USER_STOPPED:'你已停止任务',APP_RESTARTED:'应用已重启',CODEX_INTERRUPTED:'Codex 已中断'}[task.reason] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${["running","waiting"].includes(task.status) && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || task.operation === "stopping" ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
+    return task ? `<span>${task.transferred ? '任务已转移到另一线程' : state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${creationStopCopy[task.reason]?.[0] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${["running","waiting"].includes(task.status) && !task.transferred && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || task.operation === "stopping" ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
   }
   function updateTaskRegion() {
     updateRecoveryRegion();
@@ -691,8 +704,8 @@
   function updateComposer() {
     const button = document.querySelector('.composer-send');
     const reason = document.getElementById('composer-draft-reason');
-    if (reason) { reason.textContent = state.agentError ? `${state.agentError} · 草稿已保留。` : state.creationTask && state.creationTask.status !== 'terminated' ? '发送到同一任务；仅明确创作要求会保存为当前创作指令' : '输入明确目标后开始创作；草稿仅保留在本次会话'; reason.setAttribute('role', 'status'); }
-    if (button) { button.disabled = !!state.creationRecovery || !!state.taskOperation || !!state.creationTask?.operation || state.agentBusy || !state.composerDraft.trim() || !state.result?.writable; button.textContent = state.agentBusy ? state.creationTask && state.creationTask.status !== 'terminated' ? '正在发送' : '正在创建创作任务' : state.creationTask && state.creationTask.status !== 'terminated' ? '发送' : '开始创作'; }
+    if (reason) { reason.textContent = state.creationTask?.transferred ? "任务已转移到另一线程；本地草稿仍保留" : state.agentError ? `${state.agentError} · 草稿已保留。` : state.creationTask && state.creationTask.status !== 'terminated' ? '发送到同一任务；仅明确创作要求会保存为当前创作指令' : '输入明确目标后开始创作；草稿仅保留在本次会话'; reason.setAttribute('role', 'status'); }
+    if (button) { button.disabled = !!state.creationTask?.transferred || !!state.creationTask?.toolApproval || !!state.creationRecovery || !!state.taskOperation || !!state.creationTask?.operation || state.agentBusy || !state.composerDraft.trim() || !state.result?.writable; button.textContent = state.agentBusy ? state.creationTask && state.creationTask.status !== 'terminated' ? '正在发送' : '正在创建创作任务' : state.creationTask && state.creationTask.status !== 'terminated' ? '发送' : '开始创作'; }
   }
 
   function formatBytes(bytes) {
@@ -2457,7 +2470,7 @@
         if (response?.isError) throw new Error(response.structuredContent?.error?.message ?? '无法读取任务');
         if (response.structuredContent?.candidate) { state.candidate = response.structuredContent.candidate; updateCandidate(); }
         state.creationRecovery = response.structuredContent?.creationRecovery ?? null;
-        if (response.structuredContent?.creationTask?.status === 'stopped' && !response.structuredContent.creationTask.operation) state.taskOperation = null;
+        if (response.structuredContent?.creationTask && !response.structuredContent.creationTask.operation) state.taskOperation = null;
         applyCreation(response.structuredContent?.creationTask);
       } catch (error) { if (state.result?.project !== project) return; state.agentError = error.message; updateTaskRegion(); updateComposer(); schedulePoll(2000); }
     }, state.creationTask?.status === 'running' ? delay : Math.max(delay, 2000));
