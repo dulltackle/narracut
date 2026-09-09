@@ -191,3 +191,32 @@ test('代表帧采集不抢占当前版本；显式证据定位切换准确实�
   await expect(page.locator('[data-play]')).toHaveText('播放');
   expect(await page.locator('.scene-select[aria-pressed="true"]').getAttribute('aria-label')).toBe(selected);
 });
+
+test('Composer 创建回执与任务刷新只提供候选切换入口，保留当前 Preview 实例和帧', async ({ page }) => {
+  await page.goto(origin);
+  const task = { taskId: 'task-preview-82', status: 'waiting', reason: 'CANDIDATE_READY', instruction: '调整成片表现', stage: 'deliver', preview: next };
+  const calls: string[] = [];
+  await installAppToolBridge(page, (name, args) => {
+    if ((name === 'project_acceptance' && args.action === 'accept') || (name === 'project_render' && args.action === 'start')) calls.push(name);
+    if (name === 'start_creation_task' || name === 'get_creation_task') return { structuredContent: { creationTask: task } };
+    if (name === 'project_preview' && args.action === 'build') return { structuredContent: { preview: first } };
+    return { structuredContent: { stale: false } };
+  });
+  await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), validResult());
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await page.getByRole('button', { name: '构建当前版本', exact: true }).click();
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 0');
+  await page.locator('[data-frame-input]').fill('4'); await page.locator('[data-jump]').click();
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
+  const current = await page.locator('[data-preview-screen] iframe:not([hidden])').elementHandle();
+  await page.getByRole('tab', { name: '表格工作区' }).click();
+  await page.getByRole('textbox', { name: 'Composer' }).fill(task.instruction);
+  await page.getByRole('button', { name: '开始创作', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '当前创作指令' })).toBeFocused();
+  await expect(page.locator('[data-preview-screen] iframe')).toHaveCount(2);
+  await expect(page.locator('[data-preview-screen] iframe:not([hidden])')).toHaveAttribute('title', first.label);
+  expect(await current!.evaluate(node => node.isConnected)).toBe(true);
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
+  expect(calls).not.toContain('project_acceptance');
+  expect(calls).not.toContain('project_render');
+});

@@ -1,3 +1,4 @@
+import { CreationTask } from './creation-task';
 import { ProjectAcceptance } from '../../../src/server/project-acceptance';
 import { ProjectRender } from '../../../src/server/project-render';
 import { ProjectDelivery } from '../../../src/server/project-delivery';
@@ -106,6 +107,8 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  { name: 'start_creation_task', description: '从 Composer 原文发起专用创作任务；只修改候选，不自动接受。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'instruction'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, instruction: { type: 'string', minLength: 1, maxLength: 4000 }, parentOrigin: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
+  { name: 'get_creation_task', description: '读取当前单项创作任务。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ['app'] } } },
   {
     name: 'project_render', title: '最终 Render',
     description: '仅供用户工作台：从当前已接受完整状态准备、启动、查询或取消最终 Render；复用同一 Bundle，不覆盖输出文件。',
@@ -698,6 +701,17 @@ function credentialState(value: string | undefined): TtsCredentialState {
 }
 
 class ProjectWorkspaceSession {
+  creation: CreationTask | null = null;
+  creationError: string | null = null;
+  async creationOperation(input: any, start = false) {
+    if (!input || typeof input.projectDirectory !== 'string' || typeof input.projectId !== 'string' || start && typeof input.instruction !== 'string') throw new Error('创作任务参数无效。');
+    this.#requireOpened(input.projectDirectory, input.projectId);
+    if (this.creationError) throw new Error(this.creationError);
+    if (!this.creation) throw new Error('创作宿主不可用。');
+    const creationTask = start ? await this.creation.start(input.instruction, input.parentOrigin ?? 'null') : await this.creation.status();
+    const candidate = await this.candidate({ projectDirectory: input.projectDirectory, projectId: input.projectId, action: 'read' });
+    return { creationTask, candidate };
+  }
   preview = new ProjectPreview();
   checks = new ProjectChecks(this.preview);
   delivery = new ProjectDelivery(this.preview, this.checks);
@@ -713,7 +727,9 @@ class ProjectWorkspaceSession {
   }
   async acceptanceOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (this.creation?.ownsCandidate && !['status', 'history', 'result'].includes(input.action)) throw new Error('创作任务正在运行，请等待候选交付。');
     const result = await this.acceptance.operate(opened, input);
+    if (result.status === 'accepted') await this.creation?.terminate('CANDIDATE_ACCEPTED');
     this.#candidateStatus = await opened.candidate({ action: 'read' });
     return result;
   }
@@ -738,6 +754,7 @@ class ProjectWorkspaceSession {
     return { preview };
   }
   #opened: OpenedProjectVNext | null = null;
+  #codexHost?: CodexHostAdapter;
 
   readonly #credentials = new Map<string, string>();
   readonly #speechJobs = new Map<string, InternalSpeechJob>();
@@ -746,8 +763,10 @@ class ProjectWorkspaceSession {
 
   constructor(options: {
     ttsFetch?: typeof fetch;
+    codexHost?: CodexHostAdapter;
     probeSpeechDurationMs?: (path: string) => Promise<number>;
   } = {}) {
+    this.#codexHost = options.codexHost;
     this.#ttsFetch = options.ttsFetch ?? globalThis.fetch;
     this.#probeSpeechDurationMs = options.probeSpeechDurationMs ?? probeSpeechDurationMs;
   }
@@ -759,7 +778,7 @@ class ProjectWorkspaceSession {
   #candidateStatus: CandidateStatus | null = null;
 
   serialize(inspection: ProjectVNextInspection, writable = true): Record<string, unknown> {
-    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus };
+    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError };
   }
 
   async open(projectDirectory: string): Promise<ProjectVNextInspection> {
@@ -768,7 +787,7 @@ class ProjectWorkspaceSession {
     });
     const previous = this.#opened;
     try {
-      if (previous !== null) { await this.render.close(); await previous.release(); }
+      if (previous !== null) { await this.creation?.close(); await this.render.close(); await previous.release(); }
     } catch (error) {
       await next.release();
       throw error;
@@ -778,13 +797,18 @@ class ProjectWorkspaceSession {
     this.preview.clear();
     this.#opened = next;
     this.#candidateStatus = await next.candidate({ action: "read" });
+    this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery) : null;
+    this.creationError = null;
+    try { await this.creation?.load(); } catch (error) { this.creationError = (error as Error).message; }
     return next.inspection;
   }
 
   async candidate(input: CandidateRequest & { projectDirectory: string; projectId: string }) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const { projectDirectory: _directory, projectId: _id, ...request } = input;
+    if (this.creation?.ownsCandidate && request.action !== 'read') throw new Error('只有当前创作驱动可以修改候选；接管尚未接入。');
     this.#candidateStatus = await opened.candidate(request);
+    if (request.action === 'discard') await this.creation?.terminate('CANDIDATE_ABANDONED');
     return this.#candidateStatus;
   }
 
@@ -1120,6 +1144,7 @@ class ProjectWorkspaceSession {
   }
 
   async dispose(): Promise<void> {
+    await this.creation?.close();
     await this.render.close();
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
@@ -1163,6 +1188,10 @@ async function callTool(
     throw new Error("tools/call 缺少参数。");
   }
   const { name, arguments: argumentsValue } = params as { name?: unknown; arguments?: unknown };
+  if (name === 'start_creation_task' || name === 'get_creation_task') {
+    try { return { structuredContent: await workspace.creationOperation(argumentsValue, name === 'start_creation_task'), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { error: { code: 'CREATION_TASK_FAILED', message: (error as Error).message } }, content: [] }; }
+  }
   if (name === "project_acceptance") {
     try { return { structuredContent: await workspace.acceptanceOperation(argumentsValue), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? "ACCEPTANCE_FAILED", message: (error as Error).message } }, content: [] }; }
@@ -1807,10 +1836,10 @@ export function createNarracutRequestHandler(
     probeSpeechDurationMs?: (path: string) => Promise<number>;
   } = {},
 ): NarracutRequestHandler {
-  const hostValidation = new AgentHostValidationService(
-    options.codexHost ?? new CodexAppServerHost(),
-  );
+  const codexHost = options.codexHost ?? new CodexAppServerHost();
+  const hostValidation = new AgentHostValidationService(codexHost);
   const workspace = new ProjectWorkspaceSession({
+    codexHost,
     ttsFetch: options.ttsFetch,
     probeSpeechDurationMs: options.probeSpeechDurationMs,
   });
@@ -1821,7 +1850,7 @@ export function createNarracutRequestHandler(
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {}, resources: {} },
         serverInfo: { name: "narracut", version: SERVER_VERSION },
-        instructions: "只接触用户通过系统文件夹选择窗口或参数明确给出的目录。可以在不存在的目标原子创建 Project VNext，或严格打开有效项目；表格工作区只修改 Scene 与 Narration，Agent 工作区可显式创建、读取或放弃唯一候选，并可运行固定的只读 Codex 创作线程宿主验证；受控工具只原子修改候选，不修改当前修订。",
+        instructions: "只接触用户通过系统文件夹选择窗口或参数明确给出的目录。可以在不存在的目标原子创建 Project VNext，或严格打开有效项目；表格工作区只修改 Scene 与 Narration，Composer 可发起专用 Agent 创作任务，读取最新项目、原子修改唯一候选并检查交付；当前创作指令在表现上优先，但不能改写 Scene、Speech、时间与安全约束。Agent 不自动接受候选或发起最终 Render。",
       };
     }
     case "ping": return {};
@@ -1831,7 +1860,7 @@ export function createNarracutRequestHandler(
       resources: [{
         uri: WORKBENCH_URI,
         name: "Narracut 工作台",
-        description: "Project VNext 启动器、可编辑 Scene 接触表与只读 Agent 工作区",
+        description: "Project VNext 启动器、可编辑 Scene 接触表与 Agent 创作工作区",
         mimeType: "text/html;profile=mcp-app",
       }],
     };

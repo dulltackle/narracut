@@ -69,15 +69,15 @@ export class CodexAppServerHost implements CodexHostAdapter {
     return () => this.#listeners.delete(listener);
   }
 
-  async createThread(input: { projectDirectory: string }): Promise<{ threadId: string }> {
+  async createThread(input: { projectDirectory: string; purpose?: "creation" }): Promise<{ threadId: string }> {
     await this.#ensureReady();
     const result = await this.#request("thread/start", {
       cwd: input.projectDirectory,
       approvalPolicy: "never",
       sandbox: "read-only",
-      serviceName: "narracut-host-validation",
+      serviceName: input.purpose === "creation" ? "narracut-creation" : "narracut-host-validation",
       developerInstructions: [
-        "你正在执行 Narracut 的固定宿主边界验证。",
+        input.purpose === "creation" ? "你正在执行 Narracut 专用创作任务。通过结构化响应请求应用修改候选；不能直接写文件或自动接受。" : "你正在执行 Narracut 的固定宿主边界验证。",
         "只允许读取当前工作目录；不得创建、修改或删除文件，不得访问网络。",
         "最终响应必须严格符合 turn/start 提供的 outputSchema。",
       ].join("\n"),
@@ -112,7 +112,7 @@ export class CodexAppServerHost implements CodexHostAdapter {
     await this.#ensureReady();
     const result = await this.#request("turn/start", {
       threadId: input.threadId,
-      input: [{ type: "text", text: input.prompt, text_elements: [] }],
+      input: [{ type: "text", text: input.prompt, text_elements: [] }, ...(input.images ?? []).map(url => ({ type: "image", url }))],
       cwd: input.projectDirectory,
       approvalPolicy: "never",
       sandboxPolicy: { type: "readOnly", networkAccess: false },

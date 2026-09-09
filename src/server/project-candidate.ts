@@ -193,7 +193,7 @@ export async function createCandidateManager(project: string, assertWritable: ()
       } };
     }
   }
-  const operate = async (request: CandidateRequest): Promise<CandidateStatus> => {
+  const operate = async (request: CandidateRequest, validate?: () => Promise<void>): Promise<CandidateStatus> => {
     if (request.action !== 'read') await revisions.cleanup();
     const before = await inspect();
     if (request.action === 'read') return before.view;
@@ -296,6 +296,7 @@ export async function createCandidateManager(project: string, assertWritable: ()
       if (latest.view.baseline !== before.view.baseline || latest.view.status !== before.view.status ||
         await currentRevision() !== sourceRevision ||
         (request.action === 'create' && identity(await readTree(currentRoot)) !== treeId)) fail('EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', '提交前发生外部变化；本批未保存，上一份候选已保留。');
+      await validate?.();
       await rename(join(root, 'state.json'), pointer);
       committed = true;
       await syncDirectory(internal).catch(() => undefined);

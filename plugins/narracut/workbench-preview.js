@@ -94,15 +94,9 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
     command(active, 'PAUSE'); active.playing = false;
     requested = { frame, requestId: String(++serial) }; command(active, 'SEEK', requested); update();
   }
-  async function build(target) {
-    if (busy) return;
-    busy = true; buildStates[target] = '正在构建'; failure = ''; update(); const key = projectKey;
-    try {
-      const result = await call('build', { target, parentOrigin: location.origin });
-      if (key !== projectKey) { const discarded = (result.structuredContent ?? result).preview; if (discarded) void call('release', { instanceId: discarded.instanceId }).catch(() => {}); return; }
-      const data = result.structuredContent ?? result;
-      if (data.error || !data.preview) throw new Error(data.error?.message ?? '构建未返回 Preview');
-      const descriptor = data.preview;
+  function receive(descriptor, activateEmpty = false) {
+    if (!region || slots.has(descriptor.instanceId)) return;
+    const target = descriptor.target;
       if (descriptor.version !== 1 || new URL(descriptor.url).origin !== descriptor.origin || descriptor.origin === location.origin) throw new Error('Preview 来源或协议无效');
       // 活动画面始终保留；淘汰隐藏槽位，为新目标腾出唯一第二槽位。
       for (const slot of slots.values()) if (slot !== active) dispose(slot);
@@ -113,7 +107,19 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
       slots.set(slot.instanceId, slot); pending = slot; buildStates[target] = '正在初始化';
       slot.timeout = setTimeout(() => markFailed(slot, '初始化超时'), 30000);
       iframe.src = slot.url; region.querySelector('[data-preview-screen]').append(iframe);
-      if (!active) { active = slot; iframe.hidden = false; }
+      if (!active && activateEmpty) { active = slot; iframe.hidden = false; }
+    update();
+  }
+  async function build(target) {
+    if (busy) return;
+    busy = true; buildStates[target] = '正在构建'; failure = ''; update(); const key = projectKey;
+    try {
+      const result = await call('build', { target, parentOrigin: location.origin });
+      if (key !== projectKey) { const discarded = (result.structuredContent ?? result).preview; if (discarded) void call('release', { instanceId: discarded.instanceId }).catch(() => {}); return; }
+      const data = result.structuredContent ?? result;
+      if (data.error || !data.preview) throw new Error(data.error?.message ?? '构建未返回 Preview');
+      const descriptor = data.preview;
+      receive(descriptor, true);
     } catch (error) {
       if (key !== projectKey) return;
       failure = `${targetName(target)}构建失败：${error.message}`; buildStates[target] = '构建失败';
@@ -177,6 +183,7 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
       else { sceneNotice = `目标修订 ${revisionId.slice(0, 8)} 的 Preview 尚不可用，请在此构建并核对当前修订。`; update(); }
       region?.scrollIntoView({ block: 'start' }); const target = region?.querySelector('[data-preview-title]'); if (target) { target.setAttribute('tabindex', '-1'); target.focus({ preventScroll: true }); }
     },
+    receive,
     candidateInstance() { return versionFor('candidate')?.instanceId; },
     showCandidate() { switchTo(versionFor('candidate')); },
     locateEvidence(location) {

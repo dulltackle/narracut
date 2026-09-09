@@ -9360,8 +9360,10 @@ var require_semver2 = __commonJS({
   }
 });
 
-// src/server/project-acceptance.ts
-import { randomUUID as randomUUID5 } from "node:crypto";
+// plugins/narracut/src/creation-task.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
+import { join as join6 } from "node:path";
+import { rename as rename3, rm as rm5, open as open2 } from "node:fs/promises";
 
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 var external_exports = {};
@@ -23877,244 +23879,8 @@ function date4(params) {
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 config(en_default());
 
-// src/shared/program-checks.ts
-var groups = [
-  ["layout", "Render Program \u76EE\u5F55\u4E0D\u7B26\u5408\u8981\u6C42\u3002", "\u4FEE\u590D\u7A0B\u5E8F\u76EE\u5F55\u3001\u7F3A\u5931\u6587\u4EF6\u6216\u8D8A\u754C\u8DEF\u5F84\uFF0C\u518D\u91CD\u65B0\u68C0\u67E5\u3002", ["LAYOUT_INVALID", "LAYOUT_REQUIRED_PATH_MISSING", "LAYOUT_PATH_ESCAPE", "LAYOUT_FORBIDDEN_ARTIFACT"]],
-  ["manifest", "Manifest \u58F0\u660E\u65E0\u6548\u6216\u4E0D\u53D7\u652F\u6301\u3002", "\u4FEE\u6B63 program.json \u7684\u534F\u8BAE\u7248\u672C\u53CA\u6B63\u6574\u6570\u8F93\u51FA\u683C\u5F0F\u3002", ["MANIFEST_INVALID", "MANIFEST_API_UNSUPPORTED", "OUTPUT_FORMAT_INVALID"]],
-  ["dependencies", "\u7CBE\u786E\u4F9D\u8D56\u6216\u79BB\u7EBF\u5E93\u4E0D\u53EF\u7528\u3002", "\u901A\u8FC7\u4F9D\u8D56\u534F\u8C03\u4FEE\u590D\u58F0\u660E\u3001\u9501\u56FE\u4E0E\u79BB\u7EBF\u5305\uFF0C\u518D\u91CD\u65B0\u68C0\u67E5\u3002", ["DEPENDENCY_MANIFEST_INVALID", "DEPENDENCY_LOCK_INVALID", "DEPENDENCY_LOCK_OUT_OF_SYNC", "DEPENDENCY_SOURCE_UNSUPPORTED", "DEPENDENCY_INTEGRITY_FAILED", "DEPENDENCY_UNAVAILABLE", "REMOTION_VERSION_MISMATCH", "DEPENDENCY_INSTALL_FAILED"]],
-  ["static", "\u7A0B\u5E8F\u8BBF\u95EE\u7981\u6B62\u80FD\u529B\u6216\u4F7F\u7528\u975E\u786E\u5B9A\u6027\u884C\u4E3A\u3002", "\u79FB\u9664\u5BBF\u4E3B\u3001\u7F51\u7EDC\u6216\u8DE8\u5E27\u72B6\u6001\u8BBF\u95EE\uFF0C\u6539\u7528\u7EAF\u51FD\u6570\u4E0E\u663E\u5F0F\u79CD\u5B50\u3002", ["STATIC_FORBIDDEN_CAPABILITY", "STATIC_NONDETERMINISTIC_API"]],
-  ["typecheck", "\u7A0B\u5E8F\u672A\u901A\u8FC7\u56FA\u5B9A\u7C7B\u578B\u68C0\u67E5\u3002", "\u4FEE\u6B63 Render Program \u7C7B\u578B\u4E0E\u5165\u53E3\u5951\u7EA6\uFF0C\u518D\u91CD\u65B0\u68C0\u67E5\u3002", ["TYPECHECK_FAILED"]],
-  ["bundle", "\u4E0D\u53EF\u53D8 Bundle \u68C0\u67E5\u5931\u8D25\u3002", "\u4FEE\u590D\u6E90\u7801\u4E0E\u6784\u5EFA\u4EA7\u7269\uFF1B\u4FDD\u6301\u540C\u4E00\u8BA4\u8BC1\u73AF\u5883\u548C\u5B8C\u6574 Source Map\u3002", ["BUNDLE_FAILED", "BUNDLE_SOURCEMAP_MISSING", "BUNDLE_FINGERPRINT_MISMATCH"]],
-  ["composition", "Composition \u4E0E\u6743\u5A01\u8F93\u5165\u4E0D\u4E00\u81F4\u3002", "\u4F7F\u7528 Runtime \u63D0\u4F9B\u7684\u8F93\u51FA\u683C\u5F0F\u3001Scene \u987A\u5E8F\u4E0E\u65F6\u95F4\u3002", ["COMPOSITION_INVALID"]],
-  ["capsule", "\u6267\u884C\u80F6\u56CA\u65E0\u6CD5\u5B8C\u6210\u8BA4\u8BC1\u6216\u6267\u884C\u3002", "\u6062\u590D\u8BA4\u8BC1\u6267\u884C\u73AF\u5883\u6216\u964D\u4F4E\u8D44\u6E90\u5360\u7528\u540E\u91CD\u8BD5\u3002", ["CAPSULE_UNAVAILABLE", "CAPSULE_SELF_TEST_FAILED", "CAPSULE_TIMEOUT", "CAPSULE_RESOURCE_EXCEEDED"]],
-  ["runtime", "Runtime \u5951\u7EA6\u6216\u5E27\u6267\u884C\u5931\u8D25\u3002", "\u4FEE\u590D\u7A0B\u5E8F\u5165\u53E3\u3001Bridge \u6216\u62A5\u9519\u5E27\uFF1B\u4E0D\u5F97\u8BBF\u95EE\u5916\u90E8\u8D44\u6E90\u3002", ["RUNTIME_ENTRY_INVALID", "RUNTIME_METADATA_INVALID", "RUNTIME_BRIDGE_FAILED", "RUNTIME_FRAME_FAILED", "RUNTIME_CONTRACT_VIOLATION", "RUNTIME_EXTERNAL_ACCESS_BLOCKED"]],
-  ["evidence", "\u9A8C\u6536\u8BC1\u636E\u4E0D\u5B8C\u6574\u6216\u8EAB\u4EFD\u4E0D\u7B26\u3002", "\u9488\u5BF9\u6700\u65B0\u5019\u9009 Preview \u8865\u9F50\u4EE3\u8868\u5E27\u68C0\u67E5\u3002", ["EVIDENCE_PLAN_INCOMPLETE", "EVIDENCE_CAPTURE_FAILED", "EVIDENCE_IDENTITY_MISMATCH"]],
-  ["render", "\u6700\u7EC8 Render \u672A\u80FD\u5B8C\u6210\u3002", "\u6838\u5BF9\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u3001\u5A92\u4F53\u3001\u7F16\u7801\u5668\u4E0E\u8F93\u51FA\u4F4D\u7F6E\uFF0C\u518D\u91CD\u8BD5\u3002", ["RENDER_MEDIA_CHANGED", "RENDER_FRAME_FAILED", "RENDER_ENCODE_FAILED", "RENDER_OUTPUT_FAILED"]]
-];
-var diagnosticCatalog = {};
-for (const [stage, message, suggestion, codes] of groups) for (const code of codes) diagnosticCatalog[code] = { stage, message, suggestion };
-for (const [code, stage, message, suggestion] of [
-  ["MANIFEST_UNKNOWN_FIELD", "manifest", "Manifest \u542B\u672A\u77E5\u5B57\u6BB5\u3002", "\u6838\u5BF9\u5E76\u79FB\u9664\u4E0D\u4F7F\u7528\u7684\u5B57\u6BB5\u3002"],
-  ["STATIC_DEPRECATED_API", "static", "\u7A0B\u5E8F\u4F7F\u7528\u5DF2\u5F03\u7528 API\u3002", "\u8FC1\u79FB\u5230\u5F53\u524D Runtime API\u3002"],
-  ["CAPSULE_RESOURCE_NEAR_LIMIT", "capsule", "\u6267\u884C\u8D44\u6E90\u63A5\u8FD1\u4E0A\u9650\u3002", "\u51CF\u5C11\u8BA1\u7B97\u6216\u5A92\u4F53\u8D44\u6E90\u5360\u7528\u3002"],
-  ["RESULT_TRUNCATED", "evidence", "\u8BCA\u65AD\u5DF2\u622A\u65AD\u3002", "\u4FEE\u590D\u5DF2\u5217\u51FA\u7684\u95EE\u9898\u540E\u91CD\u65B0\u68C0\u67E5\u3002"]
-]) diagnosticCatalog[code] = { stage, message, suggestion, warning: true };
-function diagnostic(code, identity2, location = { kind: "project" }) {
-  const entry = diagnosticCatalog[code];
-  if (!entry) throw new Error(`\u672A\u767B\u8BB0\u7684\u8BCA\u65AD\u4EE3\u7801\uFF1A${code}`);
-  return { code, ...entry, identity: { ...identity2 }, location, related: [], severity: entry.warning ? "warning" : "error", operations: entry.warning ? [] : entry.stage === "render" ? ["render"] : entry.stage === "evidence" ? ["delivery", "accept"] : ["preview", "delivery", "accept"] };
-}
-function sameIdentity(a, b) {
-  return Object.keys(a).every((key) => a[key] === b[key]);
-}
-var stageOrder = ["layout", "manifest", "dependencies", "capsule", "typecheck", "static", "build", "bundle", "composition", "runtime", "evidence", "render"];
-var canonical = (value) => JSON.stringify(value && typeof value === "object" ? Array.isArray(value) ? value.map((item) => JSON.parse(canonical(item))) : Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => [key, JSON.parse(canonical(item))])) : value);
-function normalizeDiagnostics(values, limit = 100) {
-  const unique = [...new Map(values.map((value) => [canonical(value), value])).values()];
-  unique.sort((a, b) => stageOrder.indexOf(a.stage) - stageOrder.indexOf(b.stage) || (canonical(a) < canonical(b) ? -1 : canonical(a) > canonical(b) ? 1 : 0));
-  const bound = Math.max(1, Math.min(100, Math.floor(limit) || 100));
-  return { diagnostics: unique.slice(0, bound), truncated: Math.max(0, unique.length - bound), total: unique.length };
-}
-var CheckBatch = class {
-  constructor(id, identity2, checks, visualWarnings = []) {
-    this.id = id;
-    this.identity = identity2;
-    this.checks = checks;
-    this.visualWarnings = visualWarnings;
-    this.identity = Object.freeze({ ...identity2 });
-    if (visualWarnings.some((warning) => !sameIdentity(warning.identity, identity2))) throw new Error("\u4E3B\u89C2\u8B66\u544A\u5FC5\u987B\u7ED1\u5B9A\u540C\u4E00\u5B8C\u6574\u72B6\u6001\u8EAB\u4EFD\u3002");
-    this.visualWarnings = structuredClone(visualWarnings).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-    const seen = /* @__PURE__ */ new Set();
-    for (const check2 of checks) {
-      if (seen.has(check2.id) || check2.dependencies.some((id2) => !seen.has(id2))) throw new Error("\u68C0\u67E5\u4F9D\u8D56\u56FE\u5FC5\u987B\u6309\u62D3\u6251\u987A\u5E8F\u5B9A\u4E49\u4E14\u65E0\u91CD\u590D\u9636\u6BB5\u3002");
-      seen.add(check2.id);
-    }
-    this.#stages = checks.map((check2) => ({ id: check2.id, status: "waiting", reason: "" }));
-  }
-  id;
-  identity;
-  checks;
-  visualWarnings;
-  #controller = new AbortController();
-  #status = "running";
-  #stale = false;
-  #diagnostics = [];
-  #stages;
-  invalidate(latest) {
-    if (!sameIdentity(this.identity, latest)) this.#stale = true;
-  }
-  cancel() {
-    if (this.#status !== "running") return;
-    this.#status = "cancelled";
-    this.#controller.abort();
-    for (const stage of this.#stages) if (["waiting", "running"].includes(stage.status)) {
-      stage.status = "not-run";
-      stage.reason = "\u7528\u6237\u53D6\u6D88\uFF0C\u68C0\u67E5\u4E0D\u5B8C\u6574";
-    }
-  }
-  async run() {
-    const tasks = /* @__PURE__ */ new Map();
-    for (const check2 of this.checks) {
-      const dependencies = check2.dependencies.map((id) => tasks.get(id));
-      const task = (async () => {
-        await Promise.all(dependencies);
-        const stage = this.#stages.find((item) => item.id === check2.id);
-        if (this.#controller.signal.aborted) return;
-        const missing = check2.dependencies.filter((id) => this.#stages.find((item) => item.id === id).status !== "passed");
-        if (missing.length) {
-          stage.status = "not-run";
-          stage.reason = `\u524D\u7F6E\u9636\u6BB5\u672A\u901A\u8FC7\uFF1A${missing.join("\u3001")}`;
-          return;
-        }
-        stage.status = "running";
-        let results;
-        try {
-          results = await check2.run(this.#controller.signal);
-        } catch {
-          if (this.#controller.signal.aborted) return;
-          stage.status = "not-run";
-          stage.reason = "\u68C0\u67E5\u5668\u64CD\u4F5C\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5";
-          return;
-        }
-        if (this.#controller.signal.aborted) return;
-        if (results.some((item) => !sameIdentity(item.identity, this.identity))) {
-          this.#stale = true;
-          stage.status = "not-run";
-          stage.reason = "\u7ED3\u679C\u8EAB\u4EFD\u4E0D\u7B26\uFF0C\u672A\u5E76\u5165\u672C\u6279\u6B21";
-          return;
-        }
-        this.#diagnostics.push(...results);
-        stage.status = results.some((item) => item.severity === "error") ? "issues" : "passed";
-      })();
-      tasks.set(check2.id, task);
-    }
-    await Promise.all(tasks.values());
-    if (!this.#controller.signal.aborted) this.#status = "complete";
-  }
-  view() {
-    return structuredClone({ version: 1, id: this.id, identity: this.identity, status: this.#status, stale: this.#stale, stages: this.#stages, visualWarnings: this.visualWarnings.slice(0, 100), warningsTruncated: Math.max(0, this.visualWarnings.length - 100), ...normalizeDiagnostics(this.#diagnostics), hardOperations: ["preview", "delivery", "accept", "render"].filter((operation) => this.#diagnostics.some((item) => item.severity === "error" && item.operations.includes(operation))) });
-  }
-};
-function gateOperations(batch, latest, evidence, accepted, enabled = { preview: true, delivery: true }) {
-  const fresh = !!batch && !!latest && !batch.stale && sameIdentity(batch.identity, latest) && Object.values(latest).every((value) => value !== null);
-  const checks = fresh && batch.status === "complete" && batch.stages.length > 0 && batch.stages.filter((stage) => !["evidence", "render"].includes(stage.id)).every((stage) => stage.status === "passed");
-  const preview = !!checks && !batch.hardOperations.includes("preview");
-  const bound = !!evidence && !!latest && sameIdentity(evidence.identity, latest) && !!evidence.bundle;
-  const delivery = preview && bound && (evidence.zeroScenes || evidence.previewReady && !!evidence.instanceId && evidence.representativeFrames) && evidence.warningsDisplayed && !batch.truncated && !batch.warningsTruncated && !batch.hardOperations.includes("delivery");
-  const accept = delivery && evidence.explicitAcceptance && !batch.hardOperations.includes("accept");
-  const render = !!accepted && accepted.recordFresh && !!accepted.bundle && accepted.bundle === accepted.currentBundle && accepted.renderReady && accepted.preflight && !accepted.blocked;
-  const reasons = {
-    preview: !batch ? "\u5C1A\u672A\u68C0\u67E5\u5F53\u524D\u5019\u9009" : batch.status === "cancelled" ? "\u68C0\u67E5\u5DF2\u53D6\u6D88\uFF0C\u7ED3\u679C\u4E0D\u5B8C\u6574" : !fresh ? "\u6574\u6279\u7ED3\u679C\u5DF2\u8FC7\u671F\u6216\u8EAB\u4EFD\u5C1A\u672A\u786E\u8BA4" : !checks ? "\u5FC5\u8981\u68C0\u67E5\u5C1A\u672A\u5168\u90E8\u901A\u8FC7" : "\u5FC5\u8981\u68C0\u67E5\u901A\u8FC7\uFF1B\u5141\u8BB8\u8349\u7A3F\u65F6\u95F4\u4E0E\u96F6 Scene",
-    delivery: !preview ? "\u5148\u5B8C\u6210\u5019\u9009\u5FC5\u8981\u68C0\u67E5" : !bound ? "\u7F3A\u5C11\u7ED1\u5B9A\u6700\u65B0\u5019\u9009\u7684 Preview \u8BC1\u636E" : !evidence.zeroScenes && (!evidence.previewReady || !evidence.representativeFrames || !evidence.instanceId) ? "\u6700\u65B0 Preview \u6216\u4EE3\u8868\u5E27\u68C0\u67E5\u5C1A\u672A\u9F50\u5907" : !evidence.warningsDisplayed || !!batch.truncated || !!batch.warningsTruncated ? "\u5168\u90E8\u8B66\u544A\u5C1A\u672A\u5B9E\u9645\u5C55\u793A\uFF0C\u6216\u8BCA\u65AD\u5DF2\u622A\u65AD" : "\u6700\u65B0 Preview\u3001\u4EE3\u8868\u5E27\u4E0E\u8B66\u544A\u5C55\u793A\u9F50\u5907",
-    accept: !delivery ? "\u5019\u9009\u5C1A\u4E0D\u5177\u5907\u4EA4\u4ED8\u6761\u4EF6" : !evidence.explicitAcceptance ? "\u4ECD\u987B\u7528\u6237\u660E\u786E\u6574\u4F53\u63A5\u53D7\u5019\u9009" : "\u7528\u6237\u5DF2\u660E\u786E\u6574\u4F53\u63A5\u53D7\uFF0C\u8BC1\u636E\u7ED1\u5B9A\u4E00\u81F4",
-    render: !accepted ? "\u5C1A\u65E0\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7684\u9A8C\u6536\u8BB0\u5F55" : !accepted.recordFresh ? "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7684\u8BB0\u5F55\u5DF2\u8FC7\u671F" : accepted.bundle !== accepted.currentBundle ? "Bundle \u4E0E\u63A5\u53D7\u8BB0\u5F55\u4E0D\u4E00\u81F4" : !accepted.renderReady ? "\u9700\u8981\u6B63\u5F0F Speech \u65F6\u95F4\u4E0E\u53EF\u6E32\u67D3 Scene" : !accepted.preflight || accepted.blocked ? "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7684 Render \u524D\u68C0\u67E5\u672A\u901A\u8FC7" : "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u6EE1\u8DB3\u6700\u7EC8 Render \u6761\u4EF6"
-  };
-  const next = { preview: "\u68C0\u67E5\u5F53\u524D\u5019\u9009\uFF1B\u901A\u8FC7\u540E\u5728\u4E0A\u65B9\u6784\u5EFA\u5019\u9009", delivery: "\u6784\u5EFA\u6700\u65B0\u5019\u9009 Preview \u5E76\u5B8C\u6210\u4EE3\u8868\u5E27\u5BA1\u6838", accept: "\u5B8C\u6210\u4EA4\u4ED8\u68C0\u67E5\u540E\u660E\u786E\u6574\u4F53\u63A5\u53D7", render: "\u9488\u5BF9\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u8865\u9F50\u6B63\u5F0F\u65F6\u95F4\u53CA Render \u524D\u68C0\u67E5" };
-  return ["preview", "delivery", "accept", "render"].map((operation) => ({ operation, eligible: { preview, delivery, accept, render }[operation], status: !enabled[operation] ? "disabled" : { preview, delivery, accept, render }[operation] ? "available" : "blocked", reason: reasons[operation], next: !enabled[operation] ? "\u6B64\u64CD\u4F5C\u5C1A\u672A\u542F\u7528" : next[operation] }));
-}
-
-// src/server/preview-origin.ts
-import { createServer } from "node:http";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-var previewDigest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
-var CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
-var PreviewOrigin = class {
-  #server;
-  #starting;
-  #origin = "";
-  #instances = /* @__PURE__ */ new Map();
-  origin() {
-    return this.#starting ??= new Promise((resolve4, reject) => {
-      this.#server = createServer((req, res) => {
-        res.setHeader("Content-Security-Policy", CSP);
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        res.setHeader("Referrer-Policy", "no-referrer");
-        res.setHeader("Cache-Control", "no-store");
-        res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
-        if (req.headers.host !== new URL(this.#origin).host) {
-          res.writeHead(403).end();
-          return;
-        }
-        if (req.method !== "GET" && req.method !== "HEAD") {
-          res.writeHead(405).end();
-          return;
-        }
-        const path = (req.url ?? "").split("?")[0];
-        const match = /^\/([a-f0-9]{48})\/(index.html|bundle.js|bootstrap.js|media\/[a-f0-9]{64})$/.exec(path);
-        const bytes = match && this.#instances.get(match[1])?.get(match[2]);
-        if (!bytes) {
-          res.writeHead(404).end();
-          return;
-        }
-        const type = match[2].endsWith(".html") ? "text/html; charset=utf-8" : match[2].endsWith(".js") ? "text/javascript; charset=utf-8" : "application/octet-stream";
-        res.setHeader("Content-Type", type);
-        const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? "");
-        let start = 0, end = bytes.length - 1;
-        if (range) {
-          start = Number(range[1]);
-          end = range[2] ? Number(range[2]) : end;
-          if (start > end || end >= bytes.length) {
-            res.writeHead(416).end();
-            return;
-          }
-          res.statusCode = 206;
-          res.setHeader("Content-Range", `bytes ${start}-${end}/${bytes.length}`);
-        }
-        res.setHeader("Accept-Ranges", "bytes");
-        res.setHeader("Content-Length", end - start + 1);
-        res.end(req.method === "HEAD" ? void 0 : bytes.subarray(start, end + 1));
-      });
-      this.#server.once("error", reject);
-      this.#server.listen(0, "127.0.0.1", () => {
-        this.#origin = `http://127.0.0.1:${this.#server.address().port}`;
-        this.#server.unref();
-        resolve4(this.#origin);
-      });
-    });
-  }
-  async publish(args) {
-    const origin = await this.origin();
-    if (!/^https?:\/\//.test(args.parentOrigin) || new URL(args.parentOrigin).origin !== args.parentOrigin || args.parentOrigin === origin) throw new Error("Preview \u9700\u8981\u53EF\u9A8C\u8BC1\u7684\u8DE8 origin \u5BBF\u4E3B\u3002");
-    const bindingBytes = Buffer.from(JSON.stringify({ input: args.input, speech: args.speech }));
-    const boundIdentity = previewDigest(Buffer.concat([Buffer.from(JSON.stringify(["binding", bindingBytes.length]) + "\n"), bindingBytes]));
-    if (boundIdentity !== args.bundle.inputIdentity) throw new Error("Preview \u8F93\u5165\u4E0E Bundle \u6784\u5EFA\u7ED1\u5B9A\u4E0D\u4E00\u81F4\u3002");
-    const identity2 = { bundle: args.bundle.identity, input: args.bundle.inputIdentity, media: previewDigest(JSON.stringify([...args.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())), environment: args.bundle.environmentIdentity };
-    const instanceId = randomUUID(), token = randomBytes(32).toString("hex");
-    if (!/^[a-f0-9]{48}$/.test(args.key) || this.#instances.has(args.key)) throw new Error("Preview \u5B9E\u4F8B\u4E0D\u80FD\u91CD\u590D\u7ED1\u5B9A\u3002");
-    const files = /* @__PURE__ */ new Map([["bundle.js", args.bundle.files().get("bundle.js")]]);
-    for (const [path, bytes] of args.media) {
-      if (!/^media\/[a-f0-9]{64}$/.test(path) || path !== `media/${previewDigest(bytes).slice(7)}`) throw new Error("\u5A92\u4F53\u8DEF\u5F84\u65E0\u6548\u3002");
-      files.set(path, Buffer.from(bytes));
-    }
-    for (const src of [...args.input.assets.filter((asset) => asset.availability === "available").map((asset) => asset.src), ...args.speech.map((track) => track.src)]) {
-      if (!src || !files.has(src)) throw new Error("Preview \u7F3A\u5C11\u7ED1\u5B9A\u7684\u4E0D\u53EF\u53D8\u5A92\u4F53\u3002");
-    }
-    const binding = { instanceId, token, identity: identity2, parentOrigin: args.parentOrigin, input: args.input, speech: args.speech };
-    files.set("bootstrap.js", Buffer.from(`window.dispatchEvent(new CustomEvent('narracut-preview-binding',{detail:${JSON.stringify(binding)}}));`));
-    files.set("index.html", Buffer.from('<!doctype html><meta charset="utf-8"><style>html,body,#root{margin:0;width:100%;height:100%;overflow:hidden;background:#050707}#root{display:flex;align-items:center;justify-content:center}</style><div id="root"></div><script src="bundle.js"></script><script src="bootstrap.js"></script>'));
-    this.#instances.set(args.key, files);
-    return { version: 1, parentOrigin: args.parentOrigin, instanceId, token, identity: identity2, input: args.input, target: args.target, baseline: args.baseline, label: args.label, origin, url: `${origin}/${args.key}/index.html` };
-  }
-  snapshot(url2) {
-    const files = this.#instances.get(new URL(url2).pathname.split("/")[1]);
-    if (!files) throw new Error("Preview \u5B9E\u4F8B\u5DF2\u91CA\u653E\u3002");
-    return new Map([...files].map(([path, bytes]) => [path, Buffer.from(bytes)]));
-  }
-  release(url2) {
-    const key = new URL(url2).pathname.split("/")[1];
-    this.#instances.delete(key);
-  }
-  async close() {
-    this.#instances.clear();
-    if (this.#server) {
-      this.#server.closeAllConnections();
-      await new Promise((resolve4) => this.#server.close(() => resolve4()));
-    }
-  }
-};
-
 // src/server/project-revisions.ts
-import { randomUUID as randomUUID2, createHash as createHash2 } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { join } from "node:path";
 import { rename, rm, mkdir, lstat } from "node:fs/promises";
 var uuid3 = external_exports.string().uuid();
@@ -24141,7 +23907,7 @@ var metadataSchema = external_exports.object({
   acceptance: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
   requestId: uuid3.optional()
 }).strict();
-var hash2 = (bytes) => `sha256:${createHash2("sha256").update(bytes).digest("hex")}`;
+var hash2 = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 async function readCurrentPointer(project) {
   await directory(join(project, ".narracut"));
   return pointerSchema.parse(JSON.parse((await regular(join(project, ".narracut/current.json"), 16384)).toString()));
@@ -24193,7 +23959,7 @@ function createRevisionStore(project, assertWritable) {
         }
         if (bytes && hash2(bytes) === pointer.consumed.pointer) {
           const state = JSON.parse(bytes.toString());
-          const temp = join(internal, `consumed-${randomUUID2()}.json`);
+          const temp = join(internal, `consumed-${randomUUID()}.json`);
           try {
             await writeBytes(temp, Buffer.from(JSON.stringify({ ...state, candidate: null, checkpoint: null })));
             await assertWritable();
@@ -24227,7 +23993,7 @@ function createRevisionStore(project, assertWritable) {
     if ((await cleanup()).cleanupPending) throw new CandidateError("ACCEPTANCE_CLEANUP_PENDING", "\u8BF7\u5148\u91CD\u8BD5\u4E0A\u6B21\u63A5\u53D7\u7684\u6E05\u7406\u3002");
     const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project);
     const previous = await verifyRevision(project, before.revisionId);
-    const id = randomUUID2(), requestId = request.requestId ?? randomUUID2();
+    const id = randomUUID(), requestId = request.requestId ?? randomUUID();
     const record3 = request.acceptance;
     const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: state.sourceRevision, acceptedAt: (/* @__PURE__ */ new Date()).toISOString(), programFingerprint: identity(tree), briefFingerprint: record3.identity?.brief, inputFingerprint: record3.identity?.input, summary: request.summary, source: request.source, acceptance: request.acceptance, requestId });
     const root = join(internal, "revisions", id), temporary = join(internal, `accept-${id}.json`);
@@ -24485,11 +24251,11 @@ function parseStrictJson(input, limits2) {
 }
 
 // src/server/program-bundle.ts
-import { createHash as createHash6 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 
 // src/server/execution-capsule.ts
 import { execFile as execFile2, spawn } from "node:child_process";
-import { createHash as createHash5, randomUUID as randomUUID3 } from "node:crypto";
+import { createHash as createHash4, randomUUID as randomUUID2 } from "node:crypto";
 import { mkdir as mkdir3, mkdtemp as mkdtemp2, rm as rm3, writeFile as writeFile2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
 import { dirname as dirname2, join as join3 } from "node:path";
@@ -24579,7 +24345,7 @@ await writeFile('/output/proof.json', JSON.stringify({ denied, isolated: true })
 
 // src/server/capsule-toolchain.ts
 import { execFile } from "node:child_process";
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 import { chmod, copyFile, mkdir as mkdir2, mkdtemp, readFile, readdir, realpath, rm as rm2, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join as join2, resolve } from "node:path";
@@ -24620,7 +24386,7 @@ async function snapshotCapsuleToolchain() {
     await mkdir2(dirname(target), { recursive: true });
     await copyFile(await realpath(source), target);
     await chmod(target, executable ? 365 : 292);
-    hashes.set(destination, createHash3("sha256").update(await readFile(target)).digest("hex"));
+    hashes.set(destination, createHash2("sha256").update(await readFile(target)).digest("hex"));
   }
   async function libraries(binary) {
     const { stdout } = await exec("/usr/bin/ldd", [binary], { env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
@@ -24664,15 +24430,15 @@ async function snapshotCapsuleToolchain() {
     await writeFile(join2(root, "supervisor.mjs"), "", { mode: 292 });
     const fontConfig = '<!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><dir>/runtime/fonts</dir><cachedir>/tmp/font-cache</cachedir></fontconfig>';
     await writeFile(join2(root, "etc/fonts/fonts.conf"), fontConfig, { mode: 292 });
-    hashes.set("/etc/fonts/fonts.conf", createHash3("sha256").update(fontConfig).digest("hex"));
+    hashes.set("/etc/fonts/fonts.conf", createHash2("sha256").update(fontConfig).digest("hex"));
     groups2.set("/etc/fonts/fonts.conf", /* @__PURE__ */ new Set(["browser"]));
-    for (const path of ["/usr/bin/bwrap", "/usr/bin/systemd-run", "/usr/bin/systemctl"]) hashes.set(path, createHash3("sha256").update(await readFile(path)).digest("hex"));
+    for (const path of ["/usr/bin/bwrap", "/usr/bin/systemd-run", "/usr/bin/systemctl"]) hashes.set(path, createHash2("sha256").update(await readFile(path)).digest("hex"));
     const cleanup = () => rmSync(root, { recursive: true, force: true });
     process.once("exit", cleanup);
     return {
       root,
       files: [...groups2].map(([path, roles2]) => ({ path, roles: [...roles2] })),
-      identity: createHash3("sha256").update(JSON.stringify({ files: [...hashes].sort(), groups: [...groups2].map(([path, groups3]) => [path, [...groups3]]), kernel: release(), arch: arch() })).digest("hex"),
+      identity: createHash2("sha256").update(JSON.stringify({ files: [...hashes].sort(), groups: [...groups2].map(([path, groups3]) => [path, [...groups3]]), kernel: release(), arch: arch() })).digest("hex"),
       dispose: async () => {
         process.removeListener("exit", cleanup);
         await rm2(root, { recursive: true, force: true });
@@ -24685,7 +24451,7 @@ async function snapshotCapsuleToolchain() {
 }
 
 // src/server/dependency-integrity.ts
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 var DependencyError = class extends Error {
   constructor(code, message) {
     super(message);
@@ -24703,7 +24469,7 @@ function integrityKey(integrity) {
   return bytes.toString("hex");
 }
 function verifyPackageBytes(key, bytes) {
-  if (createHash4("sha512").update(bytes).digest("hex") !== key) throw new DependencyError("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5305\u5B8C\u6574\u6027\u4E0D\u7B26\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\u3002");
+  if (createHash3("sha512").update(bytes).digest("hex") !== key) throw new DependencyError("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u5305\u5B8C\u6574\u6027\u4E0D\u7B26\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\u3002");
 }
 
 // src/server/capsule-registry.ts
@@ -24907,7 +24673,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
         if(!shot.data)throw new Error(JSON.stringify(shot));writeFileSync('/output/browser','fixed');process.exit(0);
       `) }, "bundle/main.mjs");
       if (browserProof.get("browser")?.toString() !== "fixed") throw failure("CAPSULE_SELF_TEST_FAILED");
-      return createHash5("sha256").update(JSON.stringify({ protocol: 1, toolchain: this.#toolchain.identity, environment, browserArguments: CAPSULE_BROWSER_ARGUMENTS, policies: CAPSULE_POLICIES, supervisor: CAPSULE_SUPERVISOR, probe: CAPSULE_PROBE, roles, backend: this.#execute.toString(), certification: this.#selfTest.toString() })).digest("hex");
+      return createHash4("sha256").update(JSON.stringify({ protocol: 1, toolchain: this.#toolchain.identity, environment, browserArguments: CAPSULE_BROWSER_ARGUMENTS, policies: CAPSULE_POLICIES, supervisor: CAPSULE_SUPERVISOR, probe: CAPSULE_PROBE, roles, backend: this.#execute.toString(), certification: this.#selfTest.toString() })).digest("hex");
     } catch (error51) {
       if (error51 instanceof CapsuleError && error51.code === "CAPSULE_UNAVAILABLE") throw error51;
       throw failure("CAPSULE_SELF_TEST_FAILED");
@@ -24942,14 +24708,14 @@ var ExecutionCapsule = class _ExecutionCapsule {
     );
     const bytes = output.get("package.tgz");
     if (signal?.aborted) throw failure("CAPSULE_CANCELLED");
-    if (output.size !== 1 || !bytes || `sha512-${createHash5("sha512").update(bytes).digest("base64")}` !== pin.integrity) throw failure("CAPSULE_OUTPUT_INVALID");
+    if (output.size !== 1 || !bytes || `sha512-${createHash4("sha512").update(bytes).digest("base64")}` !== pin.integrity) throw failure("CAPSULE_OUTPUT_INVALID");
     return bytes;
   }
   async #execute(stage, inputs, entry, signal, download2, certificationLimits) {
     if (!this.#toolchain) throw failure("CAPSULE_UNAVAILABLE");
     const policy = certificationLimits ?? CAPSULE_POLICIES[stage];
     const directory2 = await mkdtemp2(join3(tmpdir2(), "narracut-capsule-"));
-    const unit = `narracut-capsule-${randomUUID3()}.service`;
+    const unit = `narracut-capsule-${randomUUID2()}.service`;
     const controlEnv = { PATH: "/usr/bin:/bin", LC_ALL: "C", XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`, DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus` };
     const control = (...args) => exec2("/usr/bin/systemctl", ["--user", ...args], { env: controlEnv, timeout: 5e3, maxBuffer: 64 * 1024 });
     try {
@@ -25564,7 +25330,7 @@ function checkProgramManifest(bytes) {
   };
 }
 function fingerprint(files) {
-  const hash4 = createHash6("sha256");
+  const hash4 = createHash5("sha256");
   for (const [path, bytes] of [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     hash4.update(JSON.stringify([path, bytes.byteLength]) + "\n");
     hash4.update(bytes);
@@ -25629,7 +25395,7 @@ async function buildProgramBundle(request) {
   const offline = new Map([...request.offline].map(([key, bytes]) => [key, Buffer.from(bytes)]));
   const binding = JSON.parse(JSON.stringify({ input: request.input, speech: request.speech }));
   const media = new Map([...request.media ?? []].map(([path, bytes]) => [path, Buffer.from(bytes)]));
-  for (const [path, bytes] of media) if (path !== `media/${createHash6("sha256").update(bytes).digest("hex")}`) throw new ProgramBuildError("RUNTIME_CONTRACT_VIOLATION", "\u5A92\u4F53\u8BFB\u53D6\u5730\u5740\u4E0E\u5B57\u8282\u6307\u7EB9\u4E0D\u4E00\u81F4\u3002");
+  for (const [path, bytes] of media) if (path !== `media/${createHash5("sha256").update(bytes).digest("hex")}`) throw new ProgramBuildError("RUNTIME_CONTRACT_VIOLATION", "\u5A92\u4F53\u8BFB\u53D6\u5730\u5740\u4E0E\u5B57\u8282\u6307\u7EB9\u4E0D\u4E00\u81F4\u3002");
   const manifest = checkProgramManifest(program.get("program.json"));
   checkBinding(binding.input, binding.speech, manifest.output);
   for (const path of program.keys()) if (!/^(?:src\/|resources\/|program\.json$|package\.json$|pnpm-lock\.yaml$)/.test(path) || path.split("/").some((part) => !part || part === "." || part === "..") || /[\\\0]/.test(path)) throw new ProgramBuildError("BUNDLE_FAILED", "\u5019\u9009\u5305\u542B\u4E0D\u652F\u6301\u7684\u8DEF\u5F84\u6216\u6784\u5EFA\u914D\u7F6E\u3002");
@@ -25708,7 +25474,7 @@ async function buildProgramBundle(request) {
 }
 
 // src/server/project-candidate.ts
-import { createHash as createHash7, randomUUID as randomUUID4 } from "node:crypto";
+import { createHash as createHash6, randomUUID as randomUUID3 } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat as lstat2, mkdir as mkdir4, open, readdir as readdir3, rename as rename2, rm as rm4 } from "node:fs/promises";
 import { dirname as dirname4, join as join5 } from "node:path";
@@ -25719,7 +25485,7 @@ var CandidateError = class extends Error {
   }
   code;
 };
-var hash3 = (bytes) => `sha256:${createHash7("sha256").update(bytes).digest("hex")}`;
+var hash3 = (bytes) => `sha256:${createHash6("sha256").update(bytes).digest("hex")}`;
 var fail4 = (code, message) => {
   throw new CandidateError(code, message);
 };
@@ -25911,7 +25677,7 @@ async function createCandidateManager(project, assertWritable) {
       } };
     }
   }
-  const operate = async (request) => {
+  const operate = async (request, validate) => {
     if (request.action !== "read") await revisions.cleanup();
     const before = await inspect();
     if (request.action === "read") return before.view;
@@ -25924,7 +25690,7 @@ async function createCandidateManager(project, assertWritable) {
       if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u6307\u9488\u5DF2\u53D8\u5316\uFF0C\u672A\u653E\u5F03\u3002");
       if (before.state?.offline) {
         const tombstone = Buffer.from(JSON.stringify({ ...before.state, candidate: null, checkpoint: null }));
-        const temporary = join5(internal, `discard-${randomUUID4()}.json`);
+        const temporary = join5(internal, `discard-${randomUUID3()}.json`);
         try {
           await writeBytes(temporary, tombstone);
           await rename2(temporary, pointer);
@@ -25990,7 +25756,7 @@ async function createCandidateManager(project, assertWritable) {
         }
       }
     }
-    const generation = `.narracut/candidate-${randomUUID4()}`;
+    const generation = `.narracut/candidate-${randomUUID3()}`;
     const root = join5(project, generation);
     let committed = false;
     try {
@@ -26017,6 +25783,7 @@ async function createCandidateManager(project, assertWritable) {
       await assertCurrent();
       const latest = await inspect();
       if (latest.view.baseline !== before.view.baseline || latest.view.status !== before.view.status || await currentRevision() !== sourceRevision || request.action === "create" && identity(await readTree(currentRoot)) !== treeId) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u63D0\u4EA4\u524D\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF1B\u672C\u6279\u672A\u4FDD\u5B58\uFF0C\u4E0A\u4E00\u4EFD\u5019\u9009\u5DF2\u4FDD\u7559\u3002");
+      await validate?.();
       await rename2(join5(root, "state.json"), pointer);
       committed = true;
       await syncDirectory(internal).catch(() => void 0);
@@ -26076,6 +25843,598 @@ async function createCandidateManager(project, assertWritable) {
   });
 }
 
+// plugins/narracut/src/creation-task.ts
+var stages = ["read", "modify", "check", "preview", "frames", "deliver"];
+var checkpointSchema = external_exports.object({
+  taskId: external_exports.string().uuid(),
+  projectId: external_exports.string().uuid(),
+  instruction: external_exports.string().min(1).max(4e3),
+  status: external_exports.enum(["running", "waiting", "stopped", "terminated"]),
+  reason: external_exports.string().nullable(),
+  threadPointer: external_exports.string().nullable(),
+  lastSafeStage: external_exports.enum(stages).nullable(),
+  candidateBaseline: external_exports.string().nullable(),
+  inputIdentity: external_exports.string().nullable(),
+  pending: external_exports.string().max(4e3).nullable()
+}).strict();
+var reportText = external_exports.string().min(1).max(4e3);
+var answerSchema = external_exports.object({
+  verificationToken: external_exports.string(),
+  action: external_exports.enum(["apply", "dependencies", "deliver", "wait"]),
+  changes: external_exports.array(external_exports.object({ path: external_exports.string().max(1024), content: external_exports.string().max(256e3).nullable() }).strict()).max(12),
+  dependencies: external_exports.array(external_exports.object({ name: external_exports.string(), version: external_exports.string() }).strict()).max(100).default([]),
+  packages: external_exports.array(external_exports.object({ name: external_exports.string(), version: external_exports.string(), integrity: external_exports.string() }).strict()).max(256).default([]),
+  summary: reportText,
+  divergence: external_exports.string().max(4e3),
+  warnings: external_exports.array(reportText).max(100),
+  suggestions: external_exports.array(external_exports.object({ sceneId: reportText, observation: reportText, action: reportText, content: reportText, reason: reportText }).strict()).max(100),
+  reviews: external_exports.array(external_exports.object({ frame: external_exports.number().int().nonnegative(), digest: reportText, observation: reportText }).strict()).max(12)
+}).strict();
+var CreationTask = class {
+  constructor(opened, host, preview, checks, delivery) {
+    this.opened = opened;
+    this.host = host;
+    this.preview = preview;
+    this.checks = checks;
+    this.delivery = delivery;
+    this.#unsubscribe = host.subscribe((event) => {
+      if (this.#starting && this.#driver?.turnId === null) {
+        this.#early.push(event);
+        return;
+      }
+      this.#pendingRun = this.#pendingRun.then(() => this.#event(event)).catch((error51) => this.#stop(error51));
+    });
+  }
+  opened;
+  host;
+  preview;
+  checks;
+  delivery;
+  #state = null;
+  #driver = null;
+  #starting = false;
+  #busy = false;
+  #early = [];
+  #closed = false;
+  #unsubscribe;
+  #noProgress = 0;
+  #parentOrigin = "null";
+  #pendingRun = Promise.resolve();
+  get ownsCandidate() {
+    return this.#state?.status === "running";
+  }
+  async status() {
+    if (this.#state?.reason === "CANDIDATE_READY") {
+      const latest = await this.delivery.status(this.opened);
+      if (!latest.delivery || latest.delivery.stale) {
+        this.#state.reason = "USER_DECISION_REQUIRED";
+        this.#state.pending = "\u4EA4\u4ED8\u8BC1\u636E\u5DF2\u8FC7\u671F\u6216\u4E0D\u53EF\u7528\uFF1B\u4E0D\u80FD\u4F5C\u4E3A\u5F53\u524D\u6210\u679C\uFF0C\u81EA\u52A8\u8FFD\u8D76\u5C1A\u672A\u63A5\u5165\u3002";
+        await this.#save();
+      }
+    }
+    return this.value;
+  }
+  get value() {
+    return this.#state ? structuredClone(this.#state) : null;
+  }
+  async load() {
+    try {
+      const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 32e3)).toString()));
+      if (checkpoint.projectId !== this.opened.inspection.manifest.projectId) throw new Error("\u4EFB\u52A1\u9879\u76EE\u8EAB\u4EFD\u4E0D\u5339\u914D");
+      const candidate = await this.opened.candidate({ action: "read" });
+      if (checkpoint.status !== "terminated" && checkpoint.candidateBaseline !== candidate.baseline) throw new Error("\u4EFB\u52A1\u5019\u9009\u68C0\u67E5\u70B9\u4E0D\u5339\u914D");
+      this.#state = { ...checkpoint, status: checkpoint.status === "terminated" ? "terminated" : "stopped", reason: checkpoint.status === "terminated" ? checkpoint.reason : "APP_RESTARTED", stage: checkpoint.lastSafeStage ?? "read", divergence: "", preview: null, deliveryId: null };
+      await this.#save();
+    } catch (error51) {
+      if (error51.code !== "ENOENT") throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u4EFB\u52A1\u68C0\u67E5\u70B9\u65E0\u6CD5\u6062\u590D\uFF1B\u5019\u9009\u4FDD\u7559\u3002");
+    }
+  }
+  #path() {
+    return join6(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
+  }
+  async #save() {
+    if (!this.#state) return;
+    const { stage: _stage, divergence: _divergence, preview: _preview, deliveryId: _delivery, ...checkpoint } = this.#state;
+    const bytes = JSON.stringify(checkpointSchema.parse(checkpoint));
+    await this.opened.programTransaction(async () => {
+      const parent = join6(this.opened.inspection.projectDirectory, ".narracut");
+      const identity2 = await directory(parent), temporary = join6(parent, `task-${randomUUID4()}.tmp`);
+      try {
+        const handle = await open2(temporary, "wx", 384);
+        try {
+          await handle.writeFile(bytes);
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        if (identity2 !== await directory(parent)) throw new Error("\u4EFB\u52A1\u76EE\u5F55\u5DF2\u66FF\u6362");
+        await rename3(temporary, this.#path());
+        const parentHandle = await open2(parent, "r");
+        try {
+          await parentHandle.sync();
+        } finally {
+          await parentHandle.close();
+        }
+      } finally {
+        await rm5(temporary, { force: true });
+      }
+    });
+  }
+  async start(instruction, parentOrigin = "null") {
+    if (this.#busy || this.#state && this.#state.status !== "terminated") throw new Error("\u5DF2\u6709\u521B\u4F5C\u4EFB\u52A1\uFF1B\u8FFD\u52A0\u8981\u6C42\u4E0E\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
+    if (!instruction.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u586B\u5199 1\u20134000 \u5B57\u7684\u660E\u786E\u521B\u4F5C\u76EE\u6807\u3002");
+    this.#parentOrigin = parentOrigin;
+    this.#busy = true;
+    try {
+      const candidate = await this.opened.candidate({ action: "read" });
+      if (candidate.status !== "absent") throw new Error("\u5DF2\u6709\u5019\u9009\uFF1B\u672C\u6B21\u4E0D\u4F1A\u66FF\u6362\u6216\u63A5\u7BA1\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
+      this.#state = {
+        taskId: randomUUID4(),
+        projectId: this.opened.inspection.manifest.projectId,
+        instruction,
+        status: "running",
+        reason: null,
+        threadPointer: null,
+        lastSafeStage: null,
+        candidateBaseline: null,
+        inputIdentity: null,
+        pending: null,
+        stage: "read",
+        divergence: "",
+        preview: null,
+        deliveryId: null
+      };
+      await this.#save();
+      const created = await this.opened.candidate({ action: "create" });
+      this.#state.candidateBaseline = created.baseline;
+      await this.#save();
+      this.#pendingRun = this.#run().catch((error51) => this.#stop(error51));
+      return this.value;
+    } catch (error51) {
+      if (this.#state) await this.#stop(error51);
+      throw error51;
+    } finally {
+      this.#busy = false;
+    }
+  }
+  async #set(stage) {
+    this.#assert();
+    this.#state.stage = stage;
+    await this.#save();
+  }
+  #assert() {
+    if (this.#closed || this.#state?.status !== "running") throw new Error("\u5F53\u524D\u9A71\u52A8\u5DF2\u5931\u53BB\u5199\u6743\u3002");
+  }
+  async #snapshot() {
+    const candidate = await this.opened.candidate({ action: "read" });
+    if (candidate.status === "external-change") throw Object.assign(new Error("\u5019\u9009\u5DF2\u88AB\u5916\u90E8\u4FEE\u6539"), { code: "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" });
+    return this.preview.capture(this.opened, "candidate", true);
+  }
+  async #run(feedback = "", images = []) {
+    this.#assert();
+    const state = this.#state;
+    const snapshot = await this.#snapshot();
+    if (state.candidateBaseline !== snapshot.baseline) return this.#wait("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF0C\u5916\u90E8\u5B57\u8282\u5DF2\u4FDD\u7559\uFF1B\u5F53\u524D\u7248\u672C\u5C1A\u4E0D\u652F\u6301\u786E\u8BA4\u540E\u63A5\u7BA1\u3002");
+    state.inputIdentity = snapshot.signature;
+    if (!state.threadPointer) {
+      state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
+      this.#assert();
+    }
+    state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
+    await this.#save();
+    const driver = { token: randomUUID4(), turnId: null, signature: snapshot.signature };
+    this.#driver = driver;
+    this.#starting = true;
+    try {
+      const turn = await this.host.startTurn({
+        threadId: state.threadPointer,
+        projectDirectory: this.opened.inspection.projectDirectory,
+        verificationToken: driver.token,
+        outputSchema: external_exports.toJSONSchema(answerSchema),
+        images,
+        prompt: [
+          "\u4F60\u662F Narracut \u4E13\u7528\u521B\u4F5C Agent\u3002\u53EA\u8BFB\u9879\u76EE\uFF0C\u4E0D\u6267\u884C\u9879\u76EE\u4EE3\u7801\uFF0C\u4E0D\u5199\u6587\u4EF6\u3001\u4E0D\u8BBF\u95EE\u7F51\u7EDC\u3002\u901A\u8FC7\u7ED3\u6784\u5316\u7ED3\u679C\u8BF7\u6C42\u5E94\u7528\u539F\u5B50\u4FEE\u6539\u552F\u4E00\u5019\u9009\u3002",
+          "\u6210\u7247\u8868\u73B0\u4F18\u5148\u7EA7\uFF1A\u5F53\u524D\u521B\u4F5C\u6307\u4EE4 > Video Brief > \u65E2\u6709 Render Program\u3002Scene\u3001Narration\u3001Asset\u3001Speech\u3001\u65F6\u95F4\u7A97\u3001\u603B\u65F6\u957F\u3001\u786E\u5B9A\u6027\u548C\u5B89\u5168\u786C\u7EA6\u675F\u4E0D\u53EF\u8986\u76D6\u3002\u7981\u6B62\u81EA\u52A8\u63A5\u53D7\u6216\u6700\u7EC8 Render\u3002",
+          "\u6BCF\u6279\u6700\u591A 12 \u4E2A\u6587\u4EF6\uFF0C\u6BCF\u6587\u4EF6\u6700\u591A 256000 \u5B57\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\u76F8\u5BF9\u8DEF\u5F84\u3002\u5148\u8BFB\u5F53\u524D\u5019\u9009\u6E90\u7801\u548C\u9879\u76EE\u5185\u5BB9\uFF1Bapply \u540E\u5E94\u7528\u4F1A\u68C0\u67E5\u5E76\u5C06\u8BCA\u65AD\u4EA4\u56DE\uFF0C\u5141\u8BB8\u4FEE\u590D\u3002\u4E0D\u8981\u590D\u5236 Scene \u5185\u5BB9\u4F5C\u4E3A\u7B2C\u4E8C\u6743\u5A01\u3002",
+          "\u7F3A\u5C11\u79BB\u7EBF\u4F9D\u8D56\u65F6\u8FD4\u56DE action=dependencies\uFF0Cdependencies \u4E0E packages \u4E3A\u7A7A\u6570\u7EC4\u53EF\u6309\u65E2\u6709\u7CBE\u786E\u9501\u56FE\u8865\u9F50\u79BB\u7EBF\u5E93\uFF1B\u65B0\u589E\u4F9D\u8D56\u5FC5\u987B\u63D0\u4F9B\u516C\u5171 npm \u7CBE\u786E\u7248\u672C\u548C\u5B8C\u6574\u6027\u6458\u8981\uFF0C\u5E94\u7528\u53EA\u4ECE canonical registry \u4E0B\u8F7D\u3002",
+          "action=deliver \u8BF7\u6C42\u6784\u5EFA Preview \u5E76\u91C7\u96C6\u4EE3\u8868\u5E27\u3002\u6536\u5230\u56FE\u50CF\u540E\u9010\u5E27\u68C0\u67E5\uFF0Creviews \u5FC5\u987B\u5F15\u7528\u6240\u7ED9\u5E27\u53F7\u4E0E digest\uFF0C\u4E0D\u80FD\u4EC5\u51ED\u6587\u672C\u58F0\u79F0\u68C0\u67E5\u3002\u65E0\u9700\u4FEE\u6539\u65F6 changes=[]\u3002\u5FC5\u987B\u7528\u6237\u5904\u7406\u65F6 action=wait \u5E76\u660E\u786E\u539F\u56E0\u3002",
+          "\u5B9E\u8D28 Brief \u5206\u6B67\u586B\u5199 divergence\uFF0C\u5E76\u8BF4\u660E\u672C\u6B21\u9075\u5FAA\u7684\u7528\u6237\u539F\u6587\uFF1B\u5426\u5219\u7A7A\u5B57\u7B26\u4E32\u3002summary\u3001warnings\u3001suggestions \u7528\u4E2D\u6587\u3002",
+          `\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\uFF08\u7CBE\u786E\u539F\u6587\uFF09\uFF1A${JSON.stringify(state.instruction)}`,
+          `\u6700\u65B0 Runtime \u8F93\u5165\uFF1A${JSON.stringify(snapshot.input)}`,
+          `\u5019\u9009\uFF1A${snapshot.candidate.candidate?.path}\uFF1B\u5B8C\u6574\u8EAB\u4EFD\uFF1A${snapshot.signature}`,
+          `verificationToken \u5FC5\u987B\u539F\u6837\u8FD4\u56DE\uFF1A${driver.token}`,
+          feedback
+        ].join("\n")
+      });
+      this.#assert();
+      driver.turnId = turn.turnId;
+    } finally {
+      this.#starting = false;
+      for (const event of this.#early.splice(0)) this.#pendingRun = this.#pendingRun.then(() => this.#event(event)).catch((error51) => this.#stop(error51));
+    }
+  }
+  async #event(event) {
+    if (!this.ownsCandidate || this.#closed) return;
+    if (event.type === "host-unavailable") throw new Error("CODEX_UNAVAILABLE");
+    if (event.threadId !== this.#state.threadPointer) return;
+    const driver = this.#driver;
+    if (event.type === "thread-unavailable") {
+      if (event.turnId && event.turnId !== driver?.turnId) return;
+      throw new Error("CODEX_THREAD_UNAVAILABLE");
+    }
+    if (!driver || event.turnId !== driver.turnId) return;
+    this.#driver = null;
+    if (event.status !== "completed" || !event.output) throw new Error("CODEX_INTERRUPTED");
+    const answer = answerSchema.parse(JSON.parse(event.output));
+    if (answer.verificationToken !== driver.token) throw new Error("\u521B\u4F5C\u7ED3\u679C\u9A71\u52A8\u8EAB\u4EFD\u4E0D\u5339\u914D");
+    const snapshot = await this.#snapshot();
+    if (snapshot.baseline !== this.#state.candidateBaseline) return this.#wait("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1B\u5916\u90E8\u5B57\u8282\u5DF2\u4FDD\u7559\uFF0C\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\u3002");
+    if (snapshot.signature !== driver.signature) throw new Error("\u9879\u76EE\u8F93\u5165\u6216\u5019\u9009\u5DF2\u53D8\u5316\uFF1B\u65E7\u7ED3\u679C\u5DF2\u4E22\u5F03\uFF0C\u81EA\u52A8\u8FFD\u8D76\u5C1A\u672A\u63A5\u5165\u3002");
+    this.#state.divergence = answer.divergence;
+    if (answer.action === "wait") return this.#wait(answer.suggestions.length ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
+    if (answer.action === "apply" || answer.action === "dependencies") {
+      if (answer.action === "apply" && !answer.changes.length) {
+        if (++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
+        return this.#run("\u672A\u4EA7\u751F\u6301\u4E45\u6210\u679C\uFF0C\u8BF7\u63D0\u4EA4\u4FEE\u6539\u6216\u8BF7\u6C42\u4EA4\u4ED8\u3002");
+      }
+      this.#state.preview = null;
+      this.#state.deliveryId = null;
+      this.delivery.clear();
+      await this.#set("modify");
+      const applied = await this.opened.programTransaction(async (manager) => {
+        const view = { ...this.opened, candidate: manager, readPreviewSource: manager.previewSource };
+        return manager(answer.action === "dependencies" ? { action: "dependencies", baseline: snapshot.baseline, dependencies: Object.fromEntries(answer.dependencies.map((item) => [item.name, item.version])), packages: answer.packages } : { action: "apply", baseline: snapshot.baseline, changes: answer.changes }, async () => {
+          this.#assert();
+          if ((await this.preview.capture(view, "candidate", true)).signature !== driver.signature) throw new Error("\u9879\u76EE\u8F93\u5165\u5DF2\u53D8\u5316\uFF1B\u672C\u6279\u672A\u63D0\u4EA4\u3002");
+          this.#assert();
+        });
+      });
+      this.#state.candidateBaseline = applied.baseline;
+      this.#state.lastSafeStage = "modify";
+      this.#noProgress = applied.candidate?.identity === snapshot.candidate.candidate?.identity ? this.#noProgress + 1 : 0;
+      if (this.#noProgress >= 3) throw new Error("NO_PROGRESS");
+      await this.#set("check");
+      await this.checks.start(this.opened);
+      const checked = await this.#poll(async () => this.checks.status(this.opened), (value) => value.batches.at(-1)?.status !== "running");
+      this.#state.lastSafeStage = "check";
+      return this.#run(`\u5019\u9009\u68C0\u67E5\uFF1A${JSON.stringify(checked)}\u3002\u4FEE\u590D\u95EE\u9898\u6216\u8BF7\u6C42 deliver\u3002`);
+    }
+    if (this.#state.stage !== "frames") {
+      await this.#set("check");
+      await this.checks.start(this.opened);
+      const checked = await this.#poll(() => this.checks.status(this.opened), (value) => value.batches.at(-1)?.status !== "running");
+      if (checked.batches.at(-1)?.stale || checked.gates.find((gate) => gate.operation === "preview")?.status !== "available") {
+        if (++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
+        return this.#run(`\u68C0\u67E5\u5C1A\u672A\u901A\u8FC7\uFF0C\u8BF7\u4FEE\u590D\u6216\u660E\u786E\u7B49\u5F85\u7528\u6237\uFF1A${JSON.stringify(checked)}`);
+      }
+      this.#state.lastSafeStage = "check";
+    }
+    await this.#set("preview");
+    if (!this.#state.preview) {
+      const descriptor = await this.preview.build(this.opened, "candidate", this.#parentOrigin);
+      this.#assert();
+      this.#state.preview = descriptor;
+      this.#state.lastSafeStage = "preview";
+      await this.delivery.operate(this.opened, { action: "prepare", instanceId: descriptor.instanceId });
+    }
+    await this.#set("frames");
+    const deliveryState = await this.#poll(() => this.delivery.status(this.opened), (value) => !value.collecting);
+    const current = deliveryState.delivery;
+    if (!current || current.stale) throw new Error("\u4EA4\u4ED8\u8BC1\u636E\u5DF2\u8FC7\u671F");
+    this.#state.deliveryId = current.id;
+    if (answer.reviews.length) await this.delivery.operate(this.opened, { action: "review", deliveryId: current.id, reviews: answer.reviews });
+    const latest = (await this.delivery.status(this.opened)).delivery;
+    const remaining = latest.frames.filter((frame) => !frame.observation);
+    if (remaining.some((frame) => frame.status !== "captured")) return this.#wait("USER_DECISION_REQUIRED", "\u4EE3\u8868\u5E27\u91C7\u96C6\u5931\u8D25\uFF0C\u8BF7\u5728\u5019\u9009\u4EA4\u4ED8\u533A\u68C0\u67E5\u5E76\u91CD\u8BD5\u3002");
+    if (remaining.length) {
+      const images = [], refs = [];
+      for (const frame of remaining.slice(0, 12)) {
+        const result = await this.delivery.operate(this.opened, { action: "image", deliveryId: current.id, frame: frame.frame });
+        images.push(`data:image/png;base64,${result.image}`);
+        refs.push({ frame: frame.frame, digest: result.digest });
+      }
+      if (!answer.reviews.length && ++this.#noProgress >= 3) throw new Error("NO_PROGRESS");
+      if (answer.reviews.length) this.#noProgress = 0;
+      return this.#run(`\u68C0\u67E5\u9644\u5E26\u56FE\u50CF\uFF0C\u6309\u987A\u5E8F\u5BF9\u5E94\uFF1A${JSON.stringify(refs)}\u3002\u8FD4\u56DE deliver \u548C reviews\u3002`, images);
+    }
+    this.#state.lastSafeStage = "frames";
+    await this.#set("deliver");
+    await this.delivery.operate(this.opened, {
+      action: "describe",
+      deliveryId: current.id,
+      report: { goal: this.#state.instruction, summary: answer.summary, warnings: [.../* @__PURE__ */ new Set([...answer.warnings, ...snapshot.input.scenes.length === 0 ? ["\u6CA1\u6709\u53EF\u64AD\u653E Scene\uFF1B\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u6DFB\u52A0 Scene\u3002"] : snapshot.input.scenes.some((scene) => scene.time.source === "draft") ? ["\u7F3A\u5C11 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u4E0D\u80FD\u7528\u4E8E\u6700\u7EC8 Render\u3002"] : []])], suggestions: answer.suggestions }
+    });
+    this.#state.lastSafeStage = "deliver";
+    return this.#wait("CANDIDATE_READY", "\u5019\u9009\u5DF2\u5C31\u7EEA\uFF1B\u8BF7\u67E5\u770B\u4EA4\u4ED8\u3001\u68C0\u67E5\u7ED3\u679C\u4E0E\u8B66\u544A\uFF0C\u7531\u4F60\u51B3\u5B9A\u662F\u5426\u63A5\u53D7\u3002");
+  }
+  async #poll(read, done) {
+    for (; ; ) {
+      this.#assert();
+      const value = await read();
+      if (done(value)) return value;
+      await new Promise((resolve4) => setTimeout(resolve4, 100));
+    }
+  }
+  async #wait(reason, pending) {
+    this.#assert();
+    this.#driver = null;
+    this.#state.status = "waiting";
+    this.#state.reason = reason;
+    this.#state.pending = pending;
+    await this.#save();
+  }
+  async #stop(error51) {
+    this.#driver = null;
+    if (!this.#state || this.#closed) return;
+    if (error51.code === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED") {
+      this.#state.status = "waiting";
+      this.#state.reason = "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED";
+      this.#state.pending = "\u5019\u9009\u53D1\u751F\u5916\u90E8\u53D8\u5316\uFF0C\u5916\u90E8\u5B57\u8282\u5DF2\u4FDD\u7559\uFF1B\u5F53\u524D\u7248\u672C\u5C1A\u4E0D\u652F\u6301\u786E\u8BA4\u540E\u63A5\u7BA1\u3002";
+      await this.#save().catch(() => void 0);
+      return;
+    }
+    this.#state.status = "stopped";
+    this.#state.reason = ["CODEX_UNAVAILABLE", "CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "NO_PROGRESS"].includes(error51.message) ? error51.message : "CODEX_INTERRUPTED";
+    this.#state.pending = String(error51.message).slice(0, 4e3);
+    await this.#save().catch(() => void 0);
+  }
+  async terminate(reason) {
+    if (!this.#state) return;
+    this.#driver = null;
+    this.#state.status = "terminated";
+    this.#state.reason = reason;
+    this.#state.pending = null;
+    await this.#save();
+  }
+  async close() {
+    this.#closed = true;
+    this.#unsubscribe();
+    const driver = this.#driver;
+    this.#driver = null;
+    if (driver?.turnId && this.#state?.threadPointer) await this.host.interruptTurn({ threadId: this.#state.threadPointer, turnId: driver.turnId }).catch(() => void 0);
+    await this.#pendingRun;
+  }
+};
+
+// src/server/project-acceptance.ts
+import { randomUUID as randomUUID6 } from "node:crypto";
+
+// src/shared/program-checks.ts
+var groups = [
+  ["layout", "Render Program \u76EE\u5F55\u4E0D\u7B26\u5408\u8981\u6C42\u3002", "\u4FEE\u590D\u7A0B\u5E8F\u76EE\u5F55\u3001\u7F3A\u5931\u6587\u4EF6\u6216\u8D8A\u754C\u8DEF\u5F84\uFF0C\u518D\u91CD\u65B0\u68C0\u67E5\u3002", ["LAYOUT_INVALID", "LAYOUT_REQUIRED_PATH_MISSING", "LAYOUT_PATH_ESCAPE", "LAYOUT_FORBIDDEN_ARTIFACT"]],
+  ["manifest", "Manifest \u58F0\u660E\u65E0\u6548\u6216\u4E0D\u53D7\u652F\u6301\u3002", "\u4FEE\u6B63 program.json \u7684\u534F\u8BAE\u7248\u672C\u53CA\u6B63\u6574\u6570\u8F93\u51FA\u683C\u5F0F\u3002", ["MANIFEST_INVALID", "MANIFEST_API_UNSUPPORTED", "OUTPUT_FORMAT_INVALID"]],
+  ["dependencies", "\u7CBE\u786E\u4F9D\u8D56\u6216\u79BB\u7EBF\u5E93\u4E0D\u53EF\u7528\u3002", "\u901A\u8FC7\u4F9D\u8D56\u534F\u8C03\u4FEE\u590D\u58F0\u660E\u3001\u9501\u56FE\u4E0E\u79BB\u7EBF\u5305\uFF0C\u518D\u91CD\u65B0\u68C0\u67E5\u3002", ["DEPENDENCY_MANIFEST_INVALID", "DEPENDENCY_LOCK_INVALID", "DEPENDENCY_LOCK_OUT_OF_SYNC", "DEPENDENCY_SOURCE_UNSUPPORTED", "DEPENDENCY_INTEGRITY_FAILED", "DEPENDENCY_UNAVAILABLE", "REMOTION_VERSION_MISMATCH", "DEPENDENCY_INSTALL_FAILED"]],
+  ["static", "\u7A0B\u5E8F\u8BBF\u95EE\u7981\u6B62\u80FD\u529B\u6216\u4F7F\u7528\u975E\u786E\u5B9A\u6027\u884C\u4E3A\u3002", "\u79FB\u9664\u5BBF\u4E3B\u3001\u7F51\u7EDC\u6216\u8DE8\u5E27\u72B6\u6001\u8BBF\u95EE\uFF0C\u6539\u7528\u7EAF\u51FD\u6570\u4E0E\u663E\u5F0F\u79CD\u5B50\u3002", ["STATIC_FORBIDDEN_CAPABILITY", "STATIC_NONDETERMINISTIC_API"]],
+  ["typecheck", "\u7A0B\u5E8F\u672A\u901A\u8FC7\u56FA\u5B9A\u7C7B\u578B\u68C0\u67E5\u3002", "\u4FEE\u6B63 Render Program \u7C7B\u578B\u4E0E\u5165\u53E3\u5951\u7EA6\uFF0C\u518D\u91CD\u65B0\u68C0\u67E5\u3002", ["TYPECHECK_FAILED"]],
+  ["bundle", "\u4E0D\u53EF\u53D8 Bundle \u68C0\u67E5\u5931\u8D25\u3002", "\u4FEE\u590D\u6E90\u7801\u4E0E\u6784\u5EFA\u4EA7\u7269\uFF1B\u4FDD\u6301\u540C\u4E00\u8BA4\u8BC1\u73AF\u5883\u548C\u5B8C\u6574 Source Map\u3002", ["BUNDLE_FAILED", "BUNDLE_SOURCEMAP_MISSING", "BUNDLE_FINGERPRINT_MISMATCH"]],
+  ["composition", "Composition \u4E0E\u6743\u5A01\u8F93\u5165\u4E0D\u4E00\u81F4\u3002", "\u4F7F\u7528 Runtime \u63D0\u4F9B\u7684\u8F93\u51FA\u683C\u5F0F\u3001Scene \u987A\u5E8F\u4E0E\u65F6\u95F4\u3002", ["COMPOSITION_INVALID"]],
+  ["capsule", "\u6267\u884C\u80F6\u56CA\u65E0\u6CD5\u5B8C\u6210\u8BA4\u8BC1\u6216\u6267\u884C\u3002", "\u6062\u590D\u8BA4\u8BC1\u6267\u884C\u73AF\u5883\u6216\u964D\u4F4E\u8D44\u6E90\u5360\u7528\u540E\u91CD\u8BD5\u3002", ["CAPSULE_UNAVAILABLE", "CAPSULE_SELF_TEST_FAILED", "CAPSULE_TIMEOUT", "CAPSULE_RESOURCE_EXCEEDED"]],
+  ["runtime", "Runtime \u5951\u7EA6\u6216\u5E27\u6267\u884C\u5931\u8D25\u3002", "\u4FEE\u590D\u7A0B\u5E8F\u5165\u53E3\u3001Bridge \u6216\u62A5\u9519\u5E27\uFF1B\u4E0D\u5F97\u8BBF\u95EE\u5916\u90E8\u8D44\u6E90\u3002", ["RUNTIME_ENTRY_INVALID", "RUNTIME_METADATA_INVALID", "RUNTIME_BRIDGE_FAILED", "RUNTIME_FRAME_FAILED", "RUNTIME_CONTRACT_VIOLATION", "RUNTIME_EXTERNAL_ACCESS_BLOCKED"]],
+  ["evidence", "\u9A8C\u6536\u8BC1\u636E\u4E0D\u5B8C\u6574\u6216\u8EAB\u4EFD\u4E0D\u7B26\u3002", "\u9488\u5BF9\u6700\u65B0\u5019\u9009 Preview \u8865\u9F50\u4EE3\u8868\u5E27\u68C0\u67E5\u3002", ["EVIDENCE_PLAN_INCOMPLETE", "EVIDENCE_CAPTURE_FAILED", "EVIDENCE_IDENTITY_MISMATCH"]],
+  ["render", "\u6700\u7EC8 Render \u672A\u80FD\u5B8C\u6210\u3002", "\u6838\u5BF9\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u3001\u5A92\u4F53\u3001\u7F16\u7801\u5668\u4E0E\u8F93\u51FA\u4F4D\u7F6E\uFF0C\u518D\u91CD\u8BD5\u3002", ["RENDER_MEDIA_CHANGED", "RENDER_FRAME_FAILED", "RENDER_ENCODE_FAILED", "RENDER_OUTPUT_FAILED"]]
+];
+var diagnosticCatalog = {};
+for (const [stage, message, suggestion, codes] of groups) for (const code of codes) diagnosticCatalog[code] = { stage, message, suggestion };
+for (const [code, stage, message, suggestion] of [
+  ["MANIFEST_UNKNOWN_FIELD", "manifest", "Manifest \u542B\u672A\u77E5\u5B57\u6BB5\u3002", "\u6838\u5BF9\u5E76\u79FB\u9664\u4E0D\u4F7F\u7528\u7684\u5B57\u6BB5\u3002"],
+  ["STATIC_DEPRECATED_API", "static", "\u7A0B\u5E8F\u4F7F\u7528\u5DF2\u5F03\u7528 API\u3002", "\u8FC1\u79FB\u5230\u5F53\u524D Runtime API\u3002"],
+  ["CAPSULE_RESOURCE_NEAR_LIMIT", "capsule", "\u6267\u884C\u8D44\u6E90\u63A5\u8FD1\u4E0A\u9650\u3002", "\u51CF\u5C11\u8BA1\u7B97\u6216\u5A92\u4F53\u8D44\u6E90\u5360\u7528\u3002"],
+  ["RESULT_TRUNCATED", "evidence", "\u8BCA\u65AD\u5DF2\u622A\u65AD\u3002", "\u4FEE\u590D\u5DF2\u5217\u51FA\u7684\u95EE\u9898\u540E\u91CD\u65B0\u68C0\u67E5\u3002"]
+]) diagnosticCatalog[code] = { stage, message, suggestion, warning: true };
+function diagnostic(code, identity2, location = { kind: "project" }) {
+  const entry = diagnosticCatalog[code];
+  if (!entry) throw new Error(`\u672A\u767B\u8BB0\u7684\u8BCA\u65AD\u4EE3\u7801\uFF1A${code}`);
+  return { code, ...entry, identity: { ...identity2 }, location, related: [], severity: entry.warning ? "warning" : "error", operations: entry.warning ? [] : entry.stage === "render" ? ["render"] : entry.stage === "evidence" ? ["delivery", "accept"] : ["preview", "delivery", "accept"] };
+}
+function sameIdentity(a, b) {
+  return Object.keys(a).every((key) => a[key] === b[key]);
+}
+var stageOrder = ["layout", "manifest", "dependencies", "capsule", "typecheck", "static", "build", "bundle", "composition", "runtime", "evidence", "render"];
+var canonical = (value) => JSON.stringify(value && typeof value === "object" ? Array.isArray(value) ? value.map((item) => JSON.parse(canonical(item))) : Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => [key, JSON.parse(canonical(item))])) : value);
+function normalizeDiagnostics(values, limit = 100) {
+  const unique = [...new Map(values.map((value) => [canonical(value), value])).values()];
+  unique.sort((a, b) => stageOrder.indexOf(a.stage) - stageOrder.indexOf(b.stage) || (canonical(a) < canonical(b) ? -1 : canonical(a) > canonical(b) ? 1 : 0));
+  const bound = Math.max(1, Math.min(100, Math.floor(limit) || 100));
+  return { diagnostics: unique.slice(0, bound), truncated: Math.max(0, unique.length - bound), total: unique.length };
+}
+var CheckBatch = class {
+  constructor(id, identity2, checks, visualWarnings = []) {
+    this.id = id;
+    this.identity = identity2;
+    this.checks = checks;
+    this.visualWarnings = visualWarnings;
+    this.identity = Object.freeze({ ...identity2 });
+    if (visualWarnings.some((warning) => !sameIdentity(warning.identity, identity2))) throw new Error("\u4E3B\u89C2\u8B66\u544A\u5FC5\u987B\u7ED1\u5B9A\u540C\u4E00\u5B8C\u6574\u72B6\u6001\u8EAB\u4EFD\u3002");
+    this.visualWarnings = structuredClone(visualWarnings).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const seen = /* @__PURE__ */ new Set();
+    for (const check2 of checks) {
+      if (seen.has(check2.id) || check2.dependencies.some((id2) => !seen.has(id2))) throw new Error("\u68C0\u67E5\u4F9D\u8D56\u56FE\u5FC5\u987B\u6309\u62D3\u6251\u987A\u5E8F\u5B9A\u4E49\u4E14\u65E0\u91CD\u590D\u9636\u6BB5\u3002");
+      seen.add(check2.id);
+    }
+    this.#stages = checks.map((check2) => ({ id: check2.id, status: "waiting", reason: "" }));
+  }
+  id;
+  identity;
+  checks;
+  visualWarnings;
+  #controller = new AbortController();
+  #status = "running";
+  #stale = false;
+  #diagnostics = [];
+  #stages;
+  invalidate(latest) {
+    if (!sameIdentity(this.identity, latest)) this.#stale = true;
+  }
+  cancel() {
+    if (this.#status !== "running") return;
+    this.#status = "cancelled";
+    this.#controller.abort();
+    for (const stage of this.#stages) if (["waiting", "running"].includes(stage.status)) {
+      stage.status = "not-run";
+      stage.reason = "\u7528\u6237\u53D6\u6D88\uFF0C\u68C0\u67E5\u4E0D\u5B8C\u6574";
+    }
+  }
+  async run() {
+    const tasks = /* @__PURE__ */ new Map();
+    for (const check2 of this.checks) {
+      const dependencies = check2.dependencies.map((id) => tasks.get(id));
+      const task = (async () => {
+        await Promise.all(dependencies);
+        const stage = this.#stages.find((item) => item.id === check2.id);
+        if (this.#controller.signal.aborted) return;
+        const missing = check2.dependencies.filter((id) => this.#stages.find((item) => item.id === id).status !== "passed");
+        if (missing.length) {
+          stage.status = "not-run";
+          stage.reason = `\u524D\u7F6E\u9636\u6BB5\u672A\u901A\u8FC7\uFF1A${missing.join("\u3001")}`;
+          return;
+        }
+        stage.status = "running";
+        let results;
+        try {
+          results = await check2.run(this.#controller.signal);
+        } catch {
+          if (this.#controller.signal.aborted) return;
+          stage.status = "not-run";
+          stage.reason = "\u68C0\u67E5\u5668\u64CD\u4F5C\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5";
+          return;
+        }
+        if (this.#controller.signal.aborted) return;
+        if (results.some((item) => !sameIdentity(item.identity, this.identity))) {
+          this.#stale = true;
+          stage.status = "not-run";
+          stage.reason = "\u7ED3\u679C\u8EAB\u4EFD\u4E0D\u7B26\uFF0C\u672A\u5E76\u5165\u672C\u6279\u6B21";
+          return;
+        }
+        this.#diagnostics.push(...results);
+        stage.status = results.some((item) => item.severity === "error") ? "issues" : "passed";
+      })();
+      tasks.set(check2.id, task);
+    }
+    await Promise.all(tasks.values());
+    if (!this.#controller.signal.aborted) this.#status = "complete";
+  }
+  view() {
+    return structuredClone({ version: 1, id: this.id, identity: this.identity, status: this.#status, stale: this.#stale, stages: this.#stages, visualWarnings: this.visualWarnings.slice(0, 100), warningsTruncated: Math.max(0, this.visualWarnings.length - 100), ...normalizeDiagnostics(this.#diagnostics), hardOperations: ["preview", "delivery", "accept", "render"].filter((operation) => this.#diagnostics.some((item) => item.severity === "error" && item.operations.includes(operation))) });
+  }
+};
+function gateOperations(batch, latest, evidence, accepted, enabled = { preview: true, delivery: true }) {
+  const fresh = !!batch && !!latest && !batch.stale && sameIdentity(batch.identity, latest) && Object.values(latest).every((value) => value !== null);
+  const checks = fresh && batch.status === "complete" && batch.stages.length > 0 && batch.stages.filter((stage) => !["evidence", "render"].includes(stage.id)).every((stage) => stage.status === "passed");
+  const preview = !!checks && !batch.hardOperations.includes("preview");
+  const bound = !!evidence && !!latest && sameIdentity(evidence.identity, latest) && !!evidence.bundle;
+  const delivery = preview && bound && (evidence.zeroScenes || evidence.previewReady && !!evidence.instanceId && evidence.representativeFrames) && evidence.warningsDisplayed && !batch.truncated && !batch.warningsTruncated && !batch.hardOperations.includes("delivery");
+  const accept = delivery && evidence.explicitAcceptance && !batch.hardOperations.includes("accept");
+  const render = !!accepted && accepted.recordFresh && !!accepted.bundle && accepted.bundle === accepted.currentBundle && accepted.renderReady && accepted.preflight && !accepted.blocked;
+  const reasons = {
+    preview: !batch ? "\u5C1A\u672A\u68C0\u67E5\u5F53\u524D\u5019\u9009" : batch.status === "cancelled" ? "\u68C0\u67E5\u5DF2\u53D6\u6D88\uFF0C\u7ED3\u679C\u4E0D\u5B8C\u6574" : !fresh ? "\u6574\u6279\u7ED3\u679C\u5DF2\u8FC7\u671F\u6216\u8EAB\u4EFD\u5C1A\u672A\u786E\u8BA4" : !checks ? "\u5FC5\u8981\u68C0\u67E5\u5C1A\u672A\u5168\u90E8\u901A\u8FC7" : "\u5FC5\u8981\u68C0\u67E5\u901A\u8FC7\uFF1B\u5141\u8BB8\u8349\u7A3F\u65F6\u95F4\u4E0E\u96F6 Scene",
+    delivery: !preview ? "\u5148\u5B8C\u6210\u5019\u9009\u5FC5\u8981\u68C0\u67E5" : !bound ? "\u7F3A\u5C11\u7ED1\u5B9A\u6700\u65B0\u5019\u9009\u7684 Preview \u8BC1\u636E" : !evidence.zeroScenes && (!evidence.previewReady || !evidence.representativeFrames || !evidence.instanceId) ? "\u6700\u65B0 Preview \u6216\u4EE3\u8868\u5E27\u68C0\u67E5\u5C1A\u672A\u9F50\u5907" : !evidence.warningsDisplayed || !!batch.truncated || !!batch.warningsTruncated ? "\u5168\u90E8\u8B66\u544A\u5C1A\u672A\u5B9E\u9645\u5C55\u793A\uFF0C\u6216\u8BCA\u65AD\u5DF2\u622A\u65AD" : "\u6700\u65B0 Preview\u3001\u4EE3\u8868\u5E27\u4E0E\u8B66\u544A\u5C55\u793A\u9F50\u5907",
+    accept: !delivery ? "\u5019\u9009\u5C1A\u4E0D\u5177\u5907\u4EA4\u4ED8\u6761\u4EF6" : !evidence.explicitAcceptance ? "\u4ECD\u987B\u7528\u6237\u660E\u786E\u6574\u4F53\u63A5\u53D7\u5019\u9009" : "\u7528\u6237\u5DF2\u660E\u786E\u6574\u4F53\u63A5\u53D7\uFF0C\u8BC1\u636E\u7ED1\u5B9A\u4E00\u81F4",
+    render: !accepted ? "\u5C1A\u65E0\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7684\u9A8C\u6536\u8BB0\u5F55" : !accepted.recordFresh ? "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7684\u8BB0\u5F55\u5DF2\u8FC7\u671F" : accepted.bundle !== accepted.currentBundle ? "Bundle \u4E0E\u63A5\u53D7\u8BB0\u5F55\u4E0D\u4E00\u81F4" : !accepted.renderReady ? "\u9700\u8981\u6B63\u5F0F Speech \u65F6\u95F4\u4E0E\u53EF\u6E32\u67D3 Scene" : !accepted.preflight || accepted.blocked ? "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u7684 Render \u524D\u68C0\u67E5\u672A\u901A\u8FC7" : "\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u6EE1\u8DB3\u6700\u7EC8 Render \u6761\u4EF6"
+  };
+  const next = { preview: "\u68C0\u67E5\u5F53\u524D\u5019\u9009\uFF1B\u901A\u8FC7\u540E\u5728\u4E0A\u65B9\u6784\u5EFA\u5019\u9009", delivery: "\u6784\u5EFA\u6700\u65B0\u5019\u9009 Preview \u5E76\u5B8C\u6210\u4EE3\u8868\u5E27\u5BA1\u6838", accept: "\u5B8C\u6210\u4EA4\u4ED8\u68C0\u67E5\u540E\u660E\u786E\u6574\u4F53\u63A5\u53D7", render: "\u9488\u5BF9\u5DF2\u63A5\u53D7\u4FEE\u8BA2\u8865\u9F50\u6B63\u5F0F\u65F6\u95F4\u53CA Render \u524D\u68C0\u67E5" };
+  return ["preview", "delivery", "accept", "render"].map((operation) => ({ operation, eligible: { preview, delivery, accept, render }[operation], status: !enabled[operation] ? "disabled" : { preview, delivery, accept, render }[operation] ? "available" : "blocked", reason: reasons[operation], next: !enabled[operation] ? "\u6B64\u64CD\u4F5C\u5C1A\u672A\u542F\u7528" : next[operation] }));
+}
+
+// src/server/preview-origin.ts
+import { createServer } from "node:http";
+import { createHash as createHash7, randomBytes, randomUUID as randomUUID5 } from "node:crypto";
+var previewDigest = (value) => `sha256:${createHash7("sha256").update(value).digest("hex")}`;
+var CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
+var PreviewOrigin = class {
+  #server;
+  #starting;
+  #origin = "";
+  #instances = /* @__PURE__ */ new Map();
+  origin() {
+    return this.#starting ??= new Promise((resolve4, reject) => {
+      this.#server = createServer((req, res) => {
+        res.setHeader("Content-Security-Policy", CSP);
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Referrer-Policy", "no-referrer");
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+        if (req.headers.host !== new URL(this.#origin).host) {
+          res.writeHead(403).end();
+          return;
+        }
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          res.writeHead(405).end();
+          return;
+        }
+        const path = (req.url ?? "").split("?")[0];
+        const match = /^\/([a-f0-9]{48})\/(index.html|bundle.js|bootstrap.js|media\/[a-f0-9]{64})$/.exec(path);
+        const bytes = match && this.#instances.get(match[1])?.get(match[2]);
+        if (!bytes) {
+          res.writeHead(404).end();
+          return;
+        }
+        const type = match[2].endsWith(".html") ? "text/html; charset=utf-8" : match[2].endsWith(".js") ? "text/javascript; charset=utf-8" : "application/octet-stream";
+        res.setHeader("Content-Type", type);
+        const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? "");
+        let start = 0, end = bytes.length - 1;
+        if (range) {
+          start = Number(range[1]);
+          end = range[2] ? Number(range[2]) : end;
+          if (start > end || end >= bytes.length) {
+            res.writeHead(416).end();
+            return;
+          }
+          res.statusCode = 206;
+          res.setHeader("Content-Range", `bytes ${start}-${end}/${bytes.length}`);
+        }
+        res.setHeader("Accept-Ranges", "bytes");
+        res.setHeader("Content-Length", end - start + 1);
+        res.end(req.method === "HEAD" ? void 0 : bytes.subarray(start, end + 1));
+      });
+      this.#server.once("error", reject);
+      this.#server.listen(0, "127.0.0.1", () => {
+        this.#origin = `http://127.0.0.1:${this.#server.address().port}`;
+        this.#server.unref();
+        resolve4(this.#origin);
+      });
+    });
+  }
+  async publish(args) {
+    const origin = await this.origin();
+    if (!/^https?:\/\//.test(args.parentOrigin) || new URL(args.parentOrigin).origin !== args.parentOrigin || args.parentOrigin === origin) throw new Error("Preview \u9700\u8981\u53EF\u9A8C\u8BC1\u7684\u8DE8 origin \u5BBF\u4E3B\u3002");
+    const bindingBytes = Buffer.from(JSON.stringify({ input: args.input, speech: args.speech }));
+    const boundIdentity = previewDigest(Buffer.concat([Buffer.from(JSON.stringify(["binding", bindingBytes.length]) + "\n"), bindingBytes]));
+    if (boundIdentity !== args.bundle.inputIdentity) throw new Error("Preview \u8F93\u5165\u4E0E Bundle \u6784\u5EFA\u7ED1\u5B9A\u4E0D\u4E00\u81F4\u3002");
+    const identity2 = { bundle: args.bundle.identity, input: args.bundle.inputIdentity, media: previewDigest(JSON.stringify([...args.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())), environment: args.bundle.environmentIdentity };
+    const instanceId = randomUUID5(), token = randomBytes(32).toString("hex");
+    if (!/^[a-f0-9]{48}$/.test(args.key) || this.#instances.has(args.key)) throw new Error("Preview \u5B9E\u4F8B\u4E0D\u80FD\u91CD\u590D\u7ED1\u5B9A\u3002");
+    const files = /* @__PURE__ */ new Map([["bundle.js", args.bundle.files().get("bundle.js")]]);
+    for (const [path, bytes] of args.media) {
+      if (!/^media\/[a-f0-9]{64}$/.test(path) || path !== `media/${previewDigest(bytes).slice(7)}`) throw new Error("\u5A92\u4F53\u8DEF\u5F84\u65E0\u6548\u3002");
+      files.set(path, Buffer.from(bytes));
+    }
+    for (const src of [...args.input.assets.filter((asset) => asset.availability === "available").map((asset) => asset.src), ...args.speech.map((track) => track.src)]) {
+      if (!src || !files.has(src)) throw new Error("Preview \u7F3A\u5C11\u7ED1\u5B9A\u7684\u4E0D\u53EF\u53D8\u5A92\u4F53\u3002");
+    }
+    const binding = { instanceId, token, identity: identity2, parentOrigin: args.parentOrigin, input: args.input, speech: args.speech };
+    files.set("bootstrap.js", Buffer.from(`window.dispatchEvent(new CustomEvent('narracut-preview-binding',{detail:${JSON.stringify(binding)}}));`));
+    files.set("index.html", Buffer.from('<!doctype html><meta charset="utf-8"><style>html,body,#root{margin:0;width:100%;height:100%;overflow:hidden;background:#050707}#root{display:flex;align-items:center;justify-content:center}</style><div id="root"></div><script src="bundle.js"></script><script src="bootstrap.js"></script>'));
+    this.#instances.set(args.key, files);
+    return { version: 1, parentOrigin: args.parentOrigin, instanceId, token, identity: identity2, input: args.input, target: args.target, baseline: args.baseline, label: args.label, origin, url: `${origin}/${args.key}/index.html` };
+  }
+  snapshot(url2) {
+    const files = this.#instances.get(new URL(url2).pathname.split("/")[1]);
+    if (!files) throw new Error("Preview \u5B9E\u4F8B\u5DF2\u91CA\u653E\u3002");
+    return new Map([...files].map(([path, bytes]) => [path, Buffer.from(bytes)]));
+  }
+  release(url2) {
+    const key = new URL(url2).pathname.split("/")[1];
+    this.#instances.delete(key);
+  }
+  async close() {
+    this.#instances.clear();
+    if (this.#server) {
+      this.#server.closeAllConnections();
+      await new Promise((resolve4) => this.#server.close(() => resolve4()));
+    }
+  }
+};
+
 // src/server/project-acceptance.ts
 var ProjectAcceptance = class {
   constructor(delivery, preview) {
@@ -26111,7 +26470,7 @@ var ProjectAcceptance = class {
     };
     const summary = delivery.report.summary;
     const key = previewDigest(JSON.stringify([delivery, batch, history.current, history.revisions.map((item) => item.revisionId), record3]));
-    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID5() };
+    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID6() };
   }
   async operate(opened, args) {
     if (args.action === "review") return { confirmation: await this.review(opened) };
@@ -26152,28 +26511,28 @@ var ProjectAcceptance = class {
 };
 
 // src/server/project-render.ts
-import { randomUUID as randomUUID7, randomBytes as randomBytes3 } from "node:crypto";
+import { randomUUID as randomUUID8, randomBytes as randomBytes3 } from "node:crypto";
 import { constants as constants3, watch } from "node:fs";
-import { open as open5, realpath as realpath4, link, unlink, lstat as lstat6 } from "node:fs/promises";
-import { basename, dirname as dirname6, isAbsolute as isAbsolute3, join as join9 } from "node:path";
+import { open as open6, realpath as realpath4, link, unlink, lstat as lstat6 } from "node:fs/promises";
+import { basename, dirname as dirname6, isAbsolute as isAbsolute3, join as join10 } from "node:path";
 
 // src/server/project-preview.ts
 import { constants as constants2 } from "node:fs";
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { lstat as lstat5, open as open4, realpath as realpath3 } from "node:fs/promises";
-import { join as join8, relative as relative2, isAbsolute as isAbsolute2 } from "node:path";
+import { lstat as lstat5, open as open5, realpath as realpath3 } from "node:fs/promises";
+import { join as join9, relative as relative2, isAbsolute as isAbsolute2 } from "node:path";
 
 // src/server/project-vnext-inspection.ts
 import { createHash as createHash9 } from "node:crypto";
-import { lstat as lstat4, open as open3, readdir as readdir4, realpath as realpath2 } from "node:fs/promises";
-import { isAbsolute, join as join7, relative, resolve as resolve2, sep } from "node:path";
+import { lstat as lstat4, open as open4, readdir as readdir4, realpath as realpath2 } from "node:fs/promises";
+import { isAbsolute, join as join8, relative, resolve as resolve2, sep } from "node:path";
 
 // src/server/project-speech-vnext.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash8, randomUUID as randomUUID6 } from "node:crypto";
+import { createHash as createHash8, randomUUID as randomUUID7 } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { lstat as lstat3, open as open2, readFile as readFile4, rename as rename3, rm as rm5 } from "node:fs/promises";
-import { dirname as dirname5, join as join6 } from "node:path";
+import { lstat as lstat3, open as open3, readFile as readFile4, rename as rename4, rm as rm6 } from "node:fs/promises";
+import { dirname as dirname5, join as join7 } from "node:path";
 import { promisify as promisify3 } from "node:util";
 var execFileAsync = promisify3(execFile3);
 var DRAFT_DURATION_MS = 5e3;
@@ -26248,7 +26607,7 @@ function ttsProfileId(config2) {
   return `sha256:${createHash8("sha256").update(stable, "utf8").digest("hex")}`;
 }
 async function readProjectTtsConfig(projectDirectory) {
-  const path = join6(projectDirectory, "tts.json");
+  const path = join7(projectDirectory, "tts.json");
   let bytes;
   try {
     const facts = await lstat3(path);
@@ -26289,11 +26648,11 @@ async function readProjectTtsConfig(projectDirectory) {
 }
 async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
   const config2 = validateProjectTtsConfig(input);
-  const path = join6(projectDirectory, "tts.json");
-  const temporaryPath = join6(projectDirectory, `.tts.json.${randomUUID6()}.tmp`);
+  const path = join7(projectDirectory, "tts.json");
+  const temporaryPath = join7(projectDirectory, `.tts.json.${randomUUID7()}.tmp`);
   let committed = false;
   try {
-    const handle = await open2(temporaryPath, "wx", 384);
+    const handle = await open3(temporaryPath, "wx", 384);
     try {
       await handle.writeFile(Buffer.from(JSON.stringify(config2), "utf8"));
       await handle.sync();
@@ -26301,10 +26660,10 @@ async function writeProjectTtsConfig(projectDirectory, input, assertWritable = a
       await handle.close();
     }
     await assertWritable();
-    await rename3(temporaryPath, path);
+    await rename4(temporaryPath, path);
     committed = true;
     try {
-      const directory2 = await open2(dirname5(path), "r");
+      const directory2 = await open3(dirname5(path), "r");
       try {
         await directory2.sync();
       } finally {
@@ -26313,7 +26672,7 @@ async function writeProjectTtsConfig(projectDirectory, input, assertWritable = a
     } catch {
     }
   } finally {
-    if (!committed) await rm5(temporaryPath, { force: true }).catch(() => void 0);
+    if (!committed) await rm6(temporaryPath, { force: true }).catch(() => void 0);
   }
   return { status: "configured", config: config2, profileId: ttsProfileId(config2) };
 }
@@ -26353,7 +26712,7 @@ async function probeSpeechDurationMs(path) {
   return Math.round(duration3 * 1e3);
 }
 async function speechContentHash(path) {
-  const handle = await open2(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  const handle = await open3(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
   try {
     const hash4 = createHash8("sha256");
     const chunk = Buffer.allocUnsafe(64 * 1024);
@@ -26401,7 +26760,7 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
       durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
       continue;
     }
-    const absolutePath = join6(projectDirectory, speech.path);
+    const absolutePath = join7(projectDirectory, speech.path);
     let before;
     try {
       before = await lstat3(absolutePath);
@@ -26933,7 +27292,7 @@ async function readBoundedControlFile(path, component, limit) {
       message: `${component} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
     });
   }
-  const handle = await open3(path, "r");
+  const handle = await open4(path, "r");
   try {
     const facts = await handle.stat();
     if (!facts.isFile() || facts.dev !== pathFacts.dev || facts.ino !== pathFacts.ino) {
@@ -27015,7 +27374,7 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
   const directoryIdentities = [];
   for (let index = 0; index < parts.length; index += 1) {
     const component = parts.slice(0, index + 1).join("/");
-    const path = join7(projectDirectory, component);
+    const path = join8(projectDirectory, component);
     let facts;
     try {
       facts = await lstat4(path);
@@ -27049,8 +27408,8 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
       );
     }
   }
-  const resourcePath = join7(projectDirectory, relativePath);
-  const allowedRoot = await realpath2(join7(projectDirectory, parts[0]));
+  const resourcePath = join8(projectDirectory, relativePath);
+  const allowedRoot = await realpath2(join8(projectDirectory, parts[0]));
   const resolvedResource = await realpath2(resourcePath);
   const relation = relative(allowedRoot, resolvedResource);
   if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
@@ -27074,7 +27433,7 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
 async function validateProjectVNextResources(projectDirectory, project, options = {}) {
   const assetStates = [];
   for (const asset of project.assets) {
-    const path = join7(projectDirectory, asset.path);
+    const path = join8(projectDirectory, asset.path);
     await validateOrdinaryResource(projectDirectory, asset.path, false);
     let facts;
     try {
@@ -27089,7 +27448,7 @@ async function validateProjectVNextResources(projectDirectory, project, options 
       continue;
     }
     try {
-      const handle = await open3(path, "r");
+      const handle = await open4(path, "r");
       await handle.close();
       assetStates.push({
         id: asset.id,
@@ -27184,7 +27543,7 @@ async function discoverRenderProgramDirectories(projectDirectory) {
     for (const entry of [...entries].reverse()) {
       if (directory2 === projectDirectory && excludedRoots.has(entry.name)) continue;
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
-      const path = join7(directory2, entry.name);
+      const path = join8(directory2, entry.name);
       const facts = await lstat4(path);
       if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
       const childDepth = depth + 1;
@@ -27221,7 +27580,7 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
     ["resources", "directory"]
   ];
   for (const [entry, kind] of requiredEntries) {
-    const path = join7(programDirectory, ...entry.split("/"));
+    const path = join8(programDirectory, ...entry.split("/"));
     let facts;
     try {
       facts = await lstat4(path);
@@ -27255,7 +27614,7 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
       throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
     }
     for (const entry of [...await readStableDirectory(directory2)].reverse()) {
-      const path = join7(directory2, entry.name);
+      const path = join8(directory2, entry.name);
       const component = relative(projectDirectory, path);
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
         throw invalidResource(path, component, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
@@ -27296,7 +27655,7 @@ async function inspectProjectVNext(inputPath, options = {}) {
       { cause }
     );
   }
-  const manifestPath = join7(projectDirectory, "narracut.json");
+  const manifestPath = join8(projectDirectory, "narracut.json");
   let manifestBuffer;
   try {
     manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
@@ -27344,9 +27703,9 @@ async function inspectProjectVNext(inputPath, options = {}) {
   const manifestDiagnostics = validateProjectManifest(manifest);
   if (manifestDiagnostics.length > 0) throw invalidContent(manifestPath, manifestDiagnostics);
   const requiredEntries = [
-    [join7(projectDirectory, "assets"), "assets/", "directory"],
-    [join7(projectDirectory, "speech"), "speech/", "directory"],
-    [join7(projectDirectory, "renders"), "renders/", "directory"]
+    [join8(projectDirectory, "assets"), "assets/", "directory"],
+    [join8(projectDirectory, "speech"), "speech/", "directory"],
+    [join8(projectDirectory, "renders"), "renders/", "directory"]
   ];
   for (const [path, component, kind] of requiredEntries) {
     try {
@@ -27387,12 +27746,12 @@ async function inspectProjectVNext(inputPath, options = {}) {
   try {
     [projectBuffer, videoBuffer] = await Promise.all([
       readBoundedControlFile(
-        join7(projectDirectory, "project.json"),
+        join8(projectDirectory, "project.json"),
         "project.json",
         10 * 1024 * 1024
       ),
       readBoundedControlFile(
-        join7(projectDirectory, "video.md"),
+        join8(projectDirectory, "video.md"),
         "video.md",
         2 * 1024 * 1024
       )
@@ -27414,17 +27773,17 @@ async function inspectProjectVNext(inputPath, options = {}) {
   }
   const projectBytes = decodeUtf8(
     projectBuffer,
-    join7(projectDirectory, "project.json"),
+    join8(projectDirectory, "project.json"),
     "project.json",
     false
   );
   const videoBytes = decodeUtf8(
     videoBuffer,
-    join7(projectDirectory, "video.md"),
+    join8(projectDirectory, "video.md"),
     "video.md",
     true
   );
-  const projectPath = join7(projectDirectory, "project.json");
+  const projectPath = join8(projectDirectory, "project.json");
   const parsedProject = parseControlJson(
     projectBytes,
     projectPath,
@@ -27529,10 +27888,10 @@ function createRenderProgramInput(state, output, assetSources) {
 
 // src/server/project-preview.ts
 async function snapshotFile(root, path, limit) {
-  const full = join8(root, path), resolved = await realpath3(full), rel = relative2(await realpath3(root), resolved);
+  const full = join9(root, path), resolved = await realpath3(full), rel = relative2(await realpath3(root), resolved);
   if (rel.startsWith("..") || isAbsolute2(rel) || (await lstat5(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
   const expected = await lstat5(resolved);
-  const file2 = await open4(full, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
+  const file2 = await open5(full, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
   try {
     const before = await file2.stat();
     if (!before.isFile() || before.nlink !== 1 || before.dev !== expected.dev || before.ino !== expected.ino || await realpath3(full) !== resolved || before.size > limit) throw new Error("Preview \u6587\u4EF6\u4E0D\u53EF\u7528\u6216\u8D85\u8FC7\u5185\u5B58\u4E0A\u9650\u3002");
@@ -27840,7 +28199,7 @@ var ProjectRender = class {
       const prepared = await this.#inspect(opened);
       if (!prepared.source.ready || prepared.source.key !== args.key || !prepared.capture || !prepared.record || !prepared.program) throw new FinalRenderError("RENDER_NOT_READY", prepared.source.issues.map((issue2) => issue2.message).join("\uFF1B") || "\u51C6\u5907\u671F\u95F4\u63A5\u53D7\u72B6\u6001\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
       const parent = await realpath4(dirname6(args.outputPath));
-      const outputPath = join9(parent, basename(args.outputPath));
+      const outputPath = join10(parent, basename(args.outputPath));
       try {
         await lstat6(outputPath);
         throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8F93\u51FA\u6587\u4EF6\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u4F4D\u7F6E\uFF1B\u4E0D\u4F1A\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002");
@@ -27848,7 +28207,7 @@ var ProjectRender = class {
         if (error51.code !== "ENOENT") throw error51;
       }
       abort.signal.throwIfAborted();
-      const job = { id: randomUUID7(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
+      const job = { id: randomUUID8(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
       this.#jobs.set(job.id, job);
       this.#running = this.#run(opened, prepared, job, abort);
       this.#pending.delete(args.requestId);
@@ -27917,8 +28276,8 @@ var ProjectRender = class {
         parents.get(parent2).add(basename(path));
       }
       for (const [parent2, names] of parents) {
-        const watcher = watch(join9(opened.inspection.projectDirectory, parent2), (_event, file3) => {
-          if (!file3 || names.has(String(file3))) changed(join9(parent2, String(file3 ?? "")));
+        const watcher = watch(join10(opened.inspection.projectDirectory, parent2), (_event, file3) => {
+          if (!file3 || names.has(String(file3))) changed(join10(parent2, String(file3 ?? "")));
         });
         watcher.on("error", () => changed(parent2));
         watchers.push(watcher);
@@ -27937,8 +28296,8 @@ var ProjectRender = class {
       job.stage = "publishing";
       await verifyMedia();
       if (await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("CAPSULE_UNAVAILABLE", "\u6267\u884C\u73AF\u5883\u5728 Render \u671F\u95F4\u53D8\u5316\uFF0C\u672A\u751F\u6210\u4EA7\u7269\u3002");
-      temporary = join9(dirname6(job.outputPath), `.narracut-render-${randomUUID7()}.tmp`);
-      const file2 = await open5(temporary, constants3.O_WRONLY | constants3.O_CREAT | constants3.O_EXCL | constants3.O_NOFOLLOW, 384);
+      temporary = join10(dirname6(job.outputPath), `.narracut-render-${randomUUID8()}.tmp`);
+      const file2 = await open6(temporary, constants3.O_WRONLY | constants3.O_CREAT | constants3.O_EXCL | constants3.O_NOFOLLOW, 384);
       try {
         await file2.writeFile(bytes);
         await file2.sync();
@@ -27949,7 +28308,7 @@ var ProjectRender = class {
       await link(temporary, job.outputPath);
       published = true;
       await verifyMedia();
-      const parent = await open5(dirname6(job.outputPath), constants3.O_RDONLY | constants3.O_DIRECTORY);
+      const parent = await open6(dirname6(job.outputPath), constants3.O_RDONLY | constants3.O_DIRECTORY);
       try {
         await parent.sync();
       } finally {
@@ -27983,7 +28342,7 @@ var ProjectRender = class {
 };
 
 // src/server/project-delivery.ts
-import { randomUUID as randomUUID8 } from "node:crypto";
+import { randomUUID as randomUUID9 } from "node:crypto";
 
 // src/shared/representative-frames.ts
 function representativePlan(input, supplemental = []) {
@@ -28124,7 +28483,7 @@ var ProjectDelivery = class {
       if (this.#current && this.#current.binding.instanceId === args.instanceId && !args.supplements && await this.#fresh(opened, this.#current)) return this.status(opened);
       const supplements = supplementsSchema.parse(args.supplements ?? []);
       this.clear();
-      const current2 = new CandidateDelivery(randomUUID8(), snapshot.binding, snapshot.descriptor.input, supplements);
+      const current2 = new CandidateDelivery(randomUUID9(), snapshot.binding, snapshot.descriptor.input, supplements);
       this.#current = current2;
       this.#output = snapshot.descriptor.input.output;
       if (!await this.#fresh(opened, current2)) throw new Error("\u5019\u9009 Preview \u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6784\u5EFA\u3002");
@@ -28227,7 +28586,7 @@ var ProjectDelivery = class {
 };
 
 // src/server/project-checks.ts
-import { randomUUID as randomUUID9 } from "node:crypto";
+import { randomUUID as randomUUID10 } from "node:crypto";
 var ProjectChecks = class {
   constructor(preview) {
     this.preview = preview;
@@ -28323,7 +28682,7 @@ var ProjectChecks = class {
           }
         } }
       ];
-      const batch = new CheckBatch(randomUUID9(), identity2, checks);
+      const batch = new CheckBatch(randomUUID10(), identity2, checks);
       this.#batches.push(batch);
       this.#batches = this.#batches.slice(-2);
       void batch.run().then(async () => {
@@ -28362,7 +28721,7 @@ var ProjectChecks = class {
 };
 
 // plugins/narracut/src/server.ts
-import { randomUUID as randomUUID12 } from "node:crypto";
+import { randomUUID as randomUUID13 } from "node:crypto";
 import { readFile as readFile6 } from "node:fs/promises";
 import { basename as basename4, isAbsolute as isAbsolute5 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -28372,7 +28731,7 @@ import { spawn as spawn2 } from "node:child_process";
 import { createInterface } from "node:readline";
 
 // plugins/narracut/src/codex-host.ts
-import { randomUUID as randomUUID10 } from "node:crypto";
+import { randomUUID as randomUUID11 } from "node:crypto";
 var CodexThreadUnavailableError = class extends Error {
   threadId;
   constructor(threadId) {
@@ -28437,7 +28796,7 @@ var AgentHostValidationService = class {
   #unsubscribe;
   constructor(host, options = {}) {
     this.#host = host;
-    this.#idFactory = options.idFactory ?? randomUUID10;
+    this.#idFactory = options.idFactory ?? randomUUID11;
     this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
   }
   async start(request) {
@@ -28697,9 +29056,9 @@ var CodexAppServerHost = class {
       cwd: input.projectDirectory,
       approvalPolicy: "never",
       sandbox: "read-only",
-      serviceName: "narracut-host-validation",
+      serviceName: input.purpose === "creation" ? "narracut-creation" : "narracut-host-validation",
       developerInstructions: [
-        "\u4F60\u6B63\u5728\u6267\u884C Narracut \u7684\u56FA\u5B9A\u5BBF\u4E3B\u8FB9\u754C\u9A8C\u8BC1\u3002",
+        input.purpose === "creation" ? "\u4F60\u6B63\u5728\u6267\u884C Narracut \u4E13\u7528\u521B\u4F5C\u4EFB\u52A1\u3002\u901A\u8FC7\u7ED3\u6784\u5316\u54CD\u5E94\u8BF7\u6C42\u5E94\u7528\u4FEE\u6539\u5019\u9009\uFF1B\u4E0D\u80FD\u76F4\u63A5\u5199\u6587\u4EF6\u6216\u81EA\u52A8\u63A5\u53D7\u3002" : "\u4F60\u6B63\u5728\u6267\u884C Narracut \u7684\u56FA\u5B9A\u5BBF\u4E3B\u8FB9\u754C\u9A8C\u8BC1\u3002",
         "\u53EA\u5141\u8BB8\u8BFB\u53D6\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\uFF1B\u4E0D\u5F97\u521B\u5EFA\u3001\u4FEE\u6539\u6216\u5220\u9664\u6587\u4EF6\uFF0C\u4E0D\u5F97\u8BBF\u95EE\u7F51\u7EDC\u3002",
         "\u6700\u7EC8\u54CD\u5E94\u5FC5\u987B\u4E25\u683C\u7B26\u5408 turn/start \u63D0\u4F9B\u7684 outputSchema\u3002"
       ].join("\n")
@@ -28732,7 +29091,7 @@ var CodexAppServerHost = class {
     await this.#ensureReady();
     const result = await this.#request("turn/start", {
       threadId: input.threadId,
-      input: [{ type: "text", text: input.prompt, text_elements: [] }],
+      input: [{ type: "text", text: input.prompt, text_elements: [] }, ...(input.images ?? []).map((url2) => ({ type: "image", url: url2 }))],
       cwd: input.projectDirectory,
       approvalPolicy: "never",
       sandboxPolicy: { type: "readOnly", networkAccess: false },
@@ -28931,7 +29290,7 @@ var CodexAppServerHost = class {
 };
 
 // src/server/project-lifecycle.ts
-import { createHash as createHash10, randomUUID as randomUUID11 } from "node:crypto";
+import { createHash as createHash10, randomUUID as randomUUID12 } from "node:crypto";
 import { constants as fsConstants2 } from "node:fs";
 import {
   access,
@@ -28942,13 +29301,13 @@ import {
   readFile as readFile5,
   readdir as readdir5,
   realpath as realpath5,
-  rename as rename4,
+  rename as rename5,
   rmdir,
-  rm as rm6,
+  rm as rm7,
   unlink as unlink2,
   writeFile as writeFile3
 } from "node:fs/promises";
-import { basename as basename2, dirname as dirname7, isAbsolute as isAbsolute4, join as join10, relative as relative3, resolve as resolve3, sep as sep2 } from "node:path";
+import { basename as basename2, dirname as dirname7, isAbsolute as isAbsolute4, join as join11, relative as relative3, resolve as resolve3, sep as sep2 } from "node:path";
 var STARTER_REACT_VERSION = "19.2.8";
 var STARTER_REMOTION_VERSION = RUNTIME_REMOTION_VERSION;
 var ProjectLifecycleError = class extends Error {
@@ -28995,7 +29354,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u8DEF\u5F84\u4E0D\u662F\u53EF\u786E\u8BA4\u5F52\u5C5E\u7684\u666E\u901A\u76EE\u5F55\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  const markerPath = join10(temporaryDirectory, OPERATION_MARKER);
+  const markerPath = join11(temporaryDirectory, OPERATION_MARKER);
   let marker;
   try {
     const markerFacts = await lstat7(markerPath);
@@ -29032,7 +29391,7 @@ async function removeConfirmedCreateResidue(temporaryDirectory, projectDirectory
       `\u4E34\u65F6\u76EE\u5F55\u5728\u786E\u8BA4\u671F\u95F4\u53D1\u751F\u53D8\u5316\uFF1A${temporaryDirectory}\u3002Narracut \u62D2\u7EDD\u5220\u9664\u3002`
     );
   }
-  await rm6(temporaryDirectory, { recursive: true });
+  await rm7(temporaryDirectory, { recursive: true });
 }
 function starterLockfile() {
   return `lockfileVersion: '9.0'
@@ -29124,7 +29483,7 @@ function starterSource() {
   return 'import { AbsoluteFill } from "remotion";\n\ntype RenderProgramInputV1 = Readonly<{ apiVersion: 1 }>;\n\nexport function RenderProgram(input: RenderProgramInputV1) {\n  void input;\n  return <AbsoluteFill style={{ backgroundColor: "#090d0e" }} />;\n}\n';
 }
 async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join10(
+  const renderProgramDirectory = join11(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -29132,29 +29491,29 @@ async function writeStarterProject(temporaryDirectory, projectId, revisionId) {
     "render-program"
   );
   await Promise.all([
-    mkdir5(join10(temporaryDirectory, "assets"), { recursive: true }),
-    mkdir5(join10(temporaryDirectory, "speech"), { recursive: true }),
-    mkdir5(join10(temporaryDirectory, "renders"), { recursive: true }),
-    mkdir5(join10(renderProgramDirectory, "src"), { recursive: true }),
-    mkdir5(join10(renderProgramDirectory, "resources"), { recursive: true })
+    mkdir5(join11(temporaryDirectory, "assets"), { recursive: true }),
+    mkdir5(join11(temporaryDirectory, "speech"), { recursive: true }),
+    mkdir5(join11(temporaryDirectory, "renders"), { recursive: true }),
+    mkdir5(join11(renderProgramDirectory, "src"), { recursive: true }),
+    mkdir5(join11(renderProgramDirectory, "resources"), { recursive: true })
   ]);
   await Promise.all([
-    writeFile3(join10(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
-    writeFile3(join10(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
-    writeFile3(join10(temporaryDirectory, "video.md"), ""),
-    writeFile3(join10(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
+    writeFile3(join11(temporaryDirectory, "narracut.json"), starterManifest(projectId)),
+    writeFile3(join11(temporaryDirectory, "project.json"), '{"assets":[],"scenes":[]}'),
+    writeFile3(join11(temporaryDirectory, "video.md"), ""),
+    writeFile3(join11(temporaryDirectory, ".narracut", "current.json"), starterCurrent(revisionId)),
     writeFile3(
-      join10(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
+      join11(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"),
       starterRevision(revisionId)
     ),
-    writeFile3(join10(renderProgramDirectory, "program.json"), starterProgramManifest()),
-    writeFile3(join10(renderProgramDirectory, "package.json"), starterPackageManifest()),
-    writeFile3(join10(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
-    writeFile3(join10(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
+    writeFile3(join11(renderProgramDirectory, "program.json"), starterProgramManifest()),
+    writeFile3(join11(renderProgramDirectory, "package.json"), starterPackageManifest()),
+    writeFile3(join11(renderProgramDirectory, "pnpm-lock.yaml"), starterLockfile()),
+    writeFile3(join11(renderProgramDirectory, "src", "RenderProgram.tsx"), starterSource())
   ]);
 }
 async function validateStarterProject(temporaryDirectory, projectId, revisionId) {
-  const renderProgramDirectory = join10(
+  const renderProgramDirectory = join11(
     temporaryDirectory,
     ".narracut",
     "revisions",
@@ -29174,15 +29533,15 @@ async function validateStarterProject(temporaryDirectory, projectId, revisionId)
     source
   ] = await Promise.all([
     inspectProjectVNext(temporaryDirectory),
-    readFile5(join10(temporaryDirectory, "narracut.json"), "utf8"),
-    readFile5(join10(temporaryDirectory, "project.json"), "utf8"),
-    readFile5(join10(temporaryDirectory, "video.md"), "utf8"),
-    readFile5(join10(temporaryDirectory, ".narracut", "current.json"), "utf8"),
-    readFile5(join10(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
-    readFile5(join10(renderProgramDirectory, "program.json"), "utf8"),
-    readFile5(join10(renderProgramDirectory, "package.json"), "utf8"),
-    readFile5(join10(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
-    readFile5(join10(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
+    readFile5(join11(temporaryDirectory, "narracut.json"), "utf8"),
+    readFile5(join11(temporaryDirectory, "project.json"), "utf8"),
+    readFile5(join11(temporaryDirectory, "video.md"), "utf8"),
+    readFile5(join11(temporaryDirectory, ".narracut", "current.json"), "utf8"),
+    readFile5(join11(temporaryDirectory, ".narracut", "revisions", revisionId, "revision.json"), "utf8"),
+    readFile5(join11(renderProgramDirectory, "program.json"), "utf8"),
+    readFile5(join11(renderProgramDirectory, "package.json"), "utf8"),
+    readFile5(join11(renderProgramDirectory, "pnpm-lock.yaml"), "utf8"),
+    readFile5(join11(renderProgramDirectory, "src", "RenderProgram.tsx"), "utf8")
   ]);
   if (inspection.manifest.projectId !== projectId || inspection.project.assets.length !== 0 || inspection.project.scenes.length !== 0 || inspection.videoBrief !== "" || manifest !== starterManifest(projectId) || projectDsl !== '{"assets":[],"scenes":[]}' || videoBrief !== "" || current !== starterCurrent(revisionId) || revision !== starterRevision(revisionId) || programManifest !== starterProgramManifest() || packageManifest2 !== starterPackageManifest() || lockfile !== starterLockfile() || source !== starterSource()) {
     throw new Error("starter \u9879\u76EE\u590D\u6838\u7ED3\u679C\u4E0E\u521B\u5EFA\u8F93\u5165\u4E0D\u4E00\u81F4\u3002");
@@ -29210,23 +29569,23 @@ async function readRegularUtf8(path, maxBytes) {
 }
 async function validateCurrentProjectState(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const currentPath = join10(projectDirectory, ".narracut", "current.json");
+  const currentPath = join11(projectDirectory, ".narracut", "current.json");
   let briefRevision = null;
   try {
     const current = await readCurrentPointer(projectDirectory);
     await verifyRevision(projectDirectory, current.revisionId);
     const revisionId = current.revisionId;
-    const revisionDirectory = join10(projectDirectory, ".narracut", "revisions", revisionId);
-    const renderProgramDirectory = join10(revisionDirectory, "render-program");
+    const revisionDirectory = join11(projectDirectory, ".narracut", "revisions", revisionId);
+    const renderProgramDirectory = join11(revisionDirectory, "render-program");
     if (!inspection.renderPrograms.directories.includes(renderProgramDirectory)) {
       throw new Error("\u5F53\u524D\u4FEE\u8BA2\u6CA1\u6709\u53EF\u68C0\u67E5\u7684 Render Program\u3002");
     }
     const [revision, program, packageJson, lockfile, source] = await Promise.all([
-      readRegularUtf8(join10(revisionDirectory, "revision.json"), 1048576).then((value) => JSON.parse(value)),
-      readRegularUtf8(join10(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join10(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
-      readRegularUtf8(join10(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
-      readRegularUtf8(join10(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
+      readRegularUtf8(join11(revisionDirectory, "revision.json"), 1048576).then((value) => JSON.parse(value)),
+      readRegularUtf8(join11(renderProgramDirectory, "program.json"), 16384).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join11(renderProgramDirectory, "package.json"), 65536).then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join11(renderProgramDirectory, "pnpm-lock.yaml"), 1048576),
+      readRegularUtf8(join11(renderProgramDirectory, "src", "RenderProgram.tsx"), 10485760)
     ]);
     if (!isPlainRecord(revision) || Object.keys(revision).some(
       (key) => !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary", "programFingerprint", "acceptedAt", "inputFingerprint", "sourceRevision", "acceptance", "requestId"].includes(key)
@@ -29287,14 +29646,14 @@ async function cleanupOwnedTemporaryDirectory(temporaryDirectory, identity2, mar
   }
   if (markerWritten) {
     const marker = JSON.parse(await readRegularUtf8(
-      join10(temporaryDirectory, OPERATION_MARKER),
+      join11(temporaryDirectory, OPERATION_MARKER),
       4096
     ));
     if (!isCreateOperationMarker(marker, projectDirectory, operationToken)) {
       throw new Error("\u521B\u5EFA\u4E34\u65F6\u76EE\u5F55\u6807\u8BB0\u5DF2\u53D8\u5316\uFF0C\u65E0\u6CD5\u8BC1\u660E\u6E05\u7406\u6240\u6709\u6743\u3002");
     }
   }
-  await rm6(temporaryDirectory, { recursive: true });
+  await rm7(temporaryDirectory, { recursive: true });
 }
 async function cleanupTargetReservation(projectDirectory, identity2) {
   let facts;
@@ -29322,11 +29681,11 @@ async function createProjectVNext(inputPath, options = {}) {
       "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
     );
   }
-  const temporaryDirectory = join10(dirname7(projectDirectory), `.${projectName}.narracut-tmp`);
-  const createId = options.createId ?? randomUUID11;
+  const temporaryDirectory = join11(dirname7(projectDirectory), `.${projectName}.narracut-tmp`);
+  const createId = options.createId ?? randomUUID12;
   const projectId = createId();
   const revisionId = createId();
-  const operationToken = randomUUID11();
+  const operationToken = randomUUID12();
   let temporaryIdentity = null;
   let markerWritten = false;
   let targetReservationIdentity = null;
@@ -29347,7 +29706,7 @@ async function createProjectVNext(inputPath, options = {}) {
     }
     await mkdir5(temporaryDirectory);
     temporaryIdentity = await captureDirectoryIdentity(temporaryDirectory);
-    await writeFile3(join10(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
+    await writeFile3(join11(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
       kind: "narracut-operation",
       version: 1,
       operation: "create",
@@ -29379,7 +29738,7 @@ async function createProjectVNext(inputPath, options = {}) {
         `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`
       );
     }
-    await unlink2(join10(temporaryDirectory, OPERATION_MARKER));
+    await unlink2(join11(temporaryDirectory, OPERATION_MARKER));
     markerWritten = false;
     if (targetReservationIdentity !== null) {
       const currentReservation = await lstat7(projectDirectory);
@@ -29391,7 +29750,7 @@ async function createProjectVNext(inputPath, options = {}) {
         );
       }
     }
-    await rename4(temporaryDirectory, projectDirectory);
+    await rename5(temporaryDirectory, projectDirectory);
     temporaryIdentity = null;
     targetReservationIdentity = null;
     return { projectDirectory, projectId, revisionId };
@@ -29472,7 +29831,7 @@ async function clearStaleLease(leasePath) {
 }
 async function acquireProjectLease(inspection) {
   const projectDirectory = inspection.projectDirectory;
-  const leasePath = join10(projectDirectory, ".narracut", "workspace.lease");
+  const leasePath = join11(projectDirectory, ".narracut", "workspace.lease");
   if (activeLeasePaths.has(leasePath)) {
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -29487,7 +29846,7 @@ async function acquireProjectLease(inspection) {
     projectId: inspection.manifest.projectId,
     pid: process.pid,
     processIdentity: await readProcessIdentity(process.pid),
-    token: randomUUID11()
+    token: randomUUID12()
   };
   let handle;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -29517,7 +29876,7 @@ async function acquireProjectLease(inspection) {
     await handle.sync();
   } catch (cause) {
     await handle.close();
-    await rm6(leasePath, { force: true });
+    await rm7(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
       projectDirectory,
@@ -29530,7 +29889,7 @@ async function acquireProjectLease(inspection) {
   try {
     leaseDirectoryHandle = await openFile(dirname7(leasePath), "r");
   } catch (cause) {
-    await rm6(leasePath, { force: true });
+    await rm7(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
       projectDirectory,
@@ -29663,17 +30022,17 @@ async function uniqueAssetPath(assetsDirectory, sourcePath) {
     const candidate = suffixedAssetFilename(filename, suffix);
     const relativePath = `assets/${candidate}`;
     try {
-      await access(join10(assetsDirectory, candidate));
+      await access(join11(assetsDirectory, candidate));
     } catch (error51) {
       if (error51 instanceof Error && "code" in error51 && error51.code === "ENOENT") return relativePath;
       throw error51;
     }
   }
-  return `assets/${randomUUID11()}`;
+  return `assets/${randomUUID12()}`;
 }
 async function isProjectControlFile(projectDirectory, sourcePath, sourceFacts) {
   for (const name of ["narracut.json", "project.json", "video.md"]) {
-    const controlPath = join10(projectDirectory, name);
+    const controlPath = join11(projectDirectory, name);
     if (resolve3(sourcePath) === controlPath) return true;
     const controlFacts = await lstat7(controlPath);
     if (sourceFacts.dev === controlFacts.dev && sourceFacts.ino === controlFacts.ino) return true;
@@ -29707,7 +30066,7 @@ async function copyStableFile(source, opened, temporaryPath, assertDestinationCu
   }
 }
 async function replaceProjectFile(projectFile, bytes, assertWritable) {
-  const temporaryFile = join10(dirname7(projectFile), `.${basename2(projectFile)}.${randomUUID11()}.tmp`);
+  const temporaryFile = join11(dirname7(projectFile), `.${basename2(projectFile)}.${randomUUID12()}.tmp`);
   let committed = false;
   try {
     const handle = await openFile(temporaryFile, "wx", 384);
@@ -29718,7 +30077,7 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
       await handle.close();
     }
     await assertWritable();
-    await rename4(temporaryFile, projectFile);
+    await rename5(temporaryFile, projectFile);
     committed = true;
     try {
       const directory2 = await openFile(dirname7(projectFile), "r");
@@ -29730,7 +30089,7 @@ async function replaceProjectFile(projectFile, bytes, assertWritable) {
     } catch {
     }
   } finally {
-    if (!committed) await rm6(temporaryFile, { force: true }).catch(() => void 0);
+    if (!committed) await rm7(temporaryFile, { force: true }).catch(() => void 0);
   }
 }
 async function openProjectVNext(inputPath, options = {}) {
@@ -29757,7 +30116,7 @@ async function openProjectVNext(inputPath, options = {}) {
           `\u53D6\u5F97\u79DF\u7EA6\u65F6\u9879\u76EE\u8EAB\u4EFD\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002`
         );
       }
-      const assetsDirectory = join10(projectDirectory, "assets");
+      const assetsDirectory = join11(projectDirectory, "assets");
       const assetsDirectoryIdentity = await captureDirectoryIdentity(assetsDirectory);
       assetsDirectoryHandle = await openFile(assetsDirectory, "r");
       const openedAssetsDirectory = await assetsDirectoryHandle.stat();
@@ -29769,7 +30128,7 @@ async function openProjectVNext(inputPath, options = {}) {
         );
       }
       const anchoredAssetsDirectory = process.platform === "win32" ? assetsDirectory : `/dev/fd/${assetsDirectoryHandle.fd}`;
-      const speechDirectory = join10(projectDirectory, "speech");
+      const speechDirectory = join11(projectDirectory, "speech");
       const speechDirectoryIdentity = await captureDirectoryIdentity(speechDirectory);
       speechDirectoryHandle = await openFile(speechDirectory, "r");
       const openedSpeechDirectory = await speechDirectoryHandle.stat();
@@ -29806,7 +30165,7 @@ async function openProjectVNext(inputPath, options = {}) {
           );
         }
         try {
-          const manifestPath = join10(projectDirectory, "narracut.json");
+          const manifestPath = join11(projectDirectory, "narracut.json");
           const manifestFacts = await lstat7(manifestPath);
           if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
             throw new Error("\u9879\u76EE\u6E05\u5355\u6587\u4EF6\u8EAB\u4EFD\u65E0\u6548");
@@ -29883,7 +30242,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join10(projectDirectory, "project.json");
+          const projectFile = join11(projectDirectory, "project.json");
           try {
             await assertWritable();
             if (await currentProjectRevision(
@@ -29956,7 +30315,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const videoBriefPath = join10(projectDirectory, "video.md");
+          const videoBriefPath = join11(projectDirectory, "video.md");
           try {
             await assertWritable();
             const bytes = Buffer.from(content, "utf8");
@@ -30056,7 +30415,7 @@ async function openProjectVNext(inputPath, options = {}) {
         }
         for (let suffix = 1; suffix <= 1e4; suffix += 1) {
           const filename = suffix === 1 ? "video-brief-local.md" : `video-brief-local-${suffix}.md`;
-          const path = join10(destinationDirectory, filename);
+          const path = join11(destinationDirectory, filename);
           let handle = null;
           try {
             handle = await openFile(path, "wx", 384);
@@ -30095,7 +30454,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join10(projectDirectory, "project.json");
+          const projectFile = join11(projectDirectory, "project.json");
           const sourcePath = resolve3(input.sourcePath);
           await assertWritable();
           if (await currentProjectRevision(
@@ -30171,11 +30530,11 @@ async function openProjectVNext(inputPath, options = {}) {
             }
             await assertAssetsDirectoryCurrent();
             const asset = {
-              id: randomUUID11(),
+              id: randomUUID12(),
               path: await uniqueAssetPath(anchoredAssetsDirectory, sourcePath)
             };
-            const temporaryPath = join10(anchoredAssetsDirectory, `.import-${randomUUID11()}.tmp`);
-            let finalPath = join10(anchoredAssetsDirectory, basename2(asset.path));
+            const temporaryPath = join11(anchoredAssetsDirectory, `.import-${randomUUID12()}.tmp`);
+            let finalPath = join11(anchoredAssetsDirectory, basename2(asset.path));
             let published = false;
             try {
               await copyStableFile(source, sourceFacts, temporaryPath, assertAssetsDirectoryCurrent);
@@ -30188,7 +30547,7 @@ async function openProjectVNext(inputPath, options = {}) {
                 } catch (cause) {
                   if (!(cause instanceof Error && "code" in cause && cause.code === "EEXIST")) throw cause;
                   asset.path = await uniqueAssetPath(anchoredAssetsDirectory, sourcePath);
-                  finalPath = join10(anchoredAssetsDirectory, basename2(asset.path));
+                  finalPath = join11(anchoredAssetsDirectory, basename2(asset.path));
                 }
               }
               if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
@@ -30266,7 +30625,7 @@ async function openProjectVNext(inputPath, options = {}) {
           ));
         }
         const operation = saveQueue.then(async () => {
-          const projectFile = join10(projectDirectory, "project.json");
+          const projectFile = join11(projectDirectory, "project.json");
           await assertWritable();
           if (await currentProjectRevision(
             projectFile,
@@ -30365,7 +30724,7 @@ async function openProjectVNext(inputPath, options = {}) {
             if (cause instanceof ProjectLifecycleError || cause instanceof ProjectInspectionError) throw cause;
             throw new ProjectLifecycleError(
               "PROJECT_SAVE_FAILED",
-              join10(projectDirectory, "tts.json"),
+              join11(projectDirectory, "tts.json"),
               "\u65E0\u6CD5\u539F\u5B50\u4FDD\u5B58 TTS \u914D\u7F6E\uFF1BNarracut \u5DF2\u4FDD\u7559\u539F\u914D\u7F6E\u4E0E Scene \u5185\u5BB9\u3002",
               { cause }
             );
@@ -30376,8 +30735,8 @@ async function openProjectVNext(inputPath, options = {}) {
       };
       const probeSpeechAudio = async (input) => {
         await assertSpeechDirectoryCurrent();
-        const probeFile = join10(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
-        const decoderPath = process.platform === "linux" ? join10(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join10(speechDirectory, `.probe-${input.jobId}.mp3`);
+        const probeFile = join11(anchoredSpeechDirectory, `.probe-${input.jobId}.mp3`);
+        const decoderPath = process.platform === "linux" ? join11(`/proc/${process.pid}/fd/${speechDirectoryHandle.fd}`, `.probe-${input.jobId}.mp3`) : join11(speechDirectory, `.probe-${input.jobId}.mp3`);
         let created = false;
         try {
           const handle = await openFile(probeFile, "wx", 384);
@@ -30396,7 +30755,7 @@ async function openProjectVNext(inputPath, options = {}) {
           await assertSpeechDirectoryCurrent();
           return durationMs;
         } finally {
-          if (created) await rm6(probeFile, { force: true }).catch(() => void 0);
+          if (created) await rm7(probeFile, { force: true }).catch(() => void 0);
         }
       };
       const commitSpeech = (input) => {
@@ -30443,9 +30802,9 @@ async function openProjectVNext(inputPath, options = {}) {
               inspection: currentInspection
             };
           }
-          const finalFile = join10(anchoredSpeechDirectory, `${scene.id}.mp3`);
-          const temporaryFile = join10(anchoredSpeechDirectory, `.speech-${randomUUID11()}.tmp`);
-          const backupFile = join10(anchoredSpeechDirectory, `.speech-${randomUUID11()}.previous`);
+          const finalFile = join11(anchoredSpeechDirectory, `${scene.id}.mp3`);
+          const temporaryFile = join11(anchoredSpeechDirectory, `.speech-${randomUUID12()}.tmp`);
+          const backupFile = join11(anchoredSpeechDirectory, `.speech-${randomUUID12()}.previous`);
           let previousFile = false;
           let published = false;
           try {
@@ -30480,7 +30839,7 @@ async function openProjectVNext(inputPath, options = {}) {
             }
             await assertSpeechDirectoryCurrent();
             if (input.isCancelled?.()) throw new Error("Speech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002");
-            await rename4(temporaryFile, finalFile);
+            await rename5(temporaryFile, finalFile);
             published = true;
             const project = structuredClone(currentInspection.project);
             const target = project.scenes.find((candidate2) => candidate2.id === scene.id);
@@ -30491,7 +30850,7 @@ async function openProjectVNext(inputPath, options = {}) {
               ttsProfileId: input.ttsProfileId,
               audioContentHash: `sha256:${createHash10("sha256").update(input.audio).digest("hex")}`
             };
-            const projectFile = join10(projectDirectory, "project.json");
+            const projectFile = join11(projectDirectory, "project.json");
             const baselineRevision = currentInspection.projectRevision;
             const validated = validateProjectVNextForSave(project, projectFile);
             const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
@@ -30530,7 +30889,7 @@ async function openProjectVNext(inputPath, options = {}) {
               timeline,
               warnings
             };
-            await rm6(backupFile, { force: true }).catch(() => void 0);
+            await rm7(backupFile, { force: true }).catch(() => void 0);
             return {
               status: "applied",
               code: "SPEECH_APPLIED",
@@ -30542,15 +30901,15 @@ async function openProjectVNext(inputPath, options = {}) {
             if (published) {
               try {
                 if (previousFile) {
-                  if (process.platform === "win32") await rm6(finalFile, { force: true });
-                  await rename4(backupFile, finalFile);
-                } else await rm6(finalFile, { force: true });
+                  if (process.platform === "win32") await rm7(finalFile, { force: true });
+                  await rename5(backupFile, finalFile);
+                } else await rm7(finalFile, { force: true });
               } catch (rollbackCause) {
                 rollbackFailure = rollbackCause;
               }
             }
-            await rm6(temporaryFile, { force: true }).catch(() => void 0);
-            if (rollbackFailure === void 0) await rm6(backupFile, { force: true }).catch(() => void 0);
+            await rm7(temporaryFile, { force: true }).catch(() => void 0);
+            if (rollbackFailure === void 0) await rm7(backupFile, { force: true }).catch(() => void 0);
             if (rollbackFailure !== void 0) {
               throw new ProjectLifecycleError(
                 "PROJECT_SAVE_FAILED",
@@ -30646,7 +31005,7 @@ async function openProjectVNext(inputPath, options = {}) {
 // src/server/project-asset-preview.ts
 import { constants as fsConstants3 } from "node:fs";
 import { lstat as lstat8, open as openFile2 } from "node:fs/promises";
-import { basename as basename3, join as join11 } from "node:path";
+import { basename as basename3, join as join12 } from "node:path";
 var MAX_INLINE_PREVIEW_BYTES = 32 * 1024 * 1024;
 function startsWith(bytes, signature) {
   return signature.every((byte, index) => bytes[index] === byte);
@@ -30685,7 +31044,7 @@ async function readProjectAssetPreview(inspection, assetId) {
   if (asset === void 0) {
     return { status: "dangling", id: assetId, reason: "\u672A\u627E\u5230\u767B\u8BB0\u7684 Asset\u3002" };
   }
-  const absolutePath = join11(inspection.projectDirectory, asset.path);
+  const absolutePath = join12(inspection.projectDirectory, asset.path);
   try {
     const { assetStates: [runtime] } = await validateProjectVNextResources(
       inspection.projectDirectory,
@@ -30778,6 +31137,8 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  { name: "start_creation_task", description: "\u4ECE Composer \u539F\u6587\u53D1\u8D77\u4E13\u7528\u521B\u4F5C\u4EFB\u52A1\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
+  { name: "get_creation_task", description: "\u8BFB\u53D6\u5F53\u524D\u5355\u9879\u521B\u4F5C\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ["app"] } } },
   {
     name: "project_render",
     title: "\u6700\u7EC8 Render",
@@ -31389,6 +31750,17 @@ function credentialState(value) {
   return { status: "available", storage: "session", masked: `\u2022\u2022\u2022\u2022${value.slice(-4)}` };
 }
 var ProjectWorkspaceSession = class {
+  creation = null;
+  creationError = null;
+  async creationOperation(input, start = false) {
+    if (!input || typeof input.projectDirectory !== "string" || typeof input.projectId !== "string" || start && typeof input.instruction !== "string") throw new Error("\u521B\u4F5C\u4EFB\u52A1\u53C2\u6570\u65E0\u6548\u3002");
+    this.#requireOpened(input.projectDirectory, input.projectId);
+    if (this.creationError) throw new Error(this.creationError);
+    if (!this.creation) throw new Error("\u521B\u4F5C\u5BBF\u4E3B\u4E0D\u53EF\u7528\u3002");
+    const creationTask = start ? await this.creation.start(input.instruction, input.parentOrigin ?? "null") : await this.creation.status();
+    const candidate = await this.candidate({ projectDirectory: input.projectDirectory, projectId: input.projectId, action: "read" });
+    return { creationTask, candidate };
+  }
   preview = new ProjectPreview();
   checks = new ProjectChecks(this.preview);
   delivery = new ProjectDelivery(this.preview, this.checks);
@@ -31404,7 +31776,9 @@ var ProjectWorkspaceSession = class {
   }
   async acceptanceOperation(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (this.creation?.ownsCandidate && !["status", "history", "result"].includes(input.action)) throw new Error("\u521B\u4F5C\u4EFB\u52A1\u6B63\u5728\u8FD0\u884C\uFF0C\u8BF7\u7B49\u5F85\u5019\u9009\u4EA4\u4ED8\u3002");
     const result = await this.acceptance.operate(opened, input);
+    if (result.status === "accepted") await this.creation?.terminate("CANDIDATE_ACCEPTED");
     this.#candidateStatus = await opened.candidate({ action: "read" });
     return result;
   }
@@ -31435,11 +31809,13 @@ var ProjectWorkspaceSession = class {
     return { preview };
   }
   #opened = null;
+  #codexHost;
   #credentials = /* @__PURE__ */ new Map();
   #speechJobs = /* @__PURE__ */ new Map();
   #ttsFetch;
   #probeSpeechDurationMs;
   constructor(options = {}) {
+    this.#codexHost = options.codexHost;
     this.#ttsFetch = options.ttsFetch ?? globalThis.fetch;
     this.#probeSpeechDurationMs = options.probeSpeechDurationMs ?? probeSpeechDurationMs;
   }
@@ -31448,7 +31824,7 @@ var ProjectWorkspaceSession = class {
   }
   #candidateStatus = null;
   serialize(inspection, writable = true) {
-    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus };
+    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError };
   }
   async open(projectDirectory) {
     const next = await openProjectVNext(projectDirectory, {
@@ -31457,6 +31833,7 @@ var ProjectWorkspaceSession = class {
     const previous = this.#opened;
     try {
       if (previous !== null) {
+        await this.creation?.close();
         await this.render.close();
         await previous.release();
       }
@@ -31469,12 +31846,21 @@ var ProjectWorkspaceSession = class {
     this.preview.clear();
     this.#opened = next;
     this.#candidateStatus = await next.candidate({ action: "read" });
+    this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery) : null;
+    this.creationError = null;
+    try {
+      await this.creation?.load();
+    } catch (error51) {
+      this.creationError = error51.message;
+    }
     return next.inspection;
   }
   async candidate(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const { projectDirectory: _directory, projectId: _id, ...request } = input;
+    if (this.creation?.ownsCandidate && request.action !== "read") throw new Error("\u53EA\u6709\u5F53\u524D\u521B\u4F5C\u9A71\u52A8\u53EF\u4EE5\u4FEE\u6539\u5019\u9009\uFF1B\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\u3002");
     this.#candidateStatus = await opened.candidate(request);
+    if (request.action === "discard") await this.creation?.terminate("CANDIDATE_ABANDONED");
     return this.#candidateStatus;
   }
   async save(input) {
@@ -31574,7 +31960,7 @@ var ProjectWorkspaceSession = class {
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const job = {
-      id: randomUUID12(),
+      id: randomUUID13(),
       sceneId: scene.id,
       status: "queued",
       stage: "\u6392\u961F",
@@ -31729,6 +32115,7 @@ var ProjectWorkspaceSession = class {
     }
   }
   async dispose() {
+    await this.creation?.close();
     await this.render.close();
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
@@ -31764,6 +32151,13 @@ async function callTool(params, hostValidation, workspace) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
   const { name, arguments: argumentsValue } = params;
+  if (name === "start_creation_task" || name === "get_creation_task") {
+    try {
+      return { structuredContent: await workspace.creationOperation(argumentsValue, name === "start_creation_task"), content: [] };
+    } catch (error51) {
+      return { isError: true, structuredContent: { error: { code: "CREATION_TASK_FAILED", message: error51.message } }, content: [] };
+    }
+  }
   if (name === "project_acceptance") {
     try {
       return { structuredContent: await workspace.acceptanceOperation(argumentsValue), content: [] };
@@ -32333,10 +32727,10 @@ async function callTool(params, hostValidation, workspace) {
   throw new Error(`\u672A\u77E5\u5DE5\u5177\uFF1A${String(name)}`);
 }
 function createNarracutRequestHandler(options = {}) {
-  const hostValidation = new AgentHostValidationService(
-    options.codexHost ?? new CodexAppServerHost()
-  );
+  const codexHost = options.codexHost ?? new CodexAppServerHost();
+  const hostValidation = new AgentHostValidationService(codexHost);
   const workspace = new ProjectWorkspaceSession({
+    codexHost,
     ttsFetch: options.ttsFetch,
     probeSpeechDurationMs: options.probeSpeechDurationMs
   });
@@ -32347,7 +32741,7 @@ function createNarracutRequestHandler(options = {}) {
           protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: { tools: {}, resources: {} },
           serverInfo: { name: "narracut", version: SERVER_VERSION },
-          instructions: "\u53EA\u63A5\u89E6\u7528\u6237\u901A\u8FC7\u7CFB\u7EDF\u6587\u4EF6\u5939\u9009\u62E9\u7A97\u53E3\u6216\u53C2\u6570\u660E\u786E\u7ED9\u51FA\u7684\u76EE\u5F55\u3002\u53EF\u4EE5\u5728\u4E0D\u5B58\u5728\u7684\u76EE\u6807\u539F\u5B50\u521B\u5EFA Project VNext\uFF0C\u6216\u4E25\u683C\u6253\u5F00\u6709\u6548\u9879\u76EE\uFF1B\u8868\u683C\u5DE5\u4F5C\u533A\u53EA\u4FEE\u6539 Scene \u4E0E Narration\uFF0CAgent \u5DE5\u4F5C\u533A\u53EF\u663E\u5F0F\u521B\u5EFA\u3001\u8BFB\u53D6\u6216\u653E\u5F03\u552F\u4E00\u5019\u9009\uFF0C\u5E76\u53EF\u8FD0\u884C\u56FA\u5B9A\u7684\u53EA\u8BFB Codex \u521B\u4F5C\u7EBF\u7A0B\u5BBF\u4E3B\u9A8C\u8BC1\uFF1B\u53D7\u63A7\u5DE5\u5177\u53EA\u539F\u5B50\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u4FEE\u6539\u5F53\u524D\u4FEE\u8BA2\u3002"
+          instructions: "\u53EA\u63A5\u89E6\u7528\u6237\u901A\u8FC7\u7CFB\u7EDF\u6587\u4EF6\u5939\u9009\u62E9\u7A97\u53E3\u6216\u53C2\u6570\u660E\u786E\u7ED9\u51FA\u7684\u76EE\u5F55\u3002\u53EF\u4EE5\u5728\u4E0D\u5B58\u5728\u7684\u76EE\u6807\u539F\u5B50\u521B\u5EFA Project VNext\uFF0C\u6216\u4E25\u683C\u6253\u5F00\u6709\u6548\u9879\u76EE\uFF1B\u8868\u683C\u5DE5\u4F5C\u533A\u53EA\u4FEE\u6539 Scene \u4E0E Narration\uFF0CComposer \u53EF\u53D1\u8D77\u4E13\u7528 Agent \u521B\u4F5C\u4EFB\u52A1\uFF0C\u8BFB\u53D6\u6700\u65B0\u9879\u76EE\u3001\u539F\u5B50\u4FEE\u6539\u552F\u4E00\u5019\u9009\u5E76\u68C0\u67E5\u4EA4\u4ED8\uFF1B\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\u5728\u8868\u73B0\u4E0A\u4F18\u5148\uFF0C\u4F46\u4E0D\u80FD\u6539\u5199 Scene\u3001Speech\u3001\u65F6\u95F4\u4E0E\u5B89\u5168\u7EA6\u675F\u3002Agent \u4E0D\u81EA\u52A8\u63A5\u53D7\u5019\u9009\u6216\u53D1\u8D77\u6700\u7EC8 Render\u3002"
         };
       }
       case "ping":
@@ -32361,7 +32755,7 @@ function createNarracutRequestHandler(options = {}) {
           resources: [{
             uri: WORKBENCH_URI,
             name: "Narracut \u5DE5\u4F5C\u53F0",
-            description: "Project VNext \u542F\u52A8\u5668\u3001\u53EF\u7F16\u8F91 Scene \u63A5\u89E6\u8868\u4E0E\u53EA\u8BFB Agent \u5DE5\u4F5C\u533A",
+            description: "Project VNext \u542F\u52A8\u5668\u3001\u53EF\u7F16\u8F91 Scene \u63A5\u89E6\u8868\u4E0E Agent \u521B\u4F5C\u5DE5\u4F5C\u533A",
             mimeType: "text/html;profile=mcp-app"
           }]
         };

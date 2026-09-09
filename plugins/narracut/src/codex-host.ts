@@ -17,12 +17,13 @@ export type StartCodexTurnInput = {
   projectDirectory: string;
   prompt: string;
   verificationToken: string;
+  images?: string[];
   outputSchema: Record<string, unknown>;
 };
 
 export interface CodexHostAdapter {
   subscribe(listener: (event: CodexHostEvent) => void): () => void;
-  createThread(input: { projectDirectory: string }): Promise<{ threadId: string }>;
+  createThread(input: { projectDirectory: string; purpose?: "creation" }): Promise<{ threadId: string }>;
   resumeThread(input: { threadId: string; projectDirectory: string }): Promise<{ threadId: string }>;
   startTurn(input: StartCodexTurnInput): Promise<{ turnId: string }>;
   interruptTurn(input: { threadId: string; turnId: string }): Promise<void>;
