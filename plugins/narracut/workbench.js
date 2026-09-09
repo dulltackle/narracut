@@ -296,7 +296,9 @@
     return `<div class="launch-error" role="status"><strong>${escapeHtml(error.code ?? "PROJECT_OPERATION_FAILED")}</strong><span>${escapeHtml(error.message ?? "项目操作失败，请核对路径后重试。")}</span>${error.path ? `<div>${escapeHtml(error.path)}</div>` : ""}${residue ? '<button type="button" class="launch-button residue-action" data-confirm-residue>确认清理并从头重试</button>' : ""}</div>`;
   }
 
+  let restoreLauncher = null;
   function launcher() {
+    if (restoreLauncher) return '<div data-restore-root></div>';
     const finalPath = finalProjectPath();
     const verdict = launcherVerdict();
     const busy = state.launcher.busy;
@@ -307,13 +309,13 @@
         <section class="launch-step"><div class="step-index" aria-hidden="true">03</div><div class="step-copy"><h2>核对最终项目路径</h2><code class="final-path" data-final-path title="${escapeHtml(finalPath)}">${escapeHtml(finalPath || "选择位置并填写名称后显示")}</code><p class="path-verdict" data-path-verdict data-valid="${verdict.valid}">${escapeHtml(verdict.copy)}</p>${launcherError()}</div></section>
         <section class="launch-step"><div class="step-index" aria-hidden="true">04</div><div class="step-copy"><h2>将创建</h2><div class="create-grid"><ul class="creation-list"><li><span class="file-glyph" aria-hidden="true"></span><span>narracut.json · 严格项目清单</span></li><li><span class="file-glyph" aria-hidden="true"></span><span>project.json · 空 Project DSL</span></li><li><span class="file-glyph" aria-hidden="true"></span><span>零字节 video.md</span></li><li><span class="file-glyph" aria-hidden="true"></span><span>starter 当前 Render Program 修订</span></li><li><span class="file-glyph" aria-hidden="true"></span><span>pnpm-lock.yaml · 精确依赖</span></li></ul><button class="create-action" type="button" data-create-project ${!verdict.valid || busy ? "disabled" : ""}>${busy ? "正在原子创建…" : "原子创建并打开"}</button></div></div></section>
       </div></section>
-      <aside class="launch-side" aria-label="其他入口"><h2>其他入口</h2><div class="side-actions"><section class="side-entry"><span class="side-folder" aria-hidden="true"></span><div><h3>打开项目</h3><p>严格校验已有 Project VNext</p></div><button class="side-button" type="button" data-open-project ${busy ? "disabled" : ""}>选择项目文件夹</button></section><section class="side-entry" data-disabled="true"><span class="side-folder" aria-hidden="true"></span><div><h3>从恢复快照创建</h3><p>此入口将在恢复流程可用后启用</p></div><button class="side-button" type="button" disabled>从恢复快照创建</button></section></div></aside>
+      <aside class="launch-side" aria-label="其他入口"><h2>其他入口</h2><div class="side-actions"><section class="side-entry"><span class="side-folder" aria-hidden="true"></span><div><h3>打开项目</h3><p>严格校验已有 Project VNext</p></div><button class="side-button" type="button" data-open-project ${busy ? "disabled" : ""}>选择项目文件夹</button></section><section class="side-entry"><span class="side-folder" aria-hidden="true"></span><div><h3>从恢复快照创建</h3><p>核对未保存编辑，恢复到新文件夹</p></div><button class="side-button" type="button" data-open-restore>从恢复快照创建</button></section></div></aside>
     </main>`;
   }
 
   function launcherFooter() {
     const busy = state.launcher.busy;
-    return `<footer class="launch-footer"><strong>本地文件系统</strong><span class="footer-rule" aria-hidden="true"></span><span>${busy ? `<span class="launch-busy">${state.launcher.stage === "opening" ? "正在严格校验并取得租约" : "正在写入、复核并原子发布"}</span>` : "准备就绪 · 创建过程不联网、不安装依赖"}</span><span class="footer-status" aria-hidden="true"></span></footer>`;
+    return `<footer class="launch-footer"><strong>本地文件系统</strong><span class="footer-rule" aria-hidden="true"></span><span>${busy ? `<span class="launch-busy">${state.launcher.stage === "opening" ? "正在严格校验并取得租约" : "正在写入、复核并原子发布"}</span>` : (restoreLauncher ? "恢复流程 · 最后确认后才写入新目标" : "准备就绪 · 创建过程不联网、不安装依赖")}</span><span class="footer-status" aria-hidden="true"></span></footer>`;
   }
 
   function checks(result) {
@@ -2719,6 +2721,15 @@
   }
 
   function bindLauncher() {
+    if (restoreLauncher) { restoreLauncher.mount(document.querySelector('[data-restore-root]')); return; }
+    document.querySelector('[data-open-restore]')?.addEventListener('click', () => {
+      restoreLauncher = window.NarracutRestore({ callTool: callHostTool, exit: () => { restoreLauncher = null; render(); document.querySelector('[data-open-restore]')?.focus(); }, openProject: async path => {
+        const response = await callHostTool('open_project', { projectDirectory: path });
+        if (response?.isError || response.structuredContent?.status !== 'valid') throw new Error(response.structuredContent?.error?.message ?? '打开未完成；恢复项目仍保留在已发布路径。');
+        restoreLauncher = null; accept(response.structuredContent, response.structuredContent?.project?.sceneCount === 0);
+      } });
+      render();
+    }, { signal: bindings.signal });
     document.querySelector("[data-pick-parent]")?.addEventListener("click", pickParent, { signal: bindings.signal });
     document.querySelector("[data-open-project]")?.addEventListener("click", openFromLauncher, { signal: bindings.signal });
     document.querySelector("[data-create-project]")?.addEventListener("click", () => createFromLauncher(false), { signal: bindings.signal });

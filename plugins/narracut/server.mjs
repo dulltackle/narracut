@@ -4000,10 +4000,10 @@ var require_resolve_block_map = __commonJS({
       let offset = bm.offset;
       let commentEnd = null;
       for (const collItem of bm.items) {
-        const { start, key, sep: sep5, value } = collItem;
+        const { start, key, sep: sep6, value } = collItem;
         const keyProps = resolveProps.resolveProps(start, {
           indicator: "explicit-key-ind",
-          next: key ?? sep5?.[0],
+          next: key ?? sep6?.[0],
           offset,
           onError,
           parentIndent: bm.indent,
@@ -4017,7 +4017,7 @@ var require_resolve_block_map = __commonJS({
             else if ("indent" in key && key.indent !== bm.indent)
               onError(offset, "BAD_INDENT", startColMsg);
           }
-          if (!keyProps.anchor && !keyProps.tag && !sep5) {
+          if (!keyProps.anchor && !keyProps.tag && !sep6) {
             commentEnd = keyProps.end;
             if (keyProps.comment) {
               if (map2.comment)
@@ -4041,7 +4041,7 @@ var require_resolve_block_map = __commonJS({
         ctx.atKey = false;
         if (utilMapIncludes.mapIncludes(ctx, map2.items, keyNode))
           onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-        const valueProps = resolveProps.resolveProps(sep5 ?? [], {
+        const valueProps = resolveProps.resolveProps(sep6 ?? [], {
           indicator: "map-value-ind",
           next: value,
           offset: keyNode.range[2],
@@ -4057,7 +4057,7 @@ var require_resolve_block_map = __commonJS({
             if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
               onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep5, null, valueProps, onError);
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep6, null, valueProps, onError);
           if (ctx.schema.compat)
             utilFlowIndentCheck.flowIndentCheck(bm.indent, value, onError);
           offset = valueNode.range[2];
@@ -4148,7 +4148,7 @@ var require_resolve_end = __commonJS({
       let comment = "";
       if (end) {
         let hasSpace = false;
-        let sep5 = "";
+        let sep6 = "";
         for (const token of end) {
           const { source, type } = token;
           switch (type) {
@@ -4162,13 +4162,13 @@ var require_resolve_end = __commonJS({
               if (!comment)
                 comment = cb;
               else
-                comment += sep5 + cb;
-              sep5 = "";
+                comment += sep6 + cb;
+              sep6 = "";
               break;
             }
             case "newline":
               if (comment)
-                sep5 += source;
+                sep6 += source;
               hasSpace = true;
               break;
             default:
@@ -4211,18 +4211,18 @@ var require_resolve_flow_collection = __commonJS({
       let offset = fc.offset + fc.start.source.length;
       for (let i = 0; i < fc.items.length; ++i) {
         const collItem = fc.items[i];
-        const { start, key, sep: sep5, value } = collItem;
+        const { start, key, sep: sep6, value } = collItem;
         const props = resolveProps.resolveProps(start, {
           flow: fcName,
           indicator: "explicit-key-ind",
-          next: key ?? sep5?.[0],
+          next: key ?? sep6?.[0],
           offset,
           onError,
           parentIndent: fc.indent,
           startOnNewline: false
         });
         if (!props.found) {
-          if (!props.anchor && !props.tag && !sep5 && !value) {
+          if (!props.anchor && !props.tag && !sep6 && !value) {
             if (i === 0 && props.comma)
               onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
             else if (i < fc.items.length - 1)
@@ -4276,8 +4276,8 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap && !sep5 && !props.found) {
-          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep5, null, props, onError);
+        if (!isMap && !sep6 && !props.found) {
+          const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep6, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
           if (isBlock(value))
@@ -4289,7 +4289,7 @@ var require_resolve_flow_collection = __commonJS({
           if (isBlock(key))
             onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
           ctx.atKey = false;
-          const valueProps = resolveProps.resolveProps(sep5 ?? [], {
+          const valueProps = resolveProps.resolveProps(sep6 ?? [], {
             flow: fcName,
             indicator: "map-value-ind",
             next: value,
@@ -4300,8 +4300,8 @@ var require_resolve_flow_collection = __commonJS({
           });
           if (valueProps.found) {
             if (!isMap && !props.found && ctx.options.strict) {
-              if (sep5)
-                for (const st of sep5) {
+              if (sep6)
+                for (const st of sep6) {
                   if (st === valueProps.found)
                     break;
                   if (st.type === "newline") {
@@ -4318,7 +4318,7 @@ var require_resolve_flow_collection = __commonJS({
             else
               onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
           }
-          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep5, null, valueProps, onError) : null;
+          const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep6, null, valueProps, onError) : null;
           if (valueNode) {
             if (isBlock(value))
               onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -4498,7 +4498,7 @@ var require_resolve_block_scalar = __commonJS({
           chompStart = i + 1;
       }
       let value = "";
-      let sep5 = "";
+      let sep6 = "";
       let prevMoreIndented = false;
       for (let i = 0; i < contentStart; ++i)
         value += lines[i][0].slice(trimIndent) + "\n";
@@ -4515,24 +4515,24 @@ var require_resolve_block_scalar = __commonJS({
           indent = "";
         }
         if (type === Scalar.Scalar.BLOCK_LITERAL) {
-          value += sep5 + indent.slice(trimIndent) + content;
-          sep5 = "\n";
+          value += sep6 + indent.slice(trimIndent) + content;
+          sep6 = "\n";
         } else if (indent.length > trimIndent || content[0] === "	") {
-          if (sep5 === " ")
-            sep5 = "\n";
-          else if (!prevMoreIndented && sep5 === "\n")
-            sep5 = "\n\n";
-          value += sep5 + indent.slice(trimIndent) + content;
-          sep5 = "\n";
+          if (sep6 === " ")
+            sep6 = "\n";
+          else if (!prevMoreIndented && sep6 === "\n")
+            sep6 = "\n\n";
+          value += sep6 + indent.slice(trimIndent) + content;
+          sep6 = "\n";
           prevMoreIndented = true;
         } else if (content === "") {
-          if (sep5 === "\n")
+          if (sep6 === "\n")
             value += "\n";
           else
-            sep5 = "\n";
+            sep6 = "\n";
         } else {
-          value += sep5 + content;
-          sep5 = " ";
+          value += sep6 + content;
+          sep6 = " ";
           prevMoreIndented = false;
         }
       }
@@ -4714,25 +4714,25 @@ var require_resolve_flow_scalar = __commonJS({
       if (!match)
         return source;
       let res = match[1];
-      let sep5 = " ";
+      let sep6 = " ";
       let pos = first.lastIndex;
       line.lastIndex = pos;
       while (match = line.exec(source)) {
         if (match[1] === "") {
-          if (sep5 === "\n")
-            res += sep5;
+          if (sep6 === "\n")
+            res += sep6;
           else
-            sep5 = "\n";
+            sep6 = "\n";
         } else {
-          res += sep5 + match[1];
-          sep5 = " ";
+          res += sep6 + match[1];
+          sep6 = " ";
         }
         pos = line.lastIndex;
       }
       const last = /[ \t]*(.*)/sy;
       last.lastIndex = pos;
       match = last.exec(source);
-      return res + sep5 + (match?.[1] ?? "");
+      return res + sep6 + (match?.[1] ?? "");
     }
     function doubleQuotedValue(source, onError) {
       let res = "";
@@ -5542,14 +5542,14 @@ var require_cst_stringify = __commonJS({
         }
       }
     }
-    function stringifyItem({ start, key, sep: sep5, value }) {
+    function stringifyItem({ start, key, sep: sep6, value }) {
       let res = "";
       for (const st of start)
         res += st.source;
       if (key)
         res += stringifyToken(key);
-      if (sep5)
-        for (const st of sep5)
+      if (sep6)
+        for (const st of sep6)
           res += st.source;
       if (value)
         res += stringifyToken(value);
@@ -6716,18 +6716,18 @@ var require_parser = __commonJS({
         if (this.type === "map-value-ind") {
           const prev = getPrevProps(this.peek(2));
           const start = getFirstKeyStartProps(prev);
-          let sep5;
+          let sep6;
           if (scalar.end) {
-            sep5 = scalar.end;
-            sep5.push(this.sourceToken);
+            sep6 = scalar.end;
+            sep6.push(this.sourceToken);
             delete scalar.end;
           } else
-            sep5 = [this.sourceToken];
+            sep6 = [this.sourceToken];
           const map2 = {
             type: "block-map",
             offset: scalar.offset,
             indent: scalar.indent,
-            items: [{ start, key: scalar, sep: sep5 }]
+            items: [{ start, key: scalar, sep: sep6 }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map2;
@@ -6880,15 +6880,15 @@ var require_parser = __commonJS({
                 } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                   const start2 = getFirstKeyStartProps(it.start);
                   const key = it.key;
-                  const sep5 = it.sep;
-                  sep5.push(this.sourceToken);
+                  const sep6 = it.sep;
+                  sep6.push(this.sourceToken);
                   delete it.key;
                   delete it.sep;
                   this.stack.push({
                     type: "block-map",
                     offset: this.offset,
                     indent: this.indent,
-                    items: [{ start: start2, key, sep: sep5 }]
+                    items: [{ start: start2, key, sep: sep6 }]
                   });
                 } else if (start.length > 0) {
                   it.sep = it.sep.concat(start, this.sourceToken);
@@ -7082,13 +7082,13 @@ var require_parser = __commonJS({
             const prev = getPrevProps(parent);
             const start = getFirstKeyStartProps(prev);
             fixFlowSeqItems(fc);
-            const sep5 = fc.end.splice(1, fc.end.length);
-            sep5.push(this.sourceToken);
+            const sep6 = fc.end.splice(1, fc.end.length);
+            sep6.push(this.sourceToken);
             const map2 = {
               type: "block-map",
               offset: fc.offset,
               indent: fc.indent,
-              items: [{ start, key: fc, sep: sep5 }]
+              items: [{ start, key: fc, sep: sep6 }]
             };
             this.onKeyLine = true;
             this.stack[this.stack.length - 1] = map2;
@@ -9360,10 +9360,11 @@ var require_semver2 = __commonJS({
   }
 });
 
-// src/server/project-recovery.ts
-import { createHash as createHash7, randomUUID as randomUUID4 } from "node:crypto";
-import { link, lstat as lstat3, open as open2, realpath as realpath2, rm as rm5 } from "node:fs/promises";
-import { basename, dirname as dirname5, isAbsolute, join as join6, relative, sep } from "node:path";
+// src/server/project-restore.ts
+import { isDeepStrictEqual } from "node:util";
+import { randomUUID as randomUUID8 } from "node:crypto";
+import { link as link3, lstat as lstat8, open as open6, realpath as realpath6, rm as rm10 } from "node:fs/promises";
+import { basename as basename4, dirname as dirname9, isAbsolute as isAbsolute4, join as join12, relative as relative5, resolve as resolve5, sep as sep5 } from "node:path";
 
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 var external_exports = {};
@@ -23879,6 +23880,11 @@ function date4(params) {
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 config(en_default());
 
+// src/server/project-recovery.ts
+import { createHash as createHash9, randomUUID as randomUUID5 } from "node:crypto";
+import { link, lstat as lstat5, open as open4, realpath as realpath3, rm as rm6 } from "node:fs/promises";
+import { basename, dirname as dirname6, isAbsolute as isAbsolute2, join as join8, relative as relative2, sep as sep2 } from "node:path";
+
 // src/server/project-revisions.ts
 import { randomUUID, createHash } from "node:crypto";
 import { join } from "node:path";
@@ -24122,6 +24128,18 @@ function parseStrictJson(input, limits2) {
     }
   };
   const stringToken = (path, decode3) => {
+    const encodedLimit = !decode3 ? limits2.encodedStrings?.[path] : void 0;
+    if (encodedLimit !== void 0) {
+      const start2 = ++cursor;
+      while (cursor < input.length && input[cursor] !== '"') {
+        if (!/[A-Za-z0-9+/=]/.test(input[cursor])) invalid("\u6062\u590D\u8F7D\u8377\u5FC5\u987B\u4F7F\u7528\u672A\u8F6C\u4E49\u7684\u89C4\u8303 Base64\u3002", path);
+        cursor++;
+        if (cursor - start2 > encodedLimit) exceeded("encodedBytes", cursor - start2, encodedLimit, path);
+      }
+      if (input[cursor] !== '"') invalid("JSON \u5B57\u7B26\u4E32\u7F3A\u5C11\u7ED3\u675F\u5F15\u53F7\u3002", path);
+      cursor++;
+      return;
+    }
     const start = cursor;
     if (input[cursor] !== '"') invalid("JSON \u5B57\u7B26\u4E32\u7F3A\u5C11\u8D77\u59CB\u5F15\u53F7\u3002", path);
     cursor += 1;
@@ -24188,7 +24206,8 @@ function parseStrictJson(input, limits2) {
     return invalid("JSON \u5B57\u7B26\u4E32\u7F3A\u5C11\u7ED3\u675F\u5F15\u53F7\u3002", path);
   };
   const parseValue = (depth, path) => {
-    if (depth > limits2.maxDepth) exceeded("depth", depth, limits2.maxDepth, path);
+    whitespace();
+    if ((input[cursor] === "{" || input[cursor] === "[") && depth > limits2.maxDepth) exceeded("depth", depth, limits2.maxDepth, path);
     accountNode(path);
     whitespace();
     const current = input[cursor];
@@ -24520,8 +24539,8 @@ function registryURL(raw) {
   return url2.href;
 }
 async function fetchRegistryPackage(pin, cancellation) {
-  const basename7 = pin.name.split("/").at(-1);
-  let url2 = registryURL(`${REGISTRY}/${pin.name}/-/${basename7}-${pin.version}.tgz`);
+  const basename8 = pin.name.split("/").at(-1);
+  let url2 = registryURL(`${REGISTRY}/${pin.name}/-/${basename8}-${pin.version}.tgz`);
   const signal = AbortSignal.any([AbortSignal.timeout(3e4), ...cancellation ? [cancellation] : []]);
   for (let redirects = 0; redirects <= 4; redirects++) {
     let response;
@@ -24901,12 +24920,12 @@ var ExecutionCapsule = class _ExecutionCapsule {
       });
       let exitCode;
       try {
-        exitCode = await new Promise((resolve5) => {
+        exitCode = await new Promise((resolve6) => {
           child.once("error", () => {
             error51 = failure("CAPSULE_UNAVAILABLE");
-            resolve5(null);
+            resolve6(null);
           });
-          child.once("close", resolve5);
+          child.once("close", resolve6);
         });
         await stopping;
       } finally {
@@ -25176,10 +25195,10 @@ var applicationRoot = join4(dirname3(fileURLToPath2(import.meta.url)), "../..");
 async function programToolchain() {
   const files = /* @__PURE__ */ Object.create(null);
   const packages = /* @__PURE__ */ new Map();
-  async function readTree2(root, prefix, collected, relative6 = "") {
-    for (const item of await readdir2(join4(root, relative6), { withFileTypes: true })) {
+  async function readTree2(root, prefix, collected, relative7 = "") {
+    for (const item of await readdir2(join4(root, relative7), { withFileTypes: true })) {
       if (item.name === "node_modules" || item.name.endsWith(".map")) continue;
-      const path = relative6 ? `${relative6}/${item.name}` : item.name;
+      const path = relative7 ? `${relative7}/${item.name}` : item.name;
       if (item.isDirectory()) await readTree2(root, prefix, collected, path);
       else if (item.isFile()) {
         const bytes = await readFile2(join4(root, path));
@@ -25461,9 +25480,9 @@ async function buildProgramBundle(request2) {
     if (item.pin.version !== fixed.version) throw new ProgramBuildError("DEPENDENCY_LOCK_INVALID", "\u6838\u5FC3\u4F9D\u8D56\u5FC5\u987B\u4E0E\u56FA\u5B9A\u5DE5\u5177\u94FE\u7248\u672C\u4E00\u81F4\u3002");
     const actual = [...installed].filter(([path]) => path.startsWith(`packages/${i}/`));
     for (const [path, bytes] of actual) {
-      const relative6 = path.slice(`packages/${i}/`.length);
-      if (relative6.endsWith(".map")) continue;
-      if (!fixed.files.get(relative6)?.equals(bytes)) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u5B57\u8282\u4E0E\u56FA\u5B9A Runtime \u4E0D\u4E00\u81F4\u3002");
+      const relative7 = path.slice(`packages/${i}/`.length);
+      if (relative7.endsWith(".map")) continue;
+      if (!fixed.files.get(relative7)?.equals(bytes)) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u5B57\u8282\u4E0E\u56FA\u5B9A Runtime \u4E0D\u4E00\u81F4\u3002");
       trustedFiles.push(`/tmp/work/${path}`);
     }
     if ([...fixed.files.keys()].some((path) => !installed.has(`packages/${i}/${path}`))) throw new ProgramBuildError("DEPENDENCY_INTEGRITY_FAILED", "\u6838\u5FC3\u4F9D\u8D56\u7F3A\u5C11\u56FA\u5B9A Runtime \u6587\u4EF6\u3002");
@@ -25542,27 +25561,27 @@ async function directory(path) {
 async function readTree(root) {
   const tree = /* @__PURE__ */ new Map();
   let bytes = 0;
-  async function walk2(path, prefix, depth) {
+  async function walk(path, prefix, depth) {
     if (depth > 24) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 24 \u5C42");
     const identity2 = await directory(path);
     for (const name of (await readdir3(path)).sort()) {
-      const relative6 = prefix ? `${prefix}/${name}` : name;
-      if (!safePath2(relative6) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
+      const relative7 = prefix ? `${prefix}/${name}` : name;
+      if (!safePath2(relative7) || tree.size >= 4096) throw new Error("\u7A0B\u5E8F\u6811\u8DEF\u5F84\u6216\u6570\u91CF\u65E0\u6548");
       const full = join5(path, name);
       const stat = await lstat2(full);
       if (stat.isDirectory() && !stat.isSymbolicLink()) {
-        tree.set(relative6, null);
-        await walk2(full, relative6, depth + 1);
+        tree.set(relative7, null);
+        await walk(full, relative7, depth + 1);
       } else {
         const content = await regular(full);
         bytes += content.length;
         if (bytes > MAX_BYTES) throw new Error("\u7A0B\u5E8F\u6811\u8D85\u8FC7 32 MiB");
-        tree.set(relative6, content);
+        tree.set(relative7, content);
       }
     }
     if (await directory(path) !== identity2) throw new Error("\u8BFB\u53D6\u671F\u95F4\u76EE\u5F55\u88AB\u66FF\u6362");
   }
-  await walk2(root, "", 0);
+  await walk(root, "", 0);
   for (const required2 of ["program.json", "package.json", "pnpm-lock.yaml", "src/RenderProgram.tsx"]) {
     if (!Buffer.isBuffer(tree.get(required2))) throw new Error(`\u7A0B\u5E8F\u6811\u7F3A\u5C11 ${required2}`);
   }
@@ -25884,365 +25903,17 @@ async function createCandidateManager(project, assertWritable, observeCommit) {
   });
 }
 
-// src/server/project-recovery.ts
-var recoveryHash = (bytes) => `sha256:${createHash7("sha256").update(bytes).digest("hex")}`;
-var digest2 = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
-var fingerprint2 = external_exports.object({ path: external_exports.string(), fingerprint: digest2.nullable(), bindings: external_exports.record(external_exports.string(), digest2.nullable()).optional() }).strict();
-var component = external_exports.object({ bytes: external_exports.number().int().nonnegative(), sha256: digest2, base64: external_exports.string() }).strict();
-var baseline = external_exports.object({ projectId: external_exports.uuid(), dsl: external_exports.array(fingerprint2).min(1).max(2), brief: external_exports.array(fingerprint2).min(1).max(2), current: external_exports.array(fingerprint2).min(1).max(2), candidate: external_exports.array(fingerprint2).min(1).max(2) }).strict();
-var cutSchema = external_exports.object({ recoveryCutId: external_exports.uuid(), capturedAt: external_exports.iso.datetime(), sourcePath: external_exports.string(), projectId: external_exports.uuid(), sourceFormatVersion: external_exports.literal(1), baseline, payload: external_exports.object({ dsl: component.optional(), briefLocal: component.optional(), briefBase: component.optional() }).strict() }).strict();
-var envelopeSchema = cutSchema.extend({ kind: external_exports.literal("narracut-recovery"), snapshotFormatVersion: external_exports.literal(1), snapshotId: external_exports.uuid(), exportedAt: external_exports.iso.datetime(), sha256: digest2 }).strict();
-var encode3 = (text3) => {
-  const bytes = Buffer.from(text3);
-  if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== text3) throw new Error("\u6062\u590D\u5185\u5BB9\u5FC5\u987B\u662F\u4E25\u683C UTF-8\u3002");
-  return { bytes: bytes.length, sha256: recoveryHash(bytes), base64: bytes.toString("base64") };
-};
-async function recoveryBaseline(root, projectId, previous) {
-  const read = async (path, optional3 = false) => {
-    try {
-      return [{ path, fingerprint: recoveryHash(await regular(join6(root, path), 32 * 1024 * 1024)) }];
-    } catch (error51) {
-      if (optional3 && error51.code === "ENOENT") return [{ path, fingerprint: null }];
-      throw error51;
-    }
-  };
-  const current = await read(".narracut/current.json"), candidate = await read(".narracut/candidate.json", true);
-  const bind = async (entries, old) => {
-    if (old?.length === 1 && old[0].fingerprint === entries[0].fingerprint) return old;
-    if (entries[0].fingerprint === null) return [{ ...entries[0], bindings: { candidate: null, checkpoint: null, dependencies: null } }];
-    const bytes = await regular(join6(root, entries[0].path));
-    if (recoveryHash(bytes) !== entries[0].fingerprint) throw new Error("\u8BFB\u53D6\u6062\u590D\u57FA\u7EBF\u65F6\u53D1\u751F\u5E76\u53D1\u4FEE\u6539\u3002");
-    const bindings = recoveryBindings(entries[0].path, bytes);
-    if (entries[0].path.endsWith("/current.json") && !Object.keys(bindings).length) {
-      const pointer = JSON.parse(bytes.toString());
-      if (!/^[0-9a-f-]{36}$/i.test(pointer.revisionId)) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u8EAB\u4EFD\u65E0\u6548\u3002");
-      const path = `.narracut/revisions/${pointer.revisionId}`;
-      bindings[`${path}/revision.json`] = recoveryHash(await regular(join6(root, path, "revision.json")));
-      bindings[`${path}/render-program`] = identity(await readTree(join6(root, path, "render-program")));
-    }
-    return [{ ...entries[0], bindings }];
-  };
-  return { projectId, dsl: await read("project.json"), brief: await read("video.md"), current: await bind(current, previous?.current), candidate: await bind(candidate, previous?.candidate) };
-}
-function recoveryBindings(path, bytes) {
-  const value = JSON.parse(bytes.toString()), bindings = {};
-  if (path.endsWith("/current.json")) {
-    for (const ref of value.history ?? []) {
-      bindings[`.narracut/revisions/${ref.revisionId}/revision.json`] = ref.metadata;
-      bindings[`.narracut/revisions/${ref.revisionId}/render-program`] = ref.program;
-    }
-  } else if (path.endsWith("/candidate.json")) {
-    bindings[value.candidate?.path ?? "candidate"] = value.candidate?.identity ?? null;
-    bindings[value.checkpoint?.path ?? "checkpoint"] = value.checkpoint?.identity ?? null;
-    bindings[value.offline ?? "dependencies"] = value.offlineIdentity ?? null;
-  }
-  return bindings;
-}
-function sealRecovery(sourcePath, projectId, baseline2, draft) {
-  const payload = {};
-  if (draft.dsl !== void 0 && !(baseline2.dsl.length === 1 && baseline2.dsl[0].fingerprint === recoveryHash(draft.dsl))) payload.dsl = encode3(draft.dsl);
-  if (draft.briefLocal !== void 0 && !(baseline2.brief.length === 1 && baseline2.brief[0].fingerprint === recoveryHash(draft.briefLocal))) {
-    payload.briefLocal = encode3(draft.briefLocal);
-    if (draft.briefBase !== void 0 && baseline2.brief.some((item) => item.fingerprint !== recoveryHash(draft.briefBase))) payload.briefBase = encode3(draft.briefBase);
-  }
-  if (!payload.dsl && !payload.briefLocal) return null;
-  const cut = cutSchema.parse({ recoveryCutId: randomUUID4(), capturedAt: (/* @__PURE__ */ new Date()).toISOString(), sourcePath, projectId, sourceFormatVersion: 1, baseline: structuredClone(baseline2), payload });
-  validateRecovery(envelope(cut));
-  return cut;
-}
-function envelope(cut) {
-  const body = { ...cut, kind: "narracut-recovery", snapshotFormatVersion: 1, snapshotId: randomUUID4(), exportedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  return JSON.stringify({ ...body, sha256: recoveryHash(JSON.stringify(body)) });
-}
-function validateRecovery(text3) {
-  if (Buffer.byteLength(text3) > 52 * 1024 * 1024) throw new Error("\u6062\u590D\u5FEB\u7167\u8D85\u8FC7\u5927\u5C0F\u4E0A\u9650\u3002");
-  if (/"base64"\s*:\s*"[^"\n]*\\/.test(text3)) throw new Error("\u6062\u590D\u8F7D\u8377\u4E0D\u80FD\u5305\u542B JSON \u8F6C\u4E49\u3002");
-  const raw = parseStrictJson(text3, { maxDepth: 12, maxArrayItems: 64, maxObjectFields: 1024, maxNodes: 2048, maxStringScalars: 52 * 1024 * 1024, maxStringBytes: 52 * 1024 * 1024, maxNumberBytes: 32 });
-  const value = envelopeSchema.parse(raw);
-  const { sha256, ...body } = raw;
-  if (recoveryHash(JSON.stringify(body)) !== sha256 || !isAbsolute(value.sourcePath) || value.projectId !== value.baseline.projectId || !value.payload.dsl && !value.payload.briefLocal || value.payload.briefBase && !value.payload.briefLocal) throw new Error("\u6062\u590D\u4FE1\u5C01\u5185\u5BB9\u6216\u6458\u8981\u65E0\u6548\u3002");
-  const paths = { dsl: "project.json", brief: "video.md", current: ".narracut/current.json", candidate: ".narracut/candidate.json" };
-  for (const [key, path] of Object.entries(paths)) {
-    const entries = value.baseline[key];
-    if (entries.some((item) => item.path !== path || key !== "candidate" && item.fingerprint === null || ["dsl", "brief"].includes(key) && item.bindings !== void 0)) throw new Error("\u9010\u9879\u6062\u590D\u57FA\u7EBF\u4E0E\u7EC4\u4EF6\u4E0D\u5339\u914D\u3002");
-    for (const item of entries) {
-      if (key === "current") {
-        const bindings = item.bindings;
-        if (!bindings || !Object.keys(bindings).length || Object.keys(bindings).length > 40 || Object.entries(bindings).some(([path2, digest4]) => digest4 === null || !/^\.narracut\/revisions\/[0-9a-f-]{36}\/(revision\.json|render-program)$/.test(path2))) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5386\u53F2\u7F3A\u5C11\u7CBE\u786E\u8EAB\u4EFD\u7ED1\u5B9A\u3002");
-        for (const path2 of Object.keys(bindings)) {
-          const sibling = path2.endsWith("/revision.json") ? path2.replace(/revision\.json$/, "render-program") : path2.replace(/render-program$/, "revision.json");
-          if (!(sibling in bindings)) throw new Error("\u5386\u53F2\u4FEE\u8BA2\u7684\u7A0B\u5E8F\u4E0E\u5143\u6570\u636E\u7ED1\u5B9A\u4E0D\u5B8C\u6574\u3002");
-        }
-      }
-      if (key === "candidate") {
-        const bindings = item.bindings;
-        const entries2 = Object.entries(bindings ?? {});
-        const roles2 = entries2.map(([path2, digest4]) => {
-          if (["candidate", "checkpoint", "dependencies"].includes(path2) && digest4 === null) return path2;
-          if (/^\.narracut\/candidate-[0-9a-f-]{36}\/(candidate|checkpoint|dependencies)$/.test(path2) && digest4 !== null) return path2.split("/").at(-1);
-          throw new Error("\u5019\u9009\u3001\u6062\u590D\u68C0\u67E5\u70B9\u6216\u4F9D\u8D56\u57FA\u7EBF\u65E0\u6548\u3002");
-        });
-        if (entries2.length !== 3 || new Set(roles2).size !== 3 || item.fingerprint === null && entries2.some(([, digest4]) => digest4 !== null)) throw new Error("\u5019\u9009\u3001\u6062\u590D\u68C0\u67E5\u70B9\u4E0E\u4F9D\u8D56\u7ED1\u5B9A\u4E0D\u5B8C\u6574\u3002");
-      }
-    }
-  }
-  const encodedLiterals = [...text3.matchAll(/"base64"\s*:\s*"([^"\\]*)"/g)].map((match) => match[1]);
-  if (encodedLiterals.length !== Object.keys(value.payload).length || Object.values(value.payload).some((item) => !encodedLiterals.includes(item.base64))) throw new Error("\u6062\u590D\u8F7D\u8377\u5FC5\u987B\u4F7F\u7528\u672A\u8F6C\u4E49\u7684\u89C4\u8303 Base64 \u5B57\u9762\u91CF\u3002");
-  for (const [key, item] of Object.entries(value.payload)) {
-    const max = key === "dsl" ? 32 * 1024 * 1024 : 2 * 1024 * 1024;
-    if (item.bytes > max || item.base64.length !== 4 * Math.ceil(item.bytes / 3) || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.base64)) throw new Error("\u6062\u590D\u8F7D\u8377\u7F16\u7801\u6216\u957F\u5EA6\u65E0\u6548\u3002");
-    const bytes = Buffer.from(item.base64, "base64");
-    if (bytes.toString("base64") !== item.base64 || bytes.length !== item.bytes || recoveryHash(bytes) !== item.sha256) throw new Error("\u6062\u590D\u8F7D\u8377\u6458\u8981\u65E0\u6548\u3002");
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  }
-  return value;
-}
-var inside = (root, path) => {
-  const rel = relative(root, path);
-  return !rel || rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
-};
-var RecoveryExportUncertain = class extends Error {
-  constructor(path, snapshotId, sha256) {
-    super("\u5BFC\u51FA\u5DF2\u8FDB\u5165\u63D0\u4EA4\u9636\u6BB5\uFF0C\u6B63\u5728\u6838\u5BF9\u6301\u4E45\u7ED3\u679C\u3002");
-    this.path = path;
-    this.snapshotId = snapshotId;
-    this.sha256 = sha256;
-  }
-  path;
-  snapshotId;
-  sha256;
-};
-var RecoveryExports = class {
-  #operations = /* @__PURE__ */ new Map();
-  async run(cut, target, operationId, rootIdentity) {
-    external_exports.uuid().parse(operationId);
-    const previous = this.#operations.get(operationId);
-    if (previous) {
-      if (previous.target !== target || previous.cutId !== cut.recoveryCutId) throw new Error("\u5BFC\u51FA\u64CD\u4F5C ID \u4E0E\u76EE\u6807\u4E0D\u5339\u914D\u3002");
-      return previous.result;
-    }
-    const result = this.#publish(structuredClone(cut), target, rootIdentity);
-    this.#operations.set(operationId, { target, cutId: cut.recoveryCutId, result });
-    return result;
-  }
-  async status(operationId) {
-    const operation = this.#operations.get(operationId);
-    if (!operation) throw new Error("\u5C1A\u672A\u6536\u5230\u8BE5\u5BFC\u51FA\u8BF7\u6C42\uFF1B\u53EF\u4EE5\u91CD\u8BD5\u539F\u64CD\u4F5C\u3002");
-    try {
-      return await operation.result;
-    } catch (error51) {
-      if (!(error51 instanceof RecoveryExportUncertain)) throw error51;
-      try {
-        const value = validateRecovery((await regular(error51.path, 52 * 1024 * 1024)).toString("utf8"));
-        if (value.snapshotId !== error51.snapshotId || value.sha256 !== error51.sha256) throw error51;
-        await syncDirectory(dirname5(error51.path));
-        return { path: error51.path, snapshotId: error51.snapshotId };
-      } catch (cause) {
-        if (cause.code === "ENOENT") throw new Error("\u5BFC\u51FA\u6587\u4EF6\u4E0D\u5B58\u5728\uFF0C\u672A\u786E\u8BA4\u4FDD\u5B58\uFF1B\u8BF7\u91CD\u65B0\u5BFC\u51FA\u3002");
-        throw error51;
-      }
-    }
-  }
-  async #publish(cut, target, rootIdentity) {
-    if (!isAbsolute(target) || !target.endsWith(".narracut-recovery.json")) throw new Error("\u8BF7\u9009\u62E9\u9879\u76EE\u5916\u7684\u65B0 .narracut-recovery.json \u6587\u4EF6\u3002");
-    const parent = await realpath2(dirname5(target));
-    const source = await realpath2(cut.sourcePath).catch(() => cut.sourcePath);
-    if (inside(cut.sourcePath, parent) || inside(source, parent)) throw new Error("\u6062\u590D\u5FEB\u7167\u5FC5\u987B\u4F4D\u4E8E\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002");
-    if (rootIdentity) {
-      for (let ancestor = parent; ; ancestor = dirname5(ancestor)) {
-        const facts = await lstat3(ancestor);
-        if (facts.dev === rootIdentity.dev && facts.ino === rootIdentity.ino) throw new Error("\u6062\u590D\u5FEB\u7167\u4E0D\u80FD\u5199\u5165\u5DF2\u79FB\u52A8\u7684\u539F\u9879\u76EE\u76EE\u5F55\u3002");
-        if (dirname5(ancestor) === ancestor) break;
-      }
-    }
-    const parentHandle = await open2(parent, "r");
-    const parentFacts = await parentHandle.stat();
-    const anchored = process.platform === "win32" ? parent : `/dev/fd/${parentHandle.fd}`;
-    const publishedPath = join6(parent, basename(target));
-    const path = join6(anchored, basename(target));
-    const verifyParent = async () => {
-      const current = await lstat3(parent);
-      if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== parentFacts.dev || current.ino !== parentFacts.ino) throw new Error("\u5BFC\u51FA\u76EE\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u9009\u62E9\u7A33\u5B9A\u7684\u76EE\u5F55\u540E\u91CD\u8BD5\u3002");
-    };
-    try {
-      await verifyParent();
-      try {
-        await lstat3(path);
-        throw new Error("\u76EE\u6807\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u6587\u4EF6\u3002");
-      } catch (error51) {
-        if (error51.code !== "ENOENT") throw error51;
-      }
-      const temporary = join6(anchored, `.recovery-${randomUUID4()}.tmp`);
-      const bytes = envelope(cut), verified = validateRecovery(bytes);
-      let publishing = false;
-      try {
-        const handle = await open2(temporary, "wx", 384);
-        try {
-          await handle.writeFile(bytes);
-          await handle.chmod(384);
-          await handle.sync();
-        } finally {
-          await handle.close();
-        }
-        validateRecovery((await regular(temporary, 52 * 1024 * 1024)).toString("utf8"));
-        await verifyParent();
-        publishing = true;
-        await link(temporary, path);
-        await rm5(temporary);
-        await parentHandle.sync();
-        const persisted = validateRecovery((await regular(path, 52 * 1024 * 1024)).toString("utf8"));
-        if (persisted.snapshotId !== verified.snapshotId || persisted.sha256 !== verified.sha256) throw new Error("\u5BFC\u51FA\u7ED3\u679C\u5C1A\u4E0D\u80FD\u786E\u8BA4\uFF1B\u8BF7\u4FDD\u7559\u76EE\u6807\u6587\u4EF6\u3002");
-        return { path: publishedPath, snapshotId: persisted.snapshotId };
-      } catch (error51) {
-        if (error51.code === "EEXIST") throw new Error("\u76EE\u6807\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u6587\u4EF6\u3002");
-        if (publishing) throw new RecoveryExportUncertain(publishedPath, verified.snapshotId, verified.sha256);
-        throw error51;
-      } finally {
-        await rm5(temporary, { force: true }).catch(() => void 0);
-      }
-    } finally {
-      await parentHandle.close();
-    }
-  }
-};
-
-// src/server/project-identity.ts
-import { randomUUID as randomUUID5 } from "node:crypto";
-import { join as join7 } from "node:path";
-import { rename as rename3, rm as rm6 } from "node:fs/promises";
-var markerName = "identity-transition.json";
-function copiedTask(bytes, oldId, newId, detached = false) {
-  const task = JSON.parse(bytes.toString());
-  if (task.projectId !== oldId || typeof task.taskId !== "string") throw new Error("\u4EFB\u52A1\u68C0\u67E5\u70B9\u9879\u76EE\u8EAB\u4EFD\u65E0\u6548\u3002");
-  if (task.status === "terminated") return null;
-  if (!["running", "waiting", "stopped"].includes(task.status) || !detached && task.status !== "stopped") throw new Error("\u6765\u6E90\u4EFB\u52A1\u5C1A\u672A\u5B89\u5168\u505C\u6B62\u3002");
-  return Buffer.from(JSON.stringify({ ...task, projectId: newId, taskId: randomUUID5(), status: "stopped", reason: "PROJECT_COPIED", threadPointer: null, inputIdentity: null, toolApproval: null, pendingMessage: null, ...task.waitingReason === "TOOL_APPROVAL_REQUIRED" || task.reason === "TOOL_APPROVAL_REQUIRED" ? { waitingReason: null, pending: null } : {} }));
-}
-async function optional2(path) {
-  try {
-    return await regular(path, 2e7);
-  } catch (error51) {
-    if (error51.code === "ENOENT") return null;
-    throw error51;
-  }
-}
-async function finishIdentityTransition(root, projectId) {
-  const marker = join7(root, ".narracut", markerName);
-  const bytes = await optional2(marker);
-  if (!bytes) return;
-  const transition = JSON.parse(bytes.toString());
-  if (transition.version !== 1 || typeof transition.oldId !== "string" || typeof transition.newId !== "string" || !(transition.task === null || typeof transition.task === "string")) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u8BB0\u5F55\u635F\u574F\u3002");
-  if (projectId === transition.newId) {
-    const path = join7(root, ".narracut", "agent-task.json");
-    if (transition.task === null) await rm6(path, { force: true });
-    else {
-      const task = JSON.parse(transition.task);
-      if (task.projectId !== projectId || task.status !== "stopped" || task.threadPointer !== null) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u4EFB\u52A1\u8BB0\u5F55\u65E0\u6548\u3002");
-      const temporary = join7(root, ".narracut", `.task-${randomUUID5()}`);
-      await writeBytes(temporary, Buffer.from(transition.task));
-      await rename3(temporary, path);
-    }
-    await syncDirectory(join7(root, ".narracut"));
-  } else if (projectId !== transition.oldId) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u8BB0\u5F55\u4E0E\u9879\u76EE\u4E0D\u5339\u914D\u3002");
-  await rm6(marker);
-}
-async function changeProjectIdentity(root, oldId, assertWritable) {
-  const newId = randomUUID5(), internal = join7(root, ".narracut");
-  const checkpoint = await optional2(join7(internal, "agent-task.json"));
-  const task = checkpoint && !await endedTaskReason(root) ? copiedTask(checkpoint, oldId, newId, true)?.toString() ?? null : null;
-  const marker = join7(internal, markerName);
-  await writeBytes(marker, Buffer.from(JSON.stringify({ version: 1, oldId, newId, task })));
-  await syncDirectory(internal);
-  const temporary = join7(root, `.narracut.json.${randomUUID5()}.tmp`);
-  try {
-    await writeBytes(temporary, Buffer.from(JSON.stringify({ kind: "narracut-project", formatVersion: 1, projectId: newId })));
-    await assertWritable();
-    await rename3(temporary, join7(root, "narracut.json"));
-    await syncDirectory(root);
-    await finishIdentityTransition(root, newId);
-    return newId;
-  } finally {
-    await rm6(temporary, { force: true });
-  }
-}
-
-// src/server/project-copy.ts
-import { createHash as createHash11 } from "node:crypto";
-import { constants as constants2 } from "node:fs";
-import { lstat as lstat7, mkdir as mkdir6, open as open5, readdir as readdir6, readFile as readFile6, rm as rm9, realpath as realpath5 } from "node:fs/promises";
-import { join as join11, relative as relative4, resolve as resolve4, sep as sep4, dirname as dirname8, basename as basename3 } from "node:path";
-
-// src/server/project-lease-handoff.ts
-import { createServer, request } from "node:http";
-async function listenForProjectHandoff(token, handoff) {
-  let pending = null;
-  const server = createServer((req, res) => {
-    if (req.method !== "POST" || req.url !== "/handoff" || req.headers.authorization !== `Bearer ${token}`) {
-      res.writeHead(403).end();
-      return;
-    }
-    req.resume();
-    pending ??= handoff().catch((error51) => {
-      pending = null;
-      throw error51;
-    });
-    void pending.then(() => res.writeHead(204).end(), () => res.writeHead(409).end());
-  });
-  server.requestTimeout = 15e3;
-  server.headersTimeout = 1e4;
-  await new Promise((resolve5, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve5);
-  });
-  server.unref();
-  return { port: server.address().port, close: () => {
-    server.close();
-  } };
-}
-async function requestProjectHandoff(port, token) {
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
-  await new Promise((resolve5, reject) => {
-    const req = request({ hostname: "127.0.0.1", port, path: "/handoff", method: "POST", headers: { authorization: `Bearer ${token}` }, agent: false }, (res) => {
-      res.resume();
-      res.once("end", () => res.statusCode === 204 ? resolve5() : reject(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
-    });
-    req.setTimeout(15e3, () => req.destroy(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
-    req.on("error", reject);
-    req.end();
-  });
-}
-
-// src/server/project-lifecycle.ts
-import { createHash as createHash10, randomUUID as randomUUID7 } from "node:crypto";
-import { constants as fsConstants2 } from "node:fs";
-import {
-  access,
-  link as link2,
-  lstat as lstat6,
-  mkdir as mkdir5,
-  open as openFile,
-  readFile as readFile5,
-  readdir as readdir5,
-  realpath as realpath4,
-  rename as rename5,
-  rmdir,
-  rm as rm8,
-  unlink,
-  writeFile as writeFile3
-} from "node:fs/promises";
-import { basename as basename2, dirname as dirname7, isAbsolute as isAbsolute3, join as join10, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
-
 // src/server/project-vnext-inspection.ts
-import { createHash as createHash9 } from "node:crypto";
-import { lstat as lstat5, open as open4, readdir as readdir4, realpath as realpath3 } from "node:fs/promises";
-import { isAbsolute as isAbsolute2, join as join9, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+import { createHash as createHash8 } from "node:crypto";
+import { lstat as lstat4, open as open3, readdir as readdir4, realpath as realpath2 } from "node:fs/promises";
+import { isAbsolute, join as join7, relative, resolve as resolve2, sep } from "node:path";
 
 // src/server/project-speech-vnext.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash as createHash8, randomUUID as randomUUID6 } from "node:crypto";
+import { createHash as createHash7, randomUUID as randomUUID4 } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { lstat as lstat4, open as open3, readFile as readFile4, rename as rename4, rm as rm7 } from "node:fs/promises";
-import { dirname as dirname6, join as join8 } from "node:path";
+import { lstat as lstat3, open as open2, readFile as readFile4, rename as rename3, rm as rm5 } from "node:fs/promises";
+import { dirname as dirname5, join as join6 } from "node:path";
 import { promisify as promisify3 } from "node:util";
 var execFileAsync = promisify3(execFile3);
 var DRAFT_DURATION_MS = 5e3;
@@ -26314,13 +25985,13 @@ function ttsProfileId(config2) {
     pitch: config2.pitch,
     audio: TTS_CAPABILITIES.audio
   });
-  return `sha256:${createHash8("sha256").update(stable, "utf8").digest("hex")}`;
+  return `sha256:${createHash7("sha256").update(stable, "utf8").digest("hex")}`;
 }
 async function readProjectTtsConfig(projectDirectory) {
-  const path = join8(projectDirectory, "tts.json");
+  const path = join6(projectDirectory, "tts.json");
   let bytes;
   try {
-    const facts = await lstat4(path);
+    const facts = await lstat3(path);
     if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1 || facts.size > 16 * 1024) {
       throw new ProjectTtsConfigError("tts.json \u5FC5\u987B\u662F\u5C0F\u4E8E 16 KiB \u7684\u65E0\u94FE\u63A5\u666E\u901A\u6587\u4EF6\u3002", path);
     }
@@ -26358,11 +26029,11 @@ async function readProjectTtsConfig(projectDirectory) {
 }
 async function writeProjectTtsConfig(projectDirectory, input, assertWritable = async () => void 0) {
   const config2 = validateProjectTtsConfig(input);
-  const path = join8(projectDirectory, "tts.json");
-  const temporaryPath = join8(projectDirectory, `.tts.json.${randomUUID6()}.tmp`);
+  const path = join6(projectDirectory, "tts.json");
+  const temporaryPath = join6(projectDirectory, `.tts.json.${randomUUID4()}.tmp`);
   let committed = false;
   try {
-    const handle = await open3(temporaryPath, "wx", 384);
+    const handle = await open2(temporaryPath, "wx", 384);
     try {
       await handle.writeFile(Buffer.from(JSON.stringify(config2), "utf8"));
       await handle.sync();
@@ -26370,10 +26041,10 @@ async function writeProjectTtsConfig(projectDirectory, input, assertWritable = a
       await handle.close();
     }
     await assertWritable();
-    await rename4(temporaryPath, path);
+    await rename3(temporaryPath, path);
     committed = true;
     try {
-      const directory2 = await open3(dirname6(path), "r");
+      const directory2 = await open2(dirname5(path), "r");
       try {
         await directory2.sync();
       } finally {
@@ -26382,7 +26053,7 @@ async function writeProjectTtsConfig(projectDirectory, input, assertWritable = a
     } catch {
     }
   } finally {
-    if (!committed) await rm7(temporaryPath, { force: true }).catch(() => void 0);
+    if (!committed) await rm5(temporaryPath, { force: true }).catch(() => void 0);
   }
   return { status: "configured", config: config2, profileId: ttsProfileId(config2) };
 }
@@ -26422,9 +26093,9 @@ async function probeSpeechDurationMs(path) {
   return Math.round(duration3 * 1e3);
 }
 async function speechContentHash(path) {
-  const handle = await open3(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  const handle = await open2(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
   try {
-    const hash4 = createHash8("sha256");
+    const hash4 = createHash7("sha256");
     const chunk = Buffer.allocUnsafe(64 * 1024);
     let position = 0;
     while (true) {
@@ -26449,7 +26120,7 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
       durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
       continue;
     }
-    const currentSourceTextHash = `sha256:${createHash8("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
+    const currentSourceTextHash = `sha256:${createHash7("sha256").update(scene.narration.text, "utf8").digest("hex")}`;
     if (speech.sourceTextHash !== currentSourceTextHash) {
       states.push({
         sceneId: scene.id,
@@ -26470,10 +26141,10 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
       durations.push({ sceneId: scene.id, durationMs: DRAFT_DURATION_MS, source: "draft" });
       continue;
     }
-    const absolutePath = join8(projectDirectory, speech.path);
+    const absolutePath = join6(projectDirectory, speech.path);
     let before;
     try {
-      before = await lstat4(absolutePath);
+      before = await lstat3(absolutePath);
       if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) throw new Error("not ordinary");
     } catch {
       states.push({
@@ -26514,7 +26185,7 @@ async function inspectProjectSpeech(projectDirectory, scenes, currentProfileId, 
     }
     let after;
     try {
-      after = await lstat4(absolutePath);
+      after = await lstat3(absolutePath);
     } catch {
       after = void 0;
     }
@@ -26870,7 +26541,7 @@ function validateProjectDsl(value) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SCHEMA_INVALID", `${path}.speech.durationMs`, "durationMs \u5FC5\u987B\u662F\u6B63\u5B89\u5168\u6574\u6570\u3002"));
         }
         const narrationText = isRecord2(scene.narration) && typeof scene.narration.text === "string" ? scene.narration.text : void 0;
-        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash9("sha256").update(narrationText, "utf8").digest("hex")}`;
+        const expectedHash = narrationText === void 0 ? void 0 : `sha256:${createHash8("sha256").update(narrationText, "utf8").digest("hex")}`;
         if (typeof scene.speech.sourceTextHash !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(scene.speech.sourceTextHash) || expectedHash !== void 0 && scene.speech.sourceTextHash !== expectedHash) {
           diagnostics.push(schemaDiagnostic("PROJECT_DSL_SPEECH_MISMATCH", `${path}.speech.sourceTextHash`, "sourceTextHash \u5FC5\u987B\u5339\u914D\u5F53\u524D Narration \u7684\u539F\u59CB UTF-8 \u5B57\u8282\u3002"));
         }
@@ -26994,7 +26665,7 @@ function parseControlJson(input, path, component2, limits2) {
   }
 }
 async function readBoundedControlFile(path, component2, limit) {
-  const pathFacts = await lstat5(path);
+  const pathFacts = await lstat4(path);
   if (!pathFacts.isFile() || pathFacts.isSymbolicLink() || pathFacts.nlink !== 1) {
     throw invalidControlFile(path, {
       code: "PROJECT_REQUIRED_CONTENT_INVALID",
@@ -27002,7 +26673,7 @@ async function readBoundedControlFile(path, component2, limit) {
       message: `${component2} \u5FC5\u987B\u662F\u65E0\u7B26\u53F7\u94FE\u63A5\u3001\u65E0\u786C\u94FE\u63A5\u7684\u666E\u901A\u6587\u4EF6\uFF1B\u8BF7\u66FF\u6362\u8BE5\u8DEF\u5F84\u540E\u91CD\u8BD5\u3002`
     });
   }
-  const handle = await open4(path, "r");
+  const handle = await open3(path, "r");
   try {
     const facts = await handle.stat();
     if (!facts.isFile() || facts.dev !== pathFacts.dev || facts.ino !== pathFacts.ino) {
@@ -27046,22 +26717,22 @@ async function readBoundedControlFile(path, component2, limit) {
 }
 async function readProjectVNextRevision(projectPath) {
   const bytes = await readBoundedControlFile(projectPath, "project.json", 10 * 1024 * 1024);
-  return `sha256:${createHash9("sha256").update(bytes).digest("hex")}`;
+  return `sha256:${createHash8("sha256").update(bytes).digest("hex")}`;
 }
 async function readVideoBriefVNext(videoBriefPath) {
   const buffer = await readBoundedControlFile(videoBriefPath, "video.md", 2 * 1024 * 1024);
   return {
     content: decodeUtf8(buffer, videoBriefPath, "video.md", true),
-    revision: `sha256:${createHash9("sha256").update(buffer).digest("hex")}`,
+    revision: `sha256:${createHash8("sha256").update(buffer).digest("hex")}`,
     bytes: buffer.length
   };
 }
 async function requireDirectory(path) {
-  const facts = await lstat5(path);
+  const facts = await lstat4(path);
   if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error(`\u5FC5\u9700\u76EE\u5F55\u65E0\u6548\uFF1A${path}`);
 }
 async function requireFile(path) {
-  const facts = await lstat5(path);
+  const facts = await lstat4(path);
   if (!facts.isFile() || facts.isSymbolicLink() || facts.nlink !== 1) {
     throw new Error(`\u5FC5\u9700\u6587\u4EF6\u65E0\u6548\uFF1A${path}`);
   }
@@ -27084,10 +26755,10 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
   const directoryIdentities = [];
   for (let index = 0; index < parts.length; index += 1) {
     const component2 = parts.slice(0, index + 1).join("/");
-    const path = join9(projectDirectory, component2);
+    const path = join7(projectDirectory, component2);
     let facts;
     try {
-      facts = await lstat5(path);
+      facts = await lstat4(path);
     } catch (cause) {
       if (isFileSystemError(cause) && cause.code === "ENOENT" && !required2) return;
       if (isFileSystemError(cause) && cause.code === "ENOENT") {
@@ -27118,11 +26789,11 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
       );
     }
   }
-  const resourcePath = join9(projectDirectory, relativePath);
-  const allowedRoot = await realpath3(join9(projectDirectory, parts[0]));
-  const resolvedResource = await realpath3(resourcePath);
-  const relation = relative2(allowedRoot, resolvedResource);
-  if (relation === ".." || relation.startsWith(`..${sep2}`) || isAbsolute2(relation)) {
+  const resourcePath = join7(projectDirectory, relativePath);
+  const allowedRoot = await realpath2(join7(projectDirectory, parts[0]));
+  const resolvedResource = await realpath2(resourcePath);
+  const relation = relative(allowedRoot, resolvedResource);
+  if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
     throw invalidResource(
       resourcePath,
       relativePath,
@@ -27130,12 +26801,12 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
     );
   }
   for (const identity2 of directoryIdentities) {
-    const current = await lstat5(identity2.path);
+    const current = await lstat4(identity2.path);
     if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity2.dev || current.ino !== identity2.ino) {
       throw invalidResource(
         identity2.path,
-        relative2(projectDirectory, identity2.path),
-        `${relative2(projectDirectory, identity2.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
+        relative(projectDirectory, identity2.path),
+        `${relative(projectDirectory, identity2.path)} \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002`
       );
     }
   }
@@ -27143,11 +26814,11 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
 async function validateProjectVNextResources(projectDirectory, project, options = {}) {
   const assetStates = [];
   for (const asset of project.assets) {
-    const path = join9(projectDirectory, asset.path);
+    const path = join7(projectDirectory, asset.path);
     await validateOrdinaryResource(projectDirectory, asset.path, false);
     let facts;
     try {
-      facts = await lstat5(path);
+      facts = await lstat4(path);
     } catch (cause) {
       assetStates.push({
         id: asset.id,
@@ -27158,7 +26829,7 @@ async function validateProjectVNextResources(projectDirectory, project, options 
       continue;
     }
     try {
-      const handle = await open4(path, "r");
+      const handle = await open3(path, "r");
       await handle.close();
       assetStates.push({
         id: asset.id,
@@ -27217,7 +26888,7 @@ async function readStableDirectory(directory2) {
 var MAX_DIRECTORY_TREE_DEPTH = 32;
 var MAX_DIRECTORY_TREE_DIRECTORIES = 4096;
 function directoryTreeLimit(projectDirectory, path, metric, actual, limit) {
-  const component2 = relative2(projectDirectory, path) || ".";
+  const component2 = relative(projectDirectory, path) || ".";
   return invalidControlFile(path, {
     code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED",
     component: component2,
@@ -27253,8 +26924,8 @@ async function discoverRenderProgramDirectories(projectDirectory) {
     for (const entry of [...entries].reverse()) {
       if (directory2 === projectDirectory && excludedRoots.has(entry.name)) continue;
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
-      const path = join9(directory2, entry.name);
-      const facts = await lstat5(path);
+      const path = join7(directory2, entry.name);
+      const facts = await lstat4(path);
       if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
       const childDepth = depth + 1;
       if (childDepth > MAX_DIRECTORY_TREE_DEPTH) {
@@ -27271,13 +26942,13 @@ async function discoverRenderProgramDirectories(projectDirectory) {
   return programs;
 }
 async function validateRenderProgramDirectory(projectDirectory, programDirectory) {
-  const projectRoot = await realpath3(projectDirectory);
-  const resolvedProgram = await realpath3(programDirectory);
-  const programRelation = relative2(projectRoot, resolvedProgram);
-  if (programRelation === ".." || programRelation.startsWith(`..${sep2}`) || isAbsolute2(programRelation)) {
+  const projectRoot = await realpath2(projectDirectory);
+  const resolvedProgram = await realpath2(programDirectory);
+  const programRelation = relative(projectRoot, resolvedProgram);
+  if (programRelation === ".." || programRelation.startsWith(`..${sep}`) || isAbsolute(programRelation)) {
     throw invalidResource(
       programDirectory,
-      relative2(projectDirectory, programDirectory),
+      relative(projectDirectory, programDirectory),
       "Render Program \u89E3\u6790\u5230\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\uFF1B\u8BF7\u79FB\u9664\u7236\u8DEF\u5F84\u4E2D\u7684\u94FE\u63A5\u3002"
     );
   }
@@ -27290,13 +26961,13 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
     ["resources", "directory"]
   ];
   for (const [entry, kind] of requiredEntries) {
-    const path = join9(programDirectory, ...entry.split("/"));
+    const path = join7(programDirectory, ...entry.split("/"));
     let facts;
     try {
-      facts = await lstat5(path);
+      facts = await lstat4(path);
     } catch (cause) {
       if (isFileSystemError(cause) && cause.code === "ENOENT") {
-        throw missingContent(path, relative2(projectDirectory, path));
+        throw missingContent(path, relative(projectDirectory, path));
       }
       throw new ProjectInspectionError(
         "PROJECT_PATH_UNAVAILABLE",
@@ -27310,8 +26981,8 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
     if (!valid2) {
       throw invalidResource(
         path,
-        relative2(projectDirectory, path),
-        `${relative2(projectDirectory, path)} \u5FC5\u987B\u662F\u65E0\u94FE\u63A5\u7684\u666E\u901A${kind === "directory" ? "\u76EE\u5F55" : "\u6587\u4EF6"}\u3002`
+        relative(projectDirectory, path),
+        `${relative(projectDirectory, path)} \u5FC5\u987B\u662F\u65E0\u94FE\u63A5\u7684\u666E\u901A${kind === "directory" ? "\u76EE\u5F55" : "\u6587\u4EF6"}\u3002`
       );
     }
   }
@@ -27324,12 +26995,12 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
       throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
     }
     for (const entry of [...await readStableDirectory(directory2)].reverse()) {
-      const path = join9(directory2, entry.name);
-      const component2 = relative2(projectDirectory, path);
+      const path = join7(directory2, entry.name);
+      const component2 = relative(projectDirectory, path);
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
         throw invalidResource(path, component2, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
       }
-      const facts = await lstat5(path);
+      const facts = await lstat4(path);
       if (facts.isSymbolicLink()) {
         throw invalidResource(path, component2, `${component2} \u662F\u7B26\u53F7\u94FE\u63A5\uFF1BRender Program \u6811\u53EA\u5141\u8BB8\u666E\u901A\u6587\u4EF6\u548C\u76EE\u5F55\u3002`);
       }
@@ -27344,10 +27015,10 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
       }
     }
   }
-  if (await realpath3(programDirectory) !== resolvedProgram) {
+  if (await realpath2(programDirectory) !== resolvedProgram) {
     throw invalidResource(
       programDirectory,
-      relative2(projectDirectory, programDirectory),
+      relative(projectDirectory, programDirectory),
       "Render Program \u5728\u68C0\u67E5\u671F\u95F4\u88AB\u66FF\u6362\uFF1B\u8BF7\u505C\u6B62\u5916\u90E8\u4FEE\u6539\u540E\u91CD\u8BD5\u3002"
     );
   }
@@ -27365,10 +27036,10 @@ async function inspectProjectVNext(inputPath, options = {}) {
       { cause }
     );
   }
-  const manifestPath = join9(projectDirectory, "narracut.json");
+  const manifestPath = join7(projectDirectory, "narracut.json");
   let manifestBuffer;
   try {
-    manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
+    manifestBuffer = options.recoveryManifest ? Buffer.from(JSON.stringify(options.recoveryManifest)) : await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
   } catch (cause) {
     if (cause instanceof ProjectInspectionError) throw cause;
     if (isFileSystemError(cause) && cause.code === "ENOENT") {
@@ -27413,9 +27084,9 @@ async function inspectProjectVNext(inputPath, options = {}) {
   const manifestDiagnostics = validateProjectManifest(manifest);
   if (manifestDiagnostics.length > 0) throw invalidContent(manifestPath, manifestDiagnostics);
   const requiredEntries = [
-    [join9(projectDirectory, "assets"), "assets/", "directory"],
-    [join9(projectDirectory, "speech"), "speech/", "directory"],
-    [join9(projectDirectory, "renders"), "renders/", "directory"]
+    [join7(projectDirectory, "assets"), "assets/", "directory"],
+    [join7(projectDirectory, "speech"), "speech/", "directory"],
+    [join7(projectDirectory, "renders"), "renders/", "directory"]
   ];
   for (const [path, component2, kind] of requiredEntries) {
     try {
@@ -27447,8 +27118,8 @@ async function inspectProjectVNext(inputPath, options = {}) {
   } catch {
   }
   for (const programDirectory of renderProgramDirectories) {
-    const retained = relative2(projectDirectory, programDirectory).match(/^\.narracut\/revisions\/([0-9a-f-]{36})\/render-program$/);
-    if (currentRevision && retained && retained[1] !== currentRevision) continue;
+    const retained = relative(projectDirectory, programDirectory).match(/^\.narracut\/revisions\/([0-9a-f-]{36})\/render-program$/);
+    if (!options.verifyAllRenderPrograms && currentRevision && retained && retained[1] !== currentRevision) continue;
     await validateRenderProgramDirectory(projectDirectory, programDirectory);
   }
   let projectBuffer;
@@ -27456,12 +27127,12 @@ async function inspectProjectVNext(inputPath, options = {}) {
   try {
     [projectBuffer, videoBuffer] = await Promise.all([
       readBoundedControlFile(
-        join9(projectDirectory, "project.json"),
+        join7(projectDirectory, "project.json"),
         "project.json",
         10 * 1024 * 1024
       ),
       readBoundedControlFile(
-        join9(projectDirectory, "video.md"),
+        join7(projectDirectory, "video.md"),
         "video.md",
         2 * 1024 * 1024
       )
@@ -27483,17 +27154,17 @@ async function inspectProjectVNext(inputPath, options = {}) {
   }
   const projectBytes = decodeUtf8(
     projectBuffer,
-    join9(projectDirectory, "project.json"),
+    join7(projectDirectory, "project.json"),
     "project.json",
     false
   );
   const videoBytes = decodeUtf8(
     videoBuffer,
-    join9(projectDirectory, "video.md"),
+    join7(projectDirectory, "video.md"),
     "video.md",
     true
   );
-  const projectPath = join9(projectDirectory, "project.json");
+  const projectPath = join7(projectDirectory, "project.json");
   const parsedProject = parseControlJson(
     projectBytes,
     projectPath,
@@ -27530,9 +27201,9 @@ async function inspectProjectVNext(inputPath, options = {}) {
     projectDirectory,
     manifest,
     project: projectValidation.project,
-    projectRevision: `sha256:${createHash9("sha256").update(projectBuffer).digest("hex")}`,
+    projectRevision: `sha256:${createHash8("sha256").update(projectBuffer).digest("hex")}`,
     videoBrief: videoBytes,
-    videoBriefRevision: `sha256:${createHash9("sha256").update(videoBuffer).digest("hex")}`,
+    videoBriefRevision: `sha256:${createHash8("sha256").update(videoBuffer).digest("hex")}`,
     renderPrograms: { directories: renderProgramDirectories },
     assetStates,
     tts,
@@ -27542,7 +27213,394 @@ async function inspectProjectVNext(inputPath, options = {}) {
   };
 }
 
+// src/server/project-recovery.ts
+var RECOVERY_LIMIT = 20622e3;
+var RECOVERY_DSL_LIMIT = 10 * 1024 * 1024;
+var RECOVERY_BRIEF_LIMIT = 2 * 1024 * 1024;
+var recoveryHash = (bytes) => `sha256:${createHash9("sha256").update(bytes).digest("hex")}`;
+var uuid5 = external_exports.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+var digest2 = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
+var fingerprint2 = external_exports.object({ path: external_exports.string(), fingerprint: digest2.nullable(), bindings: external_exports.record(external_exports.string(), digest2.nullable()).optional() }).strict();
+var component = external_exports.object({ bytes: external_exports.number().int().nonnegative(), sha256: digest2, base64: external_exports.string() }).strict();
+var baseline = external_exports.object({ projectId: uuid5, dsl: external_exports.array(fingerprint2).min(1).max(2), brief: external_exports.array(fingerprint2).min(1).max(2), current: external_exports.array(fingerprint2).min(1).max(2), candidate: external_exports.array(fingerprint2).min(1).max(2) }).strict();
+var cutSchema = external_exports.object({ recoveryCutId: uuid5, capturedAt: external_exports.iso.datetime(), sourcePath: external_exports.string(), projectId: uuid5, sourceFormatVersion: external_exports.literal(1), baseline, payload: external_exports.object({ dsl: component.optional(), briefLocal: component.optional(), briefBase: component.optional() }).strict() }).strict();
+var envelopeSchema = cutSchema.extend({ kind: external_exports.literal("narracut-recovery"), snapshotFormatVersion: external_exports.literal(1), snapshotId: uuid5, exportedAt: external_exports.iso.datetime(), sha256: digest2 }).strict();
+var encode3 = (text3) => {
+  const bytes = Buffer.from(text3);
+  if (new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) !== text3) throw new Error("\u6062\u590D\u5185\u5BB9\u5FC5\u987B\u662F\u4E25\u683C UTF-8\u3002");
+  return { bytes: bytes.length, sha256: recoveryHash(bytes), base64: bytes.toString("base64") };
+};
+async function recoveryBaseline(root, projectId, previous) {
+  return { projectId, dsl: [await recoveryBaselineEntry(root, "dsl")], brief: [await recoveryBaselineEntry(root, "brief")], current: [await recoveryBaselineEntry(root, "current", previous?.current)], candidate: [await recoveryBaselineEntry(root, "candidate", previous?.candidate)] };
+}
+async function recoveryBaselineEntry(root, key, old) {
+  const path = { dsl: "project.json", brief: "video.md", current: ".narracut/current.json", candidate: ".narracut/candidate.json" }[key];
+  let bytes;
+  try {
+    bytes = await readBoundedControlFile(join8(root, path), path, key === "dsl" ? RECOVERY_DSL_LIMIT : key === "brief" ? RECOVERY_BRIEF_LIMIT : 4 * 1024 * 1024);
+  } catch (error51) {
+    if (key === "candidate" && error51.code === "ENOENT") return { path, fingerprint: null, bindings: { candidate: null, checkpoint: null, dependencies: null } };
+    throw error51;
+  }
+  const fingerprint3 = recoveryHash(bytes);
+  if (key === "dsl" || key === "brief") return { path, fingerprint: fingerprint3 };
+  if (old?.length === 1 && old[0].fingerprint === fingerprint3) return old[0];
+  const bindings = recoveryBindings(path, bytes);
+  if (key === "current" && !Object.keys(bindings).length) {
+    const pointer = JSON.parse(bytes.toString());
+    if (!/^[0-9a-f-]{36}$/i.test(pointer.revisionId)) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u8EAB\u4EFD\u65E0\u6548\u3002");
+    const revision = `.narracut/revisions/${pointer.revisionId}`;
+    bindings[`${revision}/revision.json`] = recoveryHash(await regular(join8(root, revision, "revision.json")));
+    bindings[`${revision}/render-program`] = identity(await readTree(join8(root, revision, "render-program")));
+  }
+  return { path, fingerprint: fingerprint3, bindings };
+}
+function recoveryBindings(path, bytes) {
+  const value = JSON.parse(bytes.toString()), bindings = {};
+  if (path.endsWith("/current.json")) {
+    for (const ref of value.history ?? []) {
+      bindings[`.narracut/revisions/${ref.revisionId}/revision.json`] = ref.metadata;
+      bindings[`.narracut/revisions/${ref.revisionId}/render-program`] = ref.program;
+    }
+  } else if (path.endsWith("/candidate.json")) {
+    bindings[value.candidate?.path ?? "candidate"] = value.candidate?.identity ?? null;
+    bindings[value.checkpoint?.path ?? "checkpoint"] = value.checkpoint?.identity ?? null;
+    bindings[value.offline ?? "dependencies"] = value.offlineIdentity ?? null;
+  }
+  return bindings;
+}
+function sealRecovery(sourcePath, projectId, baseline2, draft) {
+  const payload = {};
+  if (draft.dsl !== void 0 && !(baseline2.dsl.length === 1 && baseline2.dsl[0].fingerprint === recoveryHash(draft.dsl))) payload.dsl = encode3(draft.dsl);
+  if (draft.briefLocal !== void 0 && !(baseline2.brief.length === 1 && baseline2.brief[0].fingerprint === recoveryHash(draft.briefLocal))) {
+    payload.briefLocal = encode3(draft.briefLocal);
+    if (draft.briefBase !== void 0 && baseline2.brief.some((item) => item.fingerprint !== recoveryHash(draft.briefBase))) payload.briefBase = encode3(draft.briefBase);
+  }
+  if (!payload.dsl && !payload.briefLocal) return null;
+  const cut = cutSchema.parse({ recoveryCutId: randomUUID5(), capturedAt: (/* @__PURE__ */ new Date()).toISOString(), sourcePath, projectId, sourceFormatVersion: 1, baseline: structuredClone(baseline2), payload });
+  validateRecovery(envelope(cut));
+  return cut;
+}
+function envelope(cut) {
+  const body = { ...cut, kind: "narracut-recovery", snapshotFormatVersion: 1, snapshotId: randomUUID5(), exportedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  return JSON.stringify({ ...body, sha256: recoveryHash(JSON.stringify(body)) });
+}
+function parseRecovery(input) {
+  const inputBytes = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  if (inputBytes.length > RECOVERY_LIMIT) throw Object.assign(new Error("\u6062\u590D\u5FEB\u7167\u8D85\u8FC7\u5927\u5C0F\u4E0A\u9650\u3002"), { code: "RECOVERY_SNAPSHOT_LIMIT_EXCEEDED", component: "recovery", metric: "bytes", actual: inputBytes.length, limit: RECOVERY_LIMIT });
+  const text3 = decodeUtf8(inputBytes, "recovery", "recovery", false);
+  if (typeof input === "string" && input !== text3) throw new Error("\u6062\u590D\u4FE1\u5C01\u4E0D\u662F\u4E25\u683C UTF-8\u3002");
+  if (Buffer.byteLength(text3) > RECOVERY_LIMIT) throw new Error("\u6062\u590D\u5FEB\u7167\u8D85\u8FC7\u5927\u5C0F\u4E0A\u9650\u3002");
+  if (/"base64"\s*:\s*"[^"\n]*\\/.test(text3)) throw new Error("\u6062\u590D\u8F7D\u8377\u4E0D\u80FD\u5305\u542B JSON \u8F6C\u4E49\u3002");
+  let raw;
+  try {
+    raw = parseStrictJson(text3, {
+      maxDepth: 16,
+      maxArrayItems: 1024,
+      maxObjectFields: 4096,
+      maxNodes: 8192,
+      maxStringScalars: 32768,
+      maxStringBytes: 128 * 1024,
+      maxNumberBytes: 64,
+      encodedStrings: { "$.payload.dsl.base64": 4 * Math.ceil(RECOVERY_DSL_LIMIT / 3), "$.payload.briefLocal.base64": 4 * Math.ceil(RECOVERY_BRIEF_LIMIT / 3), "$.payload.briefBase.base64": 4 * Math.ceil(RECOVERY_BRIEF_LIMIT / 3) }
+    });
+  } catch (error51) {
+    if (error51 instanceof StrictJsonFailure && error51.metric) throw Object.assign(new Error(error51.message), { code: error51.metric === "encodedBytes" ? "RECOVERY_PAYLOAD_LIMIT_EXCEEDED" : "RECOVERY_SNAPSHOT_LIMIT_EXCEEDED", component: error51.jsonPath, metric: error51.metric, actual: error51.actual, limit: error51.limit, jsonPath: error51.jsonPath.slice(0, 256) });
+    throw error51;
+  }
+  if (raw.kind !== "narracut-recovery") throw Object.assign(new Error("\u4E0D\u662F Narracut \u6062\u590D\u5FEB\u7167\u3002"), { code: "NOT_A_NARRACUT_RECOVERY_SNAPSHOT" });
+  if (raw.snapshotFormatVersion !== 1 || raw.sourceFormatVersion !== 1) throw Object.assign(new Error("\u6062\u590D\u5FEB\u7167\u683C\u5F0F\u4E0D\u517C\u5BB9\u3002"), { code: "RECOVERY_SNAPSHOT_VERSION_UNSUPPORTED" });
+  const value = envelopeSchema.parse(raw);
+  const { sha256, ...body } = raw;
+  if (recoveryHash(JSON.stringify(body)) !== sha256 || !isAbsolute2(value.sourcePath) || value.projectId !== value.baseline.projectId || !value.payload.dsl && !value.payload.briefLocal || value.payload.briefBase && !value.payload.briefLocal) throw new Error("\u6062\u590D\u4FE1\u5C01\u5185\u5BB9\u6216\u6458\u8981\u65E0\u6548\u3002");
+  if (Object.values(value.baseline).filter((entry) => Array.isArray(entry) && entry.length === 2).length > 1) throw new Error("\u6062\u590D\u57FA\u7EBF\u53EA\u80FD\u8BB0\u5F55\u5355\u4E2A\u5728\u9014\u539F\u5B50\u63D0\u4EA4\u7684\u4E24\u79CD\u7ED3\u679C\u3002");
+  const paths = { dsl: "project.json", brief: "video.md", current: ".narracut/current.json", candidate: ".narracut/candidate.json" };
+  for (const [key, path] of Object.entries(paths)) {
+    const entries = value.baseline[key];
+    if (entries.some((item) => item.path !== path || key !== "candidate" && item.fingerprint === null || ["dsl", "brief"].includes(key) && item.bindings !== void 0)) throw new Error("\u9010\u9879\u6062\u590D\u57FA\u7EBF\u4E0E\u7EC4\u4EF6\u4E0D\u5339\u914D\u3002");
+    for (const item of entries) {
+      if (key === "current") {
+        const bindings = item.bindings;
+        if (!bindings || !Object.keys(bindings).length || Object.keys(bindings).length > 40 || Object.entries(bindings).some(([path2, digest4]) => digest4 === null || !/^\.narracut\/revisions\/[0-9a-f-]{36}\/(revision\.json|render-program)$/.test(path2))) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5386\u53F2\u7F3A\u5C11\u7CBE\u786E\u8EAB\u4EFD\u7ED1\u5B9A\u3002");
+        for (const path2 of Object.keys(bindings)) {
+          const sibling = path2.endsWith("/revision.json") ? path2.replace(/revision\.json$/, "render-program") : path2.replace(/render-program$/, "revision.json");
+          if (!(sibling in bindings)) throw new Error("\u5386\u53F2\u4FEE\u8BA2\u7684\u7A0B\u5E8F\u4E0E\u5143\u6570\u636E\u7ED1\u5B9A\u4E0D\u5B8C\u6574\u3002");
+        }
+      }
+      if (key === "candidate") {
+        const bindings = item.bindings;
+        const entries2 = Object.entries(bindings ?? {});
+        const roles2 = entries2.map(([path2, digest4]) => {
+          if (["candidate", "checkpoint", "dependencies"].includes(path2) && digest4 === null) return path2;
+          if (/^\.narracut\/candidate-[0-9a-f-]{36}\/(candidate|checkpoint|dependencies)$/.test(path2) && digest4 !== null) return path2.split("/").at(-1);
+          throw new Error("\u5019\u9009\u3001\u6062\u590D\u68C0\u67E5\u70B9\u6216\u4F9D\u8D56\u57FA\u7EBF\u65E0\u6548\u3002");
+        });
+        if (entries2.length !== 3 || new Set(roles2).size !== 3 || item.fingerprint === null && entries2.some(([, digest4]) => digest4 !== null)) throw new Error("\u5019\u9009\u3001\u6062\u590D\u68C0\u67E5\u70B9\u4E0E\u4F9D\u8D56\u7ED1\u5B9A\u4E0D\u5B8C\u6574\u3002");
+      }
+    }
+  }
+  const encodedLiterals = [...text3.matchAll(/"base64"\s*:\s*"([^"\\]*)"/g)].map((match) => match[1]);
+  if (encodedLiterals.length !== Object.keys(value.payload).length || Object.values(value.payload).some((item) => !encodedLiterals.includes(item.base64))) throw new Error("\u6062\u590D\u8F7D\u8377\u5FC5\u987B\u4F7F\u7528\u672A\u8F6C\u4E49\u7684\u89C4\u8303 Base64 \u5B57\u9762\u91CF\u3002");
+  if (inputBytes.length - Object.values(value.payload).reduce((n, item) => n + item.base64.length, 0) > 1024 * 1024) throw Object.assign(new Error("\u6062\u590D\u4FE1\u5C01\u5143\u6570\u636E\u8D85\u8FC7\u4E0A\u9650\u3002"), { code: "RECOVERY_SNAPSHOT_LIMIT_EXCEEDED", component: "metadata", metric: "bytes", actual: inputBytes.length - Object.values(value.payload).reduce((n, item) => n + item.base64.length, 0), limit: 1024 * 1024 });
+  for (const [key, item] of Object.entries(value.payload)) {
+    const max = key === "dsl" ? RECOVERY_DSL_LIMIT : RECOVERY_BRIEF_LIMIT;
+    if (item.bytes > max) throw Object.assign(new Error("\u6062\u590D\u8F7D\u8377\u8D85\u8FC7\u7EC4\u4EF6\u5927\u5C0F\u4E0A\u9650\u3002"), { code: "RECOVERY_PAYLOAD_LIMIT_EXCEEDED", component: key, metric: "bytes", actual: item.bytes, limit: max });
+    if (item.base64.length !== 4 * Math.ceil(item.bytes / 3) || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.base64)) throw new Error("\u6062\u590D\u8F7D\u8377\u7F16\u7801\u6216\u957F\u5EA6\u65E0\u6548\u3002");
+    const bytes = Buffer.from(item.base64, "base64");
+    if (bytes.toString("base64") !== item.base64 || bytes.length !== item.bytes || recoveryHash(bytes) !== item.sha256) throw new Error("\u6062\u590D\u8F7D\u8377\u6458\u8981\u65E0\u6548\u3002");
+    const content = decodeUtf8(bytes, key, key, key !== "dsl");
+    if (key === "dsl") {
+      try {
+        validateProjectVNextForSave(parseStrictJson(content, PROJECT_JSON_LIMITS));
+      } catch (error51) {
+        throw Object.assign(new Error(error51.message), { code: "RECOVERY_PAYLOAD_INVALID", component: "dsl", diagnostics: error51.diagnostics });
+      }
+    }
+  }
+  return value;
+}
+function validateRecovery(input) {
+  try {
+    return parseRecovery(input);
+  } catch (error51) {
+    if (error51.code?.startsWith("RECOVERY_") || error51.code === "NOT_A_NARRACUT_RECOVERY_SNAPSHOT") throw error51;
+    throw Object.assign(new Error(error51.message), { code: "RECOVERY_SNAPSHOT_INTEGRITY_FAILED", diagnostics: error51.diagnostics });
+  }
+}
+var inside = (root, path) => {
+  const rel = relative2(root, path);
+  return !rel || rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute2(rel);
+};
+var RecoveryExportUncertain = class extends Error {
+  constructor(path, snapshotId, sha256) {
+    super("\u5BFC\u51FA\u5DF2\u8FDB\u5165\u63D0\u4EA4\u9636\u6BB5\uFF0C\u6B63\u5728\u6838\u5BF9\u6301\u4E45\u7ED3\u679C\u3002");
+    this.path = path;
+    this.snapshotId = snapshotId;
+    this.sha256 = sha256;
+  }
+  path;
+  snapshotId;
+  sha256;
+};
+var RecoveryExports = class {
+  #operations = /* @__PURE__ */ new Map();
+  async run(cut, target, operationId, rootIdentity) {
+    uuid5.parse(operationId);
+    const previous = this.#operations.get(operationId);
+    if (previous) {
+      if (previous.target !== target || previous.cutId !== cut.recoveryCutId) throw new Error("\u5BFC\u51FA\u64CD\u4F5C ID \u4E0E\u76EE\u6807\u4E0D\u5339\u914D\u3002");
+      return previous.result;
+    }
+    const result = this.#publish(structuredClone(cut), target, rootIdentity);
+    this.#operations.set(operationId, { target, cutId: cut.recoveryCutId, result });
+    return result;
+  }
+  async status(operationId) {
+    const operation = this.#operations.get(operationId);
+    if (!operation) throw new Error("\u5C1A\u672A\u6536\u5230\u8BE5\u5BFC\u51FA\u8BF7\u6C42\uFF1B\u53EF\u4EE5\u91CD\u8BD5\u539F\u64CD\u4F5C\u3002");
+    try {
+      return await operation.result;
+    } catch (error51) {
+      if (!(error51 instanceof RecoveryExportUncertain)) throw error51;
+      try {
+        const value = validateRecovery(await readBoundedControlFile(error51.path, "recovery", RECOVERY_LIMIT));
+        if (value.snapshotId !== error51.snapshotId || value.sha256 !== error51.sha256) throw error51;
+        await syncDirectory(dirname6(error51.path));
+        return { path: error51.path, snapshotId: error51.snapshotId };
+      } catch (cause) {
+        if (cause.code === "ENOENT") throw new Error("\u5BFC\u51FA\u6587\u4EF6\u4E0D\u5B58\u5728\uFF0C\u672A\u786E\u8BA4\u4FDD\u5B58\uFF1B\u8BF7\u91CD\u65B0\u5BFC\u51FA\u3002");
+        throw error51;
+      }
+    }
+  }
+  async #publish(cut, target, rootIdentity) {
+    if (!isAbsolute2(target) || !target.endsWith(".narracut-recovery.json")) throw new Error("\u8BF7\u9009\u62E9\u9879\u76EE\u5916\u7684\u65B0 .narracut-recovery.json \u6587\u4EF6\u3002");
+    const parent = await realpath3(dirname6(target));
+    const source = await realpath3(cut.sourcePath).catch(() => cut.sourcePath);
+    if (inside(cut.sourcePath, parent) || inside(source, parent)) throw new Error("\u6062\u590D\u5FEB\u7167\u5FC5\u987B\u4F4D\u4E8E\u9879\u76EE\u76EE\u5F55\u4E4B\u5916\u3002");
+    if (rootIdentity) {
+      for (let ancestor = parent; ; ancestor = dirname6(ancestor)) {
+        const facts = await lstat5(ancestor);
+        if (facts.dev === rootIdentity.dev && facts.ino === rootIdentity.ino) throw new Error("\u6062\u590D\u5FEB\u7167\u4E0D\u80FD\u5199\u5165\u5DF2\u79FB\u52A8\u7684\u539F\u9879\u76EE\u76EE\u5F55\u3002");
+        if (dirname6(ancestor) === ancestor) break;
+      }
+    }
+    const parentHandle = await open4(parent, "r");
+    const parentFacts = await parentHandle.stat();
+    const anchored = process.platform === "win32" ? parent : `/dev/fd/${parentHandle.fd}`;
+    const publishedPath = join8(parent, basename(target));
+    const path = join8(anchored, basename(target));
+    const verifyParent = async () => {
+      const current = await lstat5(parent);
+      if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== parentFacts.dev || current.ino !== parentFacts.ino) throw new Error("\u5BFC\u51FA\u76EE\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u9009\u62E9\u7A33\u5B9A\u7684\u76EE\u5F55\u540E\u91CD\u8BD5\u3002");
+    };
+    try {
+      await verifyParent();
+      try {
+        await lstat5(path);
+        throw new Error("\u76EE\u6807\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u6587\u4EF6\u3002");
+      } catch (error51) {
+        if (error51.code !== "ENOENT") throw error51;
+      }
+      const temporary = join8(anchored, `.recovery-${randomUUID5()}.tmp`);
+      const bytes = envelope(cut), verified = validateRecovery(bytes);
+      let publishing = false;
+      try {
+        const handle = await open4(temporary, "wx", 384);
+        try {
+          await handle.writeFile(bytes);
+          await handle.chmod(384);
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        validateRecovery(await readBoundedControlFile(temporary, "recovery", RECOVERY_LIMIT));
+        await verifyParent();
+        publishing = true;
+        await link(temporary, path);
+        await rm6(temporary);
+        await parentHandle.sync();
+        const persisted = validateRecovery(await readBoundedControlFile(path, "recovery", RECOVERY_LIMIT));
+        if (persisted.snapshotId !== verified.snapshotId || persisted.sha256 !== verified.sha256) throw new Error("\u5BFC\u51FA\u7ED3\u679C\u5C1A\u4E0D\u80FD\u786E\u8BA4\uFF1B\u8BF7\u4FDD\u7559\u76EE\u6807\u6587\u4EF6\u3002");
+        return { path: publishedPath, snapshotId: persisted.snapshotId };
+      } catch (error51) {
+        if (error51.code === "EEXIST") throw new Error("\u76EE\u6807\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u6587\u4EF6\u3002");
+        if (publishing) throw new RecoveryExportUncertain(publishedPath, verified.snapshotId, verified.sha256);
+        throw error51;
+      } finally {
+        await rm6(temporary, { force: true }).catch(() => void 0);
+      }
+    } finally {
+      await parentHandle.close();
+    }
+  }
+};
+
+// src/server/project-identity.ts
+import { randomUUID as randomUUID6 } from "node:crypto";
+import { join as join9 } from "node:path";
+import { rename as rename4, rm as rm7 } from "node:fs/promises";
+var markerName = "identity-transition.json";
+function copiedTask(bytes, oldId, newId, detached = false) {
+  const task = JSON.parse(bytes.toString());
+  if (task.projectId !== oldId || typeof task.taskId !== "string") throw new Error("\u4EFB\u52A1\u68C0\u67E5\u70B9\u9879\u76EE\u8EAB\u4EFD\u65E0\u6548\u3002");
+  if (task.status === "terminated") return null;
+  if (!["running", "waiting", "stopped"].includes(task.status) || !detached && task.status !== "stopped") throw new Error("\u6765\u6E90\u4EFB\u52A1\u5C1A\u672A\u5B89\u5168\u505C\u6B62\u3002");
+  return Buffer.from(JSON.stringify({ ...task, projectId: newId, taskId: randomUUID6(), status: "stopped", reason: "PROJECT_COPIED", threadPointer: null, inputIdentity: null, toolApproval: null, pendingMessage: null, ...task.waitingReason === "TOOL_APPROVAL_REQUIRED" || task.reason === "TOOL_APPROVAL_REQUIRED" ? { waitingReason: null, pending: null } : {} }));
+}
+async function optional2(path) {
+  try {
+    return await regular(path, 2e7);
+  } catch (error51) {
+    if (error51.code === "ENOENT") return null;
+    throw error51;
+  }
+}
+async function finishIdentityTransition(root, projectId) {
+  const marker = join9(root, ".narracut", markerName);
+  const bytes = await optional2(marker);
+  if (!bytes) return;
+  const transition = JSON.parse(bytes.toString());
+  if (transition.version !== 1 || typeof transition.oldId !== "string" || typeof transition.newId !== "string" || !(transition.task === null || typeof transition.task === "string")) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u8BB0\u5F55\u635F\u574F\u3002");
+  if (projectId === transition.newId) {
+    const path = join9(root, ".narracut", "agent-task.json");
+    if (transition.task === null) await rm7(path, { force: true });
+    else {
+      const task = JSON.parse(transition.task);
+      if (task.projectId !== projectId || task.status !== "stopped" || task.threadPointer !== null) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u4EFB\u52A1\u8BB0\u5F55\u65E0\u6548\u3002");
+      const temporary = join9(root, ".narracut", `.task-${randomUUID6()}`);
+      await writeBytes(temporary, Buffer.from(transition.task));
+      await rename4(temporary, path);
+    }
+    await syncDirectory(join9(root, ".narracut"));
+  } else if (projectId !== transition.oldId) throw new Error("\u8EAB\u4EFD\u8F6C\u6362\u8BB0\u5F55\u4E0E\u9879\u76EE\u4E0D\u5339\u914D\u3002");
+  await rm7(marker);
+}
+async function changeProjectIdentity(root, oldId, assertWritable) {
+  const newId = randomUUID6(), internal = join9(root, ".narracut");
+  const checkpoint = await optional2(join9(internal, "agent-task.json"));
+  const task = checkpoint && !await endedTaskReason(root) ? copiedTask(checkpoint, oldId, newId, true)?.toString() ?? null : null;
+  const marker = join9(internal, markerName);
+  await writeBytes(marker, Buffer.from(JSON.stringify({ version: 1, oldId, newId, task })));
+  await syncDirectory(internal);
+  const temporary = join9(root, `.narracut.json.${randomUUID6()}.tmp`);
+  try {
+    await writeBytes(temporary, Buffer.from(JSON.stringify({ kind: "narracut-project", formatVersion: 1, projectId: newId })));
+    await assertWritable();
+    await rename4(temporary, join9(root, "narracut.json"));
+    await syncDirectory(root);
+    await finishIdentityTransition(root, newId);
+    return newId;
+  } finally {
+    await rm7(temporary, { force: true });
+  }
+}
+
+// src/server/project-copy.ts
+import { createHash as createHash11 } from "node:crypto";
+import { constants as constants2 } from "node:fs";
+import { lstat as lstat7, mkdir as mkdir6, open as open5, readdir as readdir6, readFile as readFile6, rm as rm9, realpath as realpath5 } from "node:fs/promises";
+import { join as join11, relative as relative4, resolve as resolve4, sep as sep4, dirname as dirname8, basename as basename3 } from "node:path";
+
+// src/server/project-lease-handoff.ts
+import { createServer, request } from "node:http";
+async function listenForProjectHandoff(token, handoff) {
+  let pending = null;
+  const server = createServer((req, res) => {
+    if (req.method !== "POST" || req.url !== "/handoff" || req.headers.authorization !== `Bearer ${token}`) {
+      res.writeHead(403).end();
+      return;
+    }
+    req.resume();
+    pending ??= handoff().catch((error51) => {
+      pending = null;
+      throw error51;
+    });
+    void pending.then(() => res.writeHead(204).end(), () => res.writeHead(409).end());
+  });
+  server.requestTimeout = 15e3;
+  server.headersTimeout = 1e4;
+  await new Promise((resolve6, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve6);
+  });
+  server.unref();
+  return { port: server.address().port, close: () => {
+    server.close();
+  } };
+}
+async function requestProjectHandoff(port, token) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
+  await new Promise((resolve6, reject) => {
+    const req = request({ hostname: "127.0.0.1", port, path: "/handoff", method: "POST", headers: { authorization: `Bearer ${token}` }, agent: false }, (res) => {
+      res.resume();
+      res.once("end", () => res.statusCode === 204 ? resolve6() : reject(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
+    });
+    req.setTimeout(15e3, () => req.destroy(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 // src/server/project-lifecycle.ts
+import { createHash as createHash10, randomUUID as randomUUID7 } from "node:crypto";
+import { constants as fsConstants2 } from "node:fs";
+import {
+  access,
+  link as link2,
+  lstat as lstat6,
+  mkdir as mkdir5,
+  open as openFile,
+  readFile as readFile5,
+  readdir as readdir5,
+  realpath as realpath4,
+  rename as rename5,
+  rmdir,
+  rm as rm8,
+  unlink,
+  writeFile as writeFile3
+} from "node:fs/promises";
+import { basename as basename2, dirname as dirname7, isAbsolute as isAbsolute3, join as join10, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
 var STARTER_REACT_VERSION = "19.2.8";
 var STARTER_REMOTION_VERSION = RUNTIME_REMOTION_VERSION;
 var ProjectLifecycleError = class extends Error {
@@ -27563,6 +27621,13 @@ var ProjectTtsConfirmationError = class extends Error {
   }
   affectedSpeechCount;
   code = "TTS_CONFIRMATION_REQUIRED";
+};
+var RecoveryPublicationUncertain = class extends ProjectLifecycleError {
+  constructor(path, reconcile) {
+    super("RECOVERY_PUBLISH_FAILED", path, "\u6062\u590D\u5DF2\u8FDB\u5165\u53D1\u5E03\u9636\u6BB5\uFF0C\u6B63\u5728\u6838\u5BF9\u6062\u590D\u7ED3\u679C\u3002");
+    this.reconcile = reconcile;
+  }
+  reconcile;
 };
 var OPERATION_MARKER = ".narracut-operation.json";
 var activeLeasePaths = /* @__PURE__ */ new Set();
@@ -27917,7 +27982,7 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
   const projectName = basename2(projectDirectory);
   if (projectName === "" || projectName === "." || projectName === "..") {
     throw new ProjectLifecycleError(
-      "PROJECT_CREATE_TARGET_INVALID",
+      operation === "recover" ? "RECOVERY_TARGET_UNAVAILABLE" : "PROJECT_CREATE_TARGET_INVALID",
       projectDirectory,
       "\u521B\u5EFA\u76EE\u6807\u5FC5\u987B\u662F\u5E26\u6709\u9879\u76EE\u6587\u4EF6\u5939\u540D\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002"
     );
@@ -27930,10 +27995,27 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
   let temporaryIdentity = null;
   let markerWritten = false;
   let targetReservationIdentity = null;
+  let renameAttempted = false;
+  let publicationIdentity = null;
+  const reconcileRecovery = async () => {
+    const facts = await lstat6(projectDirectory);
+    if (!publicationIdentity || !facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, publicationIdentity)) throw new Error("\u5C1A\u4E0D\u80FD\u786E\u8BA4\u53D1\u5E03\u76EE\u5F55\u8EAB\u4EFD\u3002");
+    const marker = JSON.parse((await regular(join10(projectDirectory, OPERATION_MARKER), 4096)).toString("utf8"));
+    if (!isCreateOperationMarker(marker, projectDirectory, operationToken, operation)) throw new Error("\u5C1A\u4E0D\u80FD\u786E\u8BA4\u53D1\u5E03\u5F52\u5C5E\u3002");
+    await syncDirectory(projectDirectory);
+    await syncDirectory(dirname7(projectDirectory));
+    const result = { projectDirectory, projectId, revisionId };
+    try {
+      await unlink(join10(projectDirectory, OPERATION_MARKER));
+    } catch {
+      result.cleanupWarning = { path: join10(projectDirectory, OPERATION_MARKER), message: "\u6062\u590D\u5DF2\u5B8C\u6210\uFF0C\u64CD\u4F5C\u6807\u8BB0\u5C1A\u672A\u6E05\u7406\u3002" };
+    }
+    return result;
+  };
   try {
     if (await pathExists(projectDirectory)) {
       throw new ProjectLifecycleError(
-        "PROJECT_CREATE_TARGET_EXISTS",
+        operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
         projectDirectory,
         `\u521B\u5EFA\u76EE\u6807\u5DF2\u5B58\u5728\uFF1A${projectDirectory}\u3002\u8BF7\u9009\u62E9\u5C1A\u4E0D\u5B58\u5728\u7684\u65B0\u8DEF\u5F84\u3002`
       );
@@ -27963,7 +28045,7 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
       } catch (error51) {
         if (error51 instanceof Error && "code" in error51 && error51.code === "EEXIST") {
           throw new ProjectLifecycleError(
-            "PROJECT_CREATE_TARGET_EXISTS",
+            operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
             projectDirectory,
             `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`,
             { cause: error51 }
@@ -27974,7 +28056,7 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
       targetReservationIdentity = await captureDirectoryIdentity(projectDirectory);
     } else if (await pathExists(projectDirectory)) {
       throw new ProjectLifecycleError(
-        "PROJECT_CREATE_TARGET_EXISTS",
+        operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
         projectDirectory,
         `\u539F\u5B50\u53D1\u5E03\u524D\u76EE\u6807\u5DF2\u7ECF\u51FA\u73B0\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u63A5\u7BA1\u3002`
       );
@@ -27983,18 +28065,29 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
       const currentReservation = await lstat6(projectDirectory);
       if (!currentReservation.isDirectory() || currentReservation.isSymbolicLink() || !hasIdentity(currentReservation, targetReservationIdentity) || (await readdir5(projectDirectory)).length !== 0) {
         throw new ProjectLifecycleError(
-          "PROJECT_CREATE_TARGET_EXISTS",
+          operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
           projectDirectory,
           `\u539F\u5B50\u53D1\u5E03\u65F6\u76EE\u6807\u4FDD\u7559\u76EE\u5F55\u53D1\u751F\u53D8\u5316\uFF1A${projectDirectory}\u3002Narracut \u62D2\u7EDD\u8986\u76D6\u3002`
         );
       }
     }
+    publicationIdentity = temporaryIdentity;
+    renameAttempted = true;
     await rename5(temporaryDirectory, projectDirectory);
+    if (operation === "recover") return await reconcileRecovery();
     temporaryIdentity = null;
     targetReservationIdentity = null;
     await unlink(join10(projectDirectory, OPERATION_MARKER)).catch(() => void 0);
     return { projectDirectory, projectId, revisionId };
   } catch (cause) {
+    if (operation === "recover" && renameAttempted) {
+      try {
+        return await reconcileRecovery();
+      } catch {
+      }
+      const temporary = await lstat6(temporaryDirectory).catch(() => null);
+      if (!temporary || !publicationIdentity || !hasIdentity(temporary, publicationIdentity)) throw new RecoveryPublicationUncertain(projectDirectory, reconcileRecovery);
+    }
     try {
       if (targetReservationIdentity !== null) {
         await cleanupTargetReservation(projectDirectory, targetReservationIdentity);
@@ -28011,17 +28104,17 @@ async function publishProjectVNext(inputPath, options, operation, prepare) {
       }
     } catch (cleanupCause) {
       throw new ProjectLifecycleError(
-        operation === "copy" ? "PROJECT_COPY_CLEANUP_FAILED" : "PROJECT_CREATE_CLEANUP_FAILED",
+        operation === "recover" ? "RECOVERY_PUBLISH_FAILED" : operation === "copy" ? "PROJECT_COPY_CLEANUP_FAILED" : "PROJECT_CREATE_CLEANUP_FAILED",
         temporaryDirectory,
         `\u521B\u5EFA\u5931\u8D25\uFF0C\u4E14\u65E0\u6CD5\u8BC1\u660E\u4E34\u65F6\u4EA7\u7269\u4ECD\u5F52\u672C\u6B21\u64CD\u4F5C\u6240\u6709\uFF1B\u5DF2\u4FDD\u7559\u73B0\u573A\uFF1A${temporaryDirectory}\u3002`,
         { cause: cleanupCause }
       );
     }
-    if (cause instanceof ProjectLifecycleError) throw cause;
+    if (cause instanceof ProjectLifecycleError || cause?.code?.startsWith("RECOVERY_")) throw cause;
     throw new ProjectLifecycleError(
-      operation === "copy" ? "PROJECT_COPY_FAILED" : "PROJECT_CREATE_FAILED",
+      operation === "recover" ? "RECOVERY_PUBLISH_FAILED" : operation === "copy" ? "PROJECT_COPY_FAILED" : "PROJECT_CREATE_FAILED",
       projectDirectory,
-      `${operation === "copy" ? "\u590D\u5236" : "\u521B\u5EFA"} Project VNext \u5931\u8D25\uFF1A${projectDirectory}\u3002${cause instanceof Error ? cause.message : ""}`,
+      `${operation === "recover" ? "\u6062\u590D" : operation === "copy" ? "\u590D\u5236" : "\u521B\u5EFA"} Project VNext \u5931\u8D25\uFF1A${projectDirectory}\u3002${cause instanceof Error ? cause.message : ""}`,
       { cause }
     );
   }
@@ -29336,7 +29429,7 @@ async function rewrite(path, bytes) {
     await file2.close();
   }
 }
-async function walk(root, destination, signal, keep = () => true) {
+async function walkPersistentProject(root, destination, signal, keep = () => true, trackIdentity = false) {
   const entries = /* @__PURE__ */ new Map();
   async function visit(path) {
     signal?.throwIfAborted();
@@ -29351,16 +29444,25 @@ async function walk(root, destination, signal, keep = () => true) {
       }
     } else {
       if (!before.isFile() || before.nlink !== 1) throw new Error(`\u4E0D\u80FD\u590D\u5236\u975E\u72EC\u7ACB\u666E\u901A\u6587\u4EF6\uFF1A${full}`);
+      const limit = { "narracut.json": 4096, "project.json": 10 * 1024 * 1024, "video.md": 2 * 1024 * 1024 }[path] ?? Infinity;
+      const checkSize = (size) => {
+        if (size > limit) throw new ProjectInspectionError("PROJECT_CONTENT_INVALID", full, `${path} \u8D85\u8FC7\u5927\u5C0F\u4E0A\u9650\u3002`, [{ code: "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED", component: path, message: `${path} \u4E3A ${size} \u5B57\u8282\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limit}\uFF1B\u8BF7\u7F29\u51CF\u6587\u4EF6\u540E\u91CD\u8BD5\u3002`, metric: "bytes", actual: size, limit }]);
+      };
+      checkSize(before.size);
       const source = await open5(full, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
       const target = destination ? await open5(join11(destination, path), "wx", 384) : null;
       try {
         const anchored = await source.stat();
         if (anchored.dev !== before.dev || anchored.ino !== before.ino || !anchored.isFile() || anchored.nlink !== 1) throw new Error(`\u590D\u5236\u6587\u4EF6\u8EAB\u4EFD\u53D8\u5316\uFF1A${full}`);
+        checkSize(anchored.size);
         const hash4 = createHash11("sha256"), buffer = Buffer.alloc(1024 * 1024);
+        let total = 0;
         for (; ; ) {
           signal?.throwIfAborted();
-          const { bytesRead } = await source.read(buffer, 0, buffer.length, null);
+          const { bytesRead } = await source.read(buffer, 0, Math.min(buffer.length, limit + 1 - total), null);
           if (!bytesRead) break;
+          total += bytesRead;
+          checkSize(total);
           const bytes = buffer.subarray(0, bytesRead);
           hash4.update(bytes);
           if (target) await target.writeFile(bytes);
@@ -29372,13 +29474,14 @@ async function walk(root, destination, signal, keep = () => true) {
         await target?.close();
       }
     }
+    if (trackIdentity) entries.set(path, `${entries.get(path)}:${before.dev}:${before.ino}:${before.mtimeMs}:${before.ctimeMs}:${before.size}`);
     const after = await lstat7(full);
     if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.size !== after.size) throw new Error(`\u590D\u5236\u671F\u95F4\u6765\u6E90\u53D1\u751F\u53D8\u5316\uFF1A${full}`);
   }
   await visit("");
   return entries;
 }
-function assertSame(a, b) {
+function assertPersistentSame(a, b) {
   if (a.size !== b.size || [...a].some(([path, hash4]) => b.get(path) !== hash4)) throw new Error("\u590D\u5236\u671F\u95F4\u6301\u4E45\u5185\u5BB9\u53D1\u751F\u53D8\u5316\uFF0C\u5DF2\u53D6\u6D88\u53D1\u5E03\u3002");
 }
 async function copyProjectVNext(sourcePath, targetPath, options = {}) {
@@ -29403,11 +29506,11 @@ async function copyProjectVNext(sourcePath, targetPath, options = {}) {
     const result = await publishProjectVNext(target, options, "copy", async (temporary, projectId) => {
       options.signal?.throwIfAborted();
       options.onPhase?.("copying");
-      const before = await walk(source, temporary, options.signal, keep);
+      const before = await walkPersistentProject(source, temporary, options.signal, keep);
       options.onPhase?.("validating");
-      const copied = await walk(temporary, null, options.signal);
+      const copied = await walkPersistentProject(temporary, null, options.signal);
       copied.delete(".narracut-operation.json");
-      assertSame(before, copied);
+      assertPersistentSame(before, copied);
       await rewrite(join11(temporary, "narracut.json"), JSON.stringify({ ...opened.inspection.manifest, projectId }));
       const taskPath = join11(temporary, ".narracut", "agent-task.json");
       let taskBytes = null;
@@ -29424,7 +29527,7 @@ async function copyProjectVNext(sourcePath, targetPath, options = {}) {
       const inspection = await inspectProjectVNext(temporary);
       if (inspection.manifest.projectId !== projectId) throw new Error("\u526F\u672C\u8EAB\u4EFD\u6821\u9A8C\u5931\u8D25\u3002");
       for (const [path, value] of [...before].reverse()) if (value === "directory") await syncDirectory(join11(temporary, path));
-      assertSame(before, await walk(source, null, options.signal, keep));
+      assertPersistentSame(before, await walkPersistentProject(source, null, options.signal, keep));
       options.signal?.throwIfAborted();
       options.onPhase?.("publishing");
     });
@@ -29442,6 +29545,344 @@ async function copyProjectVNext(sourcePath, targetPath, options = {}) {
     }
   }
 }
+
+// src/server/project-restore.ts
+var RecoveryError = class extends Error {
+  constructor(code, path, message) {
+    super(message);
+    this.code = code;
+    this.path = path;
+  }
+  code;
+  path;
+};
+var inside2 = (root, path) => {
+  const rel = relative5(root, path);
+  return !rel || rel !== ".." && !rel.startsWith(`..${sep5}`) && !isAbsolute4(rel);
+};
+var textPayload = (item) => item === void 0 ? void 0 : new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Buffer.from(item.base64, "base64"));
+async function inspectRecovery(snapshotPath) {
+  try {
+    const bytes = await readBoundedControlFile(resolve5(snapshotPath), "recovery", RECOVERY_LIMIT);
+    return validateRecovery(bytes);
+  } catch (error51) {
+    const diagnostic2 = error51.diagnostics?.[0];
+    if (diagnostic2?.code === "PROJECT_CONTROL_FILE_LIMIT_EXCEEDED") throw Object.assign(new RecoveryError("RECOVERY_SNAPSHOT_LIMIT_EXCEEDED", snapshotPath, diagnostic2.message), diagnostic2, { code: "RECOVERY_SNAPSHOT_LIMIT_EXCEEDED" });
+    if (["ENOENT", "EACCES", "ENOTDIR"].includes(error51.code)) throw new RecoveryError("RECOVERY_SNAPSHOT_UNAVAILABLE", snapshotPath, "\u6062\u590D\u5FEB\u7167\u4E0D\u53EF\u8BFB\u53D6\uFF0C\u8BF7\u68C0\u67E5\u660E\u786E\u8DEF\u5F84\u4E0E\u6743\u9650\u3002");
+    throw error51;
+  }
+}
+function problem(error51, path) {
+  const value = error51;
+  return { code: value.code ?? "RECOVERY_BASELINE_MISMATCH", path: value.path ?? path, message: value.message ?? String(error51), next: "\u4FEE\u590D\u6B64\u6765\u6E90\u5185\u5BB9\u6216\u660E\u786E\u9009\u62E9\u53E6\u4E00\u4EFD\u5339\u914D\u6765\u6E90\uFF0C\u7136\u540E\u91CD\u65B0\u68C0\u67E5\u3002" };
+}
+async function sourceManifest(source, projectId) {
+  const path = join12(source, "narracut.json");
+  let parsed;
+  try {
+    const bytes = await readBoundedControlFile(path, "narracut.json", 4096);
+    parsed = parseStrictJson(decodeUtf8(bytes, path, "narracut.json", false), MANIFEST_JSON_LIMITS);
+  } catch (error51) {
+    const code = error51.code;
+    if (code !== "ENOENT" && !["PROJECT_CONTENT_INVALID", "PROJECT_CONTROL_FILE_INVALID_JSON", "PROJECT_CONTROL_FILE_DUPLICATE_FIELD"].includes(code)) throw error51;
+    if (error51.diagnostics?.some((item) => ["PROJECT_CONTROL_FILE_LIMIT_EXCEEDED", "PROJECT_REQUIRED_CONTENT_INVALID"].includes(item.code))) throw error51;
+  }
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    if (external_exports.uuid().safeParse(parsed.projectId).success && parsed.projectId !== projectId) throw new RecoveryError("RECOVERY_SOURCE_PROJECT_ID_MISMATCH", path, "\u6765\u6E90 Project ID \u4E0E\u5FEB\u7167\u4E0D\u540C\uFF0C\u4E0D\u80FD\u6062\u590D\u3002");
+    if (Number.isInteger(parsed.formatVersion) && parsed.formatVersion !== 1) throw new RecoveryError("RECOVERY_SOURCE_PROJECT_FORMAT_MISMATCH", path, "\u6765\u6E90\u683C\u5F0F\u4E0E\u5FEB\u7167\u4E0D\u540C\uFF0C\u4E0D\u80FD\u6062\u590D\u3002");
+  }
+  const valid2 = parsed?.kind === "narracut-project" && parsed.formatVersion === 1 && parsed.projectId === projectId && Object.keys(parsed).length === 3;
+  return { manifest: { kind: "narracut-project", formatVersion: 1, projectId }, rebuild: !valid2 };
+}
+async function verifyPrograms(source) {
+  const pointer = await readCurrentPointer(source);
+  const history = pointer.history?.map((ref) => ref.revisionId) ?? [pointer.revisionId];
+  const problems = [];
+  for (const id of history) {
+    try {
+      await verifyRevision(source, id);
+    } catch (error51) {
+      problems.push(problem(error51, join12(source, ".narracut/revisions", id)));
+    }
+  }
+  const candidate = await (await createCandidateManager(source, async () => {
+  }))({ action: "read" });
+  if (candidate.error || ["integrity-failed", "external-change"].includes(candidate.status)) problems.push(problem(candidate.error ?? new Error("\u5019\u9009\u5B8C\u6574\u6027\u65E0\u6548\u3002"), join12(source, ".narracut/candidate.json")));
+  return { problems, program: { current: pointer.revisionId, history, candidate: candidate.candidate?.path ?? null, checkpoint: candidate.checkpoint?.path ?? null } };
+}
+async function planRecovery(snapshotPath, sourcePath, briefResult) {
+  if (!sourcePath) throw new RecoveryError("RECOVERY_SOURCE_UNAVAILABLE", sourcePath, "\u5FC5\u987B\u660E\u786E\u6307\u5B9A\u6765\u6E90\u76EE\u5F55\u3002");
+  const snapshot = await inspectRecovery(snapshotPath);
+  const source = resolve5(sourcePath), blockers = [];
+  let rebuildManifest = false, sourceFingerprint = "", program = { history: [] };
+  const local2 = textPayload(snapshot.payload.briefLocal), base = textPayload(snapshot.payload.briefBase);
+  const brief = { local: local2, base, conflict: false, decision: local2 === void 0 ? "source" : "local" };
+  let dslBytes = snapshot.payload.dsl?.bytes ?? 0, matched = {};
+  const collect = async (path, action) => {
+    try {
+      await action();
+    } catch (error51) {
+      const diagnostics = error51.diagnostics;
+      if (diagnostics?.length) for (const diagnostic2 of diagnostics) blockers.push(problem({ ...diagnostic2, path: join12(source, diagnostic2.component ?? "") }, path));
+      else blockers.push(problem(error51, path));
+    }
+  };
+  await collect(source, async () => {
+    const facts = await lstat8(source);
+    if (!facts.isDirectory() || facts.isSymbolicLink()) throw new Error("\u6765\u6E90\u5FC5\u987B\u662F\u660E\u786E\u6307\u5B9A\u7684\u666E\u901A\u76EE\u5F55\u3002");
+    sourceFingerprint = recoveryHash(JSON.stringify([...await walkPersistentProject(source, null, void 0, void 0, true)]));
+  });
+  await collect(join12(source, "narracut.json"), async () => {
+    const result = await sourceManifest(source, snapshot.projectId);
+    rebuildManifest = result.rebuild;
+    await inspectProjectVNext(source, { recoveryManifest: result.manifest, verifyAllRenderPrograms: true });
+  });
+  for (const key of ["dsl", "brief", "current", "candidate"]) {
+    await collect(join12(source, snapshot.baseline[key][0].path), async () => {
+      const observed = await recoveryBaselineEntry(source, key);
+      const match = snapshot.baseline[key].find((entry) => isDeepStrictEqual(entry, observed));
+      if (!match) throw new RecoveryError("RECOVERY_BASELINE_MISMATCH", join12(source, snapshot.baseline[key][0].path), `${snapshot.baseline[key][0].path} \u7684\u539F\u59CB\u5B57\u8282\u6216\u5BF9\u8C61\u7ED1\u5B9A\u4E0D\u5339\u914D\u3002`);
+      matched[key] = match;
+    });
+  }
+  await collect(join12(source, ".narracut"), async () => {
+    const result = await verifyPrograms(source);
+    program = result.program;
+    blockers.push(...result.problems);
+  });
+  await collect(join12(source, "video.md"), async () => {
+    brief.disk = decodeUtf8(await readBoundedControlFile(join12(source, "video.md"), "video.md", RECOVERY_BRIEF_LIMIT), "video.md", "video.md", true);
+    brief.conflict = local2 !== void 0 && base !== void 0 && base !== brief.disk && local2 !== brief.disk && local2 !== base;
+    brief.result = local2 === void 0 || local2 === base ? brief.disk : local2;
+    if (brief.conflict) {
+      brief.decision = "required";
+      delete brief.result;
+    }
+    if (briefResult !== void 0) {
+      const bytes = Buffer.from(briefResult);
+      if (bytes.length > RECOVERY_BRIEF_LIMIT || decodeUtf8(bytes, "briefResult", "video.md", true) !== briefResult) throw new Error("Brief \u7ED3\u679C\u5FC5\u987B\u662F\u6700\u591A 2 MiB \u7684\u4E25\u683C UTF-8\u3002");
+      brief.result = briefResult;
+      brief.decision = "resolved";
+      brief.conflict = false;
+    }
+  });
+  if (snapshot.payload.dsl) await collect(join12(source, "project.json"), async () => {
+    const project = validateProjectVNextForSave(parseStrictJson(textPayload(snapshot.payload.dsl), PROJECT_JSON_LIMITS)).project;
+    await validateProjectVNextResources(source, project);
+  });
+  if (!snapshot.payload.dsl) await collect(join12(source, "project.json"), async () => {
+    dslBytes = (await lstat8(join12(source, "project.json"))).size;
+  });
+  if (brief.conflict) blockers.push({ code: "RECOVERY_BRIEF_RESOLUTION_REQUIRED", path: join12(source, "video.md"), message: "Brief BASE\u3001LOCAL \u4E0E DISK \u5B58\u5728\u51B2\u7A81\uFF0C\u9700\u8981\u660E\u786E\u5B8C\u6574\u7ED3\u679C\u3002", next: "\u5BF9\u7167\u4E09\u4EFD\u5185\u5BB9\uFF0C\u7F16\u8F91\u5B8C\u6574\u7ED3\u679C\u5E76\u8FD4\u56DE\u6062\u590D\u8BA1\u5212\u3002" });
+  await collect(source, async () => {
+    if (sourceFingerprint && sourceFingerprint !== recoveryHash(JSON.stringify([...await walkPersistentProject(source, null, void 0, void 0, true)]))) throw new RecoveryError("RECOVERY_SOURCE_CHANGED_DURING_COPY", source, "\u68C0\u67E5\u671F\u95F4\u6765\u6E90\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002");
+  });
+  const sorted = [...new Map(blockers.map((item) => [`${item.path}:${item.code}:${item.message}`, item])).values()].sort((a, b) => a.path.localeCompare(b.path) || a.code.localeCompare(b.code));
+  const planId = recoveryHash(JSON.stringify([snapshot.sha256, source, sourceFingerprint, brief.result, matched]));
+  return { planId, snapshotPath: resolve5(snapshotPath), sourcePath: source, projectId: snapshot.projectId, capturedAt: snapshot.capturedAt, rebuildManifest, blockers: sorted.length <= 100 ? sorted : [...sorted.slice(0, 99), { code: "DIAGNOSTICS_TRUNCATED", path: source, message: `\u8FD8\u6709 ${sorted.length - 99} \u6761\u963B\u65AD\u95EE\u9898\u672A\u5C55\u793A\u3002`, next: "\u5148\u4FEE\u590D\u5DF2\u5217\u95EE\u9898\uFF0C\u7136\u540E\u91CD\u65B0\u68C0\u67E5\u3002" }], dsl: { from: snapshot.payload.dsl ? "snapshot" : "source", bytes: dslBytes }, brief, program, payloads: Object.keys(snapshot.payload), baseline: matched, sourceFingerprint };
+}
+async function recoverProject(snapshotPath, sourcePath, targetPath, options) {
+  const plan = await planRecovery(snapshotPath, sourcePath, options.briefResult);
+  if (plan.blockers.length) throw new RecoveryError(plan.blockers[0].code, sourcePath, plan.blockers.map((item) => item.message).join("\n"));
+  if (plan.planId !== options.planId) throw new RecoveryError("RECOVERY_SOURCE_CHANGED_DURING_COPY", sourcePath, "\u6765\u6E90\u6216\u6062\u590D\u5185\u5BB9\u5DF2\u53D8\u5316\uFF0C\u8BF7\u8FD4\u56DE\u91CD\u65B0\u68C0\u67E5\u3002");
+  const source = await realpath6(sourcePath);
+  let target;
+  try {
+    target = join12(await realpath6(dirname9(resolve5(targetPath))), basename4(resolve5(targetPath)));
+  } catch {
+    throw new RecoveryError("RECOVERY_TARGET_UNAVAILABLE", targetPath, "\u76EE\u6807\u7236\u76EE\u5F55\u4E0D\u53EF\u8BFB\u53D6\uFF0C\u8BF7\u9009\u62E9\u53EF\u7528\u7684\u7236\u76EE\u5F55\u3002");
+  }
+  if (inside2(source, target)) throw new RecoveryError("RECOVERY_TARGET_UNAVAILABLE", target, "\u6062\u590D\u76EE\u6807\u5FC5\u987B\u4F4D\u4E8E\u6765\u6E90\u9879\u76EE\u4E4B\u5916\u3002");
+  const snapshot = await inspectRecovery(snapshotPath);
+  const identifiers = [plan.projectId, plan.program.current];
+  const result = await publishProjectVNext(target, { confirmTemporaryCleanup: options.confirmTemporaryCleanup, createId: () => identifiers.shift() }, "recover", async (temporary) => {
+    options.signal?.throwIfAborted();
+    options.onPhase?.("copying");
+    const copied = await walkPersistentProject(source, temporary, options.signal);
+    assertPersistentSame(copied, await walkPersistentProject(temporary, null, options.signal));
+    options.signal?.throwIfAborted();
+    options.onPhase?.("applying");
+    const write = async (path, bytes) => {
+      const handle = await open6(join12(temporary, path), "w", 384);
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+    };
+    if (plan.rebuildManifest) await write("narracut.json", Buffer.from(JSON.stringify({ kind: "narracut-project", formatVersion: 1, projectId: plan.projectId })));
+    if (snapshot.payload.dsl) await write("project.json", Buffer.from(snapshot.payload.dsl.base64, "base64"));
+    await write("video.md", Buffer.from(plan.brief.result));
+    options.signal?.throwIfAborted();
+    options.onPhase?.("validating");
+    await inspectProjectVNext(temporary, { verifyAllRenderPrograms: true });
+    const checked = await verifyPrograms(temporary);
+    if (checked.problems.length) throw new Error(checked.problems.map((item) => item.message).join("\n"));
+    for (const [path, kind] of [...copied].reverse()) if (kind === "directory") await syncDirectory(join12(temporary, path));
+    options.signal?.throwIfAborted();
+    options.onPhase?.("publishing");
+    const current = await planRecovery(snapshotPath, sourcePath, options.briefResult);
+    if (current.planId !== plan.planId || current.blockers.length) throw new RecoveryError("RECOVERY_SOURCE_CHANGED_DURING_COPY", sourcePath, "\u590D\u5236\u671F\u95F4\u6765\u6E90\u53D1\u751F\u53D8\u5316\uFF0C\u5DF2\u53D6\u6D88\u53D1\u5E03\uFF1B\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002");
+    options.signal?.throwIfAborted();
+  });
+  return { ...result, revisionId: plan.program.current };
+}
+async function extractRecovery(snapshotPath, sourcePath, component2, targetPath) {
+  const snapshot = await inspectRecovery(snapshotPath), plan = await planRecovery(snapshotPath, sourcePath);
+  if (!plan.blockers.some((item) => item.code !== "RECOVERY_BRIEF_RESOLUTION_REQUIRED")) throw new RecoveryError("RECOVERY_EXTRACTION_UNAVAILABLE", sourcePath, "\u5B8C\u6574\u6062\u590D\u672A\u88AB\u6765\u6E90\u95EE\u9898\u963B\u65AD\uFF0C\u8BF7\u4F7F\u7528\u6062\u590D\u8BA1\u5212\u3002");
+  const payload = snapshot.payload[component2];
+  if (!payload) throw new RecoveryError("RECOVERY_PAYLOAD_MISSING", snapshotPath, "\u5FEB\u7167\u4E0D\u5305\u542B\u6240\u9009\u5185\u5BB9\u3002");
+  const parent = await realpath6(dirname9(resolve5(targetPath))), target = join12(parent, basename4(resolve5(targetPath)));
+  for (const root of [sourcePath, snapshot.sourcePath]) if (inside2(await realpath6(root).catch(() => resolve5(root)), target)) throw new RecoveryError("RECOVERY_TARGET_UNAVAILABLE", target, "\u63D0\u53D6\u6587\u4EF6\u5FC5\u987B\u4F4D\u4E8E\u9879\u76EE\u4E4B\u5916\u3002");
+  for (let ancestor = parent; ; ancestor = dirname9(ancestor)) {
+    try {
+      await lstat8(join12(ancestor, "narracut.json"));
+      throw new RecoveryError("RECOVERY_TARGET_UNAVAILABLE", target, "\u63D0\u53D6\u6587\u4EF6\u4E0D\u80FD\u5199\u5165\u9879\u76EE\u76EE\u5F55\u3002");
+    } catch (error51) {
+      if (error51.code !== "ENOENT") throw error51;
+    }
+    if (ancestor === dirname9(ancestor)) break;
+  }
+  const parentHandle = await open6(parent, "r"), parentIdentity = await parentHandle.stat();
+  const anchor = process.platform === "win32" ? parent : `/dev/fd/${parentHandle.fd}`;
+  const temporary = join12(anchor, `.extract-${randomUUID8()}.tmp`), destination = join12(anchor, basename4(target));
+  let temporaryIdentity, linkAttempted = false;
+  let failure2;
+  let published;
+  const verifyParent = async () => {
+    const current = await lstat8(parent);
+    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== parentIdentity.dev || current.ino !== parentIdentity.ino) throw new Error("\u63D0\u53D6\u76EE\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u4FDD\u7559\u73B0\u573A\u5E76\u6838\u5BF9\u7ED3\u679C\u3002");
+  };
+  try {
+    await verifyParent();
+    const handle = await open6(temporary, "wx", 384);
+    temporaryIdentity = await handle.stat();
+    try {
+      await handle.writeFile(Buffer.from(payload.base64, "base64"));
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await verifyParent();
+    linkAttempted = true;
+    await link3(temporary, destination);
+    await verifyParent();
+    await parentHandle.sync();
+    published = { path: target, component: component2, kind: "file" };
+    return published;
+  } catch (error51) {
+    failure2 = linkAttempted && error51.code !== "EEXIST" ? new ExtractionUncertain(target, component2, payload.sha256, join12(parent, basename4(temporary)), temporaryIdentity) : error51;
+    throw failure2;
+  } finally {
+    try {
+      const facts = await lstat8(temporary).catch(() => null);
+      if (facts && temporaryIdentity && facts.dev === temporaryIdentity.dev && facts.ino === temporaryIdentity.ino) await rm10(temporary);
+    } catch (error51) {
+      if (published) published.cleanupWarning = { path: join12(parent, basename4(temporary)), message: `\u63D0\u53D6\u5DF2\u5B8C\u6210\uFF1B\u672C\u6B21\u4E34\u65F6\u6587\u4EF6\u5C1A\u672A\u6E05\u7406\uFF1A${error51.message}` };
+      else if (failure2) failure2.message += ` \u672C\u6B21\u4E34\u65F6\u6587\u4EF6\u5C1A\u672A\u6E05\u7406\uFF1A${join12(parent, basename4(temporary))}\u3002`;
+    } finally {
+      try {
+        await parentHandle.close();
+      } catch (error51) {
+        if (published) published.cleanupWarning ??= { path: parent, message: `\u63D0\u53D6\u5DF2\u5B8C\u6210\uFF1B\u76EE\u5F55\u53E5\u67C4\u6536\u5C3E\u5931\u8D25\uFF1A${error51.message}` };
+      }
+    }
+  }
+}
+var ExtractionUncertain = class extends RecoveryError {
+  constructor(path, component2, expectedHash, temporaryPath, temporaryIdentity) {
+    super("RECOVERY_PUBLISH_FAILED", path, "\u63D0\u53D6\u5DF2\u8FDB\u5165\u63D0\u4EA4\u9636\u6BB5\uFF0C\u6B63\u5728\u6838\u5BF9\u6301\u4E45\u7ED3\u679C\u3002");
+    this.component = component2;
+    this.expectedHash = expectedHash;
+    this.temporaryPath = temporaryPath;
+    this.temporaryIdentity = temporaryIdentity;
+  }
+  component;
+  expectedHash;
+  temporaryPath;
+  temporaryIdentity;
+};
+var RecoveryOperations = class {
+  #operations = /* @__PURE__ */ new Map();
+  async call(input) {
+    const schema = external_exports.object({ action: external_exports.enum(["inspect", "plan", "content", "recover", "extract", "status", "cancel"]), snapshotPath: external_exports.string().optional(), sourcePath: external_exports.string().optional(), targetPath: external_exports.string().optional(), planId: external_exports.string().optional(), briefResult: external_exports.string().optional(), component: external_exports.enum(["dsl", "briefLocal", "briefBase"]).optional(), operationId: external_exports.uuid().optional(), confirmTemporaryCleanup: external_exports.boolean().optional() }).strict();
+    input = schema.parse(input);
+    if (["status", "cancel"].includes(input.action)) {
+      const operation = this.#operations.get(input.operationId);
+      if (!operation) throw new RecoveryError("RECOVERY_OPERATION_UNKNOWN", "", "\u5C1A\u672A\u6536\u5230\u8BE5\u6062\u590D\u8BF7\u6C42\uFF1B\u8BF7\u4F7F\u7528\u539F\u64CD\u4F5C ID \u91CD\u8BD5\u3002");
+      if (input.action === "cancel" && operation.state.phase !== "publishing") operation.controller.abort();
+      if (operation.state.status === "uncertain" && operation.state.uncertain instanceof RecoveryPublicationUncertain) {
+        try {
+          operation.state.result = await operation.state.uncertain.reconcile();
+          operation.state.status = "completed";
+          delete operation.state.uncertain;
+        } catch {
+        }
+      }
+      if (operation.state.status === "uncertain" && operation.state.uncertain instanceof ExtractionUncertain) {
+        const error51 = operation.state.uncertain;
+        try {
+          const residue = await lstat8(error51.temporaryPath).catch(() => null);
+          const target = await lstat8(error51.path);
+          if (residue && residue.dev === error51.temporaryIdentity.dev && residue.ino === error51.temporaryIdentity.ino && target.dev === residue.dev && target.ino === residue.ino) await rm10(error51.temporaryPath);
+          const bytes = await readBoundedControlFile(error51.path, error51.component, error51.component === "dsl" ? 10 * 1024 * 1024 : RECOVERY_BRIEF_LIMIT);
+          if (recoveryHash(bytes) !== error51.expectedHash) throw error51;
+          await syncDirectory(dirname9(error51.path));
+          operation.state.status = "completed";
+          operation.state.result = { path: error51.path, component: error51.component, kind: "file" };
+          delete operation.state.uncertain;
+        } catch {
+        }
+      }
+      return { ...operation.state };
+    }
+    if (!input.snapshotPath) throw new Error("\u8BF7\u9009\u62E9\u6062\u590D\u5FEB\u7167\u3002");
+    if (input.action === "inspect" || input.action === "content") {
+      const snapshot = await inspectRecovery(input.snapshotPath);
+      if (input.action === "content") {
+        if (!input.component || !snapshot.payload[input.component]) throw new Error("\u5FEB\u7167\u4E0D\u5305\u542B\u6240\u9009\u5185\u5BB9\u3002");
+        return { content: textPayload(snapshot.payload[input.component]) };
+      }
+      return { snapshotPath: resolve5(input.snapshotPath), projectId: snapshot.projectId, capturedAt: snapshot.capturedAt, sourceHint: snapshot.sourcePath, snapshotId: snapshot.snapshotId, sha256: snapshot.sha256, baseline: snapshot.baseline, payloads: Object.entries(snapshot.payload).map(([component2, item]) => ({ component: component2, bytes: item.bytes, sha256: item.sha256 })) };
+    }
+    if (!input.sourcePath) throw new Error("\u5FC5\u987B\u660E\u786E\u6307\u5B9A\u6765\u6E90\u76EE\u5F55\u3002");
+    if (input.action === "plan") return await planRecovery(input.snapshotPath, input.sourcePath, input.briefResult);
+    if (!input.operationId || !input.targetPath) throw new Error("\u53D1\u5E03\u9700\u8981\u64CD\u4F5C ID \u4E0E\u660E\u786E\u7684\u65B0\u76EE\u6807\u3002");
+    const signature = JSON.stringify(input), previous = this.#operations.get(input.operationId);
+    if (previous) {
+      if (previous.signature !== signature) throw new Error("\u64CD\u4F5C ID \u4E0E\u6062\u590D\u5185\u5BB9\u6216\u76EE\u6807\u4E0D\u5339\u914D\u3002");
+      return { ...previous.state };
+    }
+    if ([...this.#operations.values()].some((item) => ["running", "uncertain"].includes(item.state.status))) throw new Error("\u53E6\u4E00\u9879\u6062\u590D\u6216\u63D0\u53D6\u64CD\u4F5C\u5C1A\u672A\u7ED3\u675F\u3002");
+    if (input.action === "recover" && !input.planId) throw new Error("\u8BF7\u5148\u68C0\u67E5\u5E76\u786E\u8BA4\u6062\u590D\u8BA1\u5212\u3002");
+    if (input.action === "extract" && !input.component) throw new Error("\u8BF7\u9009\u62E9\u63D0\u53D6\u5185\u5BB9\u3002");
+    const state = { operationId: input.operationId, status: "running", phase: "checking", targetPath: input.targetPath };
+    const controller = new AbortController();
+    const done = (async () => {
+      try {
+        const result = input.action === "recover" ? await recoverProject(input.snapshotPath, input.sourcePath, input.targetPath, { planId: input.planId, briefResult: input.briefResult, confirmTemporaryCleanup: input.confirmTemporaryCleanup, signal: controller.signal, onPhase: (phase) => {
+          state.phase = phase;
+        } }) : await extractRecovery(input.snapshotPath, input.sourcePath, input.component, input.targetPath);
+        state.status = "completed";
+        state.result = result;
+      } catch (error51) {
+        if (error51 instanceof ExtractionUncertain || error51 instanceof RecoveryPublicationUncertain) {
+          state.status = "uncertain";
+          state.uncertain = error51;
+        } else {
+          state.status = "failed";
+          state.error = problem(error51, input.targetPath);
+        }
+      }
+    })();
+    this.#operations.set(input.operationId, { signature, state, controller, done });
+    return { ...state };
+  }
+  async close() {
+    await Promise.all([...this.#operations.values()].map((item) => item.done));
+  }
+};
 
 // plugins/narracut/src/creation-interaction.ts
 var text = external_exports.string().min(1).max(4e3);
@@ -29492,12 +29933,12 @@ function authorizesBrief(instruction) {
 }
 
 // plugins/narracut/src/creation-task.ts
-import { randomUUID as randomUUID9 } from "node:crypto";
-import { join as join12 } from "node:path";
-import { rename as rename6, rm as rm10, open as open6 } from "node:fs/promises";
+import { randomUUID as randomUUID10 } from "node:crypto";
+import { join as join13 } from "node:path";
+import { rename as rename6, rm as rm11, open as open7 } from "node:fs/promises";
 
 // plugins/narracut/src/codex-host.ts
-import { randomUUID as randomUUID8 } from "node:crypto";
+import { randomUUID as randomUUID9 } from "node:crypto";
 var CodexThreadUnavailableError = class extends Error {
   code = "CODEX_THREAD_UNAVAILABLE";
   threadId;
@@ -29568,7 +30009,7 @@ var AgentHostValidationService = class {
   #unsubscribe;
   constructor(host, options = {}) {
     this.#host = host;
-    this.#idFactory = options.idFactory ?? randomUUID8;
+    this.#idFactory = options.idFactory ?? randomUUID9;
     this.#unsubscribe = host.subscribe((event) => this.#handleHostEvent(event));
   }
   async start(request2) {
@@ -30118,7 +30559,7 @@ var CreationTask = class {
     }
   }
   #path() {
-    return join12(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
+    return join13(this.opened.inspection.projectDirectory, ".narracut", "agent-task.json");
   }
   async #save() {
     if (!this.#state || this.#state.status === "terminated") return;
@@ -30127,10 +30568,10 @@ var CreationTask = class {
     await this.opened.programTransaction(() => this.#writeCheckpoint(bytes));
   }
   async #writeCheckpoint(bytes, validate) {
-    const parent = join12(this.opened.inspection.projectDirectory, ".narracut");
-    const identity2 = await directory(parent), temporary = join12(parent, `task-${randomUUID9()}.tmp`);
+    const parent = join13(this.opened.inspection.projectDirectory, ".narracut");
+    const identity2 = await directory(parent), temporary = join13(parent, `task-${randomUUID10()}.tmp`);
     try {
-      const handle = await open6(temporary, "wx", 384);
+      const handle = await open7(temporary, "wx", 384);
       try {
         await handle.writeFile(bytes);
         await handle.sync();
@@ -30143,7 +30584,7 @@ var CreationTask = class {
       await rename6(temporary, this.#path());
       await syncDirectory(parent).catch(() => void 0);
     } finally {
-      await rm10(temporary, { force: true }).catch(() => void 0);
+      await rm11(temporary, { force: true }).catch(() => void 0);
     }
   }
   async start(instruction, parentOrigin = "null") {
@@ -30157,7 +30598,7 @@ var CreationTask = class {
       const candidate = await this.opened.candidate({ action: "read" });
       if (candidate.status !== "absent") throw new Error("\u5DF2\u6709\u5019\u9009\uFF1B\u672C\u6B21\u4E0D\u4F1A\u66FF\u6362\u6216\u63A5\u7BA1\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
       this.#state = {
-        taskId: randomUUID9(),
+        taskId: randomUUID10(),
         projectId: this.opened.inspection.manifest.projectId,
         instruction,
         externalBaseline: null,
@@ -30207,7 +30648,7 @@ var CreationTask = class {
         if (candidate.status === "external-change") candidate = await manager({ action: "adopt", baseline: baseline2, confirmed: true });
         if (candidate.status !== "saved") throw new Error(candidate.error?.message ?? "\u8BF7\u5148\u5728\u5019\u9009\u533A\u57DF\u5904\u7406\u5B8C\u6574\u6027\u95EE\u9898\u3002");
         const checkpoint = {
-          taskId: requestId ?? randomUUID9(),
+          taskId: requestId ?? randomUUID10(),
           projectId: this.opened.inspection.manifest.projectId,
           instruction,
           status: "running",
@@ -30432,7 +30873,7 @@ var CreationTask = class {
         if (!original?.trim() || original.length > 4e3 || state.pendingMessage) throw new Error("\u8BF7\u5148\u5904\u7406\u62DF\u4FDD\u5B58\u7684\u539F\u6587\u7247\u6BB5\uFF0C\u6216\u586B\u5199 1\u20134000 \u5B57\u6D88\u606F");
         const resume = state.status === "running";
         await this.#interrupt();
-        state.pendingMessage = { id: randomUUID9(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
+        state.pendingMessage = { id: randomUUID10(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
         this.#messageMode = { original, resume, stopped: state.status === "stopped" };
         state.status = "running";
         await this.#save();
@@ -30580,7 +31021,7 @@ var CreationTask = class {
     const state = this.#state, snapshot = await this.#snapshot();
     state.inputIdentity = snapshot.signature;
     if (!state.threadPointer) state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
-    const driver = { token: randomUUID9(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID10(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -30632,7 +31073,7 @@ var CreationTask = class {
     state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
     await this.#save();
     this.#assert();
-    const driver = { token: randomUUID9(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID10(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -30781,7 +31222,7 @@ var CreationTask = class {
     if (answer.action === "wait") return this.#wait(this.#state.suggestions.some((item) => item.required && !item.satisfied) ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
     if (answer.action === "brief") {
       if (!answer.brief) throw new Error("Brief \u63D0\u6848\u7F3A\u5C11\u5B8C\u6574\u7ED3\u679C");
-      const proposal = { id: randomUUID9(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
+      const proposal = { id: randomUUID10(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
       this.#state.briefProposal = proposal;
       if (!authorizesBrief(this.#state.instruction)) return this.#wait("BRIEF_REVIEW_REQUIRED", answer.brief.purpose);
       const saved = await this.opened.saveVideoBrief(proposal.content, proposal.baseline, () => this.#assert());
@@ -30888,7 +31329,7 @@ var CreationTask = class {
       const value = await read();
       await this.#fresh();
       if (done(value)) return value;
-      await new Promise((resolve5) => setTimeout(resolve5, 100));
+      await new Promise((resolve6) => setTimeout(resolve6, 100));
     }
   }
   async #wait(reason, pending) {
@@ -30969,11 +31410,11 @@ var CreationTask = class {
 };
 
 // src/server/project-acceptance.ts
-import { randomUUID as randomUUID11 } from "node:crypto";
+import { randomUUID as randomUUID12 } from "node:crypto";
 
 // src/server/preview-origin.ts
 import { createServer as createServer2 } from "node:http";
-import { createHash as createHash12, randomBytes, randomUUID as randomUUID10 } from "node:crypto";
+import { createHash as createHash12, randomBytes, randomUUID as randomUUID11 } from "node:crypto";
 var previewDigest = (value) => `sha256:${createHash12("sha256").update(value).digest("hex")}`;
 var CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
 var PreviewOrigin = class {
@@ -30982,7 +31423,7 @@ var PreviewOrigin = class {
   #origin = "";
   #instances = /* @__PURE__ */ new Map();
   origin() {
-    return this.#starting ??= new Promise((resolve5, reject) => {
+    return this.#starting ??= new Promise((resolve6, reject) => {
       this.#server = createServer2((req, res) => {
         res.setHeader("Content-Security-Policy", CSP);
         res.setHeader("X-Content-Type-Options", "nosniff");
@@ -31026,7 +31467,7 @@ var PreviewOrigin = class {
       this.#server.listen(0, "127.0.0.1", () => {
         this.#origin = `http://127.0.0.1:${this.#server.address().port}`;
         this.#server.unref();
-        resolve5(this.#origin);
+        resolve6(this.#origin);
       });
     });
   }
@@ -31037,7 +31478,7 @@ var PreviewOrigin = class {
     const boundIdentity = previewDigest(Buffer.concat([Buffer.from(JSON.stringify(["binding", bindingBytes.length]) + "\n"), bindingBytes]));
     if (boundIdentity !== args.bundle.inputIdentity) throw new Error("Preview \u8F93\u5165\u4E0E Bundle \u6784\u5EFA\u7ED1\u5B9A\u4E0D\u4E00\u81F4\u3002");
     const identity2 = { bundle: args.bundle.identity, input: args.bundle.inputIdentity, media: previewDigest(JSON.stringify([...args.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())), environment: args.bundle.environmentIdentity };
-    const instanceId = randomUUID10(), token = randomBytes(32).toString("hex");
+    const instanceId = randomUUID11(), token = randomBytes(32).toString("hex");
     if (!/^[a-f0-9]{48}$/.test(args.key) || this.#instances.has(args.key)) throw new Error("Preview \u5B9E\u4F8B\u4E0D\u80FD\u91CD\u590D\u7ED1\u5B9A\u3002");
     const files = /* @__PURE__ */ new Map([["bundle.js", args.bundle.files().get("bundle.js")]]);
     for (const [path, bytes] of args.media) {
@@ -31066,7 +31507,7 @@ var PreviewOrigin = class {
     this.#instances.clear();
     if (this.#server) {
       this.#server.closeAllConnections();
-      await new Promise((resolve5) => this.#server.close(() => resolve5()));
+      await new Promise((resolve6) => this.#server.close(() => resolve6()));
     }
   }
 };
@@ -31106,7 +31547,7 @@ var ProjectAcceptance = class {
     };
     const summary = delivery.report.summary;
     const key = previewDigest(JSON.stringify([delivery, batch, history.current, history.revisions.map((item) => item.revisionId), record3]));
-    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID11() };
+    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID12() };
   }
   async operate(opened, args) {
     if (args.action === "review") return { confirmation: await this.review(opened) };
@@ -31147,16 +31588,16 @@ var ProjectAcceptance = class {
 };
 
 // src/server/project-render.ts
-import { randomUUID as randomUUID12, randomBytes as randomBytes3 } from "node:crypto";
+import { randomUUID as randomUUID13, randomBytes as randomBytes3 } from "node:crypto";
 import { constants as constants4, watch } from "node:fs";
-import { open as open8, realpath as realpath7, link as link3, unlink as unlink2, lstat as lstat9 } from "node:fs/promises";
-import { basename as basename4, dirname as dirname9, isAbsolute as isAbsolute5, join as join14 } from "node:path";
+import { open as open9, realpath as realpath8, link as link4, unlink as unlink2, lstat as lstat10 } from "node:fs/promises";
+import { basename as basename5, dirname as dirname10, isAbsolute as isAbsolute6, join as join15 } from "node:path";
 
 // src/server/project-preview.ts
 import { constants as constants3 } from "node:fs";
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { lstat as lstat8, open as open7, realpath as realpath6 } from "node:fs/promises";
-import { join as join13, relative as relative5, isAbsolute as isAbsolute4 } from "node:path";
+import { lstat as lstat9, open as open8, realpath as realpath7 } from "node:fs/promises";
+import { join as join14, relative as relative6, isAbsolute as isAbsolute5 } from "node:path";
 
 // src/server/render-program-input.ts
 function deepFreeze(value) {
@@ -31214,16 +31655,16 @@ function createRenderProgramInput(state, output, assetSources) {
 
 // src/server/project-preview.ts
 async function snapshotFile(root, path, limit) {
-  const full = join13(root, path), resolved = await realpath6(full), rel = relative5(await realpath6(root), resolved);
-  if (rel.startsWith("..") || isAbsolute4(rel) || (await lstat8(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
-  const expected = await lstat8(resolved);
-  const file2 = await open7(full, constants3.O_RDONLY | constants3.O_NOFOLLOW | constants3.O_NONBLOCK);
+  const full = join14(root, path), resolved = await realpath7(full), rel = relative6(await realpath7(root), resolved);
+  if (rel.startsWith("..") || isAbsolute5(rel) || (await lstat9(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
+  const expected = await lstat9(resolved);
+  const file2 = await open8(full, constants3.O_RDONLY | constants3.O_NOFOLLOW | constants3.O_NONBLOCK);
   try {
     const before = await file2.stat();
-    if (!before.isFile() || before.nlink !== 1 || before.dev !== expected.dev || before.ino !== expected.ino || await realpath6(full) !== resolved || before.size > limit) throw new Error("Preview \u6587\u4EF6\u4E0D\u53EF\u7528\u6216\u8D85\u8FC7\u5185\u5B58\u4E0A\u9650\u3002");
+    if (!before.isFile() || before.nlink !== 1 || before.dev !== expected.dev || before.ino !== expected.ino || await realpath7(full) !== resolved || before.size > limit) throw new Error("Preview \u6587\u4EF6\u4E0D\u53EF\u7528\u6216\u8D85\u8FC7\u5185\u5B58\u4E0A\u9650\u3002");
     const bytes = await file2.readFile();
     const after = await file2.stat();
-    if (await realpath6(full) !== resolved || bytes.length > limit || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("Preview \u8BFB\u53D6\u671F\u95F4\u5A92\u4F53\u53D1\u751F\u53D8\u5316\u3002");
+    if (await realpath7(full) !== resolved || bytes.length > limit || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("Preview \u8BFB\u53D6\u671F\u95F4\u5A92\u4F53\u53D1\u751F\u53D8\u5316\u3002");
     return bytes;
   } finally {
     await file2.close();
@@ -31453,7 +31894,7 @@ var recordSchema = external_exports.object({
   gates: external_exports.array(external_exports.object({ operation: external_exports.string(), status: external_exports.string() }))
 });
 var contentCodes = /* @__PURE__ */ new Set(["RENDER_FRAME_FAILED", "RUNTIME_FRAME_FAILED", "RUNTIME_CONTRACT_VIOLATION", "STATIC_NONDETERMINISTIC_API", "STATIC_FORBIDDEN_CAPABILITY"]);
-var problem = (error51) => ({ code: error51?.code ?? "RENDER_OPERATION_FAILED", message: error51?.message ?? "\u65E0\u6CD5\u786E\u8BA4 Render \u72B6\u6001\u3002", ...error51?.location ? { location: error51.location } : {} });
+var problem2 = (error51) => ({ code: error51?.code ?? "RENDER_OPERATION_FAILED", message: error51?.message ?? "\u65E0\u6CD5\u786E\u8BA4 Render \u72B6\u6001\u3002", ...error51?.location ? { location: error51.location } : {} });
 var ProjectRender = class {
   constructor(preview) {
     this.preview = preview;
@@ -31503,7 +31944,7 @@ var ProjectRender = class {
         source.ready = source.issues.length === 0;
         return { source, capture, record: record3, program: await manager.previewSource("current") };
       } catch (error51) {
-        source.issues.push(problem(error51));
+        source.issues.push(problem2(error51));
         return { source };
       }
     });
@@ -31517,26 +31958,26 @@ var ProjectRender = class {
     const known = [...this.#jobs.values()].find((job) => job.requestId === args.requestId);
     if (known) return { job: structuredClone(known) };
     if (this.#abort) throw new FinalRenderError("RENDER_BUSY", "\u5F53\u524D\u9879\u76EE\u5DF2\u6709\u6700\u7EC8 Render\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210\u6216\u53D6\u6D88\u3002");
-    if (!isAbsolute5(args.outputPath) || !args.outputPath.endsWith(".mp4") || /[\0\r\n]/.test(args.outputPath)) throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8BF7\u901A\u8FC7\u7CFB\u7EDF\u9009\u62E9\u5668\u6307\u5B9A\u65B0\u7684 MP4 \u8F93\u51FA\u4F4D\u7F6E\u3002");
+    if (!isAbsolute6(args.outputPath) || !args.outputPath.endsWith(".mp4") || /[\0\r\n]/.test(args.outputPath)) throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8BF7\u901A\u8FC7\u7CFB\u7EDF\u9009\u62E9\u5668\u6307\u5B9A\u65B0\u7684 MP4 \u8F93\u51FA\u4F4D\u7F6E\u3002");
     const abort = this.#abort = new AbortController();
     let preparedDone;
-    this.#preparing = new Promise((resolve5) => {
-      preparedDone = resolve5;
+    this.#preparing = new Promise((resolve6) => {
+      preparedDone = resolve6;
     });
     this.#pending.add(args.requestId);
     try {
       const prepared = await this.#inspect(opened);
       if (!prepared.source.ready || prepared.source.key !== args.key || !prepared.capture || !prepared.record || !prepared.program) throw new FinalRenderError("RENDER_NOT_READY", prepared.source.issues.map((issue2) => issue2.message).join("\uFF1B") || "\u51C6\u5907\u671F\u95F4\u63A5\u53D7\u72B6\u6001\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
-      const parent = await realpath7(dirname9(args.outputPath));
-      const outputPath = join14(parent, basename4(args.outputPath));
+      const parent = await realpath8(dirname10(args.outputPath));
+      const outputPath = join15(parent, basename5(args.outputPath));
       try {
-        await lstat9(outputPath);
+        await lstat10(outputPath);
         throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8F93\u51FA\u6587\u4EF6\u5DF2\u5B58\u5728\uFF0C\u8BF7\u9009\u62E9\u65B0\u4F4D\u7F6E\uFF1B\u4E0D\u4F1A\u8986\u76D6\u5DF2\u6709\u6587\u4EF6\u3002");
       } catch (error51) {
         if (error51.code !== "ENOENT") throw error51;
       }
       abort.signal.throwIfAborted();
-      const job = { id: randomUUID12(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
+      const job = { id: randomUUID13(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
       this.#jobs.set(job.id, job);
       this.#running = this.#run(opened, prepared, job, abort);
       this.#pending.delete(args.requestId);
@@ -31600,13 +32041,13 @@ var ProjectRender = class {
     try {
       const parents = /* @__PURE__ */ new Map();
       for (const path of capture.mediaPaths.keys()) {
-        const parent2 = dirname9(path);
+        const parent2 = dirname10(path);
         if (!parents.has(parent2)) parents.set(parent2, /* @__PURE__ */ new Set());
-        parents.get(parent2).add(basename4(path));
+        parents.get(parent2).add(basename5(path));
       }
       for (const [parent2, names] of parents) {
-        const watcher = watch(join14(opened.inspection.projectDirectory, parent2), (_event, file3) => {
-          if (!file3 || names.has(String(file3))) changed(join14(parent2, String(file3 ?? "")));
+        const watcher = watch(join15(opened.inspection.projectDirectory, parent2), (_event, file3) => {
+          if (!file3 || names.has(String(file3))) changed(join15(parent2, String(file3 ?? "")));
         });
         watcher.on("error", () => changed(parent2));
         watchers.push(watcher);
@@ -31625,8 +32066,8 @@ var ProjectRender = class {
       job.stage = "publishing";
       await verifyMedia();
       if (await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("CAPSULE_UNAVAILABLE", "\u6267\u884C\u73AF\u5883\u5728 Render \u671F\u95F4\u53D8\u5316\uFF0C\u672A\u751F\u6210\u4EA7\u7269\u3002");
-      temporary = join14(dirname9(job.outputPath), `.narracut-render-${randomUUID12()}.tmp`);
-      const file2 = await open8(temporary, constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | constants4.O_NOFOLLOW, 384);
+      temporary = join15(dirname10(job.outputPath), `.narracut-render-${randomUUID13()}.tmp`);
+      const file2 = await open9(temporary, constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | constants4.O_NOFOLLOW, 384);
       try {
         await file2.writeFile(bytes);
         await file2.sync();
@@ -31634,10 +32075,10 @@ var ProjectRender = class {
         await file2.close();
       }
       await verifyMedia();
-      await link3(temporary, job.outputPath);
+      await link4(temporary, job.outputPath);
       published = true;
       await verifyMedia();
-      const parent = await open8(dirname9(job.outputPath), constants4.O_RDONLY | constants4.O_DIRECTORY);
+      const parent = await open9(dirname10(job.outputPath), constants4.O_RDONLY | constants4.O_DIRECTORY);
       try {
         await parent.sync();
       } finally {
@@ -31648,13 +32089,13 @@ var ProjectRender = class {
       outcome = { status: "succeeded", stage: "completed" };
     } catch (error51) {
       if (published && temporary) {
-        const [own, target] = await Promise.all([lstat9(temporary), lstat9(job.outputPath)]).catch(() => []);
+        const [own, target] = await Promise.all([lstat10(temporary), lstat10(job.outputPath)]).catch(() => []);
         if (own && target && own.dev === target.dev && own.ino === target.ino) await unlink2(job.outputPath).catch(() => {
         });
       }
       if (abort.signal.aborted && !mediaFailure) outcome = { status: "cancelled" };
       else {
-        const issue2 = problem(mediaFailure ?? error51), retryable = !contentCodes.has(issue2.code);
+        const issue2 = problem2(mediaFailure ?? error51), retryable = !contentCodes.has(issue2.code);
         outcome = { status: "failed", error: issue2, retryable };
         if (!retryable) this.#blocked.set(job.source.key, issue2);
       }
@@ -31671,7 +32112,7 @@ var ProjectRender = class {
 };
 
 // src/server/project-delivery.ts
-import { randomUUID as randomUUID13 } from "node:crypto";
+import { randomUUID as randomUUID14 } from "node:crypto";
 
 // src/shared/representative-frames.ts
 function representativePlan(input, supplemental = []) {
@@ -31812,7 +32253,7 @@ var ProjectDelivery = class {
       if (this.#current && this.#current.binding.instanceId === args.instanceId && !args.supplements && await this.#fresh(opened, this.#current)) return this.status(opened);
       const supplements = supplementsSchema.parse(args.supplements ?? []);
       this.clear();
-      const current2 = new CandidateDelivery(randomUUID13(), snapshot.binding, snapshot.descriptor.input, supplements);
+      const current2 = new CandidateDelivery(randomUUID14(), snapshot.binding, snapshot.descriptor.input, supplements);
       this.#current = current2;
       this.#output = snapshot.descriptor.input.output;
       if (!await this.#fresh(opened, current2)) throw new Error("\u5019\u9009 Preview \u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6784\u5EFA\u3002");
@@ -31921,7 +32362,7 @@ var ProjectDelivery = class {
 };
 
 // src/server/project-checks.ts
-import { randomUUID as randomUUID14 } from "node:crypto";
+import { randomUUID as randomUUID15 } from "node:crypto";
 var ProjectChecks = class {
   constructor(preview) {
     this.preview = preview;
@@ -32017,7 +32458,7 @@ var ProjectChecks = class {
           }
         } }
       ];
-      const batch = new CheckBatch(randomUUID14(), identity2, checks);
+      const batch = new CheckBatch(randomUUID15(), identity2, checks);
       this.#batches.push(batch);
       this.#batches = this.#batches.slice(-2);
       void batch.run().then(async () => {
@@ -32062,9 +32503,9 @@ var ProjectChecks = class {
 };
 
 // plugins/narracut/src/server.ts
-import { randomUUID as randomUUID15 } from "node:crypto";
+import { randomUUID as randomUUID16 } from "node:crypto";
 import { readFile as readFile7 } from "node:fs/promises";
-import { basename as basename6, isAbsolute as isAbsolute6 } from "node:path";
+import { basename as basename7, isAbsolute as isAbsolute7 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -32180,8 +32621,8 @@ var CodexAppServerHost = class {
     const approval = this.#approvals.get(approvalId), child = this.#child;
     if (!approval || !child || approval.approved !== void 0) throw new Error("\u5DE5\u5177\u5BA1\u6279\u5DF2\u8FC7\u671F\u6216\u56DE\u6267\u5F85\u6838\u5BF9");
     approval.approved = approved;
-    await new Promise((resolve5, reject) => child.stdin.write(`${JSON.stringify({ id: approval.rpcId, result: { decision: approved ? "accept" : "decline" } })}
-`, (error51) => error51 ? reject(error51) : resolve5()));
+    await new Promise((resolve6, reject) => child.stdin.write(`${JSON.stringify({ id: approval.rpcId, result: { decision: approved ? "accept" : "decline" } })}
+`, (error51) => error51 ? reject(error51) : resolve6()));
   }
   async dispose() {
     this.#disposed = true;
@@ -32240,14 +32681,14 @@ var CodexAppServerHost = class {
       return Promise.reject(new Error("Codex App Server \u672A\u8FDE\u63A5\u3002"));
     }
     const id = ++this.#requestId;
-    return new Promise((resolve5, reject) => {
+    return new Promise((resolve6, reject) => {
       const timer = setTimeout(() => {
         if (!this.#pending.delete(id)) return;
         const error51 = Object.assign(new Error(`${method} \u8D85\u8FC7 ${this.#requestTimeoutMs}ms \u672A\u54CD\u5E94\u3002`), { code: "CODEX_UNAVAILABLE" });
         reject(error51);
         this.#handleExit(child, error51);
       }, this.#requestTimeoutMs);
-      this.#pending.set(id, { method, resolve: resolve5, reject, timer });
+      this.#pending.set(id, { method, resolve: resolve6, reject, timer });
       child.stdin.write(`${JSON.stringify({ method, id, params })}
 `, (error51) => {
         if (error51 === null || error51 === void 0) return;
@@ -32387,8 +32828,8 @@ var CodexAppServerHost = class {
 
 // src/server/project-asset-preview.ts
 import { constants as fsConstants3 } from "node:fs";
-import { lstat as lstat10, open as openFile2 } from "node:fs/promises";
-import { basename as basename5, join as join15 } from "node:path";
+import { lstat as lstat11, open as openFile2 } from "node:fs/promises";
+import { basename as basename6, join as join16 } from "node:path";
 var MAX_INLINE_PREVIEW_BYTES = 32 * 1024 * 1024;
 function startsWith(bytes, signature) {
   return signature.every((byte, index) => bytes[index] === byte);
@@ -32427,7 +32868,7 @@ async function readProjectAssetPreview(inspection, assetId) {
   if (asset === void 0) {
     return { status: "dangling", id: assetId, reason: "\u672A\u627E\u5230\u767B\u8BB0\u7684 Asset\u3002" };
   }
-  const absolutePath = join15(inspection.projectDirectory, asset.path);
+  const absolutePath = join16(inspection.projectDirectory, asset.path);
   try {
     const { assetStates: [runtime] } = await validateProjectVNextResources(
       inspection.projectDirectory,
@@ -32441,7 +32882,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         reason: runtime?.reason ?? "Asset \u6587\u4EF6\u4E0D\u53EF\u7528\u3002"
       };
     }
-    const before = await lstat10(absolutePath);
+    const before = await lstat11(absolutePath);
     const handle = await openFile2(absolutePath, fsConstants3.O_RDONLY | (fsConstants3.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
@@ -32455,7 +32896,7 @@ async function readProjectAssetPreview(inspection, assetId) {
         status: "available",
         id: asset.id,
         path: asset.path,
-        filename: basename5(asset.path),
+        filename: basename6(asset.path),
         size: opened.size,
         ...detected
       };
@@ -32520,6 +32961,7 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  { name: "restore_project", title: "\u4ECE\u6062\u590D\u5FEB\u7167\u521B\u5EFA\u9879\u76EE", description: "\u53EA\u8BFB\u68C0\u67E5\u6062\u590D\u6750\u6599\u548C\u8BA1\u5212\uFF0C\u660E\u786E\u786E\u8BA4\u540E\u5728\u65B0\u8DEF\u5F84\u6062\u590D\u539F\u8EAB\u4EFD\u9879\u76EE\uFF1B\u6765\u6E90\u53D7\u963B\u65F6\u53EF\u63D0\u53D6\u666E\u901A\u6587\u4EF6\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["inspect", "plan", "content", "recover", "extract", "status", "cancel"] }, snapshotPath: { type: "string" }, sourcePath: { type: "string" }, targetPath: { type: "string" }, planId: { type: "string" }, briefResult: { type: "string" }, component: { enum: ["dsl", "briefLocal", "briefBase"] }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "project_recovery", title: "\u9879\u76EE\u6062\u590D\u5FEB\u7167", description: "\u6838\u5BF9\u9879\u76EE\u8EAB\u4EFD\u3001\u5C01\u5B58\u672A\u4FDD\u5B58\u7F16\u8F91\u5E76\u5728\u9879\u76EE\u5916\u5BFC\u51FA\u6062\u590D\u5FEB\u7167\u3002", inputSchema: { type: "object", required: ["action", "projectDirectory", "projectId"], additionalProperties: false, properties: { action: { enum: ["check", "seal", "export", "status", "leave"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, draft: { type: "object", additionalProperties: false, properties: { dsl: { type: "string" }, briefLocal: { type: "string" }, briefBase: { type: "string" } } }, target: { type: "string" }, operationId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "copy_project", title: "\u590D\u5236\u9879\u76EE", description: "\u5B89\u5168\u505C\u6B62\u5E76\u5173\u95ED\u6765\u6E90\uFF0C\u5B8C\u6574\u590D\u5236\u540E\u6253\u5F00\u72EC\u7ACB\u526F\u672C\uFF1B\u53EF\u67E5\u8BE2\u9636\u6BB5\u548C\u5728\u53D1\u5E03\u524D\u53D6\u6D88\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["start", "status", "cancel"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, targetDirectory: { type: "string" }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop", "takeover", "approve-tool", "reject-tool"] }, id: { type: "string" }, baseline: { type: "string" }, parentOrigin: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
@@ -32985,7 +33427,7 @@ function serializeInspection(inspection, writable = false, credential = { status
     timeline: inspection.timeline,
     project: {
       directory: inspection.projectDirectory,
-      folderName: basename6(inspection.projectDirectory),
+      folderName: basename7(inspection.projectDirectory),
       projectId: inspection.manifest.projectId,
       sceneCount: inspection.project.scenes.length,
       assetCount: inspection.project.assets.length
@@ -33026,7 +33468,7 @@ function diagnosticSummary(diagnostics) {
   }));
 }
 async function loadWorkbench() {
-  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript, acceptanceScript, renderScript] = await Promise.all([
+  const [html, script, paperTexture, filmTexture, displayFont, previewScript, checksScript, deliveryScript, acceptanceScript, renderScript, restoreScript] = await Promise.all([
     readFile7(WORKBENCH_PATH, "utf8"),
     readFile7(WORKBENCH_SCRIPT_PATH, "utf8"),
     readFile7(PAPER_TEXTURE_PATH),
@@ -33036,10 +33478,11 @@ async function loadWorkbench() {
     readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
     readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-delivery.js" : "../workbench-delivery.js", import.meta.url), "utf8"),
     readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-acceptance.js" : "../workbench-acceptance.js", import.meta.url), "utf8"),
-    readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-render.js" : "../workbench-render.js", import.meta.url), "utf8")
+    readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-render.js" : "../workbench-render.js", import.meta.url), "utf8"),
+    readFile7(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-restore.js" : "../workbench-restore.js", import.meta.url), "utf8")
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
-  return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + acceptanceScript + "\n" + renderScript + "\n" + script);
+  return html.replace("/*__NARRACUT_MATERIALS__*/", materialVariables).replace("/*__NARRACUT_WORKBENCH_JS__*/", previewScript + "\n" + checksScript + "\n" + deliveryScript + "\n" + acceptanceScript + "\n" + renderScript + "\n" + restoreScript + "\n" + script);
 }
 async function inspectProject(argumentsValue) {
   if (typeof argumentsValue !== "object" || argumentsValue === null || Array.isArray(argumentsValue) || typeof argumentsValue.projectDirectory !== "string") {
@@ -33054,7 +33497,7 @@ async function inspectProject(argumentsValue) {
     };
   }
   const projectDirectory = argumentsValue.projectDirectory;
-  if (!isAbsolute6(projectDirectory)) {
+  if (!isAbsolute7(projectDirectory)) {
     return {
       isError: true,
       structuredContent: {
@@ -33072,7 +33515,7 @@ async function inspectProject(argumentsValue) {
       structuredContent,
       content: [{
         type: "text",
-        text: `${basename6(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
+        text: `${basename7(inspection.projectDirectory)} \u662F\u6709\u6548\u7684 Project VNext\uFF0C\u5171 ${inspection.project.scenes.length} \u4E2A Scene\u3002\u5F53\u524D\u63D2\u4EF6\u53EA\u63D0\u4F9B\u53EA\u8BFB\u68C0\u67E5\u3002`
       }]
     };
   } catch (error51) {
@@ -33082,7 +33525,7 @@ async function inspectProject(argumentsValue) {
         structuredContent: {
           status: "invalid",
           connection: connectedState(),
-          project: { directory: projectDirectory, folderName: basename6(projectDirectory) },
+          project: { directory: projectDirectory, folderName: basename7(projectDirectory) },
           error: {
             code: error51.code,
             path: error51.path,
@@ -33137,6 +33580,7 @@ function credentialState(value) {
   return { status: "available", storage: "session", masked: `\u2022\u2022\u2022\u2022${value.slice(-4)}` };
 }
 var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
+  restore = new RecoveryOperations();
   #recoveryCut = null;
   #recoveryExports = new RecoveryExports();
   async checkIdentity() {
@@ -33208,8 +33652,8 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     }
     if (this.copying || this.#opening || this.#choosingIdentity || this.#resolvingCandidate) throw new Error("\u9879\u76EE\u64CD\u4F5C\u5C1A\u672A\u7ED3\u675F\u3002");
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
-    if (typeof input.targetDirectory !== "string" || !isAbsolute6(input.targetDirectory)) throw new Error("\u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
-    this.#copy = { operationId: typeof input.operationId === "string" && /^[0-9a-f-]{36}$/i.test(input.operationId) ? input.operationId : randomUUID15(), status: "running", phase: "stopping", sourceDirectory: input.projectDirectory, targetDirectory: input.targetDirectory, sourceClosed: false };
+    if (typeof input.targetDirectory !== "string" || !isAbsolute7(input.targetDirectory)) throw new Error("\u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
+    this.#copy = { operationId: typeof input.operationId === "string" && /^[0-9a-f-]{36}$/i.test(input.operationId) ? input.operationId : randomUUID16(), status: "running", phase: "stopping", sourceDirectory: input.projectDirectory, targetDirectory: input.targetDirectory, sourceClosed: false };
     const operation = this.#copy;
     const controller = this.#copyController = new AbortController();
     this.#copyPromise = (async () => {
@@ -33576,7 +34020,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const job = {
-      id: randomUUID15(),
+      id: randomUUID16(),
       sceneId: scene.id,
       status: "queued",
       stage: "\u6392\u961F",
@@ -33590,8 +34034,8 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
       credential: key
     };
     this.#speechJobs.set(job.id, job);
-    const processing = new Promise((resolve5) => setImmediate(() => {
-      void this.#processSpeech(job).finally(resolve5);
+    const processing = new Promise((resolve6) => setImmediate(() => {
+      void this.#processSpeech(job).finally(resolve6);
     }));
     this.#speechPending.add(processing);
     void processing.finally(() => this.#speechPending.delete(processing));
@@ -33737,6 +34181,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
   }
   async dispose() {
     await this.#copyPromise;
+    await this.restore.close();
     _ProjectWorkspaceSession.sessions.delete(this);
     await this.creation?.close();
     await this.render.close();
@@ -33774,6 +34219,13 @@ async function callTool(params, hostValidation, workspace) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
   const { name, arguments: argumentsValue } = params;
+  if (name === "restore_project") {
+    try {
+      return { structuredContent: await workspace.restore.call(argumentsValue), content: [] };
+    } catch (error51) {
+      return { isError: true, structuredContent: { error: { code: error51.code ?? "RECOVERY_FAILED", path: error51.path, message: error51.message, diagnostics: error51.diagnostics } }, content: [] };
+    }
+  }
   if (name === "project_recovery") {
     try {
       return { structuredContent: await workspace.recoveryOperation(argumentsValue), content: [] };
@@ -33860,7 +34312,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "create_project" || name === "open_project") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute6(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute7(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {
@@ -33891,7 +34343,7 @@ async function callTool(params, hostValidation, workspace) {
         structuredContent: { ...workspace.serialize(inspection), operation },
         content: [{
           type: "text",
-          text: operation === "created" ? `${basename6(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename6(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
+          text: operation === "created" ? `${basename7(inspection.projectDirectory)} \u5DF2\u539F\u5B50\u521B\u5EFA\u5E76\u6253\u5F00\uFF0C\u5171 0 \u4E2A Scene\u3002` : `${basename7(inspection.projectDirectory)} \u5DF2\u4E25\u683C\u6821\u9A8C\u5E76\u6253\u5F00\u3002`
         }]
       };
     } catch (error51) {
@@ -33902,7 +34354,7 @@ async function callTool(params, hostValidation, workspace) {
           structuredContent: {
             status: "created-not-opened",
             connection: launcherConnectionState(),
-            project: { directory: projectDirectory, folderName: basename6(projectDirectory) },
+            project: { directory: projectDirectory, folderName: basename7(projectDirectory) },
             error: {
               code: "PROJECT_CREATED_NOT_OPENED",
               causeCode,
@@ -33924,7 +34376,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "coordinate_project_dependencies") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
       return { isError: true, structuredContent: { status: "dependency-failed", error: { code: "DEPENDENCY_SOURCE_UNSUPPORTED", message: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" } }, content: [{ type: "text", text: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" }] };
     }
     try {
@@ -33939,7 +34391,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "manage_project_candidate") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
       return { isError: true, structuredContent: { status: "candidate-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" } }, content: [{ type: "text", text: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" }] };
     }
     try {
@@ -33964,7 +34416,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
       return {
         isError: true,
         structuredContent: {
@@ -34013,7 +34465,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -34066,7 +34518,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute6(input.targetDirectory) || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute7(input.targetDirectory) || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -34110,7 +34562,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute6(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute7(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -34161,7 +34613,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
       return {
         isError: true,
         structuredContent: { assetPreview: { status: "dangling", id: "", reason: "\u9879\u76EE\u8EAB\u4EFD\u6216 Asset ID \u65E0\u6548\u3002" } },
@@ -34204,7 +34656,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
       return {
         isError: true,
         structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u914D\u7F6E\u6216\u51ED\u636E\u64CD\u4F5C\u65E0\u6548\u3002" } },
@@ -34261,7 +34713,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute6(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
       return {
         isError: true,
         structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u6216 Scene ID \u65E0\u6548\u3002" } },
@@ -34325,7 +34777,7 @@ async function callTool(params, hostValidation, workspace) {
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute6(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute7(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {

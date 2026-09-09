@@ -1,3 +1,5 @@
+import { inspectRecovery, planRecovery, recoverProject, extractRecovery } from './project-restore';
+import { readBoundedControlFile, decodeUtf8 } from './project-vnext-inspection';
 import { copyProjectVNext } from './project-copy';
 import { join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
@@ -267,8 +269,39 @@ export function formatCliError(error: unknown): string {
   return lines.join("\n");
 }
 
+export async function runRecoveryCli(options: ProjectWorkspaceCliOptions, recover = false) {
+  const args = [...options.args], action = recover ? 'recover' : args.shift();
+  const paths: string[] = [], flags = new Map<string, string>();
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (['--open', '--confirm-cleanup'].includes(arg)) flags.set(arg, 'true');
+    else if (['--plan', '--brief-result'].includes(arg) && args[i + 1] && !args[i + 1]!.startsWith('--')) flags.set(arg, args[++i]!);
+    else if (arg.startsWith('--')) throw new Error(`未知或不完整参数：${arg}`);
+    else paths.push(arg);
+  }
+  const briefFile = flags.get('--brief-result');
+  const briefResult = briefFile === undefined ? undefined : decodeUtf8(await readBoundedControlFile(briefFile, 'video.md', 2 * 1024 * 1024), briefFile, 'video.md', true);
+  let result: any;
+  if (action === 'inspect' && paths.length === 1 && flags.size === 0) result = await inspectRecovery(paths[0]!);
+  else if (action === 'dry-run' && paths.length === 2 && [...flags.keys()].every(key => key === '--brief-result')) result = await planRecovery(paths[0]!, paths[1]!, briefResult);
+  else if (action === 'extract' && paths.length === 4 && flags.size === 0 && ['dsl', 'briefLocal', 'briefBase'].includes(paths[2]!)) result = await extractRecovery(paths[0]!, paths[1]!, paths[2] as 'dsl' | 'briefLocal' | 'briefBase', paths[3]!);
+  else if (action === 'recover' && paths.length === 3 && flags.has('--plan')) {
+    result = await recoverProject(paths[0]!, paths[1]!, paths[2]!, { planId: flags.get('--plan')!, briefResult, confirmTemporaryCleanup: flags.has('--confirm-cleanup') });
+    (options.log ?? console.log)(JSON.stringify({ code: 'PROJECT_RECOVERED', ...result }));
+    if (flags.has('--open')) result.server = await runOpenProjectCli({ ...options, args: [result.projectDirectory] });
+    return result;
+  } else throw new Error('用法：recovery inspect <快照>；recovery dry-run <快照> <明确来源> [--brief-result <文件>]；recover <快照> <明确来源> <新路径> --plan <计划摘要> [--brief-result <文件>] [--confirm-cleanup] [--open]；recovery extract <快照> <明确来源> <dsl|briefLocal|briefBase> <新文件>');
+  (options.log ?? console.log)(JSON.stringify(result));
+  return result;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  if (args[0] === "recovery" || args[0] === "recover") {
+    const result = await runRecoveryCli({ args: args.slice(1) }, args[0] === "recover");
+    if (result.server) registerShutdown(result.server);
+    return;
+  }
   if (args[0] === "copy") {
     const copied = await runCopyCli({ args: args.slice(1) });
     if (copied.server) registerShutdown(copied.server);

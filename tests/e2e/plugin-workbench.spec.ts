@@ -452,7 +452,9 @@ test("启动器在窄面板纵向排列，并在宿主没有目录选择能力�
     return { ticketBottom: ticket.bottom, benchTop: bench.top };
   });
   expect(positions.benchTop).toBeGreaterThanOrEqual(positions.ticketBottom - 1);
-  await expect(page.getByRole("button", { name: "从恢复快照创建" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "从恢复快照创建" })).toBeEnabled();
+  await page.getByRole("button", { name: "从恢复快照创建" }).click();
+  await expect(page.getByRole("heading", { name: "选择恢复材料" })).toBeFocused();
 });
 
 test("启动器创建失败后保留输入并把焦点交还主操作", async ({ page }) => {

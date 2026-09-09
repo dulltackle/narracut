@@ -3,7 +3,7 @@ import { finishIdentityTransition } from './project-identity';
 import { listenForProjectHandoff, requestProjectHandoff } from './project-lease-handoff';
 import { readCurrentPointer, verifyRevision } from './project-revisions';
 import { RUNTIME_REMOTION_VERSION } from './project-dependencies';
-import { createCandidateManager, type CandidateRequest, type CandidateStatus } from "./project-candidate";
+import { regular, syncDirectory, createCandidateManager, type CandidateRequest, type CandidateStatus } from "./project-candidate";
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, type Stats } from "node:fs";
 import {
@@ -52,6 +52,9 @@ export type ProjectLifecycleErrorCode =
   | "PROJECT_CREATE_TARGET_INVALID"
   | "PROJECT_TEMPORARY_RESIDUE"
   | "PROJECT_TEMPORARY_RESIDUE_UNOWNED"
+  | "RECOVERY_TARGET_EXISTS"
+  | "RECOVERY_TARGET_UNAVAILABLE"
+  | "RECOVERY_PUBLISH_FAILED"
   | "PROJECT_COPY_FAILED"
   | "PROJECT_COPY_CLEANUP_FAILED"
   | "PROJECT_COPY_CANCELLED"
@@ -89,7 +92,12 @@ export type CreatedProjectVNext = {
   projectDirectory: string;
   projectId: string;
   revisionId: string;
+  cleanupWarning?: { path: string; message: string };
 };
+
+export class RecoveryPublicationUncertain extends ProjectLifecycleError {
+  constructor(path: string, readonly reconcile: () => Promise<CreatedProjectVNext>) { super("RECOVERY_PUBLISH_FAILED", path, "恢复已进入发布阶段，正在核对恢复结果。"); }
+}
 
 type CreateProjectOptions = {
   createId?: () => string;
@@ -556,14 +564,14 @@ export async function createProjectVNext(
 
 /** 创建与复制共享临时目录所有权、目标保留和单一发布提交点。 */
 export async function publishProjectVNext(
-  inputPath: string, options: CreateProjectOptions, operation: "create" | "copy",
+  inputPath: string, options: CreateProjectOptions, operation: "create" | "copy" | "recover",
   prepare: (temporary: string, projectId: string, revisionId: string) => Promise<void>,
 ): Promise<CreatedProjectVNext> {
   const projectDirectory = resolve(inputPath);
   const projectName = basename(projectDirectory);
   if (projectName === "" || projectName === "." || projectName === "..") {
     throw new ProjectLifecycleError(
-      "PROJECT_CREATE_TARGET_INVALID",
+      operation === "recover" ? "RECOVERY_TARGET_UNAVAILABLE" : "PROJECT_CREATE_TARGET_INVALID",
       projectDirectory,
       "创建目标必须是带有项目文件夹名的绝对路径。",
     );
@@ -576,10 +584,23 @@ export async function publishProjectVNext(
   let temporaryIdentity: DirectoryIdentity | null = null;
   let markerWritten = false;
   let targetReservationIdentity: DirectoryIdentity | null = null;
+  let renameAttempted = false;
+  let publicationIdentity: DirectoryIdentity | null = null;
+  const reconcileRecovery = async (): Promise<CreatedProjectVNext> => {
+    const facts = await lstat(projectDirectory);
+    if (!publicationIdentity || !facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, publicationIdentity)) throw new Error('尚不能确认发布目录身份。');
+    const marker = JSON.parse((await regular(join(projectDirectory, OPERATION_MARKER), 4096)).toString('utf8'));
+    if (!isCreateOperationMarker(marker, projectDirectory, operationToken, operation)) throw new Error('尚不能确认发布归属。');
+    await syncDirectory(projectDirectory); await syncDirectory(dirname(projectDirectory));
+    const result: CreatedProjectVNext = { projectDirectory, projectId, revisionId };
+    try { await unlink(join(projectDirectory, OPERATION_MARKER)); }
+    catch { result.cleanupWarning = { path: join(projectDirectory, OPERATION_MARKER), message: '恢复已完成，操作标记尚未清理。' }; }
+    return result;
+  };
   try {
     if (await pathExists(projectDirectory)) {
       throw new ProjectLifecycleError(
-        "PROJECT_CREATE_TARGET_EXISTS",
+        operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
         projectDirectory,
         `创建目标已存在：${projectDirectory}。请选择尚不存在的新路径。`,
       );
@@ -609,7 +630,7 @@ export async function publishProjectVNext(
       } catch (error) {
         if (error instanceof Error && "code" in error && error.code === "EEXIST") {
           throw new ProjectLifecycleError(
-            "PROJECT_CREATE_TARGET_EXISTS",
+            operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
             projectDirectory,
             `原子发布前目标已经出现：${projectDirectory}。Narracut 拒绝接管。`,
             { cause: error },
@@ -620,7 +641,7 @@ export async function publishProjectVNext(
       targetReservationIdentity = await captureDirectoryIdentity(projectDirectory);
     } else if (await pathExists(projectDirectory)) {
       throw new ProjectLifecycleError(
-        "PROJECT_CREATE_TARGET_EXISTS",
+        operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
         projectDirectory,
         `原子发布前目标已经出现：${projectDirectory}。Narracut 拒绝接管。`,
       );
@@ -634,19 +655,26 @@ export async function publishProjectVNext(
         (await readdir(projectDirectory)).length !== 0
       ) {
         throw new ProjectLifecycleError(
-          "PROJECT_CREATE_TARGET_EXISTS",
+          operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
           projectDirectory,
           `原子发布时目标保留目录发生变化：${projectDirectory}。Narracut 拒绝覆盖。`,
         );
       }
     }
+    publicationIdentity = temporaryIdentity; renameAttempted = true;
     await rename(temporaryDirectory, projectDirectory);
+    if (operation === "recover") return await reconcileRecovery();
     temporaryIdentity = null;
     targetReservationIdentity = null;
     // 提交前一直保留归属标记，崩溃后仍能要求用户确认清理；提交后的清理不撤销发布。
     await unlink(join(projectDirectory, OPERATION_MARKER)).catch(() => undefined);
     return { projectDirectory, projectId, revisionId };
   } catch (cause) {
+    if (operation === 'recover' && renameAttempted) {
+      try { return await reconcileRecovery(); } catch { /* 发布回执需要按同一归属标记继续核对。 */ }
+      const temporary = await lstat(temporaryDirectory).catch(() => null);
+      if (!temporary || !publicationIdentity || !hasIdentity(temporary, publicationIdentity)) throw new RecoveryPublicationUncertain(projectDirectory, reconcileRecovery);
+    }
     try {
       if (targetReservationIdentity !== null) {
         await cleanupTargetReservation(projectDirectory, targetReservationIdentity);
@@ -663,17 +691,17 @@ export async function publishProjectVNext(
       }
     } catch (cleanupCause) {
       throw new ProjectLifecycleError(
-        operation === "copy" ? "PROJECT_COPY_CLEANUP_FAILED" : "PROJECT_CREATE_CLEANUP_FAILED",
+        operation === "recover" ? "RECOVERY_PUBLISH_FAILED" : operation === "copy" ? "PROJECT_COPY_CLEANUP_FAILED" : "PROJECT_CREATE_CLEANUP_FAILED",
         temporaryDirectory,
         `创建失败，且无法证明临时产物仍归本次操作所有；已保留现场：${temporaryDirectory}。`,
         { cause: cleanupCause },
       );
     }
-    if (cause instanceof ProjectLifecycleError) throw cause;
+    if (cause instanceof ProjectLifecycleError || (cause as { code?: string })?.code?.startsWith("RECOVERY_")) throw cause;
     throw new ProjectLifecycleError(
-      operation === "copy" ? "PROJECT_COPY_FAILED" : "PROJECT_CREATE_FAILED",
+      operation === "recover" ? "RECOVERY_PUBLISH_FAILED" : operation === "copy" ? "PROJECT_COPY_FAILED" : "PROJECT_CREATE_FAILED",
       projectDirectory,
-      `${operation === "copy" ? "复制" : "创建"} Project VNext 失败：${projectDirectory}。${cause instanceof Error ? cause.message : ""}`,
+      `${operation === "recover" ? "恢复" : operation === "copy" ? "复制" : "创建"} Project VNext 失败：${projectDirectory}。${cause instanceof Error ? cause.message : ""}`,
       { cause },
     );
   }

@@ -446,7 +446,7 @@ describe("Project VNext 只读检查", () => {
       }
     };
 
-    await writeFile(projectPath, '{"assets":[],"scenes":[],"x":{"a":{"b":{"c":{"d":{"e":{"f":{"g":1}}}}}}}}');
+    await writeFile(projectPath, '{"assets":[],"scenes":[],"x":{"a":{"b":{"c":{"d":{"e":{"f":{"g":{}}}}}}}}}');
     await expectLimit("depth");
 
     await writeFile(projectPath, `{"assets":[],"scenes":[{"id":"30000000-0000-4000-8000-000000000001","narration":{"text":"x"},"assetIds":[],"speech":{"path":"speech/30000000-0000-4000-8000-000000000001.mp3","durationMs":${"1".repeat(65)},"sourceTextHash":"sha256:${"0".repeat(64)}","ttsProfileId":"x"}}]}`);
