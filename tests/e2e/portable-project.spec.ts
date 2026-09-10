@@ -18,7 +18,7 @@ class ControlledHost implements CodexHostAdapter {
   listener?: (event: CodexHostEvent) => void;
   turns: (StartCodexTurnInput & { turnId: string })[] = [];
   subscribe(listener: (event: CodexHostEvent) => void) { this.listener = listener; return () => { this.listener = undefined; }; }
-  async createThread() { return { threadId: 'portable-creation' }; }
+  async createThread(): Promise<{ threadId: string }> { throw new Error('创作必须复用当前对话'); }
   async resumeThread() { return { threadId: 'portable-creation' }; }
   async startTurn(input: StartCodexTurnInput) { const turnId = `turn-${this.turns.length}`; this.turns.push({ ...input, turnId }); return { turnId }; }
   async interruptTurn() {}
@@ -34,7 +34,7 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
   const root = await mkdtemp(join(tmpdir(), 'portable-vnext-'));
   let directory = join(root, '原项目'), projectId: string;
   const host = new ControlledHost();
-  let handler = createNarracutRequestHandler({ codexHost: host });
+  let handler = createNarracutRequestHandler({ codexHost: host, conversation: { threadId: 'portable-creation' } });
   let lastPreview: any;
   const raw = async (name: string, args: any) => { const result = await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any; if (name === 'project_preview' && args.action === 'build') lastPreview = result.structuredContent?.preview; return result; };
   const call = async (name: string, args: any = {}) => {
@@ -58,12 +58,13 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     await page.goto(origin); await installAppToolBridge(page, raw);
     await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), await call('open_project'));
     await page.getByRole('tab', { name: 'Agent 工作区' }).click();
-    await page.getByRole('textbox', { name: 'Composer', exact: true }).fill('检查三幕素材与叠化，保留已生成 Speech。');
-    await page.getByRole('button', { name: '开始创作', exact: true }).click();
+    // 当前对话通过公开工具发起，工作台承载后续审阅与明确接受。
+    await call('start_creation_task', { instruction: '检查三幕素材与叠化，保留已生成 Speech。', parentOrigin: origin });
     await expect.poll(() => host.turns.length).toBe(1); host.complete('dependencies');
     await expect.poll(() => host.turns.length, { timeout: 60000 }).toBe(2); host.complete('apply');
     await expect.poll(() => host.turns.length, { timeout: 120000 }).toBe(3); host.complete();
     await expect.poll(async () => (await call('get_creation_task')).creationTask.status).toBe('waiting');
+    expect(host.turns.every(turn => turn.threadId === 'portable-creation')).toBe(true);
     const candidateBeforeMove = (await call('manage_project_candidate', { action: 'read' })).candidate;
     const lockBeforeMove = await readFile(join(directory, candidateBeforeMove.candidate.path, 'pnpm-lock.yaml'));
     // 关闭服务销毁全部内存缓存与安装树，然后移动完整项目，旧绝对路径消失。
@@ -72,7 +73,7 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     directory = join(root, '移动后很长的项目目录-保持身份-离线验收'); await rename(previous, directory);
     await expect(access(previous)).rejects.toThrow();
     globalThis.fetch = async () => { networkAttempts++; throw new Error('离线验收禁止网络'); };
-    handler = createNarracutRequestHandler({ codexHost: host });
+    handler = createNarracutRequestHandler({ codexHost: host, conversation: { threadId: 'portable-creation' } });
     await promisify(execFile)(process.execPath, ['--import', 'tsx', 'src/server/cli.ts', 'open', directory]);
     const reopened = await call('open_project');
     expect(reopened.project.projectId).toBe(projectId);

@@ -30735,13 +30735,15 @@ var CreationTask = class {
   async start(instruction, parentOrigin = "null") {
     if (this.#closed || this.#transferred) throw new Error("\u4EFB\u52A1\u5DF2\u8F6C\u79FB\u5230\u53E6\u4E00\u7EBF\u7A0B");
     if (this.#recovery) throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u8BF7\u660E\u786E\u7528\u65B0\u4EFB\u52A1\u63A5\u7BA1\u5019\u9009\u3002");
-    if (this.#busy || this.#state && this.#state.status !== "terminated") throw new Error("\u5DF2\u6709\u521B\u4F5C\u4EFB\u52A1\uFF1B\u8FFD\u52A0\u8981\u6C42\u4E0E\u63A5\u7BA1\u5C1A\u672A\u63A5\u5165\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
+    if (this.#busy || this.#state && this.#state.status !== "terminated") throw new Error("\u5DF2\u6709\u521B\u4F5C\u4EFB\u52A1\uFF1B\u8BF7\u8FFD\u52A0\u521B\u4F5C\u4FEE\u8BA2\uFF0C\u6216\u505C\u6B62\u540E\u660E\u786E\u7528\u65B0\u76EE\u6807\u63A5\u7BA1\u5019\u9009\u3002");
     if (!instruction.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u586B\u5199 1\u20134000 \u5B57\u7684\u660E\u786E\u521B\u4F5C\u76EE\u6807\u3002");
+    if (!this.currentThreadId) throw new Error("CODEX_THREAD_UNAVAILABLE");
     this.#parentOrigin = parentOrigin;
     this.#busy = true;
     try {
       const candidate = await this.opened.candidate({ action: "read" });
       if (candidate.status !== "absent") throw new Error("\u5DF2\u6709\u5019\u9009\uFF1B\u672C\u6B21\u4E0D\u4F1A\u66FF\u6362\u6216\u63A5\u7BA1\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
+      this.#resetTaskContext();
       this.#state = {
         taskId: randomUUID10(),
         projectId: this.opened.inspection.manifest.projectId,
@@ -30783,6 +30785,7 @@ var CreationTask = class {
     if (requestId && this.#state?.taskId === requestId && this.#state.instruction === instruction) return this.value;
     if (requestId) external_exports.string().uuid().parse(requestId);
     if (this.#busy || this.#operation || this.ownsCandidate || !instruction?.trim() || instruction.length > 4e3) throw new Error("\u8BF7\u505C\u6B62\u6D3B\u52A8\u4EFB\u52A1\u5E76\u586B\u5199 1\u20134000 \u5B57\u7684\u65B0\u76EE\u6807\u3002");
+    if (!this.currentThreadId) throw new Error("CODEX_THREAD_UNAVAILABLE");
     this.#busy = true;
     const previous = this.#state;
     try {
@@ -30823,10 +30826,7 @@ var CreationTask = class {
       this.delivery.invalidate();
       this.#recovery = null;
       this.#parentOrigin = parentOrigin;
-      this.#messageMode = null;
-      this.#briefChange = null;
-      this.#discussion = "";
-      this.#replacementThread = false;
+      this.#resetTaskContext();
       this.#pendingRun = this.#run("\u7528\u6237\u4EE5\u65B0\u76EE\u6807\u660E\u786E\u63A5\u7BA1\u73B0\u6709\u5019\u9009\u3002\u91CD\u65B0\u8BFB\u53D6\u5E76\u68C0\u67E5\u6700\u65B0\u5185\u5BB9\u3002").catch((error51) => this.#stop(error51));
       return this.value;
     } catch (error51) {
@@ -30835,6 +30835,21 @@ var CreationTask = class {
     } finally {
       this.#busy = false;
     }
+  }
+  /** 每项任务从独立上下文开始，线程复用不复用上一项任务的临时状态。 */
+  #resetTaskContext() {
+    this.#driver = null;
+    this.#messageMode = null;
+    this.#briefChange = null;
+    this.#discussion = "";
+    this.#replacementThread = false;
+    this.#connectionNotice = null;
+    this.#noProgress = 0;
+    this.#sceneSavePending = false;
+    this.#snapshotValue = null;
+    this.#early = [];
+    this.checks.invalidate();
+    this.delivery.clear();
   }
   async #validateCheckpoint() {
     try {
@@ -31139,20 +31154,9 @@ var CreationTask = class {
   }
   async #bindThread() {
     const state = this.#state, projectDirectory = this.opened.inspection.projectDirectory;
-    let replacement = false;
-    let threadId;
-    if (this.currentThreadId) {
-      threadId = (await this.host.resumeThread({ threadId: this.currentThreadId, projectDirectory })).threadId;
-      if (threadId !== this.currentThreadId) throw new Error("\u5BBF\u4E3B\u8FD4\u56DE\u7684\u5BF9\u8BDD\u8EAB\u4EFD\u4E0D\u5339\u914D\u3002");
-    } else if (state.threadPointer) {
-      try {
-        threadId = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory })).threadId;
-      } catch (error51) {
-        if (codexStopReason(error51) !== "CODEX_THREAD_UNAVAILABLE") throw error51;
-        threadId = (await this.host.createThread({ projectDirectory, purpose: "creation" })).threadId;
-        replacement = true;
-      }
-    } else threadId = (await this.host.createThread({ projectDirectory, purpose: "creation" })).threadId;
+    if (!this.currentThreadId) throw new Error("CODEX_THREAD_UNAVAILABLE");
+    const { threadId } = await this.host.resumeThread({ threadId: this.currentThreadId, projectDirectory });
+    if (threadId !== this.currentThreadId) throw new Error("CODEX_THREAD_UNAVAILABLE");
     if (this.#closed) throw new Error("\u5F53\u524D\u9A71\u52A8\u5DF2\u5931\u53BB\u5199\u6743\u3002");
     const previous = state.threadPointer;
     state.threadPointer = threadId;
@@ -31162,16 +31166,13 @@ var CreationTask = class {
       state.threadPointer = previous;
       throw error51;
     }
-    this.#replacementThread = replacement;
+    this.#replacementThread = false;
   }
   async #classify(original) {
     this.#assert();
     const state = this.#state, snapshot = await this.#snapshot();
     state.inputIdentity = snapshot.signature;
-    if (!state.threadPointer) {
-      if (this.currentThreadId) await this.#bindThread();
-      else state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
-    }
+    if (!state.threadPointer) await this.#bindThread();
     const driver = { token: randomUUID10(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
@@ -31236,7 +31237,7 @@ var CreationTask = class {
         outputSchema: external_exports.toJSONSchema(answerSchema),
         images,
         prompt: [
-          "\u4F60\u662F Narracut \u4E13\u7528\u521B\u4F5C Agent\u3002\u53EA\u8BFB\u9879\u76EE\uFF0C\u4E0D\u6267\u884C\u9879\u76EE\u4EE3\u7801\uFF0C\u4E0D\u5199\u6587\u4EF6\u3001\u4E0D\u8BBF\u95EE\u7F51\u7EDC\u3002\u901A\u8FC7\u7ED3\u6784\u5316\u7ED3\u679C\u8BF7\u6C42\u5E94\u7528\u539F\u5B50\u4FEE\u6539\u552F\u4E00\u5019\u9009\u3002",
+          "\u4F60\u5728\u5F53\u524D Codex \u5BF9\u8BDD\u4E2D\u6267\u884C Narracut \u521B\u4F5C\u4EFB\u52A1\u3002\u53EA\u8BFB\u9879\u76EE\uFF0C\u4E0D\u6267\u884C\u9879\u76EE\u4EE3\u7801\uFF0C\u4E0D\u5199\u6587\u4EF6\u3001\u4E0D\u8BBF\u95EE\u7F51\u7EDC\u3002\u901A\u8FC7\u7ED3\u6784\u5316\u7ED3\u679C\u8BF7\u6C42\u5E94\u7528\u539F\u5B50\u4FEE\u6539\u552F\u4E00\u5019\u9009\u3002",
           "\u6210\u7247\u8868\u73B0\u4F18\u5148\u7EA7\uFF1A\u5F53\u524D\u521B\u4F5C\u6307\u4EE4 > Video Brief > \u65E2\u6709 Render Program\u3002Scene\u3001Narration\u3001Asset\u3001Speech\u3001\u65F6\u95F4\u7A97\u3001\u603B\u65F6\u957F\u3001\u786E\u5B9A\u6027\u548C\u5B89\u5168\u786C\u7EA6\u675F\u4E0D\u53EF\u8986\u76D6\u3002\u7981\u6B62\u81EA\u52A8\u63A5\u53D7\u6216\u6700\u7EC8 Render\u3002",
           "\u6BCF\u6279\u6700\u591A 12 \u4E2A\u6587\u4EF6\uFF0C\u6BCF\u6587\u4EF6\u6700\u591A 256000 \u5B57\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\u76F8\u5BF9\u8DEF\u5F84\u3002\u5148\u8BFB\u5F53\u524D\u5019\u9009\u6E90\u7801\u548C\u9879\u76EE\u5185\u5BB9\uFF1Bapply \u540E\u5E94\u7528\u4F1A\u68C0\u67E5\u5E76\u5C06\u8BCA\u65AD\u4EA4\u56DE\uFF0C\u5141\u8BB8\u4FEE\u590D\u3002\u4E0D\u8981\u590D\u5236 Scene \u5185\u5BB9\u4F5C\u4E3A\u7B2C\u4E8C\u6743\u5A01\u3002",
           "\u7F3A\u5C11\u79BB\u7EBF\u4F9D\u8D56\u65F6\u8FD4\u56DE action=dependencies\uFF0Cdependencies \u4E0E packages \u4E3A\u7A7A\u6570\u7EC4\u53EF\u6309\u65E2\u6709\u7CBE\u786E\u9501\u56FE\u8865\u9F50\u79BB\u7EBF\u5E93\uFF1B\u65B0\u589E\u4F9D\u8D56\u5FC5\u987B\u63D0\u4F9B\u516C\u5171 npm \u7CBE\u786E\u7248\u672C\u548C\u5B8C\u6574\u6027\u6458\u8981\uFF0C\u5E94\u7528\u53EA\u4ECE canonical registry \u4E0B\u8F7D\u3002",
@@ -31245,6 +31246,7 @@ var CreationTask = class {
           "Scene suggestions \u5FC5\u987B\u4F7F\u7528\u771F\u5B9E\u7A33\u5B9A Scene UUID\uFF1Brequired=true \u5FC5\u987B\u63D0\u4F9B condition\uFF1Anarration \u5B57\u6570\u8303\u56F4/anyOf \u53EF\u63A5\u53D7\u8BCD\u7EC4\u3001asset \u53EF\u7528\u7D20\u6750\uFF08anyOf \u7A7A\u5141\u8BB8\u4EFB\u4F55\u53EF\u7528\u66FF\u4EE3\u7D20\u6750\uFF09\u6216 deleted\u3002description \u7528\u4E2D\u6587\u89E3\u91CA\u7EED\u8DD1\u76EE\u6807\u3002\u4E0D\u53EF\u8BC1\u660E\u7684\u8BED\u4E49\u76EE\u6807\u8BF7\u6C42\u7528\u6237\u5224\u65AD\uFF0C\u4E0D\u4F2A\u9020\u6761\u4EF6\u3002\u53EF\u9009\u5EFA\u8BAE required=false\u3002",
           "\u5B9E\u8D28 Brief \u5206\u6B67\u586B\u5199 divergence\uFF0C\u5E76\u8BF4\u660E\u672C\u6B21\u9075\u5FAA\u7684\u7528\u6237\u539F\u6587\uFF1B\u5426\u5219\u7A7A\u5B57\u7B26\u4E32\u3002summary\u3001warnings\u3001suggestions \u7528\u4E2D\u6587\u3002",
           "\u672C Turn \u4EC5\u4EE5\u5E94\u7528\u63D0\u4F9B\u7684\u68C0\u67E5\u70B9\u3001\u5F53\u524D\u5019\u9009\u548C\u6700\u65B0\u8F93\u5165\u4E3A\u4F9D\u636E\u3002\u4E22\u5F03\u65E7 Turn \u672A\u63D0\u4EA4\u4FEE\u6539\u3001\u5DE5\u5177\u8C03\u7528\u53CA\u4E2D\u95F4\u5224\u65AD\uFF0C\u4E0D\u4ECE\u5BF9\u8BDD\u6062\u590D\u5B83\u4EEC\u3002\u68C0\u67E5\u4E0E Preview \u8BC1\u636E\u7F3A\u5931\u6216\u8FC7\u671F\u65F6\u5FC5\u987B\u91CD\u8DD1\u3002",
+          `\u5F53\u524D\u4EFB\u52A1 ID\uFF1A${state.taskId}\u3002\u540C\u4E00\u5BF9\u8BDD\u4E2D\u7684\u5176\u4ED6\u4EFB\u52A1\u4E0D\u5C5E\u4E8E\u672C\u6B21\u4EFB\u52A1\u3002`,
           `\u6700\u540E\u5B8C\u6210\u7684\u5B89\u5168\u9636\u6BB5\uFF1A${state.lastSafeStage ?? "\u5C1A\u65E0"}\uFF08\u4E0D\u4EE3\u8868\u68C0\u67E5\u8BC1\u636E\u4ECD\u6709\u6548\uFF09\u3002`,
           `\u5F53\u524D\u521B\u4F5C\u6307\u4EE4\uFF08\u7CBE\u786E\u539F\u6587\uFF09\uFF1A${JSON.stringify(state.instruction)}`,
           `\u6700\u65B0 Runtime \u8F93\u5165\uFF1A${JSON.stringify(snapshot.input)}`,
@@ -33183,7 +33185,7 @@ var tools = [
   { name: "project_recovery", title: "\u9879\u76EE\u6062\u590D\u5FEB\u7167", description: "\u6838\u5BF9\u9879\u76EE\u8EAB\u4EFD\u3001\u5C01\u5B58\u672A\u4FDD\u5B58\u7F16\u8F91\u5E76\u5728\u9879\u76EE\u5916\u5BFC\u51FA\u6062\u590D\u5FEB\u7167\u3002", inputSchema: { type: "object", required: ["action", "projectDirectory", "projectId"], additionalProperties: false, properties: { action: { enum: ["check", "seal", "export", "status", "leave"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, draft: { type: "object", additionalProperties: false, properties: { dsl: { type: "string" }, briefLocal: { type: "string" }, briefBase: { type: "string" } } }, target: { type: "string" }, operationId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "copy_project", title: "\u590D\u5236\u9879\u76EE", description: "\u5B89\u5168\u505C\u6B62\u5E76\u5173\u95ED\u6765\u6E90\uFF0C\u5B8C\u6574\u590D\u5236\u540E\u6253\u5F00\u72EC\u7ACB\u526F\u672C\uFF1B\u53EF\u67E5\u8BE2\u9636\u6BB5\u548C\u5728\u53D1\u5E03\u524D\u53D6\u6D88\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["start", "status", "cancel"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, targetDirectory: { type: "string" }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop", "takeover", "approve-tool", "reject-tool"] }, id: { type: "string" }, baseline: { type: "string" }, parentOrigin: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
-  { name: "start_creation_task", description: "\u4ECE Composer \u539F\u6587\u53D1\u8D77\u4E13\u7528\u521B\u4F5C\u4EFB\u52A1\uFF1B\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
+  { name: "start_creation_task", description: "\u4ECE\u5F53\u524D Codex \u5BF9\u8BDD\u7684 Composer \u539F\u6587\u53D1\u8D77\u521B\u4F5C\u4EFB\u52A1\uFF1B\u590D\u7528\u5F53\u524D\u5BF9\u8BDD\uFF0C\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "get_creation_task", description: "\u8BFB\u53D6\u5F53\u524D\u5355\u9879\u521B\u4F5C\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ["app"] } } },
   { name: "continue_creation_task", description: "\u660E\u786E\u57FA\u4E8E\u5F53\u524D\u5916\u90E8\u5019\u9009\u7EE7\u7EED\u540C\u4E00\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "baseline"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, baseline: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: false }, _meta: { ui: { visibility: ["app"] } } },
   {
@@ -34198,15 +34200,17 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     this.#epoch++;
     this.#transferred = false;
     this.#handoffPending = false;
-    this.#candidateStatus = await next.candidate({ action: "read" });
-    this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery, this.conversation?.threadId) : null;
-    this.creationError = null;
-    try {
-      await this.creation?.load(this.conversation === void 0 && next.transferred);
-    } catch (error51) {
-      this.creationError = error51.message;
-    }
-    return next.inspection;
+    return projectWriteContext.run(this.captureAccess(), async () => {
+      this.#candidateStatus = await next.candidate({ action: "read" });
+      this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery, this.conversation?.threadId) : null;
+      this.creationError = null;
+      try {
+        await this.creation?.load(this.conversation === void 0 && next.transferred);
+      } catch (error51) {
+        this.creationError = error51.message;
+      }
+      return next.inspection;
+    });
   }
   async candidate(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
@@ -35204,7 +35208,7 @@ function createNarracutRequestHandler(options = {}) {
           } };
         }
         const args = request2.params?.arguments ?? {};
-        const transfer = name === "project_control" && args.action === "takeover" || name === "start_creation_task" || name === "continue_creation_task" || name === "respond_creation_task" && args.action === "continue";
+        const transfer = name === "project_control" && args.action === "takeover" || name === "start_creation_task" || name === "continue_creation_task" || name === "respond_creation_task" && (args.action === "continue" || args.action === "takeover" && typeof args.instruction === "string" && args.instruction.trim().length > 0 && args.instruction.length <= 4e3 && typeof args.baseline === "string" && args.baseline.length > 0);
         let operation;
         if (options.conversation && transfer && workspace.controlBlocked) {
           try {

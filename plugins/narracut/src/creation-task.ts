@@ -177,13 +177,15 @@ export class CreationTask {
   async start(instruction: string, parentOrigin = 'null') {
     if (this.#closed || this.#transferred) throw new Error('任务已转移到另一线程');
     if (this.#recovery) throw new Error('TASK_CHECKPOINT_INVALID：请明确用新任务接管候选。');
-    if (this.#busy || this.#state && this.#state.status !== 'terminated') throw new Error('已有创作任务；追加要求与接管尚未接入，草稿已保留。');
+    if (this.#busy || this.#state && this.#state.status !== 'terminated') throw new Error('已有创作任务；请追加创作修订，或停止后明确用新目标接管候选。');
     if (!instruction.trim() || instruction.length > 4000) throw new Error('请填写 1–4000 字的明确创作目标。');
+    if (!this.currentThreadId) throw new Error('CODEX_THREAD_UNAVAILABLE');
     this.#parentOrigin = parentOrigin;
     this.#busy = true;
     try {
       const candidate = await this.opened.candidate({ action: 'read' });
       if (candidate.status !== 'absent') throw new Error('已有候选；本次不会替换或接管，草稿已保留。');
+      this.#resetTaskContext();
       this.#state = { taskId: randomUUID(), projectId: this.opened.inspection.manifest.projectId, instruction,
         externalBaseline: null, status: 'running', reason: null, threadPointer: null, lastSafeStage: null, candidateBaseline: null,
         inputIdentity: null, pending: null, waitingReason: null, suggestions: [], briefProposal: null, pendingMessage: null, toolApproval: null, stage: 'read', divergence: '', preview: null, deliveryId: null };
@@ -204,6 +206,7 @@ export class CreationTask {
     if (requestId && this.#state?.taskId === requestId && this.#state.instruction === instruction) return this.value;
     if (requestId) z.string().uuid().parse(requestId);
     if (this.#busy || this.#operation || this.ownsCandidate || !instruction?.trim() || instruction.length > 4000) throw new Error('请停止活动任务并填写 1–4000 字的新目标。');
+    if (!this.currentThreadId) throw new Error('CODEX_THREAD_UNAVAILABLE');
     this.#busy = true;
     const previous = this.#state;
     try {
@@ -223,11 +226,18 @@ export class CreationTask {
         this.#state = { ...checkpoint, externalBaseline: null, stage: 'read', divergence: '', preview: null, deliveryId: null };
       });
       this.#driver = null; this.checks.invalidate(); this.delivery.invalidate();
-      this.#recovery = null; this.#parentOrigin = parentOrigin; this.#messageMode = null; this.#briefChange = null; this.#discussion = ''; this.#replacementThread = false;
+      this.#recovery = null; this.#parentOrigin = parentOrigin; this.#resetTaskContext();
       this.#pendingRun = this.#run('用户以新目标明确接管现有候选。重新读取并检查最新内容。').catch(error => this.#stop(error));
       return this.value;
     } catch (error) { await this.#invalid(); throw error; }
     finally { this.#busy = false; }
+  }
+  /** 每项任务从独立上下文开始，线程复用不复用上一项任务的临时状态。 */
+  #resetTaskContext() {
+    this.#driver = null; this.#messageMode = null; this.#briefChange = null; this.#discussion = '';
+    this.#replacementThread = false; this.#connectionNotice = null; this.#noProgress = 0;
+    this.#sceneSavePending = false; this.#snapshotValue = null; this.#early = [];
+    this.checks.invalidate(); this.delivery.clear();
   }
   async #validateCheckpoint() {
     try {
@@ -453,31 +463,20 @@ export class CreationTask {
   }
   async #bindThread() {
     const state = this.#state!, projectDirectory = this.opened.inspection.projectDirectory;
-    let replacement = false;
-    let threadId: string;
-    if (this.currentThreadId) { threadId = (await this.host.resumeThread({ threadId: this.currentThreadId, projectDirectory })).threadId; if (threadId !== this.currentThreadId) throw new Error('宿主返回的对话身份不匹配。'); }
-    else if (state.threadPointer) {
-      try { threadId = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory })).threadId; }
-      catch (error) {
-        if (codexStopReason(error) !== 'CODEX_THREAD_UNAVAILABLE') throw error;
-        threadId = (await this.host.createThread({ projectDirectory, purpose: 'creation' })).threadId;
-        replacement = true;
-      }
-    } else threadId = (await this.host.createThread({ projectDirectory, purpose: 'creation' })).threadId;
+    if (!this.currentThreadId) throw new Error('CODEX_THREAD_UNAVAILABLE');
+    const { threadId } = await this.host.resumeThread({ threadId: this.currentThreadId, projectDirectory });
+    if (threadId !== this.currentThreadId) throw new Error('CODEX_THREAD_UNAVAILABLE');
     if (this.#closed) throw new Error('当前驱动已失去写权。');
     const previous = state.threadPointer;
     state.threadPointer = threadId;
     try { await this.#save(); } catch (error) { state.threadPointer = previous; throw error; }
-    this.#replacementThread = replacement;
+    this.#replacementThread = false;
   }
   async #classify(original: string) {
     this.#assert();
     const state = this.#state!, snapshot = await this.#snapshot();
     state.inputIdentity = snapshot.signature;
-    if (!state.threadPointer) {
-      if (this.currentThreadId) await this.#bindThread();
-      else state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: 'creation' })).threadId;
-    }
+    if (!state.threadPointer) await this.#bindThread();
     const driver: Driver = { token: randomUUID(), turnId: null, signature: snapshot.signature };
     this.#driver = driver; this.#starting = true;
     try {
@@ -527,7 +526,7 @@ export class CreationTask {
       const turn = await this.host.startTurn({ threadId: state.threadPointer!, projectDirectory: this.opened.inspection.projectDirectory,
         verificationToken: driver.token, outputSchema: z.toJSONSchema(answerSchema), images,
         prompt: [
-          '你是 Narracut 专用创作 Agent。只读项目，不执行项目代码，不写文件、不访问网络。通过结构化结果请求应用原子修改唯一候选。',
+          '你在当前 Codex 对话中执行 Narracut 创作任务。只读项目，不执行项目代码，不写文件、不访问网络。通过结构化结果请求应用原子修改唯一候选。',
           '成片表现优先级：当前创作指令 > Video Brief > 既有 Render Program。Scene、Narration、Asset、Speech、时间窗、总时长、确定性和安全硬约束不可覆盖。禁止自动接受或最终 Render。',
           '每批最多 12 个文件，每文件最多 256000 字；只修改候选相对路径。先读当前候选源码和项目内容；apply 后应用会检查并将诊断交回，允许修复。不要复制 Scene 内容作为第二权威。',
           '缺少离线依赖时返回 action=dependencies，dependencies 与 packages 为空数组可按既有精确锁图补齐离线库；新增依赖必须提供公共 npm 精确版本和完整性摘要，应用只从 canonical registry 下载。',
@@ -536,6 +535,7 @@ export class CreationTask {
           'Scene suggestions 必须使用真实稳定 Scene UUID；required=true 必须提供 condition：narration 字数范围/anyOf 可接受词组、asset 可用素材（anyOf 空允许任何可用替代素材）或 deleted。description 用中文解释续跑目标。不可证明的语义目标请求用户判断，不伪造条件。可选建议 required=false。',
           '实质 Brief 分歧填写 divergence，并说明本次遵循的用户原文；否则空字符串。summary、warnings、suggestions 用中文。',
           '本 Turn 仅以应用提供的检查点、当前候选和最新输入为依据。丢弃旧 Turn 未提交修改、工具调用及中间判断，不从对话恢复它们。检查与 Preview 证据缺失或过期时必须重跑。',
+        `当前任务 ID：${state.taskId}。同一对话中的其他任务不属于本次任务。`,
         `最后完成的安全阶段：${state.lastSafeStage ?? '尚无'}（不代表检查证据仍有效）。`,
         `当前创作指令（精确原文）：${JSON.stringify(state.instruction)}`,
           `最新 Runtime 输入：${JSON.stringify(snapshot.input)}`,
