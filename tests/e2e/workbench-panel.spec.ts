@@ -1,10 +1,40 @@
 import { expect, test } from '@playwright/test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startWorkbenchPanel } from '../../plugins/narracut/src/workbench-panel';
 import { createProjectVNext } from '../../src/server/project-lifecycle';
 import sharp from 'sharp';
+
+test('非项目目录以弹窗说明失败原因并支持重新选择', async ({ page }) => {
+  const root = await mkdtemp(join(tmpdir(), 'panel-invalid-'));
+  const panel = await startWorkbenchPanel({ threadId: 'thread-invalid-directory' });
+  let selections = 0;
+  try {
+    await page.route(`${panel.url}rpc`, async route => {
+      const request = route.request().postDataJSON();
+      if (request.params.name !== 'select_project_directory') return route.continue();
+      selections++;
+      await route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { structuredContent: { path: root } } } });
+    });
+    await page.goto(panel.url);
+    const app = page.frameLocator('iframe');
+    await app.getByRole('button', { name: '选择项目文件夹', exact: true }).click();
+    const dialog = app.getByRole('dialog', { name: '无法打开项目' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(root);
+    await expect(dialog).toContainText('narracut.json');
+    await page.screenshot({ path: '/tmp/narracut-open-error-desktop.png' });
+    await page.setViewportSize({ width: 390, height: 667 });
+    await page.screenshot({ path: '/tmp/narracut-open-error-mobile.png' });
+    await dialog.getByRole('button', { name: '重新选择文件夹' }).click();
+    await expect.poll(() => selections).toBe(2);
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(app.getByRole('button', { name: '选择项目文件夹', exact: true })).toBeFocused();
+  } finally { await page.close(); await panel.close(); await rm(root, { recursive: true, force: true }); }
+});
 
 test('项目名称连续输入保留输入节点、焦点和光标', async ({ page }) => {
   const panel = await startWorkbenchPanel({ threadId: 'thread-launcher-input' });
@@ -112,21 +142,62 @@ for (const action of ['create', 'open'] as const) {
   });
 }
 
-test('面板读取失败后明确重试，不重复创建已就绪项目', async ({ page }) => {
+test('面板首次状态请求 503 后重试恢复原项目且数据不变', async ({ page }) => {
+  const root = await mkdtemp(join(tmpdir(), 'panel-retry-'));
+  const directory = join(root, '重试验收项目');
+  const assetPath = join(root, '素材.png');
+  await createProjectVNext(directory);
+  await sharp({ create: { width: 32, height: 32, channels: 3, background: '#4e88df' } }).png().toFile(assetPath);
   const panel = await startWorkbenchPanel({ threadId: 'thread-retry' });
   let attempts = 0;
+  const retryCalls: string[] = [];
+  let retryPhase = false;
   try {
-    await page.route(`${panel.url}state`, async route => {
-      if (++attempts === 1) return route.fulfill({ status: 503, json: { error: { message: '测试：面板状态暂不可用' } } });
+    await page.request.post(`${panel.url}rpc`, { headers: { Origin: new URL(panel.url).origin }, data: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'open_project', arguments: { projectDirectory: directory } } } });
+    await page.route(`${panel.url}rpc`, async route => {
+      const request = route.request().postDataJSON();
+      if (retryPhase) retryCalls.push(request.params.name);
+      if (request.params.name === 'select_workbench_path') return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { structuredContent: { paths: [assetPath] } } } });
       await route.continue();
     });
     await page.goto(panel.url);
-    await expect(page.getByText(/测试：面板状态暂不可用/)).toBeVisible();
+    const app = page.frameLocator('iframe');
+    await app.getByRole('button', { name: '新增第一个 Scene' }).click();
+    const editor = app.getByRole('textbox', { name: 'Scene 01 Narration' });
+    await editor.fill('重试后应保留这段内容。'); await editor.blur();
+    await app.getByRole('button', { name: /第 01 个 Scene 的 Asset/ }).click();
+    await app.getByRole('button', { name: '导入并绑定', exact: true }).click();
+    await expect(app.getByLabel('Asset 导入结果')).toContainText('已导入并绑定');
+    const state = async () => (await (await page.request.get(`${panel.url}state`)).json()).structuredContent;
+    const before = await state();
+    expect(before.projectDsl.scenes).toHaveLength(1);
+    expect(before.projectDsl.scenes[0].narration.text).toBe('重试后应保留这段内容。');
+    expect(before.projectDsl.assets).toHaveLength(1);
+    expect(before.projectDsl.scenes[0].assetIds).toHaveLength(1);
+    const filesBefore = await Promise.all(['narracut.json', 'project.json', 'video.md'].map(name => readFile(join(directory, name), 'utf8')));
+    const entriesBefore = await readdir(root);
+    retryPhase = true;
+    await page.route(`${panel.url}state`, async route => {
+      if (++attempts === 1) return route.fulfill({ status: 503, json: { error: { message: '测试：面板状态暂不可用（503）' } } });
+      await route.continue();
+    });
+    await page.reload();
+    await expect(page.getByText('测试：面板状态暂不可用（503）')).toBeVisible();
+    await page.screenshot({ path: '/tmp/narracut-retry-503.png' });
     await page.getByRole('button', { name: '重试显示工作台' }).click();
-    await expect(page.frameLocator('iframe').getByRole('button', { name: '选择父文件夹' })).toBeVisible();
+    await expect(app.locator('.narration-view').filter({ hasText: '重试后应保留这段内容。' })).toBeVisible();
     await expect(page.locator('#feedback')).toBeHidden();
+    const after = await state();
+    expect(after.project.projectId).toBe(before.project.projectId);
+    expect(after.project.directory).toBe(directory);
+    expect(after.projectDsl).toEqual(before.projectDsl);
+    expect(await Promise.all(['narracut.json', 'project.json', 'video.md'].map(name => readFile(join(directory, name), 'utf8')))).toEqual(filesBefore);
+    expect(await readdir(root)).toEqual(entriesBefore);
+    expect(retryCalls).not.toContain('create_project');
+    expect(retryCalls).not.toContain('open_project');
     expect(attempts).toBe(2);
-  } finally { await page.close(); await panel.close(); }
+    await page.screenshot({ path: '/tmp/narracut-retry-restored.png' });
+  } finally { await page.close(); await panel.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test('最终 Render 用统一系统目录选择桥接接收输出路径', async ({ page }) => {

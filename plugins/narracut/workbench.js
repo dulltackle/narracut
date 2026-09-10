@@ -2709,12 +2709,25 @@
     document.querySelector(".name-field")?.focus();
   }
 
-  function lifecycleFailure(response, fallback, trigger) {
+  function lifecycleFailure(response, fallback, trigger, projectPath) {
     const error = response?.structuredContent?.error ?? { code: "PROJECT_OPERATION_FAILED", message: fallback };
     state.launcher.busy = false;
     state.launcher.stage = "ready";
     state.launcher.error = error;
     render();
+    if (trigger === "[data-open-project]") {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'project-copy-dialog';
+      dialog.setAttribute('aria-labelledby', 'project-open-error-title');
+      dialog.setAttribute('aria-describedby', 'project-open-error-reason');
+      dialog.innerHTML = `<h1 id="project-open-error-title">无法打开项目</h1><p id="project-open-error-reason" class="copy-error">${escapeHtml(error.message ?? fallback)}</p><dl><dt>所选目录</dt><dd>${escapeHtml(projectPath ?? error.path ?? '')}</dd><dt>错误代码</dt><dd>${escapeHtml(error.code ?? 'PROJECT_OPEN_FAILED')}</dd></dl><footer><button class="agent-action" data-primary="true" data-open-again>重新选择文件夹</button><button class="agent-action" data-dismiss>关闭</button></footer>`;
+      dialog.addEventListener('close', () => { dialog.remove(); document.querySelector(trigger)?.focus(); }, { once: true });
+      dialog.querySelector('[data-dismiss]').addEventListener('click', () => dialog.close());
+      dialog.querySelector('[data-open-again]').addEventListener('click', () => { dialog.close(); openFromLauncher(); });
+      document.body.append(dialog);
+      dialog.showModal();
+      return;
+    }
     announce(`${error.code}。${error.message}`);
     requestAnimationFrame(() => document.querySelector(error.code === "PROJECT_TEMPORARY_RESIDUE" ? "[data-confirm-residue]" : trigger)?.focus());
   }
@@ -2744,11 +2757,11 @@
     render();
     try {
       const response = await callHostTool("open_project", { projectDirectory: path });
-      if (response?.isError || response?.structuredContent?.status === "invalid") return lifecycleFailure(response, "项目无法打开，请核对目录后重试。", "[data-open-project]");
+      if (response?.isError || response?.structuredContent?.status === "invalid") return lifecycleFailure(response, "项目无法打开，请核对目录后重试。", "[data-open-project]", path);
       if (response.structuredContent?.status === "identity-conflict") { showIdentityConflict(response.structuredContent); return; }
       accept(response.structuredContent, response.structuredContent?.project?.sceneCount === 0);
     } catch (error) {
-      lifecycleFailure({ structuredContent: { error: { code: "PROJECT_OPEN_FAILED", message: error?.message ?? "项目无法打开，请重试。" } } }, "项目无法打开，请重试。", "[data-open-project]");
+      lifecycleFailure({ structuredContent: { error: { code: "PROJECT_OPEN_FAILED", message: error?.message ?? "项目无法打开，请重试。" } } }, "项目无法打开，请重试。", "[data-open-project]", path);
     }
   }
 
