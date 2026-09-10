@@ -6,6 +6,53 @@ import { startWorkbenchPanel } from '../../plugins/narracut/src/workbench-panel'
 import { createProjectVNext } from '../../src/server/project-lifecycle';
 import sharp from 'sharp';
 
+test('项目名称连续输入保留输入节点、焦点和光标', async ({ page }) => {
+  const panel = await startWorkbenchPanel({ threadId: 'thread-launcher-input' });
+  try {
+    await page.goto(panel.url);
+    const field = page.frameLocator('iframe').getByRole('textbox', { name: '项目文件夹名' });
+    await field.fill('ac');
+    await field.press('ArrowLeft');
+    await page.keyboard.type('b');
+    await expect(field).toHaveValue('abc');
+    await expect(field).toBeFocused();
+    expect(await field.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(2);
+    const retained = await field.evaluate(input => {
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      (input as HTMLInputElement).value = '海边采访';
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, data: '采访' }));
+      const retained = input.isConnected && document.activeElement === input;
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '采访' }));
+      return retained;
+    });
+    expect(retained).toBe(true);
+    await expect(field).toHaveValue('海边采访');
+  } finally { await page.close(); await panel.close(); }
+});
+
+for (const width of [902, 780, 680, 390]) {
+  test(`启动器在 ${width} × 667 面板内可滚动到创建按钮`, async ({ page }) => {
+    const panel = await startWorkbenchPanel({ threadId: 'thread-launcher-scroll' });
+    try {
+      await page.setViewportSize({ width, height: 667 });
+      await page.goto(panel.url);
+      const app = page.frameLocator('iframe');
+      await expect(app.getByRole('button', { name: '选择父文件夹' })).toBeVisible();
+      const ticket = app.locator('.launch-ticket');
+      await ticket.hover({ position: { x: 100, y: 100 } });
+      await page.mouse.wheel(0, 2400);
+      const create = app.getByRole('button', { name: '原子创建并打开' });
+      await expect.poll(async () => create.evaluate(button => {
+        const rect = button.getBoundingClientRect();
+        const footer = document.querySelector('.launch-footer')!.getBoundingClientRect();
+        const ticket = document.querySelector('.launch-ticket')!.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= footer.top && rect.left >= ticket.left && rect.right <= ticket.right;
+      })).toBe(true);
+      expect(await ticket.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    } finally { await page.close(); await panel.close(); }
+  });
+}
+
 for (const action of ['create', 'open'] as const) {
   test(`公开面板通过启动器${action === 'create' ? '创建' : '打开'}项目并保留编辑和审阅入口`, async ({ page }) => {
     const root = await mkdtemp(join(tmpdir(), 'panel-e2e-'));

@@ -2769,9 +2769,17 @@
     document.querySelector(".name-field")?.addEventListener("input", (event) => {
       state.launcher.projectName = event.currentTarget.value;
       state.launcher.error = null;
-      render();
-      document.querySelector(".name-field")?.focus();
-      document.querySelector(".name-field")?.setSelectionRange(state.launcher.projectName.length, state.launcher.projectName.length);
+      // 保留输入节点，避免打断输入法组合输入、选区和滚动位置。
+      const finalPath = finalProjectPath();
+      const verdict = launcherVerdict();
+      const path = document.querySelector('[data-final-path]');
+      path.textContent = finalPath || "选择位置并填写名称后显示";
+      path.title = finalPath;
+      const hint = document.querySelector('[data-path-verdict]');
+      hint.textContent = verdict.copy;
+      hint.dataset.valid = String(verdict.valid);
+      document.querySelector('[data-create-project]').disabled = !verdict.valid || state.launcher.busy;
+      document.querySelector('.launch-error')?.remove();
     }, { signal: bindings.signal });
   }
 
