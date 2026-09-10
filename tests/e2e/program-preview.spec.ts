@@ -220,3 +220,53 @@ test('Composer 创建回执与任务刷新只提供候选切换入口，保留�
   expect(calls).not.toContain('project_acceptance');
   expect(calls).not.toContain('project_render');
 });
+
+for (const width of [1440, 390]) test(`任务状态变化及 Scene 建议重排删除保留 Preview 帧与中文选区 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await page.goto(origin);
+  const initial = validResult(2);
+  const notify = (result: unknown) => page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), result);
+  let task: any = { taskId: 'acceptance-60', status: 'waiting', reason: 'SCENE_CHANGE_REQUIRED', instruction: '保留内容并调整开场', stage: 'read', suggestions: [{ sceneId: initial.scenes[1]!.id, observation: '需要精简', action: '缩短 Narration', content: '欢迎', reason: '开场更紧凑', required: true, satisfied: false, condition: { field: 'narration', description: '请精简旁白' } }] };
+  const writes: string[] = [];
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'project_preview') return { structuredContent: args.action === 'build' ? { preview: first } : { stale: false } };
+    if (name === 'get_creation_task') return { structuredContent: { creationTask: task } };
+    if ((name === 'project_acceptance' && args.action === 'accept') || (name === 'project_render' && args.action === 'start') || name === 'save_project_scenes') writes.push(name);
+    return { structuredContent: {} };
+  });
+  await notify(initial);
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await page.getByRole('button', { name: '构建当前版本', exact: true }).click();
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 0');
+  await page.locator('[data-frame-input]').fill('4'); await page.locator('[data-jump]').click();
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
+  const current = await page.locator('[data-preview-screen] iframe:not([hidden])').elementHandle();
+  const draft = page.getByRole('textbox', { name: 'Composer' });
+  await draft.fill('保留中文输入与选区');
+  for (const [status, reason] of [['waiting', 'SCENE_CHANGE_REQUIRED'], ['running', null], ['stopped', 'USER_STOPPED'], ['running', null], ['stopped', 'CODEX_USAGE_LIMIT'], ['waiting', 'CANDIDATE_READY']]) {
+    await draft.focus();
+    await draft.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(2, 5));
+    await draft.dispatchEvent('compositionstart');
+    task = { ...task, status, reason }; await notify({ creationTask: task });
+    await expect(draft).toBeFocused();
+    expect(await draft.evaluate((node: HTMLTextAreaElement) => [node.selectionStart, node.selectionEnd])).toEqual([2, 5]);
+    await draft.dispatchEvent('compositionend');
+    await expect(draft).toHaveValue('保留中文输入与选区');
+    await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
+    expect(await current!.evaluate(node => node.isConnected)).toBe(true);
+  }
+  task = { ...task, status: 'waiting', reason: 'SCENE_CHANGE_REQUIRED' };
+  const reordered = { ...initial, projectRevision: `sha256:${'2'.repeat(64)}`, scenes: [...initial.scenes].reverse(), projectDsl: { ...initial.projectDsl, scenes: [...initial.projectDsl.scenes].reverse() } };
+  await notify({ ...reordered, creationTask: task });
+  await page.getByRole('button', { name: '定位 Scene', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Scene 01 Narration', exact: true })).toBeFocused();
+  await expect(page.locator('[data-scene-row]').first()).toHaveAttribute('data-selected', 'true');
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
+  await notify({ ...initial, projectRevision: `sha256:${'3'.repeat(64)}`, scenes: initial.scenes.slice(0, 1), projectDsl: { ...initial.projectDsl, scenes: initial.projectDsl.scenes.slice(0, 1) }, creationTask: task });
+  await expect(page.locator('.scene-todo')).toContainText('Scene 已删除');
+  await expect(page.getByRole('button', { name: '定位 Scene', exact: true })).toBeDisabled();
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
+  expect(await current!.evaluate(node => node.isConnected)).toBe(true);
+  expect(writes).toEqual([]);
+});

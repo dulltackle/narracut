@@ -677,6 +677,25 @@ test('无法识别的失效任务在用户放弃候选后清除恢复入口，�
   } finally { await reopened?.dispose(); await app.close(); }
 });
 
+test('并发重复继续只恢复一个驱动，替代线程读取最新 Brief 与同一任务检查点', async () => {
+  const app = await setup();
+  try {
+    const task = (await app.call('start_creation_task', { instruction: '保留同一创作目标' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await app.call('respond_creation_task', { action: 'stop' });
+    await writeFile(join(app.projectDirectory, 'video.md'), '# 停止后更新的最新 Brief');
+    const results = await Promise.all(Array.from({ length: 3 }, () => app.call('respond_creation_task', { action: 'continue' })));
+    expect(results.filter(result => !result.isError)).toHaveLength(1);
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    expect(app.host.threads).toHaveLength(2);
+    expect(app.host.turns[1]!.prompt).toContain('停止后更新的最新 Brief');
+    expect((await app.call('get_creation_task')).structuredContent.creationTask).toMatchObject({ taskId: task.taskId, threadPointer: 'thread-2', replacementThread: true });
+    const checkpoint = JSON.parse(await readFile(join(app.projectDirectory, '.narracut/agent-task.json'), 'utf8'));
+    expect(checkpoint.taskId).toBe(task.taskId);
+    expect(checkpoint.threadPointer).toBe('thread-2');
+  } finally { await app.close(); }
+});
+
 test('恢复遇到额度错误保留原线程与检查点，不创建替代线程或后台重试', async () => {
   const app = await setup();
   try {
