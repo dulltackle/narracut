@@ -21,3 +21,17 @@
 候选指针同时引用完整程序树、上一份恢复检查点和按 SHA-512 十六进制摘要命名的 `.tgz` 离线库。新一代全部写入并同步后，才通过一次 rename 发布指针；提交前失败会删除临时输出。已有离线包随每一代保留，放弃候选只删除候选和检查点，离线库仍保留。首次协调会同时补齐当前候选、恢复检查点和全部保留修订锁图中的包；损坏或缺失的包只能通过显式协调原子修复。当前不回收任何包，因此不会误删候选、检查点或保留修订的依赖。
 
 打开、读取和普通候选修改只验证已有字节，不补包或改锁。执行侧应只消费已验证的锁图和离线包，缺失或损坏必须失败关闭。安装脚本、构建、Preview 与 Render 的 OS 胶囊由独立执行层负责，本协调器没有执行项目代码的入口。不能把本模块的下载能力交给这些执行阶段。
+
+## 执行链路验证（Issue #73）
+
+运行以下验证需要 Linux、bubblewrap、用户 systemd 和本地固定工具链；外层沙箱必须允许测试访问用户 systemd。
+
+```sh
+pnpm exec vitest run tests/project-dependencies.test.ts tests/execution-capsule.test.ts tests/project-preview.test.ts tests/project-render.test.ts tests/dependency-execution-verification.test.ts
+pnpm typecheck
+```
+
+- 胶囊认证在 download、install、build、metadata、preview、render 六个阶段分别真实尝试连接回环、元数据地址和公网 IP，任何连接成功或无法确定边界均使认证失败。下载由固定 registry 的宿主字节代理完成；项目不能向 download 阶段提交执行代码。
+- 依赖测试覆盖越界重定向、摘要篡改、恶意归档和整批回滚。下载响应使用受控归档，不依赖公网 npm 的实时可用性；OS 胶囊、安装、构建、浏览器与渲染均真实执行。
+- 跨阶段联验在显式协调后禁止宿主 fetch，比较候选、检查点、保留修订的声明和锁文件及离线包摘要，覆盖检查、当前与候选 Preview、完整验收、清空缓存后的 MP4 Render、从历史修订创建回退候选及重开。回退允许原子迁移代目录，离线包按摘要名称和内容比较，不能因目录变化误判回收。
+- 缓存丢失可离线重建；离线包损坏或缺失只报告失败，必须通过显式协调修复。
