@@ -26,6 +26,19 @@ export async function snapshotFile(root: string, path: string, limit: number) {
 }
 export class ProjectPreview {
   readonly source = new PreviewOrigin();
+  #views = new Map<string, { original: string; descriptor: PreviewDescriptor }>();
+  async view(opened: OpenedProjectVNext, target: 'current' | 'candidate', parentOrigin: string) {
+    const original = [...this.#active.values()].filter(entry => entry.descriptor.target === target).at(-1);
+    if (!original) return { preview: null };
+    const key = `${original.descriptor.instanceId}:${parentOrigin}`;
+    let view = this.#views.get(key);
+    if (!view) {
+      if (this.#views.size >= 16) { const first = this.#views.keys().next().value!; this.source.release(this.#views.get(first)!.descriptor.url); this.#views.delete(first); }
+      view = { original: original.descriptor.instanceId, descriptor: this.source.fork(original.descriptor, parentOrigin) };
+      this.#views.set(key, view);
+    }
+    return { preview: { ...view.descriptor, ...await this.status(opened, view.original) } };
+  }
   #bundles = new Map<string, import('./program-bundle').ProgramBundle>();
   cachedBundle(identity: string) { return this.#bundles.get(identity); }
   #active = new Map<string, { descriptor: PreviewDescriptor; brief: string; input: string; revision: string; sourceIdentity: string; identity: CheckIdentity; stale: boolean }>();
@@ -75,6 +88,7 @@ export class ProjectPreview {
     return descriptor;
   }
   async status(opened: OpenedProjectVNext, instanceId: string) {
+    instanceId = [...this.#views.values()].find(view => view.descriptor.instanceId === instanceId)?.original ?? instanceId;
     const unknown = (): PreviewFreshness => ({ brief: { status: 'unknown', review: 'unknown' }, input: { status: 'unknown' }, media: { status: 'unknown' }, environment: { status: 'unknown' } });
     const entry = this.#active.get(instanceId); if (!entry) return { stale: true, freshness: unknown() };
     const freshness = unknown();
@@ -117,6 +131,6 @@ export class ProjectPreview {
   invalidate() { for (const entry of this.#active.values()) entry.stale = true; }
   latestCandidate() { return [...this.#active.values()].filter(entry => entry.descriptor.target === 'candidate').at(-1)?.descriptor.instanceId; }
   release(instanceId: string) { const entry = this.#active.get(instanceId); if (entry) this.source.release(entry.descriptor.url); this.#active.delete(instanceId); }
-  clear() { for (const entry of this.#active.values()) this.source.release(entry.descriptor.url); this.#active.clear(); this.#bundles.clear(); }
+  clear() { for (const view of this.#views.values()) this.source.release(view.descriptor.url); this.#views.clear(); for (const entry of this.#active.values()) this.source.release(entry.descriptor.url); this.#active.clear(); this.#bundles.clear(); }
   async close() { this.clear(); await this.source.close(); }
 }

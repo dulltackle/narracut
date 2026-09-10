@@ -1,8 +1,8 @@
 import { startWorkbenchPanel } from './workbench-panel';
 
 const [action, directory, ...extra] = process.argv.slice(2);
-if ((action !== undefined && !['--open', '--create'].includes(action)) || (action && !directory) || extra.length) {
-  throw new Error('用法：node panel.mjs [--open 项目绝对目录 | --create 不存在的项目绝对目录]');
+if ((action !== undefined && !['--open', '--create', '--take-control'].includes(action)) || (action && !directory) || extra.length) {
+  throw new Error('用法：node panel.mjs [--open 项目绝对目录 | --create 不存在的项目绝对目录 | --take-control 项目绝对目录]');
 }
 // 必须从当前对话的 Shell 启动，不能把共享 MCP 服务的环境当成当前调用身份。
 const panel = await startWorkbenchPanel({ threadId: process.env.CODEX_THREAD_ID });
@@ -16,7 +16,14 @@ if (action) {
       } }),
     });
     const reply = await response.json();
-    const result = reply.result?.structuredContent;
+    let result = reply.result?.structuredContent;
+    if (action === '--take-control' && result?.status === 'valid') {
+      const transfer = await fetch(`${panel.url}rpc`, {
+        method: 'POST', headers: { Origin: new URL(panel.url).origin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 2, method: 'tools/call', params: { name: 'project_control', arguments: { action: 'takeover', projectDirectory: result.project.directory, projectId: result.project.projectId } } }),
+      });
+      result = (await transfer.json()).result?.structuredContent;
+    }
     project = result ? { status: result.status, operation: result.operation, project: result.project, error: result.error } : reply;
   } catch (error) { project = { error: { message: (error as Error).message } }; }
 }

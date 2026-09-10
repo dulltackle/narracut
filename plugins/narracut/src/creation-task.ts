@@ -75,7 +75,7 @@ export class CreationTask {
   #parentOrigin = 'null';
   #pendingRun: Promise<void> = Promise.resolve();
   constructor(private opened: OpenedProjectVNext, private host: CodexHostAdapter,
-    private preview: ProjectPreview, private checks: ProjectChecks, private delivery: ProjectDelivery) {
+    private preview: ProjectPreview, private checks: ProjectChecks, private delivery: ProjectDelivery, private currentThreadId?: string) {
     this.#timer = setInterval(() => {
       if (this.#observing || this.#closed) return;
       this.#observing = true;
@@ -455,7 +455,8 @@ export class CreationTask {
     const state = this.#state!, projectDirectory = this.opened.inspection.projectDirectory;
     let replacement = false;
     let threadId: string;
-    if (state.threadPointer) {
+    if (this.currentThreadId) { threadId = (await this.host.resumeThread({ threadId: this.currentThreadId, projectDirectory })).threadId; if (threadId !== this.currentThreadId) throw new Error('宿主返回的对话身份不匹配。'); }
+    else if (state.threadPointer) {
       try { threadId = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory })).threadId; }
       catch (error) {
         if (codexStopReason(error) !== 'CODEX_THREAD_UNAVAILABLE') throw error;
@@ -473,11 +474,14 @@ export class CreationTask {
     this.#assert();
     const state = this.#state!, snapshot = await this.#snapshot();
     state.inputIdentity = snapshot.signature;
-    if (!state.threadPointer) state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: 'creation' })).threadId;
+    if (!state.threadPointer) {
+      if (this.currentThreadId) await this.#bindThread();
+      else state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: 'creation' })).threadId;
+    }
     const driver: Driver = { token: randomUUID(), turnId: null, signature: snapshot.signature };
     this.#driver = driver; this.#starting = true;
     try {
-      const turn = await this.host.startTurn({ threadId: state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory, verificationToken: driver.token, outputSchema: z.toJSONSchema(messageDecision), prompt: [
+      const turn = await this.host.startTurn({ threadId: state.threadPointer!, projectDirectory: this.opened.inspection.projectDirectory, verificationToken: driver.token, outputSchema: z.toJSONSchema(messageDecision), prompt: [
         '只分类并回答当前用户消息，不创作、不写文件、不执行工具。creation 仅用于整条消息都是明确创作命令；问题、状态询问、审批答复和闲聊是 discussion。混合消息 mixed；不确定 ambiguous。',
         'fragments 必须是按原顺序提取的精确原文连续片段，不得改字或扩大授权。creation 返回整条原文；discussion 返回空数组。mixed/ambiguous 拟保存部分先等待用户确认。reply 用中文回答问题或说明待确认事项。',
         'divergence 明确说明 Brief 内容、本次用户要求及采用方向；没有实质分歧则空字符串。',
@@ -510,7 +514,8 @@ export class CreationTask {
     if (state.inputIdentity && snapshot.signature !== state.inputIdentity && feedback) return this.#catchUp(snapshot);
     state.inputIdentity = snapshot.signature; this.#snapshotValue = snapshot;
     if (!state.threadPointer) {
-      state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: 'creation' })).threadId;
+      if (this.currentThreadId) await this.#bindThread();
+      else state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: 'creation' })).threadId;
       this.#assert();
     }
     state.lastSafeStage = state.stage === 'read' ? 'read' : state.lastSafeStage;
@@ -519,7 +524,7 @@ export class CreationTask {
     const driver: Driver = { token: randomUUID(), turnId: null, signature: snapshot.signature };
     this.#driver = driver; this.#starting = true;
     try {
-      const turn = await this.host.startTurn({ threadId: state.threadPointer, projectDirectory: this.opened.inspection.projectDirectory,
+      const turn = await this.host.startTurn({ threadId: state.threadPointer!, projectDirectory: this.opened.inspection.projectDirectory,
         verificationToken: driver.token, outputSchema: z.toJSONSchema(answerSchema), images,
         prompt: [
           '你是 Narracut 专用创作 Agent。只读项目，不执行项目代码，不写文件、不访问网络。通过结构化结果请求应用原子修改唯一候选。',

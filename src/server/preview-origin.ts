@@ -82,6 +82,17 @@ export class PreviewOrigin {
     if (!files) throw new Error('Preview 实例已释放。');
     return new Map([...files].map(([path, bytes]) => [path, Buffer.from(bytes)]));
   }
+  /** 为另一个面板复制已就绪的只读绑定；不构建、不读取项目源码、不改变原实例。 */
+  fork(descriptor: PreviewDescriptor, parentOrigin: string): PreviewDescriptor {
+    if (!/^https?:\/\//.test(parentOrigin) || new URL(parentOrigin).origin !== parentOrigin || parentOrigin === this.#origin) throw new Error('Preview 宿主 origin 无效。');
+    const files = this.snapshot(descriptor.url);
+    const source = files.get('bootstrap.js')!.toString();
+    const binding = JSON.parse(source.slice(source.indexOf('{detail:') + 8, -4));
+    const instanceId = randomUUID(), token = randomBytes(32).toString('hex'), key = randomBytes(24).toString('hex');
+    files.set('bootstrap.js', Buffer.from(`window.dispatchEvent(new CustomEvent('narracut-preview-binding',{detail:${JSON.stringify({ ...binding, instanceId, token, parentOrigin })}}));`));
+    this.#instances.set(key, files);
+    return { ...structuredClone(descriptor), instanceId, token, parentOrigin, url: `${this.#origin}/${key}/index.html` };
+  }
   release(url: string) { const key = new URL(url).pathname.split('/')[1]; this.#instances.delete(key); }
   async close() { this.#instances.clear(); if (this.#server) { this.#server.closeAllConnections(); await new Promise<void>(resolve => this.#server!.close(() => resolve())); } }
 }

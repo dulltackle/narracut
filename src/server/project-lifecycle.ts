@@ -807,6 +807,13 @@ async function leaseHolderIsAlive(marker: LeaseMarker): Promise<boolean> {
   return currentIdentity === null || currentIdentity === marker.processIdentity;
 }
 
+/** 只读代理仅连接已核实仍存活的租约；死进程交给常规打开流程清理。 */
+export async function liveProjectSession(inspection: ProjectVNextInspection) {
+  const marker = await readFile(join(inspection.projectDirectory, '.narracut/workspace.lease'), 'utf8').then(bytes => JSON.parse(bytes)).catch(() => null);
+  if (!marker || !isLeaseMarker(marker) || marker.projectId !== inspection.manifest.projectId || marker.projectDirectory !== inspection.projectDirectory || !marker.handoffPort || !await leaseHolderIsAlive(marker)) return null;
+  return { port: marker.handoffPort, token: marker.token };
+}
+
 function isLeaseMarker(value: unknown): value is LeaseMarker {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const marker = value as Partial<LeaseMarker>;
@@ -845,11 +852,13 @@ type ProjectLease = {
 async function acquireProjectLease(
   inspection: ProjectVNextInspection,
   onHandoff?: () => Promise<void>,
+  readSession?: (input: unknown) => Promise<unknown>,
+  takeover = true,
 ): Promise<ProjectLease> {
   const projectDirectory = inspection.projectDirectory;
   const leasePath = join(projectDirectory, ".narracut", "workspace.lease");
   let transferred = false;
-  if (onHandoff) {
+  if (onHandoff && takeover) {
     const existing = await readFile(leasePath, "utf8").then(bytes => JSON.parse(bytes) as LeaseMarker).catch(() => null);
     if (existing && isLeaseMarker(existing) && existing.projectId === inspection.manifest.projectId && existing.projectDirectory === projectDirectory && existing.handoffPort && await leaseHolderIsAlive(existing)) {
       try { await requestProjectHandoff(existing.handoffPort, existing.token); transferred = true; }
@@ -897,7 +906,7 @@ async function acquireProjectLease(
   }
   let endpoint: Awaited<ReturnType<typeof listenForProjectHandoff>> | undefined;
   try {
-    if (onHandoff) { endpoint = await listenForProjectHandoff(marker.token, onHandoff); marker.handoffPort = endpoint.port; }
+    if (onHandoff) { endpoint = await listenForProjectHandoff(marker.token, onHandoff, readSession); marker.handoffPort = endpoint.port; }
     await handle.writeFile(JSON.stringify(marker));
     await handle.sync();
   } catch (cause) {
@@ -1135,6 +1144,7 @@ async function atomicProjectFile(
   bytes: Buffer,
   assertWritable: () => Promise<void>,
   observeCommit?: RecoveryCommit,
+  assertAccess?: () => void,
 ): Promise<void> {
   const temporaryFile = join(dirname(projectFile), `.${basename(projectFile)}.${randomUUID()}.tmp`);
   let committed = false;
@@ -1147,6 +1157,8 @@ async function atomicProjectFile(
       await handle.close();
     }
     await assertWritable();
+    // 最后一次异步磁盘读取之后、提交之前重新确认当前请求的写权。
+    assertAccess?.();
     observeCommit?.(projectFile, bytes, false);
     await rename(temporaryFile, projectFile);
     observeCommit?.(projectFile, bytes, true);
@@ -1168,14 +1180,14 @@ async function atomicProjectFile(
 
 export async function openProjectVNext(
   inputPath: string,
-  options: { probeSpeechDurationMs?: (path: string) => Promise<number>; onHandoff?: () => Promise<void> } = {},
+  options: { probeSpeechDurationMs?: (path: string) => Promise<number>; onHandoff?: () => Promise<void>; readSession?: (input: unknown) => Promise<unknown>; takeover?: boolean; assertAccess?: () => void } = {},
 ): Promise<OpenedProjectVNext> {
   const projectDirectory = await realpath(resolve(inputPath)).catch(() => resolve(inputPath));
   try {
     const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
     const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
-    const lease = await acquireProjectLease(initialInspection, options.onHandoff);
+    const lease = await acquireProjectLease(initialInspection, options.onHandoff, options.readSession, options.takeover);
     let assetsDirectoryHandle: FileHandle | null = null;
     let speechDirectoryHandle: FileHandle | null = null;
     try {
@@ -1269,9 +1281,12 @@ export async function openProjectVNext(
         }
       };
       const assertWritable = async () => {
+        options.assertAccess?.();
         if (identityLost) throw identityLost;
         try { await verifyWritable(); }
         catch (error) { identityLost = error as Error; throw error; }
+        // 文件系统校验会让出执行；交接可能在其间撤销请求权限。
+        options.assertAccess?.();
       };
       const observe = async (result?: unknown) => {
         if ((result as { code?: string })?.code === 'PROJECT_IDENTITY_LOST') identityLost ??= result as Error;
@@ -1290,7 +1305,7 @@ export async function openProjectVNext(
         }
         recoveryBase[component] = committed ? [next] : [...recoveryBase[component].slice(0, 1), next];
       };
-      const replaceProjectFile = (path: string, bytes: Buffer, verify: () => Promise<void>) => atomicProjectFile(path, bytes, verify, observeCommit);
+      const replaceProjectFile = (path: string, bytes: Buffer, verify: () => Promise<void>) => atomicProjectFile(path, bytes, verify, observeCommit, options.assertAccess);
       const candidateManager = await createCandidateManager(projectDirectory, assertWritable, observeCommit);
       const candidate: OpenedProjectVNext["candidate"] = (request) => {
         if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "项目正在关闭。"));

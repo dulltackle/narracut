@@ -229,11 +229,132 @@
       document.getElementById('recovery-page').remove(); app.inert = false; recovery = null; accept(result);
     } catch (error) { recovery.message = error.message; updateRecovery(); }
   }
-  setInterval(async () => {
-    if (recovery || identityCheckBusy || !state.project || document.hidden) return;
-    identityCheckBusy = true;
-    try { await callHostTool('project_recovery', { action: 'check', projectDirectory: state.result.project.directory, projectId: state.result.project.projectId }); } catch { /* 宿主断连不等于项目身份失效。 */ }
-    finally { identityCheckBusy = false; }
+  let retainedDraft = null;
+  let controlNotice = '';
+  let controlEpoch = 0;
+  let controlPollBusy = false;
+  const readButtons = '[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
+  function enforceControl() {
+    if (!state.result?.control || state.result.status !== 'valid') return;
+    const blocked = state.result.writable !== true;
+    app.querySelectorAll('button,input,textarea,select').forEach(element => {
+      const read = element.matches(readButtons + ',[data-seek],[data-volume],[data-frame-input],[data-asset-search]') || element.closest('[data-control-drafts]');
+      if (blocked && !read) {
+        if (element.matches('textarea,input[type="text"]')) { if (!element.readOnly) { element.dataset.controlReadonly = 'true'; element.readOnly = true; } }
+        else if (!element.disabled) { element.dataset.controlDisabled = 'true'; element.disabled = true; }
+      } else if (!blocked) {
+        if (element.dataset.controlDisabled) { delete element.dataset.controlDisabled; element.disabled = false; }
+        if (element.dataset.controlReadonly) { delete element.dataset.controlReadonly; element.readOnly = false; }
+      }
+    });
+    app.querySelectorAll('[draggable="true"]').forEach(element => { if (blocked) element.draggable = false; });
+    const save = app.querySelector('[data-save-control-draft]');
+    if (save && save.disabled !== blocked) save.disabled = blocked;
+  }
+  new MutationObserver(enforceControl).observe(app, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled', 'draggable'] });
+  function retainControlDraft() {
+    controlEpoch++;
+    clearTimeout(saveTimer); clearTimeout(briefSaveTimer);
+    if (!retainedDraft && (state.version !== state.savedVersion || state.brief.version !== state.brief.savedVersion || state.editing)) {
+      const project = clone(state.project);
+      const editor = document.querySelector('[data-narration-editor],[data-expanded-editor]');
+      const scene = project?.scenes.find(scene => scene.id === state.editing);
+      if (editor && scene) scene.narration.text = editor.value;
+      retainedDraft = { scenes: JSON.stringify(project, null, 2), brief: state.brief.local,
+        sceneDirty: state.version !== state.savedVersion || !!state.editing,
+        briefDirty: state.brief.version !== state.brief.savedVersion, open: false, message: '' };
+    }
+    state.autosaveStopped = true;
+  }
+  function controlSceneDrafts() {
+    const project = JSON.parse(retainedDraft.scenes);
+    return project.scenes.map((scene, index) => {
+      const latest = state.result.projectDsl.scenes.find(item => item.id === scene.id);
+      return '<label>Scene ' + pad(index + 1) + ' · 保留的旁白<textarea aria-label="Scene ' + pad(index + 1) + ' 保留的草稿" data-control-scene="' + escapeHtml(scene.id) + '">' + escapeHtml(scene.narration.text) + '</textarea></label><label>Scene ' + pad(index + 1) + ' · 最新旁白<textarea readonly aria-label="Scene ' + pad(index + 1) + ' 最新内容">' + escapeHtml(latest?.narration.text ?? '此 Scene 已被删除') + '</textarea></label>';
+    }).join('');
+  }
+  function controlMarkup() {
+    if (!state.result?.control || !state.project) return '';
+    const control = state.result.control;
+    const message = controlNotice || control.reason || '';
+    return '<section class="project-control" aria-label="项目控制权"><div role="status"><strong>' +
+      (message || control.status === 'transferring' ? '正在转移项目控制权' : state.result.writable ? '当前对话可编辑' : '只读 · 项目由另一对话控制') +
+      '</strong>' + (!state.result.writable ? '<p>如需编辑，请在当前 Codex 对话中输入“接管此项目”。</p>' : '') +
+      (message ? '<p>' + escapeHtml(message) + ' 正在核对操作结果；确认前暂停编辑。</p>' : '') +
+      '</div>' + (retainedDraft ? '<div data-control-drafts><p role="status">编辑已暂停，未保存草稿已保留</p><details ' + (retainedDraft.open ? 'open' : '') + '><summary>核对草稿与最新内容</summary><p>先核对最新内容，再编辑保留的旁白。保存沿用草稿中的 Scene 顺序和素材引用；不会自动补交。</p><div class="control-draft-grid">' + controlSceneDrafts() + '<label>保留的 Brief 草稿<textarea aria-label="保留的 Brief 草稿" data-control-brief>' + escapeHtml(retainedDraft.brief) + '</textarea></label><label>最新 Brief 内容<textarea readonly aria-label="最新 Brief 内容">' + escapeHtml(state.result.videoBrief?.content ?? '') + '</textarea></label></div><div class="control-draft-actions"><button data-copy-control-draft>复制保留草稿</button><button data-save-control-draft ' + (!state.result.writable ? 'disabled' : '') + '>保存核对后的草稿</button></div><p role="status">' + escapeHtml(retainedDraft.message) + '</p></details></div>' : '') + '</section>';
+  }
+  function bindControl() {
+    const region = document.querySelector('[data-control-region]');
+    if (!region) return;
+    region.querySelector('details')?.addEventListener('toggle', event => { if (retainedDraft) retainedDraft.open = event.target.open; }, { signal: bindings.signal });
+    region.querySelectorAll('[data-control-scene]').forEach(editor => editor.addEventListener('input', event => {
+      const project = JSON.parse(retainedDraft.scenes);
+      project.scenes.find(scene => scene.id === editor.dataset.controlScene).narration.text = event.target.value;
+      retainedDraft.scenes = JSON.stringify(project); retainedDraft.sceneDirty = true;
+    }, { signal: bindings.signal }));
+    region.querySelector('[data-control-brief]')?.addEventListener('input', event => { retainedDraft.brief = event.target.value; retainedDraft.briefDirty = true; }, { signal: bindings.signal });
+    region.querySelector('[data-copy-control-draft]')?.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(JSON.parse(retainedDraft.scenes).scenes.map((scene, index) => 'Scene ' + pad(index + 1) + '\n' + scene.narration.text).join('\n\n') + '\n\nVideo Brief\n' + retainedDraft.brief); retainedDraft.message = '草稿已复制。'; }
+      catch { retainedDraft.message = '请在草稿文本框中全选并复制。'; }
+      render();
+    }, { signal: bindings.signal });
+    region.querySelector('[data-save-control-draft]')?.addEventListener('click', async () => {
+      if (!retainedDraft || !state.result.writable) return;
+      try {
+        await activeSavePromise; await activeBriefSavePromise;
+        if (!state.result.writable || !retainedDraft) return;
+        const draft = retainedDraft;
+        const parsed = JSON.parse(draft.scenes);
+        if (draft.sceneDirty) { state.project = parsed; state.version++; state.saveStatus = 'dirty'; }
+        if (draft.briefDirty) { state.brief.local = draft.brief; state.brief.version++; }
+        state.autosaveStopped = false;
+        await saveProject(); await saveVideoBrief();
+        if (state.version === state.savedVersion && state.brief.version === state.brief.savedVersion) retainedDraft = null;
+        else draft.message = '保存尚未完成，请核对错误与最新内容。';
+      } catch (error) { retainedDraft.message = error.message; }
+      render();
+    }, { signal: bindings.signal });
+    const tabs = document.querySelector('.workspace-tabs') ?? document.querySelector('[role="tablist"]');
+    if (tabs) app.style.setProperty('--workbench-tabs-bottom', tabs.getBoundingClientRect().bottom + 'px');
+    enforceControl();
+  }
+  async function refreshControl() {
+    if (recovery || controlPollBusy || !state.project || document.hidden || !state.result?.conversation) return;
+    controlPollBusy = true;
+    const projectId = state.result.project.projectId;
+    try {
+      const response = await callHostTool('get_workbench', {});
+      const content = response?.structuredContent ?? response;
+      if (state.result.project.projectId !== projectId) return;
+      if (response.isError || !content.control) throw new Error(content.error?.message ?? '控制权状态暂不可用');
+      const changed = state.result.writable !== content.writable || controlNotice || JSON.stringify(state.result.control) !== JSON.stringify(content.control);
+      if (!content.writable && state.result.writable) retainControlDraft();
+      controlNotice = '';
+      state.result.control = content.control; state.result.writable = content.writable;
+      if (changed || !content.writable && (content.projectRevision !== state.result.projectRevision || content.videoBrief?.revision !== state.result.videoBrief?.revision || JSON.stringify(content.creationTask) !== JSON.stringify(state.creationTask))) {
+        if (retainedDraft || state.version === state.savedVersion) {
+          state.project = clone(content.projectDsl); state.baselineRevision = content.projectRevision;
+          state.version = state.savedVersion = 0; state.editing = null;
+        }
+        if (retainedDraft || state.brief.version === state.brief.savedVersion) {
+          state.brief.local = content.videoBrief.content; state.brief.base = content.videoBrief.content;
+          state.brief.baselineRevision = content.videoBrief.revision; state.brief.version = state.brief.savedVersion = 0;
+        }
+        state.result = content; state.candidate = content.candidate; state.creationTask = content.creationTask;
+        state.autosaveStopped = !content.writable;
+        render();
+      }
+    } catch (error) {
+      if (state.result.writable) retainControlDraft();
+      state.result.writable = false; controlNotice = error.message; render();
+    } finally { controlPollBusy = false; }
+  }
+  setInterval(() => {
+    if (state.result?.conversation) void refreshControl();
+    else if (!recovery && !identityCheckBusy && state.project && !document.hidden) {
+      identityCheckBusy = true;
+      void callHostTool('project_recovery', { action: 'check', projectDirectory: state.result.project.directory, projectId: state.result.project.projectId }).catch(() => {}).finally(() => { identityCheckBusy = false; });
+    }
   }, 1500);
 
   function rail(result) {
@@ -249,7 +370,7 @@
 
   function conversationDetails(result) {
     const conversation = result.conversation;
-    return `<details class="conversation-details"><summary>${conversation.status === 'bound' ? '已关联当前对话 · 查看详情' : '对话归属未确认 · 只读'}</summary><dl><dt>项目路径</dt><dd>${escapeHtml(result.project?.directory ?? '尚未选择项目')}</dd><dt>Project ID</dt><dd>${escapeHtml(result.project?.projectId ?? '—')}</dd><dt>Codex 对话</dt><dd>${escapeHtml(conversation.threadId ?? conversation.reason)}</dd></dl></details>`;
+    return `<details class="conversation-details"><summary>${conversation.status === 'bound' ? '已关联当前对话 · 查看详情' : '对话归属未确认 · 只读'}</summary><dl><dt>项目路径</dt><dd>${escapeHtml(result.project?.directory ?? '尚未选择项目')}</dd><dt>Project ID</dt><dd>${escapeHtml(result.project?.projectId ?? '—')}</dd><dt>Codex 对话</dt><dd>${escapeHtml(conversation.threadId ?? conversation.reason)}</dd>${result.control?.ownerThreadId && result.control.ownerThreadId !== conversation.threadId ? `<dt>控制项目的对话</dt><dd>${escapeHtml(result.control.ownerThreadId)}</dd>` : ""}</dl></details>`;
   }
 
   function tabs() {
@@ -424,7 +545,7 @@
       <button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button>
       <h2>项目检查</h2>${result.copyReceipt ? `<section class="copy-result" role="status"><strong>独立副本已打开</strong><p>${escapeHtml(result.project.folderName)}<br>${escapeHtml(result.project.directory)}</p><p>项目身份独立，候选保持停止；明确继续后才运行。</p>${result.copyReceipt.warning ? `<p>${escapeHtml(result.copyReceipt.warning.message)}<br>${escapeHtml(result.copyReceipt.warning.path)}</p>` : ""}</section>` : ""}<div class="rule"></div><div class="checks">${checks(result)}</div>
       ${scene ? `<section class="selected"><div class="rule"></div><h3>Scene ${pad(currentScenes().indexOf(scene) + 1)}</h3><p class="selected-copy" data-testid="scene-narration-detail">${escapeHtml(scene.narration.text)}</p><dl class="facts"><div class="fact"><dt>Scene ID</dt><dd>${escapeHtml(scene.id)}</dd></div><div class="fact"><dt>Asset</dt><dd>${scene.assetIds.length}</dd></div><div class="fact"><dt>Speech</dt><dd>${speechReady ? `已生成 · ${seconds(speech.durationMs)}` : "Draft Duration"}</dd></div>${time ? `<div class="fact"><dt>Time Window</dt><dd>帧 ${time.startFrame}–${time.startFrame + time.durationInFrames}（不含 ${time.startFrame + time.durationInFrames}）</dd></div>` : ""}</dl><p class="render-readiness" data-ready="${speechReady}">${speechReady ? "可用于最终 Render" : "仅供草稿 Preview · 阻断最终 Render"}</p></section>` : ""}
-      <div class="inspection-actions">${writable ? `<button class="inspection-action" type="button" data-copy-project>复制项目…</button>` : ""}<button class="inspection-action brief-entry" type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}" ${state.result?.writable ? "" : "disabled"}><span class="brief-entry-copy"><strong>Video Brief</strong><small>原始 Markdown · video.md</small></span><span data-brief-entry-state>${briefEntryStatusLabel()}</span></button>${writable ? `<button class="inspection-action" type="button" data-open-tts>TTS 配置 <span>${result.tts?.status === "configured" ? "已配置" : "待配置"}</span></button><button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
+      <div class="inspection-actions">${writable ? `<button class="inspection-action" type="button" data-copy-project>复制项目…</button>` : ""}<button class="inspection-action brief-entry" type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}"><span class="brief-entry-copy"><strong>Video Brief</strong><small>原始 Markdown · video.md</small></span><span data-brief-entry-state>${briefEntryStatusLabel()}</span></button>${writable ? `<button class="inspection-action" type="button" data-open-tts>TTS 配置 <span>${result.tts?.status === "configured" ? "已配置" : "待配置"}</span></button><button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
       <section class="readonly"><strong data-writable="${writable}">${writable ? "内容写入边界" : "只读"}</strong><p>${writable ? "表格工作区可以修改 Scene、Narration 与 Asset 引用；预览只检查 Asset 本体，不改变 Scene 或 Player。" : "当前项目只提供检查。Scene、Narration、Asset 和 Speech 不会在这里被修改。"}</p></section>
     </aside>`;
   }
@@ -625,7 +746,7 @@
     return `<div class="scene-row" role="group" draggable="false" data-scene-row data-scene-id="${escapeHtml(scene.id)}" data-selected="${selected}" aria-label="Scene ${pad(index + 1)} 行">
       <span class="scene-no">${editable ? `<button class="drag-handle" type="button" draggable="${!state.assetBusy}" aria-label="拖动第 ${index + 1} 行" ${state.assetBusy ? "disabled" : ""}><span aria-hidden="true"></span></button>` : ""}<button class="scene-select" type="button" aria-label="Scene ${pad(index + 1)}：${escapeHtml(scene.narration.text)}" aria-pressed="${selected}"><strong>${pad(index + 1)}</strong><small>${pad(index + 1)}A</small></button></span>
       <span class="scene-copy">${editable && editing ? `<span class="narration-editor-wrap"><textarea class="narration-editor" aria-label="Scene ${pad(index + 1)} Narration" data-narration-editor ${state.assetBusy ? "disabled" : ""}>${escapeHtml(scene.narration.text)}</textarea><button class="expand-editor" type="button" data-expand ${state.assetBusy ? "disabled" : ""}>展开编辑</button></span><small class="narration-help">修改 Narration 会立即移除原 Speech</small>` : `<span class="narration-view">${escapeHtml(scene.narration.text || "空 Narration")}</span>${editable ? `<button class="edit-narration" type="button" data-edit-narration ${state.assetBusy ? "disabled" : ""}>编辑 Narration</button>` : ""}`}</span>
-      ${editable ? `<button class="scene-assets" type="button" data-open-scene-assets aria-label="第 ${pad(index + 1)} 个 Scene 的 Asset：${escapeHtml(summary.text)}"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "管理引用" : `${assets.length} / 256`}</span></button>` : `<span class="scene-assets"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "未绑定文件" : `${assets.length} / 256`}</span></span>`}
+      ${(editable || state.result?.control) ? `<button class="scene-assets" type="button" data-open-scene-assets aria-label="第 ${pad(index + 1)} 个 Scene 的 Asset：${escapeHtml(summary.text)}"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "管理引用" : `${assets.length} / 256`}</span></button>` : `<span class="scene-assets"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "未绑定文件" : `${assets.length} / 256`}</span></span>`}
       <div class="scene-speech"><span class="cell-label">Speech</span><span class="cell-value ${speech.mark === "connected" ? "ready" : "missing"}"><span class="status-mark" data-status="${speech.mark}" aria-hidden="true"></span>${escapeHtml(speech.label)}</span><span class="cell-detail" title="${escapeHtml(speech.detail)}">${escapeHtml(speech.detail)}</span>${editable ? speechAction : ""}</div>
     </div>`;
   }
@@ -999,7 +1120,7 @@
   });
   setInterval(() => { if (!document.hidden && state.candidate) candidateOperation("read", true); }, 4000);
 
-  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project, instanceId => deliveryWorkbench.candidateReady(instanceId));
+  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project, instanceId => deliveryWorkbench.candidateReady(instanceId), () => !!state.result?.conversation);
   const deliveryWorkbench = createDeliveryWorkbench((action, args) => callHostTool(action === "displayed" ? "project_delivery_display" : "project_delivery", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, ...(action === "displayed" ? {} : { action }), ...args }), () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate, scenes: currentScenes() } : undefined, previewWorkbench, id => locateSuggestion(id));
   const finalRenderWorkbench = createRenderWorkbench(
     (action, args) => callHostTool('project_render', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
@@ -1096,11 +1217,12 @@
       app.innerHTML = `${launcherRail()}${launcher()}${launcherFooter()}`;
     } else {
       if ((!document.getElementById("composer-draft") && !document.querySelector('[data-conversation-footer]')) || (result?.conversation && document.getElementById('composer-draft'))) {
-        app.innerHTML = `<div data-rail-region></div><div data-tabs-region></div><div data-workspace-region></div>${composer()}`;
+        app.innerHTML = `<div data-rail-region></div><div data-control-region></div><div data-tabs-region></div><div data-workspace-region></div>${composer()}`;
         const draft = document.getElementById("composer-draft");
         draft?.addEventListener("input", () => { state.composerDraft = draft.value; state.composerRevision++; updateComposer(); });
       }
       updateRegion(document.querySelector("[data-rail-region]"), rail(result));
+      updateRegion(document.querySelector("[data-control-region]"), controlMarkup());
       updateRegion(document.querySelector("[data-tabs-region]"), tabs());
       const region = document.querySelector("[data-workspace-region]");
       updateRegion(region, result === null ? loading() : result.status === "valid" ? valid(result) : invalid(result));
@@ -1304,7 +1426,7 @@
   function saveProject() {
     clearTimeout(saveTimer);
     if (activeSavePromise) return activeSavePromise;
-    if (state.autosaveStopped || !state.project || state.version === state.savedVersion) return Promise.resolve();
+    if (state.result?.writable === false || state.autosaveStopped || !state.project || state.version === state.savedVersion) return Promise.resolve();
     activeSavePromise = performProjectSave();
     return activeSavePromise;
   }
@@ -1460,7 +1582,7 @@
     clearTimeout(briefSaveTimer);
     if (activeBriefSavePromise) return activeBriefSavePromise;
     const brief = state.brief;
-    if (brief.conflict || brief.version === brief.savedVersion) return Promise.resolve();
+    if (state.result?.writable === false || brief.conflict || brief.version === brief.savedVersion) return Promise.resolve();
     activeBriefSavePromise = performVideoBriefSave();
     return activeBriefSavePromise;
   }
@@ -2571,6 +2693,7 @@
   }
 
   function bind() {
+    bindControl();
     document.querySelector("[data-copy-project]")?.addEventListener("click", () => { projectCopy = { source: { ...state.result.project }, parent: "", name: `${state.result.project.folderName}-副本`, busy: false }; copyDialog(); }, { signal: bindings.signal });
     if (state.result?.status === "launcher") {
       bindLauncher();
@@ -2624,6 +2747,10 @@
     bindBriefEditor();
     if (state.result?.status === "valid" && state.result.writable) bindTable();
     if (state.result?.status === "valid" && !state.result.writable) {
+      document.querySelectorAll('[data-open-scene-assets]').forEach(button => button.addEventListener('click', event => {
+        event.stopPropagation(); state.selected = button.closest('[data-scene-id]').dataset.sceneId;
+        state.inspectorMode = 'scene-assets'; state.inspectionOpen = true; render();
+      }, { signal: bindings.signal }));
       document.querySelectorAll("[data-scene-id]").forEach((row) => row.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
         previewWorkbench.selectScene(state.selected);
@@ -2647,11 +2774,17 @@
 
   async function callHostTool(name, args) {
     if (recovery && name !== 'project_recovery') throw new Error('项目身份已失效，编辑已停止。');
+    const requestEpoch = controlEpoch;
     const response = typeof window.openai?.callTool === 'function'
       ? await window.openai.callTool(name, args) : await request('tools/call', { name, arguments: args });
     const content = response?.structuredContent ?? response;
+    if (requestEpoch !== controlEpoch && ['save_project_scenes', 'save_project_video_brief', 'import_project_asset', 'save_project_tts_settings'].includes(name)) throw new Error('写入回执属于失权前的请求；草稿仍保留，请核对最新内容。');
     if (content?.status === 'identity-lost' || content?.error?.code === 'PROJECT_IDENTITY_LOST') freezeIdentity(content.error?.message ?? '项目目录、清单或租约已变化。');
     if (recovery && name !== 'project_recovery') throw new Error('项目身份已失效；迟到的结果不会改变恢复截面。');
+    if (content?.error?.code === 'PROJECT_CONTROL_REQUIRED' && state.result?.writable) {
+      retainControlDraft(); state.result.writable = false; controlNotice = content.error.message;
+      render(); void refreshControl();
+    }
     return response;
   }
 
@@ -2918,7 +3051,8 @@
     state.savedVersion = 0;
     state.saveStatus = "saved";
     state.saveError = null;
-    state.autosaveStopped = false;
+    state.autosaveStopped = result?.writable === false;
+    retainedDraft = null; controlNotice = "";
     state.saveInFlight = false;
     state.undo = [];
     state.redo = [];

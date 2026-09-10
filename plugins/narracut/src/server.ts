@@ -1,3 +1,5 @@
+import { readProjectSession } from '../../../src/server/project-lease-handoff';
+import { assertProjectRequestAccess, projectWriteContext, isProjectRead, controlFailure } from './project-control';
 import { RecoveryOperations } from '../../../src/server/project-restore';
 import { selectProjectDirectory, selectWorkbenchPath } from './directory-picker';
 import { RecoveryExportUncertain, RecoveryExports, type RecoveryCut, type RecoveryDraft } from '../../../src/server/project-recovery';
@@ -13,7 +15,7 @@ import { DependencyError } from '../../../src/server/project-dependencies';
 import { CandidateError, type CandidateRequest, type CandidateStatus } from "../../../src/server/project-candidate";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { basename, isAbsolute } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CodexAppServerHost } from "./codex-app-server-host";
@@ -30,6 +32,7 @@ import {
 import {
   createProjectVNext,
   openProjectVNext,
+  liveProjectSession,
   ProjectLifecycleError,
   ProjectTtsConfirmationError,
   type OpenedProjectVNext,
@@ -113,6 +116,8 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  { name: 'project_control', title: '核对或明确接管项目控制权', description: '只在用户明确要求接管项目时使用 takeover；仅转移控制权，不发起或继续任务，不接受或放弃候选。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'action'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['status', 'takeover'] } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations },
+
   {
     name: 'select_workbench_path', title: '选择工作台文件或目录',
     description: '仅响应工作台点击：用系统窗口选择 Asset、恢复文件或输出目录；只返回所选路径。',
@@ -181,10 +186,10 @@ const tools = [
   },
   {
     name: "project_preview", title: "构建与检查只读成片 Preview",
-    description: "只读构建当前或候选的不可变 Preview，或核对既有实例新鲜度。不接受候选、不写 Scene。",
+    description: "构建当前或候选的不可变 Preview 需要项目写权；view 仅查看已就绪副本，status 核对既有实例。不接受候选、不写 Scene。",
     inputSchema: { type: "object", required: ["projectDirectory", "projectId", "action"], additionalProperties: false,
-      properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["build", "status", "release"] }, target: { enum: ["current", "candidate"] }, parentOrigin: { type: "string" }, instanceId: { type: "string" } } },
-    outputSchema: { type: "object" }, annotations: readOnlyToolAnnotations, _meta: { ui: { visibility: ["app"] } },
+      properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["build", "status", "release", "view"] }, target: { enum: ["current", "candidate"] }, parentOrigin: { type: "string" }, instanceId: { type: "string" } } },
+    outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } },
   },
   {
     name: "coordinate_project_dependencies",
@@ -737,10 +742,54 @@ class ProjectWorkspaceSession {
   readonly restore = new RecoveryOperations();
   #recoveryCut: RecoveryCut | null = null;
   #recoveryExports = new RecoveryExports();
+  conversation?: { threadId: string } | null;
+  readSession?: (input: any) => Promise<any>;
+  #view: { projectDirectory: string; projectId: string } | null = null;
+  #epoch = 0;
+  #controlError: string | null = null;
+  get viewing() { return this.#view !== null || this.#transferred; }
+  get controlBlocked() { return this.viewing || this.#handoffPending; }
+  get control() {
+    return { status: this.#handoffPending ? 'transferring' : this.controlBlocked ? 'readonly' : 'editable',
+      ownerThreadId: this.conversation?.threadId ?? null, reason: this.#controlError };
+  }
+  captureAccess() {
+    const epoch = this.#epoch;
+    return () => { if (this.controlBlocked || epoch !== this.#epoch) throw Object.assign(new Error('项目写权已撤销，旧请求不能提交。'), { code: 'PROJECT_CONTROL_REQUIRED' }); };
+  }
+  async readRemote(input: any) {
+    const identity = this.#view ?? (this.#opened ? { projectDirectory: this.#opened.inspection.projectDirectory, projectId: this.#opened.inspection.manifest.projectId } : null);
+    if (!identity) throw new Error('尚未打开项目。');
+    const args = input?.arguments ?? {};
+    if (args.projectDirectory && args.projectDirectory !== identity.projectDirectory || args.projectId && args.projectId !== identity.projectId) throw new Error('只读请求与项目会话不匹配。');
+    const marker = JSON.parse(await readFile(join(identity.projectDirectory, '.narracut/workspace.lease'), 'utf8'));
+    if (marker.projectId !== identity.projectId || marker.projectDirectory !== identity.projectDirectory || !marker.handoffPort) throw new Error('项目租约身份已变化。');
+    const result = await readProjectSession(marker.handoffPort, marker.token, input);
+    if (result.structuredContent?.project && result.structuredContent.project.projectId !== identity.projectId) throw new Error('项目会话已变化。');
+    if (result.structuredContent) {
+      result.structuredContent.writable = false;
+      result.structuredContent.control = { ...result.structuredContent.control, status: result.structuredContent.control?.status === 'transferring' ? 'transferring' : 'readonly' };
+    }
+    return result;
+  }
+  async takeControl(input: any) {
+    const identity = this.#view ?? (this.#opened ? { projectDirectory: this.#opened.inspection.projectDirectory, projectId: this.#opened.inspection.manifest.projectId } : null);
+    if (!identity || input.projectDirectory !== identity.projectDirectory || input.projectId !== identity.projectId) throw new Error('接管请求与当前项目不匹配。');
+    if (!this.controlBlocked) return this.snapshot();
+    if (this.#opening) throw new Error('正在转移项目控制权。');
+    this.#opening = true; this.#controlError = null;
+    try {
+      const inspection = await this.#open(identity.projectDirectory, true);
+      this.#view = null;
+      return this.serialize(inspection);
+    } catch (error) { this.#controlError = (error as Error).message; throw error; }
+    finally { this.#opening = false; }
+  }
   async checkIdentity() {
     if (!this.#opened || this.#transferred || this.#handoffPending) return;
     try { await this.#opened.assertWritable(); }
     catch (error) {
+      if (this.#transferred || this.#handoffPending) return;
       void this.creation?.close().catch(() => undefined); void this.render.close().catch(() => undefined);
       for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
       throw error;
@@ -896,6 +945,7 @@ class ProjectWorkspaceSession {
   }
   async previewOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.action === 'view') return this.preview.view(opened, input.target, input.parentOrigin);
     if (input.action === "status") return this.preview.status(opened, input.instanceId);
     if (input.action === "release") { this.preview.release(input.instanceId); return {}; }
     if (input.action !== "build" || !["current", "candidate"].includes(input.target) || typeof input.parentOrigin !== "string") throw new Error("Preview 参数无效。");
@@ -915,8 +965,10 @@ class ProjectWorkspaceSession {
     ttsFetch?: typeof fetch;
     codexHost?: CodexHostAdapter;
     probeSpeechDurationMs?: (path: string) => Promise<number>;
+    conversation?: { threadId: string } | null;
   } = {}) {
     ProjectWorkspaceSession.sessions.add(this);
+    this.conversation = options.conversation;
     this.#codexHost = options.codexHost;
     this.#ttsFetch = options.ttsFetch ?? globalThis.fetch;
     this.#probeSpeechDurationMs = options.probeSpeechDurationMs ?? probeSpeechDurationMs;
@@ -929,13 +981,15 @@ class ProjectWorkspaceSession {
   #candidateStatus: CandidateStatus | null = null;
 
   serialize(inspection: ProjectVNextInspection, writable = true): Record<string, unknown> {
-    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
+    return { control: this.control, ...serializeInspection(inspection, writable && !this.controlBlocked, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
   }
 
   async snapshot(): Promise<Record<string, unknown>> {
+    if (this.viewing) return (await this.readRemote({ name: 'get_workbench', arguments: {} })).structuredContent;
     if (!this.#opened) return { status: 'launcher', connection: launcherConnectionState() };
     await this.checkIdentity();
     const inspection = await inspectProjectVNext(this.#opened.inspection.projectDirectory);
+    if (!this.#handoffPending) this.#candidateStatus = await this.#opened.candidate({ action: 'read' });
     return this.serialize(inspection, !this.#transferred && !this.#handoffPending);
   }
 
@@ -947,6 +1001,15 @@ class ProjectWorkspaceSession {
   }
   async #openWithChoice(projectDirectory: string, choice?: string): Promise<Record<string, unknown>> {
     const selected = await inspectProjectVNext(projectDirectory);
+    if (this.conversation && (!this.#opened || this.#transferred || this.#opened.inspection.projectDirectory !== selected.projectDirectory)) {
+      const session = await liveProjectSession(selected);
+      if (session) {
+        const previousView = this.#view;
+        this.#view = { projectDirectory: selected.projectDirectory, projectId: selected.manifest.projectId };
+        try { return { ...(await this.readRemote({ name: 'get_workbench', arguments: {} })).structuredContent, operation: 'opened' }; }
+        catch (error) { this.#view = previousView; throw error; }
+      }
+    }
     const owner = [...ProjectWorkspaceSession.sessions].find(session => !session.#transferred && session.#opened?.inspection.manifest.projectId === selected.manifest.projectId && session.#opened.inspection.projectDirectory !== selected.projectDirectory);
     const current = owner ? owner.#opened?.inspection : undefined;
     if (current && current.manifest.projectId === selected.manifest.projectId && current.projectDirectory !== selected.projectDirectory) {
@@ -982,13 +1045,17 @@ class ProjectWorkspaceSession {
     try { return await this.#open(projectDirectory); }
     finally { this.#opening = false; }
   }
-  async #open(projectDirectory: string): Promise<ProjectVNextInspection> {
+  async #open(projectDirectory: string, takeover = false): Promise<ProjectVNextInspection> {
     const next = await openProjectVNext(projectDirectory, {
       probeSpeechDurationMs: this.#probeSpeechDurationMs,
+      takeover: this.conversation === undefined || takeover,
+      assertAccess: assertProjectRequestAccess,
+      readSession: this.readSession,
       onHandoff: async () => {
         if (this.#opening || this.#resolvingCandidate) throw new Error('线程连接或候选操作结果待核对');
-        this.#handoffPending = true;
-        await this.creation?.transfer();
+        this.#handoffPending = true; this.#epoch++;
+        try { await this.creation?.transfer(); } catch (error) { this.#controlError = (error as Error).message; throw error; }
+        await Promise.allSettled([...this.pendingOperations]);
         await this.render.close();
         for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
         await this.#opened?.release();
@@ -1006,11 +1073,12 @@ class ProjectWorkspaceSession {
     this.checks.clear();
     this.preview.clear();
     this.#opened = next;
+    this.#view = null; this.#epoch++;
     this.#transferred = false; this.#handoffPending = false;
     this.#candidateStatus = await next.candidate({ action: "read" });
-    this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery) : null;
+    this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery, this.conversation?.threadId) : null;
     this.creationError = null;
-    try { await this.creation?.load(next.transferred); } catch (error) { this.creationError = (error as Error).message; }
+    try { await this.creation?.load(this.conversation === undefined && next.transferred); } catch (error) { this.creationError = (error as Error).message; }
     return next.inspection;
   }
 
@@ -2108,9 +2176,22 @@ export function createNarracutRequestHandler(
   const hostValidation = new AgentHostValidationService(codexHost);
   const workspace = new ProjectWorkspaceSession({
     codexHost,
+    conversation: options.conversation,
     ttsFetch: options.ttsFetch,
     probeSpeechDurationMs: options.probeSpeechDurationMs,
   });
+  workspace.readSession = async (input: any) => {
+    if (!isProjectRead(input?.name, input?.arguments)) return controlFailure();
+    if (workspace.viewing) throw new Error('租约已转移，请重新核对。');
+    const snapshot = await workspace.snapshot();
+    if (workspace.control.status === 'transferring' && !['get_workbench', 'get_creation_task'].includes(input.name)) return controlFailure('正在转移项目控制权，请等待核对完成。');
+    const project = snapshot.project as any;
+    if (input.arguments?.projectDirectory && input.arguments.projectDirectory !== project?.directory || input.arguments?.projectId && input.arguments.projectId !== project?.projectId) return controlFailure('请求与当前项目会话不匹配。');
+    if (input.name === 'get_creation_task') return { structuredContent: { creationTask: workspace.creation?.value ?? null, creationRecovery: workspace.creation?.recovery ?? null, control: workspace.control }, content: [] };
+    const result = await callTool(input, hostValidation, workspace);
+    result.structuredContent.control = workspace.control;
+    return result;
+  };
   const requestHandler = async (request: JsonRpcRequest): Promise<unknown> => {
     switch (request.method) {
     case "initialize": {
@@ -2133,8 +2214,25 @@ export function createNarracutRequestHandler(
           error: { code: 'HOST_CONVERSATION_UNAVAILABLE', message: conversation.reason }, conversation,
         } };
       }
-      const operation = callTool(request.params, hostValidation, workspace);
-      const tracked = name !== 'copy_project';
+      const args = (request.params as any)?.arguments ?? {};
+      const transfer = name === 'project_control' && args.action === 'takeover' || name === 'start_creation_task' || name === 'continue_creation_task' || name === 'respond_creation_task' && args.action === 'continue';
+      let operation: Promise<ToolResult>;
+      if (options.conversation && transfer && workspace.controlBlocked) {
+        try { await workspace.takeControl(args); }
+        catch (error) { return controlFailure((error as Error).message); }
+      }
+      if (name === 'project_control') {
+        if (!['status', 'takeover'].includes(args.action)) return controlFailure('控制权操作参数无效。');
+        try { operation = Promise.resolve({ structuredContent: await workspace.snapshot(), content: [] }); }
+        catch (error) { return controlFailure((error as Error).message); }
+      } else if (options.conversation && workspace.controlBlocked && !['open_project', 'show_launcher', 'health_check', 'select_project_directory'].includes(name)) {
+        if (!isProjectRead(name, args)) return controlFailure();
+        if (workspace.viewing) operation = workspace.readRemote(request.params).catch(error => controlFailure(error.message));
+        else operation = workspace.readSession!(request.params);
+      } else {
+        operation = options.conversation && !isProjectRead(name, args) && !['open_project', 'create_project'].includes(name) ? projectWriteContext.run(workspace.captureAccess(), () => callTool(request.params, hostValidation, workspace)) : callTool(request.params, hostValidation, workspace);
+      }
+      const tracked = name !== 'copy_project' && name !== 'project_control';
       if (tracked) workspace.pendingOperations.add(operation);
       try {
         const result = await operation;

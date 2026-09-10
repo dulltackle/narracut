@@ -6,6 +6,61 @@ import { startWorkbenchPanel } from '../../plugins/narracut/src/workbench-panel'
 import { createProjectVNext } from '../../src/server/project-lifecycle';
 import sharp from 'sharp';
 
+test('双面板同步只读状态，失权保留文字草稿，重新获得控制权不自动补交', async ({ page, context }) => {
+  const root = await mkdtemp(join(tmpdir(), 'panel-control-'));
+  const first = await startWorkbenchPanel({ threadId: 'panel-first' });
+  const second = await startWorkbenchPanel({ threadId: 'panel-second' });
+  const other = await context.newPage();
+  const call = async (panel: typeof first, name: string, args = {}) => (await (await page.request.post(`${panel.url}rpc`, {
+    headers: { Origin: new URL(panel.url).origin }, data: { id: 1, method: 'tools/call', params: { name, arguments: args } },
+  })).json()).result;
+  try {
+    const created = (await call(first, 'create_project', { projectDirectory: join(root, '共享创作项目') })).structuredContent;
+    const identity = { projectDirectory: created.project.directory, projectId: created.project.projectId };
+    await page.goto(first.url);
+    const app = page.frameLocator('iframe');
+    await app.getByRole('button', { name: '新增第一个 Scene' }).click();
+    const editor = app.getByRole('textbox', { name: 'Scene 01 Narration' });
+    await editor.fill('已保存的旁白'); await editor.blur();
+    await expect.poll(async () => (await call(first, 'get_workbench')).structuredContent.scenes[0]?.narration).toBe('已保存的旁白');
+    await call(second, 'open_project', identity);
+    await other.goto(second.url);
+    const viewer = other.frameLocator('iframe');
+    await expect(viewer.getByText('只读 · 项目由另一对话控制', { exact: true })).toBeVisible();
+    await viewer.getByRole('tab', { name: 'Agent 工作区' }).click();
+    await expect(viewer.locator('[data-build-preview="current"]')).toBeDisabled();
+    await viewer.getByRole('tab', { name: '表格工作区' }).click();
+    await viewer.getByRole('button', { name: /Video Brief/ }).click();
+    const brief = viewer.getByRole('textbox', { name: 'Video Brief 原始 Markdown' });
+    await expect(brief).toHaveJSProperty('readOnly', true);
+    if (!await editor.isVisible()) await app.locator('[data-edit-narration]').first().click();
+    await page.route(`${first.url}rpc`, async route => {
+      if (route.request().postDataJSON().params.name === 'save_project_scenes') { await route.fulfill({ json: { jsonrpc: '2.0', id: route.request().postDataJSON().id, result: { isError: true, structuredContent: { error: { code: 'PROJECT_CONTROL_REQUIRED', message: '项目由另一对话控制' } } } } }); }
+      else await route.continue();
+    });
+    await editor.fill('尚未保存的草稿');
+    await call(second, 'project_control', { ...identity, action: 'takeover' });
+    await expect(app.getByText('编辑已暂停，未保存草稿已保留', { exact: true })).toBeVisible();
+    await expect(viewer.getByText('当前对话可编辑', { exact: true })).toBeVisible();
+    await expect(brief).toHaveJSProperty('readOnly', false);
+    await viewer.getByRole('button', { name: '关闭 Video Brief 编辑器' }).click();
+    await app.getByText('核对草稿与最新内容', { exact: true }).click();
+    await expect(app.getByRole('textbox', { name: 'Scene 01 保留的草稿' })).toContainText('尚未保存的草稿');
+    await expect(app.getByRole('button', { name: '复制保留草稿' })).toBeEnabled();
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      // 桌面与窄屏截图已在有界视觉核对中保存；回归只验证溢出和交互。
+      expect(await app.locator('body').evaluate(body => body.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+    await page.unroute(`${first.url}rpc`);
+    await call(first, 'project_control', { ...identity, action: 'takeover' });
+    await expect(app.getByText('当前对话可编辑', { exact: true })).toBeVisible();
+    expect((await call(first, 'get_workbench')).structuredContent.scenes[0].narration).toBe('已保存的旁白');
+    await app.getByRole('button', { name: '保存核对后的草稿' }).click();
+    await expect.poll(async () => (await call(first, 'get_workbench')).structuredContent.scenes[0].narration).toBe('尚未保存的草稿');
+  } finally { await page.close(); await other.close(); await second.close(); await first.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('非项目目录以弹窗说明失败原因并支持重新选择', async ({ page }) => {
   const root = await mkdtemp(join(tmpdir(), 'panel-invalid-'));
   const panel = await startWorkbenchPanel({ threadId: 'thread-invalid-directory' });

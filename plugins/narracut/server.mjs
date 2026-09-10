@@ -9360,6 +9360,91 @@ var require_semver2 = __commonJS({
   }
 });
 
+// src/server/project-lease-handoff.ts
+import { createServer, request } from "node:http";
+async function listenForProjectHandoff(token, handoff, read) {
+  let pending = null;
+  const server = createServer(async (req, res) => {
+    if (req.method !== "POST" || !["/handoff", "/read"].includes(req.url ?? "") || req.headers.authorization !== `Bearer ${token}`) {
+      res.writeHead(403).end();
+      return;
+    }
+    if (req.url === "/read") {
+      try {
+        if (!read) throw new Error("\u5F53\u524D\u79DF\u7EA6\u4E0D\u652F\u6301\u53EA\u8BFB\u4F1A\u8BDD\u3002");
+        const chunks = [];
+        let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > 65536) throw new Error("\u53EA\u8BFB\u8BF7\u6C42\u8FC7\u5927\u3002");
+          chunks.push(chunk);
+        }
+        const result = await read(JSON.parse(Buffer.concat(chunks).toString()));
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(result));
+      } catch {
+        res.writeHead(409).end();
+      }
+      return;
+    }
+    req.resume();
+    pending ??= handoff().catch((error51) => {
+      pending = null;
+      throw error51;
+    });
+    void pending.then(() => res.writeHead(204).end(), () => res.writeHead(409).end());
+  });
+  server.requestTimeout = 15e3;
+  server.headersTimeout = 1e4;
+  await new Promise((resolve6, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve6);
+  });
+  server.unref();
+  return { port: server.address().port, close: () => {
+    server.close();
+  } };
+}
+async function readProjectSession(port, token, input) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("\u9879\u76EE\u63A7\u5236\u6743\u5F85\u6838\u5BF9\u3002");
+  const response = await fetch(`http://127.0.0.1:${port}/read`, { method: "POST", headers: { authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(input), signal: AbortSignal.timeout(15e3) });
+  if (!response.ok) throw new Error("\u9879\u76EE\u4F1A\u8BDD\u6682\u4E0D\u53EF\u7528\uFF0C\u6B63\u5728\u6838\u5BF9\u63A7\u5236\u6743\u3002");
+  return response.json();
+}
+async function requestProjectHandoff(port, token) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
+  await new Promise((resolve6, reject) => {
+    const req = request({ hostname: "127.0.0.1", port, path: "/handoff", method: "POST", headers: { authorization: `Bearer ${token}` }, agent: false }, (res) => {
+      res.resume();
+      res.once("end", () => res.statusCode === 204 ? resolve6() : reject(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
+    });
+    req.setTimeout(15e3, () => req.destroy(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+// plugins/narracut/src/project-control.ts
+import { AsyncLocalStorage } from "node:async_hooks";
+var projectWriteContext = new AsyncLocalStorage();
+function assertProjectRequestAccess() {
+  projectWriteContext.getStore()?.();
+}
+function isProjectRead(name, args = {}) {
+  if (["get_workbench", "inspect_project", "read_project_asset_preview", "get_scene_speech_job", "get_creation_task"].includes(name)) return true;
+  const actions = {
+    manage_project_candidate: ["read"],
+    project_preview: ["status", "view"],
+    project_checks: ["status"],
+    project_delivery: ["status", "image"],
+    project_acceptance: ["history", "result"],
+    project_render: ["status", "result"]
+  };
+  return actions[name]?.includes(args?.action) === true;
+}
+function controlFailure(message = "\u9879\u76EE\u7531\u53E6\u4E00\u5BF9\u8BDD\u63A7\u5236\u3002\u8BF7\u5728\u5F53\u524D Codex \u5BF9\u8BDD\u4E2D\u8F93\u5165\u201C\u63A5\u7BA1\u6B64\u9879\u76EE\u201D\u3002") {
+  return { isError: true, structuredContent: { error: { code: "PROJECT_CONTROL_REQUIRED", message } }, content: [] };
+}
+
 // src/server/project-restore.ts
 import { isDeepStrictEqual } from "node:util";
 import { randomUUID as randomUUID8 } from "node:crypto";
@@ -27554,46 +27639,6 @@ import { constants as constants2 } from "node:fs";
 import { lstat as lstat7, mkdir as mkdir6, open as open5, readdir as readdir6, readFile as readFile6, rm as rm9, realpath as realpath5 } from "node:fs/promises";
 import { join as join11, relative as relative4, resolve as resolve4, sep as sep4, dirname as dirname8, basename as basename3 } from "node:path";
 
-// src/server/project-lease-handoff.ts
-import { createServer, request } from "node:http";
-async function listenForProjectHandoff(token, handoff) {
-  let pending = null;
-  const server = createServer((req, res) => {
-    if (req.method !== "POST" || req.url !== "/handoff" || req.headers.authorization !== `Bearer ${token}`) {
-      res.writeHead(403).end();
-      return;
-    }
-    req.resume();
-    pending ??= handoff().catch((error51) => {
-      pending = null;
-      throw error51;
-    });
-    void pending.then(() => res.writeHead(204).end(), () => res.writeHead(409).end());
-  });
-  server.requestTimeout = 15e3;
-  server.headersTimeout = 1e4;
-  await new Promise((resolve6, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve6);
-  });
-  server.unref();
-  return { port: server.address().port, close: () => {
-    server.close();
-  } };
-}
-async function requestProjectHandoff(port, token) {
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9");
-  await new Promise((resolve6, reject) => {
-    const req = request({ hostname: "127.0.0.1", port, path: "/handoff", method: "POST", headers: { authorization: `Bearer ${token}` }, agent: false }, (res) => {
-      res.resume();
-      res.once("end", () => res.statusCode === 204 ? resolve6() : reject(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
-    });
-    req.setTimeout(15e3, () => req.destroy(new Error("\u7EBF\u7A0B\u8FDE\u63A5\u7ED3\u679C\u5F85\u6838\u5BF9")));
-    req.on("error", reject);
-    req.end();
-  });
-}
-
 // src/server/project-lifecycle.ts
 import { createHash as createHash10, randomUUID as randomUUID7 } from "node:crypto";
 import { constants as fsConstants2 } from "node:fs";
@@ -28154,6 +28199,11 @@ async function leaseHolderIsAlive(marker) {
   const currentIdentity = await readProcessIdentity(marker.pid);
   return currentIdentity === null || currentIdentity === marker.processIdentity;
 }
+async function liveProjectSession(inspection) {
+  const marker = await readFile5(join10(inspection.projectDirectory, ".narracut/workspace.lease"), "utf8").then((bytes) => JSON.parse(bytes)).catch(() => null);
+  if (!marker || !isLeaseMarker(marker) || marker.projectId !== inspection.manifest.projectId || marker.projectDirectory !== inspection.projectDirectory || !marker.handoffPort || !await leaseHolderIsAlive(marker)) return null;
+  return { port: marker.handoffPort, token: marker.token };
+}
 function isLeaseMarker(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const marker = value;
@@ -28175,11 +28225,11 @@ async function clearStaleLease(leasePath) {
   await unlink(leasePath);
   return true;
 }
-async function acquireProjectLease(inspection, onHandoff) {
+async function acquireProjectLease(inspection, onHandoff, readSession, takeover = true) {
   const projectDirectory = inspection.projectDirectory;
   const leasePath = join10(projectDirectory, ".narracut", "workspace.lease");
   let transferred = false;
-  if (onHandoff) {
+  if (onHandoff && takeover) {
     const existing = await readFile5(leasePath, "utf8").then((bytes) => JSON.parse(bytes)).catch(() => null);
     if (existing && isLeaseMarker(existing) && existing.projectId === inspection.manifest.projectId && existing.projectDirectory === projectDirectory && existing.handoffPort && await leaseHolderIsAlive(existing)) {
       try {
@@ -28232,7 +28282,7 @@ async function acquireProjectLease(inspection, onHandoff) {
   let endpoint;
   try {
     if (onHandoff) {
-      endpoint = await listenForProjectHandoff(marker.token, onHandoff);
+      endpoint = await listenForProjectHandoff(marker.token, onHandoff, readSession);
       marker.handoffPort = endpoint.port;
     }
     await handle.writeFile(JSON.stringify(marker));
@@ -28431,7 +28481,7 @@ async function copyStableFile(source, opened, temporaryPath, assertDestinationCu
     await destination?.close().catch(() => void 0);
   }
 }
-async function atomicProjectFile(projectFile, bytes, assertWritable, observeCommit) {
+async function atomicProjectFile(projectFile, bytes, assertWritable, observeCommit, assertAccess) {
   const temporaryFile = join10(dirname7(projectFile), `.${basename2(projectFile)}.${randomUUID7()}.tmp`);
   let committed = false;
   try {
@@ -28443,6 +28493,7 @@ async function atomicProjectFile(projectFile, bytes, assertWritable, observeComm
       await handle.close();
     }
     await assertWritable();
+    assertAccess?.();
     observeCommit?.(projectFile, bytes, false);
     await rename5(temporaryFile, projectFile);
     observeCommit?.(projectFile, bytes, true);
@@ -28466,7 +28517,7 @@ async function openProjectVNext(inputPath, options = {}) {
     const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
     const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
-    const lease = await acquireProjectLease(initialInspection, options.onHandoff);
+    const lease = await acquireProjectLease(initialInspection, options.onHandoff, options.readSession, options.takeover);
     let assetsDirectoryHandle = null;
     let speechDirectoryHandle = null;
     try {
@@ -28556,6 +28607,7 @@ async function openProjectVNext(inputPath, options = {}) {
         }
       };
       const assertWritable = async () => {
+        options.assertAccess?.();
         if (identityLost) throw identityLost;
         try {
           await verifyWritable();
@@ -28563,6 +28615,7 @@ async function openProjectVNext(inputPath, options = {}) {
           identityLost = error51;
           throw error51;
         }
+        options.assertAccess?.();
       };
       const observe = async (result) => {
         if (result?.code === "PROJECT_IDENTITY_LOST") identityLost ??= result;
@@ -28584,7 +28637,7 @@ async function openProjectVNext(inputPath, options = {}) {
         }
         recoveryBase[component2] = committed ? [next] : [...recoveryBase[component2].slice(0, 1), next];
       };
-      const replaceProjectFile = (path, bytes, verify) => atomicProjectFile(path, bytes, verify, observeCommit);
+      const replaceProjectFile = (path, bytes, verify) => atomicProjectFile(path, bytes, verify, observeCommit, options.assertAccess);
       const candidateManager = await createCandidateManager(projectDirectory, assertWritable, observeCommit);
       const candidate = (request2) => {
         if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002"));
@@ -30496,12 +30549,13 @@ var externalMessage = "\u5DF2\u4FDD\u7559\u5916\u90E8\u4FEE\u6539\uFF0C\u5DF2\u4
 var InputsChanged = class extends Error {
 };
 var CreationTask = class {
-  constructor(opened, host, preview, checks, delivery) {
+  constructor(opened, host, preview, checks, delivery, currentThreadId) {
     this.opened = opened;
     this.host = host;
     this.preview = preview;
     this.checks = checks;
     this.delivery = delivery;
+    this.currentThreadId = currentThreadId;
     this.#timer = setInterval(() => {
       if (this.#observing || this.#closed) return;
       this.#observing = true;
@@ -30523,6 +30577,7 @@ var CreationTask = class {
   preview;
   checks;
   delivery;
+  currentThreadId;
   #state = null;
   #driver = null;
   #operation = null;
@@ -31086,7 +31141,10 @@ var CreationTask = class {
     const state = this.#state, projectDirectory = this.opened.inspection.projectDirectory;
     let replacement = false;
     let threadId;
-    if (state.threadPointer) {
+    if (this.currentThreadId) {
+      threadId = (await this.host.resumeThread({ threadId: this.currentThreadId, projectDirectory })).threadId;
+      if (threadId !== this.currentThreadId) throw new Error("\u5BBF\u4E3B\u8FD4\u56DE\u7684\u5BF9\u8BDD\u8EAB\u4EFD\u4E0D\u5339\u914D\u3002");
+    } else if (state.threadPointer) {
       try {
         threadId = (await this.host.resumeThread({ threadId: state.threadPointer, projectDirectory })).threadId;
       } catch (error51) {
@@ -31110,7 +31168,10 @@ var CreationTask = class {
     this.#assert();
     const state = this.#state, snapshot = await this.#snapshot();
     state.inputIdentity = snapshot.signature;
-    if (!state.threadPointer) state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
+    if (!state.threadPointer) {
+      if (this.currentThreadId) await this.#bindThread();
+      else state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
+    }
     const driver = { token: randomUUID10(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
@@ -31157,7 +31218,8 @@ var CreationTask = class {
     state.inputIdentity = snapshot.signature;
     this.#snapshotValue = snapshot;
     if (!state.threadPointer) {
-      state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
+      if (this.currentThreadId) await this.#bindThread();
+      else state.threadPointer = (await this.host.createThread({ projectDirectory: this.opened.inspection.projectDirectory, purpose: "creation" })).threadId;
       this.#assert();
     }
     state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
@@ -31595,6 +31657,17 @@ var PreviewOrigin = class {
     if (!files) throw new Error("Preview \u5B9E\u4F8B\u5DF2\u91CA\u653E\u3002");
     return new Map([...files].map(([path, bytes]) => [path, Buffer.from(bytes)]));
   }
+  /** 为另一个面板复制已就绪的只读绑定；不构建、不读取项目源码、不改变原实例。 */
+  fork(descriptor, parentOrigin) {
+    if (!/^https?:\/\//.test(parentOrigin) || new URL(parentOrigin).origin !== parentOrigin || parentOrigin === this.#origin) throw new Error("Preview \u5BBF\u4E3B origin \u65E0\u6548\u3002");
+    const files = this.snapshot(descriptor.url);
+    const source = files.get("bootstrap.js").toString();
+    const binding = JSON.parse(source.slice(source.indexOf("{detail:") + 8, -4));
+    const instanceId = randomUUID11(), token = randomBytes(32).toString("hex"), key = randomBytes(24).toString("hex");
+    files.set("bootstrap.js", Buffer.from(`window.dispatchEvent(new CustomEvent('narracut-preview-binding',{detail:${JSON.stringify({ ...binding, instanceId, token, parentOrigin })}}));`));
+    this.#instances.set(key, files);
+    return { ...structuredClone(descriptor), instanceId, token, parentOrigin, url: `${this.#origin}/${key}/index.html` };
+  }
   release(url2) {
     const key = new URL(url2).pathname.split("/")[1];
     this.#instances.delete(key);
@@ -31768,6 +31841,23 @@ async function snapshotFile(root, path, limit) {
 }
 var ProjectPreview = class {
   source = new PreviewOrigin();
+  #views = /* @__PURE__ */ new Map();
+  async view(opened, target, parentOrigin) {
+    const original = [...this.#active.values()].filter((entry) => entry.descriptor.target === target).at(-1);
+    if (!original) return { preview: null };
+    const key = `${original.descriptor.instanceId}:${parentOrigin}`;
+    let view = this.#views.get(key);
+    if (!view) {
+      if (this.#views.size >= 16) {
+        const first = this.#views.keys().next().value;
+        this.source.release(this.#views.get(first).descriptor.url);
+        this.#views.delete(first);
+      }
+      view = { original: original.descriptor.instanceId, descriptor: this.source.fork(original.descriptor, parentOrigin) };
+      this.#views.set(key, view);
+    }
+    return { preview: { ...view.descriptor, ...await this.status(opened, view.original) } };
+  }
   #bundles = /* @__PURE__ */ new Map();
   cachedBundle(identity2) {
     return this.#bundles.get(identity2);
@@ -31828,6 +31918,7 @@ var ProjectPreview = class {
     return descriptor;
   }
   async status(opened, instanceId) {
+    instanceId = [...this.#views.values()].find((view) => view.descriptor.instanceId === instanceId)?.original ?? instanceId;
     const unknown2 = () => ({ brief: { status: "unknown", review: "unknown" }, input: { status: "unknown" }, media: { status: "unknown" }, environment: { status: "unknown" } });
     const entry = this.#active.get(instanceId);
     if (!entry) return { stale: true, freshness: unknown2() };
@@ -31884,6 +31975,8 @@ var ProjectPreview = class {
     this.#active.delete(instanceId);
   }
   clear() {
+    for (const view of this.#views.values()) this.source.release(view.descriptor.url);
+    this.#views.clear();
     for (const entry of this.#active.values()) this.source.release(entry.descriptor.url);
     this.#active.clear();
     this.#bundles.clear();
@@ -32601,7 +32694,7 @@ var ProjectChecks = class {
 // plugins/narracut/src/server.ts
 import { randomUUID as randomUUID16 } from "node:crypto";
 import { readFile as readFile7 } from "node:fs/promises";
-import { basename as basename7, isAbsolute as isAbsolute8 } from "node:path";
+import { basename as basename7, isAbsolute as isAbsolute8, join as join17 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -33058,6 +33151,7 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  { name: "project_control", title: "\u6838\u5BF9\u6216\u660E\u786E\u63A5\u7BA1\u9879\u76EE\u63A7\u5236\u6743", description: "\u53EA\u5728\u7528\u6237\u660E\u786E\u8981\u6C42\u63A5\u7BA1\u9879\u76EE\u65F6\u4F7F\u7528 takeover\uFF1B\u4EC5\u8F6C\u79FB\u63A7\u5236\u6743\uFF0C\u4E0D\u53D1\u8D77\u6216\u7EE7\u7EED\u4EFB\u52A1\uFF0C\u4E0D\u63A5\u53D7\u6216\u653E\u5F03\u5019\u9009\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["status", "takeover"] } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations },
   {
     name: "select_workbench_path",
     title: "\u9009\u62E9\u5DE5\u4F5C\u53F0\u6587\u4EF6\u6216\u76EE\u5F55",
@@ -33164,15 +33258,15 @@ var tools = [
   {
     name: "project_preview",
     title: "\u6784\u5EFA\u4E0E\u68C0\u67E5\u53EA\u8BFB\u6210\u7247 Preview",
-    description: "\u53EA\u8BFB\u6784\u5EFA\u5F53\u524D\u6216\u5019\u9009\u7684\u4E0D\u53EF\u53D8 Preview\uFF0C\u6216\u6838\u5BF9\u65E2\u6709\u5B9E\u4F8B\u65B0\u9C9C\u5EA6\u3002\u4E0D\u63A5\u53D7\u5019\u9009\u3001\u4E0D\u5199 Scene\u3002",
+    description: "\u6784\u5EFA\u5F53\u524D\u6216\u5019\u9009\u7684\u4E0D\u53EF\u53D8 Preview \u9700\u8981\u9879\u76EE\u5199\u6743\uFF1Bview \u4EC5\u67E5\u770B\u5DF2\u5C31\u7EEA\u526F\u672C\uFF0Cstatus \u6838\u5BF9\u65E2\u6709\u5B9E\u4F8B\u3002\u4E0D\u63A5\u53D7\u5019\u9009\u3001\u4E0D\u5199 Scene\u3002",
     inputSchema: {
       type: "object",
       required: ["projectDirectory", "projectId", "action"],
       additionalProperties: false,
-      properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["build", "status", "release"] }, target: { enum: ["current", "candidate"] }, parentOrigin: { type: "string" }, instanceId: { type: "string" } }
+      properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["build", "status", "release", "view"] }, target: { enum: ["current", "candidate"] }, parentOrigin: { type: "string" }, instanceId: { type: "string" } }
     },
     outputSchema: { type: "object" },
-    annotations: readOnlyToolAnnotations,
+    annotations: taskToolAnnotations,
     _meta: { ui: { visibility: ["app"] } }
   },
   {
@@ -33707,11 +33801,69 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
   restore = new RecoveryOperations();
   #recoveryCut = null;
   #recoveryExports = new RecoveryExports();
+  conversation;
+  readSession;
+  #view = null;
+  #epoch = 0;
+  #controlError = null;
+  get viewing() {
+    return this.#view !== null || this.#transferred;
+  }
+  get controlBlocked() {
+    return this.viewing || this.#handoffPending;
+  }
+  get control() {
+    return {
+      status: this.#handoffPending ? "transferring" : this.controlBlocked ? "readonly" : "editable",
+      ownerThreadId: this.conversation?.threadId ?? null,
+      reason: this.#controlError
+    };
+  }
+  captureAccess() {
+    const epoch = this.#epoch;
+    return () => {
+      if (this.controlBlocked || epoch !== this.#epoch) throw Object.assign(new Error("\u9879\u76EE\u5199\u6743\u5DF2\u64A4\u9500\uFF0C\u65E7\u8BF7\u6C42\u4E0D\u80FD\u63D0\u4EA4\u3002"), { code: "PROJECT_CONTROL_REQUIRED" });
+    };
+  }
+  async readRemote(input) {
+    const identity2 = this.#view ?? (this.#opened ? { projectDirectory: this.#opened.inspection.projectDirectory, projectId: this.#opened.inspection.manifest.projectId } : null);
+    if (!identity2) throw new Error("\u5C1A\u672A\u6253\u5F00\u9879\u76EE\u3002");
+    const args = input?.arguments ?? {};
+    if (args.projectDirectory && args.projectDirectory !== identity2.projectDirectory || args.projectId && args.projectId !== identity2.projectId) throw new Error("\u53EA\u8BFB\u8BF7\u6C42\u4E0E\u9879\u76EE\u4F1A\u8BDD\u4E0D\u5339\u914D\u3002");
+    const marker = JSON.parse(await readFile7(join17(identity2.projectDirectory, ".narracut/workspace.lease"), "utf8"));
+    if (marker.projectId !== identity2.projectId || marker.projectDirectory !== identity2.projectDirectory || !marker.handoffPort) throw new Error("\u9879\u76EE\u79DF\u7EA6\u8EAB\u4EFD\u5DF2\u53D8\u5316\u3002");
+    const result = await readProjectSession(marker.handoffPort, marker.token, input);
+    if (result.structuredContent?.project && result.structuredContent.project.projectId !== identity2.projectId) throw new Error("\u9879\u76EE\u4F1A\u8BDD\u5DF2\u53D8\u5316\u3002");
+    if (result.structuredContent) {
+      result.structuredContent.writable = false;
+      result.structuredContent.control = { ...result.structuredContent.control, status: result.structuredContent.control?.status === "transferring" ? "transferring" : "readonly" };
+    }
+    return result;
+  }
+  async takeControl(input) {
+    const identity2 = this.#view ?? (this.#opened ? { projectDirectory: this.#opened.inspection.projectDirectory, projectId: this.#opened.inspection.manifest.projectId } : null);
+    if (!identity2 || input.projectDirectory !== identity2.projectDirectory || input.projectId !== identity2.projectId) throw new Error("\u63A5\u7BA1\u8BF7\u6C42\u4E0E\u5F53\u524D\u9879\u76EE\u4E0D\u5339\u914D\u3002");
+    if (!this.controlBlocked) return this.snapshot();
+    if (this.#opening) throw new Error("\u6B63\u5728\u8F6C\u79FB\u9879\u76EE\u63A7\u5236\u6743\u3002");
+    this.#opening = true;
+    this.#controlError = null;
+    try {
+      const inspection = await this.#open(identity2.projectDirectory, true);
+      this.#view = null;
+      return this.serialize(inspection);
+    } catch (error51) {
+      this.#controlError = error51.message;
+      throw error51;
+    } finally {
+      this.#opening = false;
+    }
+  }
   async checkIdentity() {
     if (!this.#opened || this.#transferred || this.#handoffPending) return;
     try {
       await this.#opened.assertWritable();
     } catch (error51) {
+      if (this.#transferred || this.#handoffPending) return;
       void this.creation?.close().catch(() => void 0);
       void this.render.close().catch(() => void 0);
       for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
@@ -33887,6 +34039,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
   }
   async previewOperation(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.action === "view") return this.preview.view(opened, input.target, input.parentOrigin);
     if (input.action === "status") return this.preview.status(opened, input.instanceId);
     if (input.action === "release") {
       this.preview.release(input.instanceId);
@@ -33908,6 +34061,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
   #probeSpeechDurationMs;
   constructor(options = {}) {
     _ProjectWorkspaceSession.sessions.add(this);
+    this.conversation = options.conversation;
     this.#codexHost = options.codexHost;
     this.#ttsFetch = options.ttsFetch ?? globalThis.fetch;
     this.#probeSpeechDurationMs = options.probeSpeechDurationMs ?? probeSpeechDurationMs;
@@ -33917,12 +34071,14 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
   }
   #candidateStatus = null;
   serialize(inspection, writable = true) {
-    return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
+    return { control: this.control, ...serializeInspection(inspection, writable && !this.controlBlocked, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
   }
   async snapshot() {
+    if (this.viewing) return (await this.readRemote({ name: "get_workbench", arguments: {} })).structuredContent;
     if (!this.#opened) return { status: "launcher", connection: launcherConnectionState() };
     await this.checkIdentity();
     const inspection = await inspectProjectVNext(this.#opened.inspection.projectDirectory);
+    if (!this.#handoffPending) this.#candidateStatus = await this.#opened.candidate({ action: "read" });
     return this.serialize(inspection, !this.#transferred && !this.#handoffPending);
   }
   async openWithChoice(projectDirectory, choice) {
@@ -33937,6 +34093,19 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
   }
   async #openWithChoice(projectDirectory, choice) {
     const selected = await inspectProjectVNext(projectDirectory);
+    if (this.conversation && (!this.#opened || this.#transferred || this.#opened.inspection.projectDirectory !== selected.projectDirectory)) {
+      const session = await liveProjectSession(selected);
+      if (session) {
+        const previousView = this.#view;
+        this.#view = { projectDirectory: selected.projectDirectory, projectId: selected.manifest.projectId };
+        try {
+          return { ...(await this.readRemote({ name: "get_workbench", arguments: {} })).structuredContent, operation: "opened" };
+        } catch (error51) {
+          this.#view = previousView;
+          throw error51;
+        }
+      }
+    }
     const owner = [..._ProjectWorkspaceSession.sessions].find((session) => !session.#transferred && session.#opened?.inspection.manifest.projectId === selected.manifest.projectId && session.#opened.inspection.projectDirectory !== selected.projectDirectory);
     const current = owner ? owner.#opened?.inspection : void 0;
     if (current && current.manifest.projectId === selected.manifest.projectId && current.projectDirectory !== selected.projectDirectory) {
@@ -33987,13 +34156,23 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
       this.#opening = false;
     }
   }
-  async #open(projectDirectory) {
+  async #open(projectDirectory, takeover = false) {
     const next = await openProjectVNext(projectDirectory, {
       probeSpeechDurationMs: this.#probeSpeechDurationMs,
+      takeover: this.conversation === void 0 || takeover,
+      assertAccess: assertProjectRequestAccess,
+      readSession: this.readSession,
       onHandoff: async () => {
         if (this.#opening || this.#resolvingCandidate) throw new Error("\u7EBF\u7A0B\u8FDE\u63A5\u6216\u5019\u9009\u64CD\u4F5C\u7ED3\u679C\u5F85\u6838\u5BF9");
         this.#handoffPending = true;
-        await this.creation?.transfer();
+        this.#epoch++;
+        try {
+          await this.creation?.transfer();
+        } catch (error51) {
+          this.#controlError = error51.message;
+          throw error51;
+        }
+        await Promise.allSettled([...this.pendingOperations]);
         await this.render.close();
         for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
         await this.#opened?.release();
@@ -34015,13 +34194,15 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     this.checks.clear();
     this.preview.clear();
     this.#opened = next;
+    this.#view = null;
+    this.#epoch++;
     this.#transferred = false;
     this.#handoffPending = false;
     this.#candidateStatus = await next.candidate({ action: "read" });
-    this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery) : null;
+    this.creation = this.#codexHost ? new CreationTask(next, this.#codexHost, this.preview, this.checks, this.delivery, this.conversation?.threadId) : null;
     this.creationError = null;
     try {
-      await this.creation?.load(next.transferred);
+      await this.creation?.load(this.conversation === void 0 && next.transferred);
     } catch (error51) {
       this.creationError = error51.message;
     }
@@ -34983,9 +35164,22 @@ function createNarracutRequestHandler(options = {}) {
   const hostValidation = new AgentHostValidationService(codexHost);
   const workspace = new ProjectWorkspaceSession({
     codexHost,
+    conversation: options.conversation,
     ttsFetch: options.ttsFetch,
     probeSpeechDurationMs: options.probeSpeechDurationMs
   });
+  workspace.readSession = async (input) => {
+    if (!isProjectRead(input?.name, input?.arguments)) return controlFailure();
+    if (workspace.viewing) throw new Error("\u79DF\u7EA6\u5DF2\u8F6C\u79FB\uFF0C\u8BF7\u91CD\u65B0\u6838\u5BF9\u3002");
+    const snapshot = await workspace.snapshot();
+    if (workspace.control.status === "transferring" && !["get_workbench", "get_creation_task"].includes(input.name)) return controlFailure("\u6B63\u5728\u8F6C\u79FB\u9879\u76EE\u63A7\u5236\u6743\uFF0C\u8BF7\u7B49\u5F85\u6838\u5BF9\u5B8C\u6210\u3002");
+    const project = snapshot.project;
+    if (input.arguments?.projectDirectory && input.arguments.projectDirectory !== project?.directory || input.arguments?.projectId && input.arguments.projectId !== project?.projectId) return controlFailure("\u8BF7\u6C42\u4E0E\u5F53\u524D\u9879\u76EE\u4F1A\u8BDD\u4E0D\u5339\u914D\u3002");
+    if (input.name === "get_creation_task") return { structuredContent: { creationTask: workspace.creation?.value ?? null, creationRecovery: workspace.creation?.recovery ?? null, control: workspace.control }, content: [] };
+    const result = await callTool(input, hostValidation, workspace);
+    result.structuredContent.control = workspace.control;
+    return result;
+  };
   const requestHandler = async (request2) => {
     switch (request2.method) {
       case "initialize": {
@@ -35009,8 +35203,31 @@ function createNarracutRequestHandler(options = {}) {
             conversation
           } };
         }
-        const operation = callTool(request2.params, hostValidation, workspace);
-        const tracked = name !== "copy_project";
+        const args = request2.params?.arguments ?? {};
+        const transfer = name === "project_control" && args.action === "takeover" || name === "start_creation_task" || name === "continue_creation_task" || name === "respond_creation_task" && args.action === "continue";
+        let operation;
+        if (options.conversation && transfer && workspace.controlBlocked) {
+          try {
+            await workspace.takeControl(args);
+          } catch (error51) {
+            return controlFailure(error51.message);
+          }
+        }
+        if (name === "project_control") {
+          if (!["status", "takeover"].includes(args.action)) return controlFailure("\u63A7\u5236\u6743\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002");
+          try {
+            operation = Promise.resolve({ structuredContent: await workspace.snapshot(), content: [] });
+          } catch (error51) {
+            return controlFailure(error51.message);
+          }
+        } else if (options.conversation && workspace.controlBlocked && !["open_project", "show_launcher", "health_check", "select_project_directory"].includes(name)) {
+          if (!isProjectRead(name, args)) return controlFailure();
+          if (workspace.viewing) operation = workspace.readRemote(request2.params).catch((error51) => controlFailure(error51.message));
+          else operation = workspace.readSession(request2.params);
+        } else {
+          operation = options.conversation && !isProjectRead(name, args) && !["open_project", "create_project"].includes(name) ? projectWriteContext.run(workspace.captureAccess(), () => callTool(request2.params, hostValidation, workspace)) : callTool(request2.params, hostValidation, workspace);
+        }
+        const tracked = name !== "copy_project" && name !== "project_control";
         if (tracked) workspace.pendingOperations.add(operation);
         try {
           const result = await operation;

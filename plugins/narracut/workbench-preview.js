@@ -1,5 +1,5 @@
 /** 成片 Preview 宿主仅消费版本化消息；不读取 iframe DOM、Player 或 Bundle 全局对象。 */
-function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
+function createPreviewWorkbench(call, getProject, candidateReady = () => {}, canViewExisting = () => false) {
   let region, projectKey, active, pending, busy = false, failure = '', requested = null, serial = 0;
   const slots = new Map();
   const buildStates = { current: '', candidate: '' };
@@ -159,6 +159,13 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}) {
     if (!region?.isConnected || document.hidden || polling) return;
     polling = true;
     try {
+      for (const target of canViewExisting() ? ['current', 'candidate'] : []) {
+        if (!versionFor(target)) {
+          const result = await call('view', { target, parentOrigin: location.origin });
+          const descriptor = (result.structuredContent ?? result).preview;
+          if (descriptor) receive(descriptor, true);
+        }
+      }
       for (const slot of slots.values()) {
         try {
           const result = await call('status', { instanceId: slot.instanceId }); const data = result.structuredContent ?? result;
