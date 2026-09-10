@@ -9,6 +9,7 @@ Narracut 需要让 Scene 内容保持稳定权威，同时让 Agent 用项目级
 Project VNext 采用一次破坏性架构切换：
 
 - Codex 插件承载共享表格工作区与 Agent 工作区；
+- 完整工作台位于当前 Codex 对话右侧，创作使用当前对话，Agent 工作区仅负责候选审阅；避免工作台再维护一套聊天入口，面板失败时不自动转往外部浏览器；
 - 严格项目清单、最小 Project DSL 和自由 Video Brief 共同构成内容侧持久边界；
 - Render Program、候选、不可变修订和验收记录构成表现侧持久边界；
 - Narracut Runtime 独占 Composition、Scene 时间与 Speech，隔离执行不可信项目代码；
