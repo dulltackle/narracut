@@ -1,8 +1,8 @@
 # Project DSL V2 技术规格
 
-> **Legacy，已被 [ADR-0008](../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](./project-vnext.md) 替代。** 本规格只记录旧实现，不属于当前规范。Project VNext 不兼容、不自动迁移、也不以只读方式打开 V2。
+> **Legacy，已被 [ADR-0008](../../../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](../../../spec/project-vnext.md) 替代。** 本规格只记录旧实现，不属于当前规范。Project VNext 不兼容、不自动迁移、也不以只读方式打开 V2。
 
-V2 曾将内容用途从核心数据模型中移除。历史结构定义见 [`project-schema-v2.ts`](./project-schema-v2.ts)，当时的迁移决策见 [ADR-0005](../adr/0005-content-neutral-visual-model.md)；现有示例仍服务 Legacy V3 实现。
+V2 曾将内容用途从核心数据模型中移除。历史结构定义见 [`project-schema-v2.ts`](project-schema-v2.ts)，当时的迁移决策见 [ADR-0005](../adr/0005-content-neutral-visual-model.md)；同目录示例仅保留 Legacy V3 历史结构。
 
 ## 边界与根结构
 
@@ -77,4 +77,4 @@ V1 曾允许完全空白的 Title 与 EndCard 草稿，而 V2 禁止空 Card。�
 
 保存前依次执行 V2 结构校验和内部一致性校验；任一 error 都阻止保存。空 Scene 数组、空 Narration、未绑定 Asset 和缺 Speech 仍是可保存草稿。渲染前再执行媒体、Speech、字体覆盖和 Render-ready 校验。
 
-V2 结构与迁移行为由 [`project-schema-v2.test.ts`](../../tests/project-schema-v2.test.ts) 覆盖。当前 [`verify-project-examples.ts`](./verify-project-examples.ts) 验证的是两个 V3 示例；V2 JSON Schema 仍可由 `projectV2Schema` 通过 Zod 4 生成。
+V2 结构与迁移行为曾由 `tests/project-schema-v2.test.ts` 覆盖，该旧测试已移除。归档中的 [`verify-project-examples.ts`](verify-project-examples.ts) 验证的是两个 V3 示例；V2 JSON Schema 仍可由 `projectV2Schema` 通过 Zod 4 生成。

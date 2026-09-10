@@ -1,5 +1,8 @@
 # Render Program 与 Agent 工具执行隔离边界调研
 
+> **状态：历史调研快照。** 结论限于文中调研版本与实测条件；当前产品契约见 [Project VNext 规范](../../spec/project-vnext.md)，架构取舍见 [ADR-0008](../../adr/0008-project-vnext-normative-architecture.md)。文中的待验证项目不是当前待办清单。
+
+> **实现接续：** 当前采用[同一 Bundle 与执行胶囊决策](../../adr/0011-run-preview-and-render-from-one-isolated-bundle.md)，模块说明见[Bundle](../../program-bundle.md)、[Preview Bridge](../../preview-bridge.md)与[执行胶囊](../../execution-capsule.md)；原文待验证项目需结合这些实现重新判断。
 ## 调研问题与基线
 
 本文回答 [“调研 Render Program 与 Agent 工具的执行隔离边界”](https://github.com/dulltackle/narracut/issues/52)：项目级任意 React/Remotion 源码、依赖安装脚本、Agent 文件工具、构建、Preview 和 Render 分别能触及哪些文件系统、进程、环境变量与网络能力；容器、独立用户/进程、权限收窄和浏览器隔离各自能封闭什么、不能封闭什么。

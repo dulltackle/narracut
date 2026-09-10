@@ -1,8 +1,8 @@
 # Project DSL V3 技术规格
 
-> **Legacy，已被 [ADR-0008](../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](./project-vnext.md) 替代。** 本规格只描述旧实现，不属于当前规范。Project VNext 不兼容、不自动迁移、也不以只读方式打开 V3；Visual Type、Text Preset 与固定 Composition 不进入 VNext。
+> **Legacy，已被 [ADR-0008](../../../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](../../../spec/project-vnext.md) 替代。** 本规格只描述旧实现，不属于当前规范。Project VNext 不兼容、不自动迁移、也不以只读方式打开 V3；Visual Type、Text Preset 与固定 Composition 不进入 VNext。
 
-V3 以版本化、内容中立的 Preset 定义文字表现，并把同一份严格 DSL 快照同时交给编辑器 Player 与最终 Remotion Renderer。可执行结构见 [`project-schema-v3.ts`](./project-schema-v3.ts)，冻结的内置 Preset 见 [`text-presentation-presets-v1.md`](./text-presentation-presets-v1.md)，架构决策见 [ADR-0006](../adr/0006-versioned-text-presentation-presets.md)。
+V3 以版本化、内容中立的 Preset 定义文字表现，并把同一份严格 DSL 快照同时交给编辑器 Player 与最终 Remotion Renderer。历史结构见 [`project-schema-v3.ts`](project-schema-v3.ts)，冻结的内置 Preset 见 [`text-presentation-presets-v1.md`](text-presentation-presets-v1.md)，架构决策见 [ADR-0006](../adr/0006-versioned-text-presentation-presets.md)。
 
 ## 根结构与 Project Theme
 
@@ -58,4 +58,4 @@ Text Style 与 Text Motion 相互独立，也不由 Visual Type 或内容用途�
 - 渲染阻断：Theme / Style / Motion / Font 缺失、Speech 未生成、Logo / Visual / Speech 文件缺失、字体加载失败、文字在最低 70% 安全缩放后仍溢出。
 - 渲染前仍需通过既有 Speech 新鲜度、媒体探测和 Render-ready 校验。
 
-[`verify-project-examples.ts`](./verify-project-examples.ts) 验证两个 V3 示例；JSON Schema 由 `projectV3Schema` 通过 Zod 4 生成。
+[`verify-project-examples.ts`](verify-project-examples.ts) 曾验证两个 V3 示例，并通过 Zod 4 生成 JSON Schema。脚本依赖的旧 Text Preset 模块已移除；当前归档不构成可运行验收环境，复现条件见[归档说明](../../README.md)。

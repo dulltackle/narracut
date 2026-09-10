@@ -1,5 +1,7 @@
 # Remotion 技术调研：Preview（Player）= Render（renderer）能否成立
 
+> **状态：历史调研快照。** 结论限于文中调研版本与实测条件；当前产品契约见 [Project VNext 规范](../../spec/project-vnext.md)，架构取舍见 [ADR-0008](../../adr/0008-project-vnext-normative-architecture.md)。文中的待验证项目不是当前待办清单。
+
 ## 调研依据的版本
 
 - **`remotion` 核心包**：截至调研时（2026-08-06），npm 上最新稳定版为 **4.0.506**（[npmjs.com/package/remotion](https://www.npmjs.com/package/remotion)，最近一次发布约 2 天前）。Remotion 5.0 **尚未正式发布**，仍处于迁移文档撰写阶段：官方 [v5.0 迁移指南](https://www.remotion.dev/docs/5-0-migration) 明确写着 "Remotion 5.0 is not yet released. This is an incomplete list of breaking changes that are planned for the release."。因此本报告全部结论基于 **Remotion 4.0.x（4.0.506）**，并在涉及处标注 5.0 的已知计划变更。

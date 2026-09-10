@@ -1,6 +1,6 @@
 # 素材寻址走本地静态服务，而非 Remotion 的 `staticFile()` + `public/`
 
-> **状态：Legacy，已由 [ADR-0011](./0011-run-preview-and-render-from-one-isolated-bundle.md) 整体替代。** Project VNext 通过受限 Runtime 地址、Media Revision 与执行胶囊访问 Asset，不继承项目根静态服务、同源 API 或无鉴权监听；也不提供兼容路径。
+> **状态：Legacy，已由 [ADR-0011](../../../adr/0011-run-preview-and-render-from-one-isolated-bundle.md) 整体替代。** Project VNext 通过受限 Runtime 地址、Media Revision 与执行胶囊访问 Asset，不继承项目根静态服务、同源 API 或无鉴权监听；也不提供兼容路径。
 
 Remotion 官方的素材约定是把文件放进 `public/`、用 `staticFile()` 引用，并明确不支持绝对路径。但本项目的核心前提是「项目就是一个文件夹，可整体移动」，素材路径由用户决定——要求所有素材复制进一个固定的 `public/` 才能用，等于在唯一数据源之外再造一份可能不同步的副本。因此改用官方文档在 `absolute-paths` 页给出的逃生舱：**用 `serve-handler` 把项目根整体映射成本地 HTTP，DSL 只存相对项目根的相对路径**，Player 与渲染 Composition 共用同一个「相对路径 → URL」纯函数，两端读到的是同一个服务进程下的同一份磁盘文件。
 
@@ -15,7 +15,7 @@ Remotion 官方的素材约定是把文件放进 `public/`、用 `staticFile()` 
 ## Consequences
 
 - **端口与 URL 绝不落进 DSL**。`mediaBaseUrl` 是每次打开项目时现算的运行时值，项目文件夹移动/改名后重新打开即自愈。
-- **服务与 API 同 origin、同端口**，素材挂在 `/media/*` 前缀下（见 [ADR-0003](./0003-frontend-owns-the-dsl.md) 的接口清单）。
+- **服务与 API 同 origin、同端口**，素材挂在 `/media/*` 前缀下（见 [ADR-0003](0003-frontend-owns-the-dsl.md) 的接口清单）。
 - **工作台列表中的视频缩略图不得直接加载 `/media/*.mp4`**。列表改用 `GET /api/assets/thumbnail?path=...` 按需派生的 320×180 JPEG 首帧；只有用户打开完整 Asset 预览、选择视频 Scene 或播放时，Player 才能读取原视频。这避免了页面启动时为多个尾置 `moov` 的 MP4 并发发起 Range 请求。
 - **首帧是非持久化运行时派生数据**。服务只按项目相对路径和源文件元数据签名缓存 JPEG，缓存有界且仅存在于进程内；不得修改 `project.json`、`assets/` 或项目内其他文件，服务重启后允许重新生成。
 - **素材响应必须带 `Access-Control-Allow-Origin: *`**。渲染时 headless Chromium 从 Remotion 的 `serveUrl` 加载 bundle、再跨域抓 `/media/*`；CORS 失败会让 `@remotion/media` 的 `<Video>` 静默 fallback，而 Player 与 renderer 的 fallback 目标不同（`<Html5Video>` vs `<OffthreadVideo>`），「Preview = Render」会从这里裂开。

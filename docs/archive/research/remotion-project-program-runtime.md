@@ -1,5 +1,8 @@
 # Remotion 项目级 Render Program Runtime 约束调研
 
+> **状态：历史调研快照。** 结论限于文中调研版本与实测条件；当前产品契约见 [Project VNext 规范](../../spec/project-vnext.md)，架构取舍见 [ADR-0008](../../adr/0008-project-vnext-normative-architecture.md)。文中的待验证项目不是当前待办清单。
+
+> **实现接续：** 当前采用[同一 Bundle 与执行胶囊决策](../../adr/0011-run-preview-and-render-from-one-isolated-bundle.md)，模块说明见[Bundle](../../program-bundle.md)、[Preview Bridge](../../preview-bridge.md)与[执行胶囊](../../execution-capsule.md)；原文待验证项目需结合这些实现重新判断。
 ## 调研范围
 
 本报告回答以下问题：Narracut 如何接入随视频项目保存的任意 React/Remotion 源码、项目独立依赖与锁文件、动态 Composition 发现、浏览器预览和最终渲染，以及离线可复现构建。

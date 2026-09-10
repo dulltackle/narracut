@@ -1,5 +1,7 @@
 # Issue #23 设计 QA
 
+> **状态：Issue #23 历史验收。** 下文的浅色 SPA、Visual Type、旧 API 与临时截图仅代表当时基线；当前视觉约定见 [DESIGN.md](../../../DESIGN.md)，VNext 验收见[收口记录](../../project-vnext-acceptance-closure.md)。
+
 ## 对照目标
 
 - 视觉真值：`design/23/workspace-loaded.html`、`workspace-empty.html`、`project-loading.html`、`project-error.html`、`project-readonly.html`

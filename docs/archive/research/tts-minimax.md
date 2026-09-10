@@ -1,5 +1,9 @@
 # TTS 技术调研报告：MiniMax Speech 2.8 Turbo（经 tokendance 接入）
 
+> **后续结论：** 协议路径、TokenDance 模型 ID、返回格式及样本时长已在 [TTS 实测](tts-live-results.md) 中验证，当前实现见 [project-speech-vnext.ts](../../../src/server/project-speech-vnext.ts)。本文其余待测项不据此宣称完成。
+
+> **状态：历史调研快照。** 结论限于文中调研版本与实测条件；当前产品契约见 [Project VNext 规范](../../spec/project-vnext.md)，架构取舍见 [ADR-0008](../../adr/0008-project-vnext-normative-architecture.md)。文中的待验证项目不是当前待办清单。
+
 调研日期：2026-08-06
 调研目的：为「单用户本地视频脚本生成工具」V1 的时间模型（每句话在时间轴上的时长）提供准确、可复核的技术依据。
 

@@ -1,5 +1,7 @@
 # TTS 实测：MiniMax Speech 2.8 Turbo（经 TokenDance）
 
+> **状态：历史调研快照。** 结论限于文中调研版本与实测条件；当前产品契约见 [Project VNext 规范](../../spec/project-vnext.md)，架构取舍见 [ADR-0008](../../adr/0008-project-vnext-normative-architecture.md)。文中的待验证项目不是当前待办清单。
+
 实测日期：2026-08-08（America/Los_Angeles）
 
 本报告补齐 [TTS 接入调研：MiniMax Speech 2.8 Turbo](https://github.com/dulltackle/narracut/issues/6) 中只能拿 key 验证的部分。凭据仅从项目根 `.env` 读取；报告、Git diff 和命令输出均不包含 key 或账户余额。

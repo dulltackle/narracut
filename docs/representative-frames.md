@@ -27,6 +27,6 @@
 
 `project_delivery_display` 只对 app 暴露。工作台实际展开报告警告与对应检查批次的警告后，提交交付 ID、报告版本、已完成批次 ID 和完整警告内容摘要；报告换版、检查换批或警告内容变化会撤销旧展示确认。Agent 工具不接受 `displayed` 操作。检查或警告截断时不能确认完整展示。
 
-候选可交付需要最新必要检查通过、准确 Preview 证据新鲜、全部计划帧已采集并单独检查、完整目标/变更报告及全部警告已展示。零 Scene 不生成伪首帧，界面直接显示“运行期代表帧不适用”和对应 Manifest、构建结果与 Bundle 身份。接受候选及最终 Render 保持禁用。代表帧不表示用户完整观看，也不产生自动审美评分；审美判断属于用户。
+候选可交付需要最新必要检查通过、准确 Preview 证据新鲜、全部计划帧已采集并单独检查、完整目标/变更报告及全部警告已展示。零 Scene 不生成伪首帧，界面直接显示“运行期代表帧不适用”和对应 Manifest、构建结果与 Bundle 身份。候选接受和最终 Render 已接入各自门禁；代表帧证据是验收输入，不能单独授权接受或 Render。代表帧不表示用户完整观看，也不产生自动审美评分；审美判断属于用户。
 
 验证覆盖 `representative-frames.test.ts`、`candidate-delivery.test.ts`、`preview-evidence.test.ts`、`project-delivery.test.ts` 和工作台端到端测试。真实采集测试需要认证胶囊、本机监听与 Chromium。

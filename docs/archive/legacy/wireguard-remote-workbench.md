@@ -1,5 +1,7 @@
 # 通过 WireGuard 访问工作台
 
+> **状态：Legacy 历史运行指南。** 下文记录旧浏览器工作台的网络拓扑。当前 `pnpm start` / `pnpm open` 检查项目后退出，交互入口是 Codex 插件，见[当前入口与验收](../../portable-project-acceptance.md)。
+
 Narracut 的 HTTP 服务默认绑定 WireGuard 地址 `10.8.0.5`，首选端口为 `3579`。启动后应以 CLI 输出的“本地工作台”URL 为准；如果端口已被占用，服务会依次尝试到 `3678`：
 
 ```bash

@@ -1,8 +1,8 @@
 # Project DSL V1 技术规格
 
-> **Legacy，已被 [ADR-0008](../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](./project-vnext.md) 替代。** 本规格只记录旧实现，不属于当前规范。Project VNext 不兼容、不自动迁移、也不以只读方式打开 V1。
+> **Legacy，已被 [ADR-0008](../../../adr/0008-project-vnext-normative-architecture.md) 与 [`project-vnext.md`](../../../spec/project-vnext.md) 替代。** 本规格只记录旧实现，不属于当前规范。Project VNext 不兼容、不自动迁移、也不以只读方式打开 V1。
 
-本文件是 [DSL schema 定稿](https://github.com/dulltackle/narracut/issues/11) 的 V1 历史记录。历史结构定义见 [`project-schema-v1.ts`](./project-schema-v1.ts)；现有示例与验收脚本仍服务 Legacy V3 实现。
+本文件是 [DSL schema 定稿](https://github.com/dulltackle/narracut/issues/11) 的 V1 历史记录。历史结构定义见 [`project-schema-v1.ts`](project-schema-v1.ts)；同目录示例与校验脚本仅保留 Legacy V3 历史结构。
 
 ## 边界
 
@@ -140,6 +140,6 @@ Caption 再以 `kind` 判别：`{kind:"step", number, name}` 或 `{kind:"alert",
 
 验收输入由以下三部分组成：由 `projectV1Schema` 经 Zod 4 `z.toJSONSchema(..., {target:"draft-2020-12"})` 生成的完整 JSON Schema、固定项目元信息，以及真实 13 项 Asset catalog。要求模型一次输出 20 Scene 草稿：Asset 登记表不得改变，Scene UUID 必须唯一，所有引用必须存在，六种 Visual 与两种 Caption 分支都至少出现一次，全部省略 Speech。
 
-最初的 V1 验收曾将模型原始结果直接保存为 `project.ai-example.json`，不做程序性修补。此后同一路径下的示例已随 DSL 连续升级到 V3；当前 [`project.ai-example.json`](./project.ai-example.json) 与 [`verify-project-examples.ts`](./verify-project-examples.ts) 不再是 V1 验收材料。本节仅保留当时的验收条件作为历史背景。
+最初的 V1 验收曾将模型原始结果直接保存为 `project.ai-example.json`，不做程序性修补。此后同一路径下的示例已随 DSL 连续升级到 V3；当前 [`project.ai-example.json`](project.ai-example.json) 与 [`verify-project-examples.ts`](verify-project-examples.ts) 不再是 V1 验收材料。本节仅保留当时的验收条件作为历史背景。
 
 参考 Schema 使用 Zod 4，因为其官方稳定 API 原生提供 `z.toJSONSchema()`；生成给模型的结构 Schema 不包含无法由 JSON Schema 表达的跨引用检查，引用完整性由同一次验收中的内部一致性校验补齐。

@@ -1,8 +1,10 @@
 # 交接文档：narracut 执行胶囊 OOM 诊断与工具链泄漏修复
 
+> **状态：历史交接，已于 2026-09-10 UTC 核对后续状态。** 工具链回收修复已进入 `20e8f89`；未解决事项见[胶囊维护事项](../../capsule-maintenance.md)。下文环境、临时路径、行号及会话授权只记录原会话，不作为当前操作指令。
+
 - 日期：2026-09-07
 - 仓库：`/home/forclaw/code/narracut`，分支 `develop`，基线 commit `71341ea`
-- 状态：诊断已完成；泄漏已修复但**未提交**；重复自检问题**未修**
+- 状态：诊断已完成；泄漏修复已随 `20e8f89` 提交；重复自检问题**未修**
 
 ---
 
@@ -65,7 +67,7 @@ gnome-shell 只认 systemd unit 的 `Result=oom-kill` 信号，不区分是整�
 
 ### 改法
 
-改动只在 `src/server/capsule-toolchain.ts`，+17 行，具体见 `git diff`：
+当时改动只在 `src/server/capsule-toolchain.ts`，+17 行，后随 `20e8f89` 提交：
 
 - `reclaimOrphanSnapshots()`（`:14`），在 `snapshotCapsuleToolchain()` 开头调用（`:30`）
 - 快照建好后写属主 PID 到 `root/owner.pid`（`:59`）
@@ -92,11 +94,11 @@ gnome-shell 只认 systemd unit 的 `Result=oom-kill` 信号，不区分是整�
 
 ---
 
-## 4. 待办
+## 4. 原会话待办及后续状态
 
 按优先级：
 
-1. **提交改动** —— 工作区里 `src/server/capsule-toolchain.ts` 未提交。遵循 `~/.claude/CLAUDE.md`：中文 Conventional Commits；只提交已暂存内容，不得改变用户已有暂存集合。
+1. **提交改动（已完成）** —— `src/server/capsule-toolchain.ts` 回收修复已随 `20e8f89` 提交。
 2. **回收逻辑缺自动化测试** —— 目前只有手工验证。三类判定（属主已死/存活/无标记）值得补进 `tests/execution-capsule.test.ts` 或新测试文件。
 3. **修重复自检**（见第 2 节）—— 用户在会话结束时被问到是否继续，尚未答复。
 4. **删掉验证时构造的两个目录** —— 它们按设计会被永久保留，需手动清：
@@ -119,7 +121,7 @@ gnome-shell 只认 systemd unit 的 `Result=oom-kill` 信号，不区分是整�
 
 下一个 agent 视任务调用：
 
-- **`code-review`** —— 提交前审查未提交的 `capsule-toolchain.ts` 改动。这段代码在删文件，值得一次针对性复核（尤其并发窗口与 pid 复用边界）。
+- **`code-review`** —— 原会话建议提交前审查 `capsule-toolchain.ts` 改动；该改动现已提交。这段代码在删文件，值得一次针对性复核（尤其并发窗口与 pid 复用边界）。
 - **`tdd`** —— 给回收逻辑补自动化测试（待办 2），三类判定场景清晰，适合测试先行。
 - **`diagnosing-bugs`** —— 仅当要处理 `tests/codex-app-server-host.test.ts` 那个 flaky。注意它与本次改动无关，已用 stash 对照排除。
 - **`codebase-design`** —— 若着手修重复自检（待办 3）。认证结果跨进程缓存涉及 `ExecutionCapsule` 的缓存作用域与生命周期接口，是模块边界问题。

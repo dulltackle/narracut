@@ -1,6 +1,6 @@
 # DSL 的权威副本在前端内存，Node 服务对 DSL 结构无知
 
-> **状态：Legacy，已由 [ADR-0008](./0008-project-vnext-normative-architecture.md) 整体替代。** Project VNext 在客户端提交前与服务端落盘前独立复核严格 DSL，以项目写入租约和原子提交协调持久状态；不继承“Node 不理解 DSL”或无并发写假设。
+> **状态：Legacy，已由 [ADR-0008](../../../adr/0008-project-vnext-normative-architecture.md) 整体替代。** Project VNext 在客户端提交前与服务端落盘前独立复核严格 DSL，以项目写入租约和原子提交协调持久状态；不继承“Node 不理解 DSL”或无并发写假设。
 
 多数人的直觉是把数据模型放在服务端。本项目反过来：**前端（Zustand）持有整个编辑模型，是编辑期的唯一权威；Node 服务对 `project.json` 只有「整份读」和「整份写」两个操作，不解析、不合并、不理解结构。** 理由是这是单用户、单窗口、无并发写的本地工具——服务端建模换不来任何东西，却会逼出两套 DSL 模型（Zod schema 跑两遍、前后端版本漂移）。由此得到一句能说清的边界：
 
@@ -41,6 +41,6 @@
   | POST | `/api/render` | body 是前端内存里的整份 DSL → 落快照 → 返回 Job |
   | GET | `/api/jobs/:id/events` | SSE 进度流 |
   | POST | `/api/jobs/:id/cancel` | 取消 |
-  | GET | `/media/<相对路径>` | 项目根映射，见 [ADR-0001](./0001-asset-addressing-via-local-static-server.md) |
+  | GET | `/media/<相对路径>` | 项目根映射，见 [ADR-0001](0001-asset-addressing-via-local-static-server.md) |
 
 - **TTS key 存应用安装目录的 `.env`，前端永远不接触它**。key 绝不进项目文件夹——项目要能整体打包给别人。将来有安装器时（应用目录可能只读）改读 `~/.config/narracut/`，那是一个函数的事。

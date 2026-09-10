@@ -14,7 +14,7 @@ Project VNext 采用一次破坏性架构切换：
 - Narracut Runtime 独占 Composition、Scene 时间与 Speech，隔离执行不可信项目代码；
 - 项目生命周期以身份、写入租约、原子提交和项目外恢复快照失败关闭。
 
-四个稳定边界分别由 [ADR-0009](./0009-separate-scene-content-and-render-program-authority.md)、[ADR-0010](./0010-use-one-candidate-and-immutable-render-program-revisions.md)、[ADR-0011](./0011-run-preview-and-render-from-one-isolated-bundle.md) 与 [ADR-0012](./0012-use-strict-identity-atomic-lifecycle-and-external-recovery.md) 记录。
+四个稳定边界分别由 [ADR-0009](0009-separate-scene-content-and-render-program-authority.md)、[ADR-0010](0010-use-one-candidate-and-immutable-render-program-revisions.md)、[ADR-0011](0011-run-preview-and-render-from-one-isolated-bundle.md) 与 [ADR-0012](0012-use-strict-identity-atomic-lifecycle-and-external-recovery.md) 记录。
 
 格式、接口、状态机、门禁、错误语义、资源限制和测试 seam 全部集中在 Project VNext 规范。领域上下文只定义词义，ADR 只解释为什么。
 
@@ -27,7 +27,7 @@ Project VNext 采用一次破坏性架构切换：
 
 ## Consequences
 
-- [`project-v1.md`](../spec/project-v1.md)、[`project-v2.md`](../spec/project-v2.md)、[`project-v3.md`](../spec/project-v3.md) 与文字 Preset 规格全部降为 Legacy。
+- [`project-v1.md`](../archive/legacy/spec/project-v1.md)、[`project-v2.md`](../archive/legacy/spec/project-v2.md)、[`project-v3.md`](../archive/legacy/spec/project-v3.md) 与文字 Preset 规格全部降为 Legacy。
 - 旧 ADR 覆盖关系固定如下：
 
   | 旧 ADR | VNext 状态 | 直接替代者 |
@@ -39,5 +39,5 @@ Project VNext 采用一次破坏性架构切换：
   | ADR-0005 | 整体替代 | ADR-0009 |
   | ADR-0006 | 整体替代 | ADR-0009 |
   | ADR-0007 | 整体替代 | ADR-0008 |
-- 现有代码仍是 Legacy 实现；文档状态不暗示 VNext 已实现，也不授权任何兼容或迁移路径。
-- 后续实现必须以公开工作台/CLI 到持久项目与最终 Render 的边界作为主要验收 seam。
+- VNext 已替代 Legacy 生产入口；实现与验收范围见[可移动项目验收](../portable-project-acceptance.md)和[补充验收收口记录](../project-vnext-acceptance-closure.md)。此决策不提供兼容或迁移路径。
+- 实现与后续变更必须以公开工作台/CLI 到持久项目与最终 Render 的边界作为主要验收 seam。

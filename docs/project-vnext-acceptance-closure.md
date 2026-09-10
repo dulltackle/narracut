@@ -230,4 +230,4 @@
 - [#74 验收记录](https://github.com/dulltackle/narracut/issues/74#issuecomment-5612689926)
 - [#91 验收记录](https://github.com/dulltackle/narracut/issues/91#issuecomment-5612690451)
 
-回读确认：31 个子任务全部以 completed 关闭，168 条验收条目已勾选，0 条未勾选。新增测试及本文当前在本地工作区，尚未提交；父票评论保存完整新增测试补丁。
+回读确认：31 个子任务全部以 completed 关闭，168 条验收条目已勾选，0 条未勾选。新增测试及本文已随提交 `3940981` 保存；父票评论另存新增测试补丁。
