@@ -1,10 +1,20 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { selectProjectDirectory } from '../plugins/narracut/src/directory-picker';
+import { selectProjectDirectory, selectWorkbenchPath } from '../plugins/narracut/src/directory-picker';
 import { handleRequest } from '../plugins/narracut/src/server';
 
 const { run } = vi.hoisted(() => ({ run: vi.fn() }));
 vi.mock('node:child_process', async importOriginal => ({ ...await importOriginal<typeof import('node:child_process')>(), execFile: run }));
 afterEach(() => vi.resetAllMocks());
+
+it('统一选择器返回多个 Asset 和单个恢复文件，取消保留空选择', async () => {
+  run.mockImplementation((_command, _args, _options, callback) => callback(null, '/tmp/素材 一.png\x1f/tmp/素材 二.mp4\n', ''));
+  expect(await selectWorkbenchPath({ kind: 'files' })).toEqual({ paths: ['/tmp/素材 一.png', '/tmp/素材 二.mp4'] });
+  run.mockImplementation((_command, _args, _options, callback) => callback(null, '/tmp/恢复.json\n', ''));
+  expect(await selectWorkbenchPath({ kind: 'file' })).toEqual({ path: '/tmp/恢复.json' });
+  run.mockImplementation((_command, _args, _options, callback) => callback(null, '', ''));
+  expect(await selectWorkbenchPath({ kind: 'files' })).toEqual({ paths: [] });
+  await expect(selectWorkbenchPath({ kind: 'directory', command: 'ignored' })).rejects.toThrow('种类无效');
+});
 
 it('工作台专用工具返回系统选择的中文和空格路径，不要求已有项目', async () => {
   run.mockImplementation((_command, _args, _options, callback) => callback(null, '/tmp/中文 项目\n', ''));

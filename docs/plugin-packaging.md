@@ -15,6 +15,8 @@ MCP 配置必须携带 Agent Plugins schema，并显式声明 `type: "stdio"`。
 
 此检查覆盖启动器与既有工作台入口，不替代 Preview、Render 和执行胶囊工具链的完整验收。
 
+构建还生成 `panel.mjs`，由插件 `narracut-workbench` 技能在当前对话启动，通过实际可用的 `open_in_codex` 打开右侧浏览器面板。展示、对话身份、失败重试与真实桌面验收边界见[工作台面板](workbench-panel.md)。共享 stdio 无法核实当前调用对话时只提供检查，写操作引导到已绑定的面板入口。
+
 ## 启动器宿主握手与目录窗口
 
 工作台使用 MCP Apps `2026-01-26` 的 `ui/initialize`，声明 `appCapabilities`，处理宿主响应后发送 `ui/notifications/initialized`，随后接收工具结果。旧实现遗漏就绪通知，并使用了错误的能力字段；只注入工具结果的测试掩盖了真实宿主中始终显示“连接中”、没有创建或打开入口的问题。协议依据：[MCP Apps 生命周期](https://apps.extensions.modelcontextprotocol.io/api/documents/overview.html)。初始化拒绝或超时会显示连接失败。

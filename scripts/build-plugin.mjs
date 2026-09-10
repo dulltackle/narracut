@@ -35,6 +35,8 @@ async function copyPackage(name, resolver, optional = false) {
 await copyPackage('sharp', require);
 await build({ entryPoints: ['plugins/narracut/src/server.ts'], bundle: true, platform: 'node', format: 'esm', outfile: join(root, 'server.mjs'),
   banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' } });
+await build({ entryPoints: ['plugins/narracut/src/panel-entry.ts'], bundle: true, platform: 'node', format: 'esm', outfile: join(root, 'panel.mjs'),
+  banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' } });
 // 兼容清单保留 Codex 的展示元数据；根清单启用可移植 MCP 配置解析。
 const { interface: presentation, mcpServers, ...identity } = JSON.parse(await readFile(join(root, '.codex-plugin/plugin.json'), 'utf8'));
 await writeFile(join(root, 'plugin.json'), JSON.stringify({ $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', ...identity }, null, 2) + '\n');

@@ -242,9 +242,14 @@
     return `<header class="project-rail">
       <div class="brand">Narracut</div>
       <div class="folder"><span class="folder-mark" aria-hidden="true"></span><span>${escapeHtml(project.folderName ?? "等待项目")}</span></div>
-      <div class="project-id"><strong>PROJECT ID</strong><span>${escapeHtml(project.projectId ?? "—")}</span></div>
+      <div class="project-id">${result?.conversation ? conversationDetails(result) : `<strong>PROJECT ID</strong><span>${escapeHtml(project.projectId ?? "—")}</span>`}</div>
       <div class="connection"><span class="lamp" data-status="${connected ? "connected" : "loading"}" aria-hidden="true"></span><span>${connected ? "连接正常" : "连接中"}</span></div>
     </header>`;
+  }
+
+  function conversationDetails(result) {
+    const conversation = result.conversation;
+    return `<details class="conversation-details"><summary>${conversation.status === 'bound' ? '已关联当前对话 · 查看详情' : '对话归属未确认 · 只读'}</summary><dl><dt>项目路径</dt><dd>${escapeHtml(result.project?.directory ?? '尚未选择项目')}</dd><dt>Project ID</dt><dd>${escapeHtml(result.project?.projectId ?? '—')}</dd><dt>Codex 对话</dt><dd>${escapeHtml(conversation.threadId ?? conversation.reason)}</dd></dl></details>`;
   }
 
   function tabs() {
@@ -256,6 +261,7 @@
   }
 
   function composer() {
+    if (state.result?.conversation) return `<footer class="conversation-footer" data-conversation-footer>${state.result.conversation.status === 'bound' ? '在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。' : escapeHtml(state.result.conversation.reason)}</footer>`;
     return `<footer class="composer" aria-label="创作草稿">
       <label class="composer-label" for="composer-draft">Composer</label>
       <div class="composer-field">
@@ -268,7 +274,7 @@
   }
 
   function launcherRail() {
-    return `<header class="launch-rail"><div class="brand">Narracut</div><div class="launch-title">项目启动台</div><div class="launch-connection"><span class="lamp" aria-hidden="true"></span><span>连接正常</span></div></header>`;
+    return `<header class="launch-rail"><div class="brand">Narracut</div><div class="launch-title">项目启动台</div><div class="launch-connection">${state.result?.conversation ? conversationDetails(state.result) : '<span class="lamp" aria-hidden="true"></span><span>连接正常</span>'}</div></header>`;
   }
 
   function validProjectName() {
@@ -1083,15 +1089,16 @@
     const result = state.result;
     const launcherMode = result?.status === "launcher";
     app.className = `app-shell${launcherMode ? " launcher-shell" : state.project ? " editing-shell" : ""}`;
+    app.classList.toggle('conversation-shell', !!result?.conversation && !launcherMode);
     bindings.abort();
     bindings = new AbortController();
     if (launcherMode) {
       app.innerHTML = `${launcherRail()}${launcher()}${launcherFooter()}`;
     } else {
-      if (!document.getElementById("composer-draft")) {
+      if ((!document.getElementById("composer-draft") && !document.querySelector('[data-conversation-footer]')) || (result?.conversation && document.getElementById('composer-draft'))) {
         app.innerHTML = `<div data-rail-region></div><div data-tabs-region></div><div data-workspace-region></div>${composer()}`;
         const draft = document.getElementById("composer-draft");
-        draft.addEventListener("input", () => { state.composerDraft = draft.value; state.composerRevision++; updateComposer(); });
+        draft?.addEventListener("input", () => { state.composerDraft = draft.value; state.composerRevision++; updateComposer(); });
       }
       updateRegion(document.querySelector("[data-rail-region]"), rail(result));
       updateRegion(document.querySelector("[data-tabs-region]"), tabs());
@@ -1112,6 +1119,12 @@
       updateWorkspaceVisibility();
     }
     bind();
+    if (launcherMode && result.conversation?.status === 'unavailable') {
+      app.querySelectorAll('button,input').forEach(control => { control.disabled = true; });
+      const footer = app.querySelector('.launch-footer');
+      footer.textContent = result.conversation.reason;
+      footer.setAttribute('role', 'status');
+    }
     updateComposer();
     if (state.focusTarget) {
       const target = state.focusTarget;

@@ -1,5 +1,5 @@
 import { RecoveryOperations } from '../../../src/server/project-restore';
-import { selectProjectDirectory } from './directory-picker';
+import { selectProjectDirectory, selectWorkbenchPath } from './directory-picker';
 import { RecoveryExportUncertain, RecoveryExports, type RecoveryCut, type RecoveryDraft } from '../../../src/server/project-recovery';
 import { changeProjectIdentity } from '../../../src/server/project-identity';
 import { copyProjectVNext } from '../../../src/server/project-copy';
@@ -44,15 +44,16 @@ import {
 const SERVER_VERSION = "0.1.0";
 const MCP_PROTOCOL_VERSION = "2025-06-18";
 const WORKBENCH_URI = "ui://narracut/workbench-v1.html";
+const bundledEntry = /\/(server|panel)\.mjs$/u.test(import.meta.url);
 const WORKBENCH_PATH = fileURLToPath(new URL(
-  import.meta.url.endsWith("/server.mjs") ? "./workbench.html" : "../workbench.html",
+  bundledEntry ? "./workbench.html" : "../workbench.html",
   import.meta.url,
 ));
 const WORKBENCH_SCRIPT_PATH = fileURLToPath(new URL(
-  import.meta.url.endsWith("/server.mjs") ? "./workbench.js" : "../workbench.js",
+  bundledEntry ? "./workbench.js" : "../workbench.js",
   import.meta.url,
 ));
-const ASSET_BASE = import.meta.url.endsWith("/server.mjs") ? "./assets/" : "../assets/";
+const ASSET_BASE = bundledEntry ? "./assets/" : "../assets/";
 const PAPER_TEXTURE_PATH = fileURLToPath(new URL(`${ASSET_BASE}contact-paper-texture.webp`, import.meta.url));
 const FILM_TEXTURE_PATH = fileURLToPath(new URL(`${ASSET_BASE}film-edge-texture.webp`, import.meta.url));
 const DISPLAY_FONT_PATH = fileURLToPath(new URL(`${ASSET_BASE}fonts/ubuntu-sans-display.woff2`, import.meta.url));
@@ -112,6 +113,20 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  {
+    name: 'select_workbench_path', title: '选择工作台文件或目录',
+    description: '仅响应工作台点击：用系统窗口选择 Asset、恢复文件或输出目录；只返回所选路径。',
+    inputSchema: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: { enum: ['directory', 'file', 'files'] } } },
+    outputSchema: { type: 'object' }, annotations: { ...readOnlyToolAnnotations, idempotentHint: false },
+    _meta: { ui: { visibility: ['app'] } },
+  },
+  {
+    name: 'get_workbench', title: '重新读取当前工作台',
+    description: '只读取当前会话已打开的工作台；展示重试不重新创建或打开项目。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    outputSchema: { type: 'object' }, annotations: readOnlyToolAnnotations,
+    _meta: { ui: { visibility: ['app'] } },
+  },
   {
     name: 'select_project_directory', title: '选择项目文件夹',
     description: '仅供工作台点击使用：打开本地系统文件夹窗口，只返回用户选定的目录；取消不创建或打开项目。',
@@ -601,12 +616,12 @@ async function loadWorkbench(): Promise<string> {
     readFile(PAPER_TEXTURE_PATH),
     readFile(FILM_TEXTURE_PATH),
     readFile(DISPLAY_FONT_PATH),
-    readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8"),
-    readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
-    readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-delivery.js" : "../workbench-delivery.js", import.meta.url), "utf8"),
-    readFile(new URL(import.meta.url.endsWith("/server.mjs") ? "./workbench-acceptance.js" : "../workbench-acceptance.js", import.meta.url), "utf8"),
-    readFile(new URL(import.meta.url.endsWith('/server.mjs') ? './workbench-render.js' : '../workbench-render.js', import.meta.url), 'utf8'),
-    readFile(new URL(import.meta.url.endsWith('/server.mjs') ? './workbench-restore.js' : '../workbench-restore.js', import.meta.url), 'utf8'),
+    readFile(new URL(bundledEntry ? "./workbench-preview.js" : "../workbench-preview.js", import.meta.url), "utf8"),
+    readFile(new URL(bundledEntry ? "./workbench-checks.js" : "../workbench-checks.js", import.meta.url), "utf8"),
+    readFile(new URL(bundledEntry ? "./workbench-delivery.js" : "../workbench-delivery.js", import.meta.url), "utf8"),
+    readFile(new URL(bundledEntry ? "./workbench-acceptance.js" : "../workbench-acceptance.js", import.meta.url), "utf8"),
+    readFile(new URL(bundledEntry ? './workbench-render.js' : '../workbench-render.js', import.meta.url), 'utf8'),
+    readFile(new URL(bundledEntry ? './workbench-restore.js' : '../workbench-restore.js', import.meta.url), 'utf8'),
   ]);
   const materialVariables = `@font-face{font-family:"Narracut Display";src:url("data:font/woff2;base64,${displayFont.toString("base64")}") format("woff2");font-style:normal;font-weight:100 800;font-stretch:75% 100%;font-display:block}:root{--paper-texture:url("data:image/webp;base64,${paperTexture.toString("base64")}");--film-texture:url("data:image/webp;base64,${filmTexture.toString("base64")}")}`;
   return html
@@ -915,6 +930,13 @@ class ProjectWorkspaceSession {
 
   serialize(inspection: ProjectVNextInspection, writable = true): Record<string, unknown> {
     return { ...serializeInspection(inspection, writable, this.credential(inspection.manifest.projectId)), candidate: this.#candidateStatus, creationTask: this.creation?.value ?? null, creationError: this.creationError, creationRecovery: this.creation?.recovery ?? null };
+  }
+
+  async snapshot(): Promise<Record<string, unknown>> {
+    if (!this.#opened) return { status: 'launcher', connection: launcherConnectionState() };
+    await this.checkIdentity();
+    const inspection = await inspectProjectVNext(this.#opened.inspection.projectDirectory);
+    return this.serialize(inspection, !this.#transferred && !this.#handoffPending);
   }
 
   async openWithChoice(projectDirectory: string, choice?: string): Promise<Record<string, unknown>> {
@@ -1397,6 +1419,14 @@ async function callTool(
     throw new Error("tools/call 缺少参数。");
   }
   const { name, arguments: argumentsValue } = params as { name?: unknown; arguments?: unknown };
+  if (name === 'select_workbench_path') {
+    try { return { structuredContent: await selectWorkbenchPath(argumentsValue), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { error: { code: 'HOST_FILE_PICKER_FAILED', message: (error as Error).message } }, content: [] }; }
+  }
+  if (name === 'get_workbench') {
+    try { return { structuredContent: await workspace.snapshot(), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { status: 'identity-lost', connection: connectedState(), error: { code: 'PROJECT_IDENTITY_LOST', message: (error as Error).message } }, content: [] }; }
+  }
   if (name === 'select_project_directory') {
     try { return { structuredContent: await selectProjectDirectory(argumentsValue), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: 'HOST_DIRECTORY_PICKER_FAILED', message: (error as Error).message } }, content: [] }; }
@@ -1456,13 +1486,13 @@ async function callTool(
   if (name === "health_check") {
     return {
       structuredContent: { status: "connected", server: "narracut", readOnly: false },
-      content: [{ type: "text", text: "Narracut 插件已连接；可原子创建、严格打开 Project VNext，并在表格工作区编辑 Scene。" }],
+      content: [{ type: "text", text: "Narracut 插件已连接；使用 narracut-workbench 技能在当前对话右侧打开完整工作台，核实对话后可创建、打开并编辑项目。" }],
     };
   }
   if (name === "show_launcher") {
     return {
       structuredContent: { status: "launcher", connection: launcherConnectionState() },
-      content: [{ type: "text", text: "Narracut 项目启动器已打开；请选择父目录创建项目，或选择现有 Project VNext 打开。" }],
+      content: [{ type: "text", text: "Narracut 启动器内容已准备；尚未确认右侧面板展示。请使用插件的 narracut-workbench 技能在当前对话右侧打开；展示失败时重试展示，不自动打开外部浏览器。" }],
     };
   }
   if (name === "create_project" || name === "open_project") {
@@ -1502,8 +1532,8 @@ async function callTool(
         content: [{
           type: "text",
           text: operation === "created"
-            ? `${basename(inspection.projectDirectory)} 已原子创建并打开，共 0 个 Scene。`
-            : `${basename(inspection.projectDirectory)} 已严格校验并打开。`,
+            ? `${basename(inspection.projectDirectory)} 已原子创建并取得工作区租约，共 0 个 Scene；面板展示需单独确认。`
+            : `${basename(inspection.projectDirectory)} 已严格校验并取得工作区租约；面板展示需单独确认。`,
         }],
       };
     } catch (error) {
@@ -2067,6 +2097,8 @@ export type NarracutRequestHandler = ((request: JsonRpcRequest) => Promise<unkno
 
 export function createNarracutRequestHandler(
   options: {
+    /** undefined 仅供内部测试；生产入口必须显式提供已核实的对话或 null。 */
+    conversation?: { threadId: string } | null;
     codexHost?: CodexHostAdapter;
     ttsFetch?: typeof fetch;
     probeSpeechDurationMs?: (path: string) => Promise<number>;
@@ -2086,16 +2118,37 @@ export function createNarracutRequestHandler(
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {}, resources: {} },
         serverInfo: { name: "narracut", version: SERVER_VERSION },
-        instructions: "只接触用户通过系统文件夹选择窗口或参数明确给出的目录。可以在不存在的目标原子创建 Project VNext，或严格打开有效项目；表格工作区只修改 Scene 与 Narration，Composer 可发起专用 Agent 创作任务，读取最新项目、原子修改唯一候选并检查交付；当前创作指令在表现上优先，但不能改写 Scene、Speech、时间与安全约束。Agent 不自动接受候选或发起最终 Render。",
+        instructions: "打开、创建项目或重试面板展示时使用 narracut-workbench 技能，在当前 Codex 对话右侧打开完整工作台；返回 MCP Apps 资源不代表面板已显示。只接触用户通过系统窗口或参数明确给出的目录。未核实当前调用对话时禁止写操作。创作目标使用当前 Codex 对话的 Composer，Scene 内容在表格工作区编辑；Agent 不自动接受候选或发起最终 Render。",
       };
     }
     case "ping": return {};
     case "tools/list": return { tools };
     case "tools/call": {
+      const name = (request.params as any)?.name;
+      const conversation = options.conversation === undefined ? undefined : options.conversation
+        ? { status: 'bound', threadId: options.conversation.threadId, source: 'CODEX_THREAD_ID' }
+        : { status: 'unavailable', threadId: null, reason: '无法确认当前 Codex 对话。请在当前对话使用 narracut-workbench 技能重新打开；身份核实前禁止写操作。' };
+      if (conversation?.status === 'unavailable' && !['health_check', 'show_launcher', 'get_workbench', 'inspect_project'].includes(name)) {
+        return { isError: true, content: [{ type: 'text', text: conversation.reason }], structuredContent: {
+          error: { code: 'HOST_CONVERSATION_UNAVAILABLE', message: conversation.reason }, conversation,
+        } };
+      }
       const operation = callTool(request.params, hostValidation, workspace);
-      if ((request.params as any)?.name === 'copy_project') return operation;
-      workspace.pendingOperations.add(operation);
-      try { return await operation; } finally { workspace.pendingOperations.delete(operation); }
+      const tracked = name !== 'copy_project';
+      if (tracked) workspace.pendingOperations.add(operation);
+      try {
+        const result = await operation;
+        if (conversation && name !== 'health_check') {
+          result.structuredContent.conversation = conversation;
+          const copiedWorkspace = result.structuredContent.workspace as Record<string, unknown> | undefined;
+          if (copiedWorkspace) copiedWorkspace.conversation = conversation;
+          if (conversation.status === 'unavailable') {
+            result.structuredContent.writable = false;
+            result.structuredContent.connection = connectedState();
+          }
+        }
+        return result;
+      } finally { if (tracked) workspace.pendingOperations.delete(operation); }
     }
     case "resources/list": return {
       resources: [{
@@ -2163,7 +2216,7 @@ async function handleLine(line: string, requestHandler: NarracutRequestHandler):
 }
 
 export async function startStdioServer(
-  requestHandler: NarracutRequestHandler = handleRequest,
+  requestHandler: NarracutRequestHandler = createNarracutRequestHandler({ conversation: null }),
 ): Promise<void> {
   let inputBuffer = "";
   process.stdin.setEncoding("utf8");
@@ -2182,4 +2235,4 @@ export async function startStdioServer(
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) await startStdioServer();
+if (process.argv[1] === fileURLToPath(import.meta.url) && !import.meta.url.endsWith("/panel.mjs")) await startStdioServer();

@@ -9360,6 +9360,10 @@ var require_semver2 = __commonJS({
   }
 });
 
+// plugins/narracut/src/workbench-panel.ts
+import { createServer as createServer3 } from "node:http";
+import { randomBytes as randomBytes4 } from "node:crypto";
+
 // src/server/project-restore.ts
 import { isDeepStrictEqual } from "node:util";
 import { randomUUID as randomUUID8 } from "node:crypto";
@@ -23914,17 +23918,17 @@ var metadataSchema = external_exports.object({
   requestId: uuid3.optional()
 }).strict();
 var hash2 = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-async function readCurrentPointer(project) {
-  await directory(join(project, ".narracut"));
-  return pointerSchema.parse(JSON.parse((await regular(join(project, ".narracut/current.json"), 16384)).toString()));
+async function readCurrentPointer(project2) {
+  await directory(join(project2, ".narracut"));
+  return pointerSchema.parse(JSON.parse((await regular(join(project2, ".narracut/current.json"), 16384)).toString()));
 }
-async function verifyRevision(project, id) {
+async function verifyRevision(project2, id) {
   uuid3.parse(id);
-  const pointer = await readCurrentPointer(project);
+  const pointer = await readCurrentPointer(project2);
   const ref = pointer.history?.find((item) => item.revisionId === id);
   if (!ref && id !== pointer.revisionId) throw new CandidateError("REVISION_NOT_RETAINED", "\u4FEE\u8BA2\u5DF2\u79FB\u51FA\u5386\u53F2\u3002");
-  await directory(join(project, ".narracut/revisions"));
-  const root = join(project, ".narracut/revisions", id);
+  await directory(join(project2, ".narracut/revisions"));
+  const root = join(project2, ".narracut/revisions", id);
   await directory(root);
   const bytes = await regular(join(root, "revision.json"), 1048576);
   const metadata = metadataSchema.parse(JSON.parse(bytes.toString()));
@@ -23933,30 +23937,30 @@ async function verifyRevision(project, id) {
   if (metadata.revisionId !== id || ref && (ref.metadata !== hash2(bytes) || ref.program !== program) || metadata.programFingerprint && metadata.programFingerprint !== program) throw new CandidateError("REVISION_INTEGRITY_FAILED", "\u4FEE\u8BA2\u5B57\u8282\u6216\u5143\u6570\u636E\u53D1\u751F\u53D8\u5316\uFF1B\u4E0D\u80FD\u4F7F\u7528\u635F\u574F\u4FEE\u8BA2\u3002");
   return { metadata, tree, ref: { revisionId: id, metadata: hash2(bytes), program, requestId: metadata.requestId } };
 }
-function createRevisionStore(project, assertWritable, observeCommit) {
-  const internal = join(project, ".narracut");
+function createRevisionStore(project2, assertWritable, observeCommit) {
+  const internal = join(project2, ".narracut");
   async function history() {
     await assertWritable();
-    const pointer = await readCurrentPointer(project);
-    const refs = pointer.history ?? [(await verifyRevision(project, pointer.revisionId)).ref];
+    const pointer = await readCurrentPointer(project2);
+    const refs = pointer.history ?? [(await verifyRevision(project2, pointer.revisionId)).ref];
     const revisions = await Promise.all(refs.map(async (ref) => {
       try {
-        return { ...(await verifyRevision(project, ref.revisionId)).metadata, current: ref.revisionId === pointer.revisionId, valid: true, error: null };
+        return { ...(await verifyRevision(project2, ref.revisionId)).metadata, current: ref.revisionId === pointer.revisionId, valid: true, error: null };
       } catch (error51) {
         return { revisionId: ref.revisionId, current: ref.revisionId === pointer.revisionId, valid: false, error: error51.message, requestId: ref.requestId ?? (ref.revisionId === pointer.revisionId ? pointer.consumed?.requestId : void 0), summary: "\u5DF2\u63A5\u53D7\u4FEE\u8BA2 \xB7 \u5B8C\u6574\u6027\u5931\u8D25" };
       }
     }));
-    const pendingPaths = [...pointer.consumed ? ["candidate", "checkpoint"].map((name) => join(project, pointer.consumed.generation, name)) : [], ...(pointer.pruned ?? []).map((id) => join(internal, "revisions", id))];
-    const taskCleanupPending = !!await endedTaskReason(project);
+    const pendingPaths = [...pointer.consumed ? ["candidate", "checkpoint"].map((name) => join(project2, pointer.consumed.generation, name)) : [], ...(pointer.pruned ?? []).map((id) => join(internal, "revisions", id))];
+    const taskCleanupPending = !!await endedTaskReason(project2);
     const cleanupPending = taskCleanupPending || (await Promise.all(pendingPaths.map((path) => lstat(path).then(() => true, (error51) => error51.code !== "ENOENT")))).some(Boolean);
     return { current: pointer.revisionId, limit: 20, revisions, cleanupPending, taskCleanupPending };
   }
   async function cleanup() {
     await assertWritable();
-    const pointer = await readCurrentPointer(project);
+    const pointer = await readCurrentPointer(project2);
     try {
       await syncDirectory(internal);
-      await cleanupEndedTask(project);
+      await cleanupEndedTask(project2);
       if (pointer.consumed) {
         const path = join(internal, "candidate.json");
         let bytes;
@@ -23983,12 +23987,12 @@ function createRevisionStore(project, assertWritable, observeCommit) {
         }
         let exists = true;
         try {
-          await directory(join(project, pointer.consumed.generation));
+          await directory(join(project2, pointer.consumed.generation));
         } catch (error51) {
           if (error51.code === "ENOENT") exists = false;
           else throw error51;
         }
-        if (exists) for (const name of ["candidate", "checkpoint"]) await rm(join(project, pointer.consumed.generation, name), { recursive: true, force: true });
+        if (exists) for (const name of ["candidate", "checkpoint"]) await rm(join(project2, pointer.consumed.generation, name), { recursive: true, force: true });
       }
       await directory(join(internal, "revisions"));
       for (const id of pointer.pruned ?? []) {
@@ -24002,8 +24006,8 @@ function createRevisionStore(project, assertWritable, observeCommit) {
   }
   async function accept(request2, tree, raw, state, validate) {
     if ((await cleanup()).cleanupPending) throw new CandidateError("ACCEPTANCE_CLEANUP_PENDING", "\u8BF7\u5148\u91CD\u8BD5\u4E0A\u6B21\u63A5\u53D7\u7684\u6E05\u7406\u3002");
-    const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project);
-    const previous = await verifyRevision(project, before.revisionId);
+    const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project2);
+    const previous = await verifyRevision(project2, before.revisionId);
     const id = randomUUID(), requestId = request2.requestId ?? randomUUID();
     const record3 = request2.acceptance;
     const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: state.sourceRevision, acceptedAt: (/* @__PURE__ */ new Date()).toISOString(), programFingerprint: identity(tree), briefFingerprint: record3.identity?.brief, inputFingerprint: record3.identity?.input, summary: request2.summary, source: request2.source, acceptance: request2.acceptance, requestId });
@@ -24020,13 +24024,13 @@ function createRevisionStore(project, assertWritable, observeCommit) {
       await syncDirectory(join(internal, "revisions"));
       if (identity(await readTree(join(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u53D1\u5E03\u4FEE\u8BA2\u6821\u9A8C\u5931\u8D25");
       const all = [{ revisionId: id, metadata: hash2(bytes), program: revision.programFingerprint, requestId }, ...before.history ?? [previous.ref]];
-      const taskCheckpoint = await taskCheckpointFingerprint(project);
+      const taskCheckpoint = await taskCheckpointFingerprint(project2);
       const next = pointerSchema.parse({ revisionId: id, history: all.slice(0, 20), pruned: all.slice(20).map((item) => item.revisionId), consumed: { pointer: hash2(raw), generation: state.candidate.path.replace(/\/candidate$/, ""), requestId, taskCheckpoint } });
       await writeBytes(temporary, Buffer.from(JSON.stringify(next)));
       await validate();
       await assertWritable();
       if (!beforeBytes.equals(await regular(join(internal, "current.json"), 16384))) throw new Error("\u5F53\u524D\u6307\u9488\u5728\u63D0\u4EA4\u524D\u53D1\u751F\u53D8\u5316");
-      await verifyRevision(project, before.revisionId);
+      await verifyRevision(project2, before.revisionId);
       if (!(await regular(join(root, "revision.json"), 1048576)).equals(bytes) || identity(await readTree(join(root, "render-program"))) !== revision.programFingerprint) throw new Error("\u5F85\u63D0\u4EA4\u4FEE\u8BA2\u5728\u590D\u6838\u671F\u95F4\u88AB\u6539\u5199");
       observeCommit?.(join(internal, "current.json"), Buffer.from(JSON.stringify(next)), false);
       await rename(temporary, join(internal, "current.json"));
@@ -24042,30 +24046,30 @@ function createRevisionStore(project, assertWritable, observeCommit) {
       if (!committed) await rm(root, { recursive: true, force: true }).catch(() => void 0);
     }
   }
-  return { history, cleanup, accept, verify: (id) => verifyRevision(project, id) };
+  return { history, cleanup, accept, verify: (id) => verifyRevision(project2, id) };
 }
-async function taskCheckpointFingerprint(project) {
+async function taskCheckpointFingerprint(project2) {
   try {
-    return hash2(await regular(join(project, ".narracut/agent-task.json"), 2e7));
+    return hash2(await regular(join(project2, ".narracut/agent-task.json"), 2e7));
   } catch (error51) {
     if (error51.code === "ENOENT") return void 0;
     throw error51;
   }
 }
-async function endedTaskReason(project) {
-  const fingerprint3 = await taskCheckpointFingerprint(project);
+async function endedTaskReason(project2) {
+  const fingerprint3 = await taskCheckpointFingerprint(project2);
   if (!fingerprint3) return null;
-  if ((await readCurrentPointer(project)).consumed?.taskCheckpoint === fingerprint3) return "CANDIDATE_ACCEPTED";
+  if ((await readCurrentPointer(project2)).consumed?.taskCheckpoint === fingerprint3) return "CANDIDATE_ACCEPTED";
   try {
-    const candidate = JSON.parse((await regular(join(project, ".narracut/candidate.json"), 4194304)).toString());
+    const candidate = JSON.parse((await regular(join(project2, ".narracut/candidate.json"), 4194304)).toString());
     if (candidate.candidate === null && candidate.checkpoint === null && candidate.taskCheckpoint === fingerprint3) return "CANDIDATE_ABANDONED";
   } catch (error51) {
     if (error51.code !== "ENOENT") throw error51;
   }
   return null;
 }
-async function cleanupEndedTask(project) {
-  if (await endedTaskReason(project)) await rm(join(project, ".narracut/agent-task.json"), { force: true });
+async function cleanupEndedTask(project2) {
+  if (await endedTaskReason(project2)) await rm(join(project2, ".narracut/agent-task.json"), { force: true });
 }
 
 // src/server/strict-json.ts
@@ -24409,8 +24413,8 @@ async function reclaimOrphanSnapshots() {
   const parent = tmpdir();
   for (const name of await readdir(parent).catch(() => [])) {
     if (!name.startsWith("narracut-toolchain-")) continue;
-    const directory2 = join2(parent, name);
-    const owner = Number(await readFile(join2(directory2, "owner.pid"), "utf8").catch(() => ""));
+    const directory3 = join2(parent, name);
+    const owner = Number(await readFile(join2(directory3, "owner.pid"), "utf8").catch(() => ""));
     if (!Number.isInteger(owner) || owner <= 0) continue;
     try {
       process.kill(owner, 0);
@@ -24418,7 +24422,7 @@ async function reclaimOrphanSnapshots() {
     } catch (error51) {
       if (error51.code !== "ESRCH") continue;
     }
-    await rm2(directory2, { recursive: true, force: true }).catch(() => {
+    await rm2(directory3, { recursive: true, force: true }).catch(() => {
     });
   }
 }
@@ -24764,19 +24768,19 @@ var ExecutionCapsule = class _ExecutionCapsule {
   async #execute(stage, inputs, entry, signal, download2, certificationLimits) {
     if (!this.#toolchain) throw failure("CAPSULE_UNAVAILABLE");
     const policy = certificationLimits ?? CAPSULE_POLICIES[stage];
-    const directory2 = await mkdtemp2(join3(tmpdir2(), "narracut-capsule-"));
+    const directory3 = await mkdtemp2(join3(tmpdir2(), "narracut-capsule-"));
     const unit = `narracut-capsule-${randomUUID2()}.service`;
     const controlEnv = { PATH: "/usr/bin:/bin", LC_ALL: "C", XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`, DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus` };
     const control = (...args) => exec2("/usr/bin/systemctl", ["--user", ...args], { env: controlEnv, timeout: 5e3, maxBuffer: 64 * 1024 });
     try {
-      const inputRoot = join3(directory2, "inputs");
+      const inputRoot = join3(directory3, "inputs");
       await mkdir3(inputRoot);
       for (const [path, bytes2] of Object.entries(inputs)) {
         const target = join3(inputRoot, path);
         await mkdir3(dirname2(target), { recursive: true });
         await writeFile2(target, bytes2, { mode: 292 });
       }
-      const supervisor = join3(directory2, "supervisor.mjs");
+      const supervisor = join3(directory3, "supervisor.mjs");
       await writeFile2(supervisor, CAPSULE_SUPERVISOR, { mode: 292 });
       const args = [
         "--user",
@@ -24959,7 +24963,7 @@ var ExecutionCapsule = class _ExecutionCapsule {
     } finally {
       await control("stop", unit).catch(() => void 0);
       await control("reset-failed", unit).catch(() => void 0);
-      await rm3(directory2, { recursive: true, force: true });
+      await rm3(directory3, { recursive: true, force: true });
     }
   }
 };
@@ -25603,10 +25607,10 @@ async function readTree(root) {
   }
   return tree;
 }
-async function readOffline(project, state) {
+async function readOffline(project2, state) {
   if (!state.offline) return void 0;
   if (!Array.isArray(state.offlineKeys) || state.offlineKeys.some((key) => !/^[0-9a-f]{128}$/.test(key)) || hash3(JSON.stringify([...new Set(state.offlineKeys)].sort())) !== state.offlineIdentity) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u79BB\u7EBF\u4F9D\u8D56\u7D22\u5F15\u65E0\u6548\u3002");
-  const root = join5(project, state.offline);
+  const root = join5(project2, state.offline);
   await directory(dirname4(root));
   const store = /* @__PURE__ */ new Map();
   const rawStore = /* @__PURE__ */ new Map();
@@ -25667,8 +25671,8 @@ async function syncDirectory(path) {
     await handle.close();
   }
 }
-async function createCandidateManager(project, assertWritable, observeCommit) {
-  const internal = join5(project, ".narracut");
+async function createCandidateManager(project2, assertWritable, observeCommit) {
+  const internal = join5(project2, ".narracut");
   const internalIdentity = await directory(internal);
   const pointer = join5(internal, "candidate.json");
   const assertCurrent = async () => {
@@ -25676,11 +25680,11 @@ async function createCandidateManager(project, assertWritable, observeCommit) {
     if (await directory(internal) !== internalIdentity) fail4("PROJECT_IDENTITY_LOST", "\u9879\u76EE\u5185\u90E8\u76EE\u5F55\u8EAB\u4EFD\u53D8\u5316\uFF1B\u5DF2\u505C\u6B62\u5019\u9009\u5199\u5165\u3002");
   };
   async function currentRevision() {
-    const value = await readCurrentPointer(project);
+    const value = await readCurrentPointer(project2);
     if (!/^[0-9a-f-]{36}$/i.test(value.revisionId)) throw new Error("\u5F53\u524D\u4FEE\u8BA2\u8EAB\u4EFD\u65E0\u6548");
     return value.revisionId;
   }
-  const revisions = createRevisionStore(project, assertCurrent, observeCommit);
+  const revisions = createRevisionStore(project2, assertCurrent, observeCommit);
   async function pointerBytes() {
     try {
       return await regular(pointer, 4 * 1024 * 1024);
@@ -25700,21 +25704,21 @@ async function createCandidateManager(project, assertWritable, observeCommit) {
       if (raw === null) return { view: { status: "absent", sourceRevision, baseline: hash3("absent"), candidate: null, checkpoint: null }, state: null, raw };
       const parsed = JSON.parse(raw.toString());
       if (parsed.version !== 1 || !/^[0-9a-f-]{36}$/i.test(parsed.sourceRevision) || !(parsed.candidate === null || refValid(parsed.candidate)) || !(parsed.checkpoint === null || refValid(parsed.checkpoint) && dirname4(parsed.checkpoint.path) === dirname4(parsed.candidate?.path ?? "") && parsed.checkpoint.path.endsWith("/checkpoint")) || parsed.candidate !== null && !parsed.candidate.path.endsWith("/candidate") || parsed.candidate === null && parsed.checkpoint !== null || parsed.offline !== void 0 && !/^\.narracut\/candidate-[0-9a-f-]{36}\/dependencies$/.test(parsed.offline)) throw new Error("\u5019\u9009\u6307\u9488\u5B8C\u6574\u6027\u65E0\u6548");
-      const accepted = await readCurrentPointer(project);
+      const accepted = await readCurrentPointer(project2);
       if (accepted.consumed?.pointer === hash3(raw)) {
         parsed.candidate = null;
         parsed.checkpoint = null;
       }
       state = parsed;
-      const offline = await readOffline(project, state);
+      const offline = await readOffline(project2, state);
       if (!state.candidate) return { raw, state, offline, view: { status: "absent", ...offline && !offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u4FDD\u7559\u79BB\u7EBF\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u5148\u663E\u5F0F\u521B\u5EFA\u5019\u9009\uFF0C\u518D\u534F\u8C03\u4FEE\u590D\u3002" } } : {}, sourceRevision, baseline: hash3(JSON.stringify([hash3(raw), offline?.signature ?? null])), candidate: null, checkpoint: null, ...state.offline ? { offline: state.offline } : {} } };
-      await directory(dirname4(join5(project, state.candidate.path)));
-      const tree = await readTree(join5(project, state.candidate.path));
+      await directory(dirname4(join5(project2, state.candidate.path)));
+      const tree = await readTree(join5(project2, state.candidate.path));
       const treeId = identity(tree);
       let checkpointId = null;
       if (state.checkpoint) {
-        await directory(dirname4(join5(project, state.checkpoint.path)));
-        checkpointId = identity(await readTree(join5(project, state.checkpoint.path)));
+        await directory(dirname4(join5(project2, state.checkpoint.path)));
+        checkpointId = identity(await readTree(join5(project2, state.checkpoint.path)));
         if (checkpointId !== state.checkpoint.identity) throw new Error("\u6062\u590D\u68C0\u67E5\u70B9\u5B57\u8282\u53D1\u751F\u53D8\u5316");
       }
       const external = treeId !== state.candidate.identity;
@@ -25751,7 +25755,7 @@ async function createCandidateManager(project, assertWritable, observeCommit) {
       await assertCurrent();
       if (!(await pointerBytes())?.equals(before.raw ?? Buffer.alloc(0))) fail4("EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED", "\u5019\u9009\u6307\u9488\u5DF2\u53D8\u5316\uFF0C\u672A\u653E\u5F03\u3002");
       {
-        const taskCheckpoint = await taskCheckpointFingerprint(project);
+        const taskCheckpoint = await taskCheckpointFingerprint(project2);
         const tombstone = Buffer.from(JSON.stringify({ version: 1, sourceRevision: before.view.sourceRevision, ...before.state, candidate: null, checkpoint: null, taskCheckpoint }));
         const temporary = join5(internal, `discard-${randomUUID3()}.json`);
         try {
@@ -25767,8 +25771,8 @@ async function createCandidateManager(project, assertWritable, observeCommit) {
           await rm4(temporary, { force: true }).catch(() => void 0);
         }
         await syncDirectory(internal).catch(() => void 0);
-        await cleanupEndedTask(project).catch(() => void 0);
-        for (const ref of [before.state?.candidate, before.state?.checkpoint]) if (ref) await rm4(join5(project, ref.path), { recursive: true, force: true }).catch(() => void 0);
+        await cleanupEndedTask(project2).catch(() => void 0);
+        for (const ref of [before.state?.candidate, before.state?.checkpoint]) if (ref) await rm4(join5(project2, ref.path), { recursive: true, force: true }).catch(() => void 0);
         return { status: "absent", baseline: hash3(JSON.stringify([hash3(tombstone), before.offline?.signature ?? null])), sourceRevision: before.view.sourceRevision, candidate: null, checkpoint: null, ...before.state?.offline ? { offline: before.state.offline } : {} };
       }
     }
@@ -25797,7 +25801,7 @@ async function createCandidateManager(project, assertWritable, observeCommit) {
         const retained = await readTree(join5(internal, "revisions", revision, "render-program"));
         retainedLocks.push(retained.get("pnpm-lock.yaml"));
       }
-      if (before.state?.checkpoint) retainedLocks.push((await readTree(join5(project, before.state.checkpoint.path))).get("pnpm-lock.yaml"));
+      if (before.state?.checkpoint) retainedLocks.push((await readTree(join5(project2, before.state.checkpoint.path))).get("pnpm-lock.yaml"));
       const update = await coordinateDependencies(before.tree.get("package.json"), before.tree.get("pnpm-lock.yaml"), offline ?? /* @__PURE__ */ new Map(), request2, retainedLocks, before.state?.offlineKeys);
       if (before.state?.offlineKeys?.some((key) => !update.store.has(key))) fail4("DEPENDENCY_INTEGRITY_FAILED", "\u4ECD\u6709\u4FDD\u7559\u79BB\u7EBF\u5305\u65E0\u6CD5\u4FEE\u590D\uFF1B\u8BF7\u63D0\u4F9B\u5176\u7CBE\u786E\u7248\u672C\u548C\u6458\u8981\u3002");
       next = new Map(before.tree);
@@ -25827,7 +25831,7 @@ async function createCandidateManager(project, assertWritable, observeCommit) {
       }
     }
     const generation = `.narracut/candidate-${randomUUID3()}`;
-    const root = join5(project, generation);
+    const root = join5(project2, generation);
     let committed = false;
     try {
       await assertCurrent();
@@ -25859,7 +25863,7 @@ async function createCandidateManager(project, assertWritable, observeCommit) {
       observeCommit?.(pointer, bytes, true);
       committed = true;
       await syncDirectory(internal).catch(() => void 0);
-      if (before.state?.candidate || before.state?.offline) await rm4(dirname4(join5(project, before.state.candidate?.path ?? before.state.offline)), { recursive: true, force: true }).catch(() => void 0);
+      if (before.state?.candidate || before.state?.offline) await rm4(dirname4(join5(project2, before.state.candidate?.path ?? before.state.offline)), { recursive: true, force: true }).catch(() => void 0);
       return {
         status: request2.action === "create" && before.offline && !before.offline.intact ? "integrity-failed" : "saved",
         ...request2.action === "create" && before.offline && !before.offline.intact ? { error: { code: "DEPENDENCY_INTEGRITY_FAILED", message: "\u79BB\u7EBF\u4F9D\u8D56\u5E93\u7F3A\u5305\u6216\u635F\u574F\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4FEE\u590D\uFF0C\u666E\u901A\u64CD\u4F5C\u4E0D\u4F1A\u8865\u5305\u3002" } } : {},
@@ -26056,11 +26060,11 @@ async function writeProjectTtsConfig(projectDirectory, input, assertWritable = a
     await rename3(temporaryPath, path);
     committed = true;
     try {
-      const directory2 = await open2(dirname5(path), "r");
+      const directory3 = await open2(dirname5(path), "r");
       try {
-        await directory2.sync();
+        await directory3.sync();
       } finally {
-        await directory2.close();
+        await directory3.close();
       }
     } catch {
     }
@@ -26603,10 +26607,10 @@ function validateProjectVNextForSave(value, projectPath = "project.json") {
   if (validation.project === void 0) {
     throw invalidContent(projectPath, validation.diagnostics);
   }
-  const project = validation.project;
+  const project2 = validation.project;
   const bytes = Buffer.from(JSON.stringify({
-    assets: project.assets.map((asset) => ({ id: asset.id, path: asset.path })),
-    scenes: project.scenes.map((scene) => ({
+    assets: project2.assets.map((asset) => ({ id: asset.id, path: asset.path })),
+    scenes: project2.scenes.map((scene) => ({
       id: scene.id,
       narration: { text: scene.narration.text },
       assetIds: [...scene.assetIds],
@@ -26621,7 +26625,7 @@ function validateProjectVNextForSave(value, projectPath = "project.json") {
       }
     }))
   }), "utf8");
-  return { project, bytes };
+  return { project: project2, bytes };
 }
 function decodeUtf8(bytes, path, component2, allowBom) {
   if (!allowBom && bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) {
@@ -26823,9 +26827,9 @@ async function validateOrdinaryResource(projectDirectory, relativePath, required
     }
   }
 }
-async function validateProjectVNextResources(projectDirectory, project, options = {}) {
+async function validateProjectVNextResources(projectDirectory, project2, options = {}) {
   const assetStates = [];
-  for (const asset of project.assets) {
+  for (const asset of project2.assets) {
     const path = join7(projectDirectory, asset.path);
     await validateOrdinaryResource(projectDirectory, asset.path, false);
     let facts;
@@ -26860,12 +26864,12 @@ async function validateProjectVNextResources(projectDirectory, project, options 
   }
   const speech = await inspectProjectSpeech(
     projectDirectory,
-    project.scenes,
+    project2.scenes,
     options.currentTtsProfileId,
     { probeDurationMs: options.probeSpeechDurationMs }
   );
   const speechWarnings = speech.states.filter((state) => state.status !== "available" && state.status !== "missing").map((state, index) => {
-    const sceneIndex = project.scenes.findIndex((scene) => scene.id === state.sceneId);
+    const sceneIndex = project2.scenes.findIndex((scene) => scene.id === state.sceneId);
     const code = {
       available: "",
       missing: "PROJECT_SPEECH_MISSING",
@@ -26892,8 +26896,8 @@ async function validateProjectVNextResources(projectDirectory, project, options 
     })), ...speechWarnings])
   };
 }
-async function readStableDirectory(directory2) {
-  const entries = await readdir4(directory2, { withFileTypes: true });
+async function readStableDirectory(directory3) {
+  const entries = await readdir4(directory3, { withFileTypes: true });
   entries.sort((left, right) => compareStableText(left.name, right.name));
   return entries;
 }
@@ -26916,27 +26920,27 @@ async function discoverRenderProgramDirectories(projectDirectory) {
   const programs = [];
   let directoriesVisited = 0;
   while (stack.length > 0) {
-    const { directory: directory2, depth } = stack.pop();
+    const { directory: directory3, depth } = stack.pop();
     directoriesVisited += 1;
     if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
-      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+      throw directoryTreeLimit(projectDirectory, directory3, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
     }
     let entries;
     try {
-      entries = await readStableDirectory(directory2);
+      entries = await readStableDirectory(directory3);
     } catch (cause) {
       throw new ProjectInspectionError(
         "PROJECT_PATH_UNAVAILABLE",
-        directory2,
-        `\u65E0\u6CD5\u68C0\u67E5\u9879\u76EE\u5185\u5BB9\u76EE\u5F55 ${directory2}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
+        directory3,
+        `\u65E0\u6CD5\u68C0\u67E5\u9879\u76EE\u5185\u5BB9\u76EE\u5F55 ${directory3}\uFF1B\u8BF7\u68C0\u67E5\u6743\u9650\u540E\u91CD\u8BD5\u3002`,
         [],
         { cause }
       );
     }
     for (const entry of [...entries].reverse()) {
-      if (directory2 === projectDirectory && excludedRoots.has(entry.name)) continue;
+      if (directory3 === projectDirectory && excludedRoots.has(entry.name)) continue;
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) continue;
-      const path = join7(directory2, entry.name);
+      const path = join7(directory3, entry.name);
       const facts = await lstat4(path);
       if (facts.isSymbolicLink() || !facts.isDirectory()) continue;
       const childDepth = depth + 1;
@@ -27001,13 +27005,13 @@ async function validateRenderProgramDirectory(projectDirectory, programDirectory
   const stack = [{ directory: programDirectory, depth: 0 }];
   let directoriesVisited = 0;
   while (stack.length > 0) {
-    const { directory: directory2, depth } = stack.pop();
+    const { directory: directory3, depth } = stack.pop();
     directoriesVisited += 1;
     if (directoriesVisited > MAX_DIRECTORY_TREE_DIRECTORIES) {
-      throw directoryTreeLimit(projectDirectory, directory2, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
+      throw directoryTreeLimit(projectDirectory, directory3, "directories", directoriesVisited, MAX_DIRECTORY_TREE_DIRECTORIES);
     }
-    for (const entry of [...await readStableDirectory(directory2)].reverse()) {
-      const path = join7(directory2, entry.name);
+    for (const entry of [...await readStableDirectory(directory3)].reverse()) {
+      const path = join7(directory3, entry.name);
       const component2 = relative(projectDirectory, path);
       if (["node_modules", ".cache", "bundle"].includes(entry.name)) {
         throw invalidResource(path, component2, `Render Program \u4E0D\u5F97\u643A\u5E26 ${entry.name} \u6D3E\u751F\u4EA7\u7269\uFF1B\u8BF7\u5C06\u5176\u79FB\u51FA\u9879\u76EE\u3002`);
@@ -28448,11 +28452,11 @@ async function atomicProjectFile(projectFile, bytes, assertWritable, observeComm
     observeCommit?.(projectFile, bytes, true);
     committed = true;
     try {
-      const directory2 = await openFile(dirname7(projectFile), "r");
+      const directory3 = await openFile(dirname7(projectFile), "r");
       try {
-        await directory2.sync();
+        await directory3.sync();
       } finally {
-        await directory2.close();
+        await directory3.close();
       }
     } catch {
     }
@@ -28635,7 +28639,7 @@ async function openProjectVNext(inputPath, options = {}) {
           );
         }
       };
-      const saveProject = (project, baselineRevision) => {
+      const saveProject = (project2, baselineRevision) => {
         if (closing) {
           return Promise.reject(new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -28657,7 +28661,7 @@ async function openProjectVNext(inputPath, options = {}) {
                 "project.json \u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF1BNarracut \u5DF2\u505C\u6B62\u81EA\u52A8\u4FDD\u5B58\uFF0C\u4E0D\u4F1A\u8986\u76D6\u78C1\u76D8\u5185\u5BB9\u3002"
               );
             }
-            const validated = validateProjectVNextForSave(project, projectFile);
+            const validated = validateProjectVNextForSave(project2, projectFile);
             assertWorkbenchMutation(currentInspection.project, validated.project, projectFile);
             const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
               projectDirectory,
@@ -28957,12 +28961,12 @@ async function openProjectVNext(inputPath, options = {}) {
               if (!published) throw new Error("\u65E0\u6CD5\u4E3A Asset \u5206\u914D\u552F\u4E00\u9879\u76EE\u8DEF\u5F84\u3002");
               await assertAssetsDirectoryCurrent();
               await unlink(temporaryPath);
-              const project = structuredClone(currentInspection.project);
-              project.assets.push(asset);
-              const targetScene = input.targetSceneId === void 0 ? void 0 : project.scenes.find((scene) => scene.id === input.targetSceneId);
+              const project2 = structuredClone(currentInspection.project);
+              project2.assets.push(asset);
+              const targetScene = input.targetSceneId === void 0 ? void 0 : project2.scenes.find((scene) => scene.id === input.targetSceneId);
               const bound = targetScene !== void 0 && targetScene.assetIds.length < 256;
               if (bound) targetScene.assetIds.push(asset.id);
-              const validated = validateProjectVNextForSave(project, projectFile);
+              const validated = validateProjectVNextForSave(project2, projectFile);
               const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
                 projectDirectory,
                 validated.project,
@@ -29051,9 +29055,9 @@ async function openProjectVNext(inputPath, options = {}) {
               "project.json \u5728\u5EFA\u7ACB TTS \u914D\u7F6E\u56DE\u6EDA\u951A\u70B9\u65F6\u53D1\u751F\u53D8\u5316\uFF1BNarracut \u62D2\u7EDD\u8986\u76D6\u3002"
             );
           }
-          const project = structuredClone(currentInspection.project);
+          const project2 = structuredClone(currentInspection.project);
           let affectedSpeechCount = 0;
-          for (const scene of project.scenes) {
+          for (const scene of project2.scenes) {
             if (scene.speech !== void 0 && scene.speech.ttsProfileId !== nextProfileId) {
               affectedSpeechCount += 1;
               delete scene.speech;
@@ -29062,7 +29066,7 @@ async function openProjectVNext(inputPath, options = {}) {
           if (affectedSpeechCount !== input.expectedAffectedSpeechCount) {
             throw new ProjectTtsConfirmationError(affectedSpeechCount);
           }
-          const validated = validateProjectVNextForSave(project, projectFile);
+          const validated = validateProjectVNextForSave(project2, projectFile);
           const previousProjectRevision = currentInspection.projectRevision;
           const nextRevision = revisionOf(validated.bytes);
           const resourceValidation = await validateProjectVNextResources(
@@ -29245,8 +29249,8 @@ async function openProjectVNext(inputPath, options = {}) {
             if (input.isCancelled?.()) throw new Error("Speech \u751F\u6210\u5DF2\u7ECF\u53D6\u6D88\u3002");
             await rename5(temporaryFile, finalFile);
             published = true;
-            const project = structuredClone(currentInspection.project);
-            const target = project.scenes.find((candidate2) => candidate2.id === scene.id);
+            const project2 = structuredClone(currentInspection.project);
+            const target = project2.scenes.find((candidate2) => candidate2.id === scene.id);
             target.speech = {
               path: `speech/${scene.id}.mp3`,
               durationMs: input.durationMs,
@@ -29256,7 +29260,7 @@ async function openProjectVNext(inputPath, options = {}) {
             };
             const projectFile = join10(projectDirectory, "project.json");
             const baselineRevision = currentInspection.projectRevision;
-            const validated = validateProjectVNextForSave(project, projectFile);
+            const validated = validateProjectVNextForSave(project2, projectFile);
             const { assetStates, speechStates, timeline, warnings } = await validateProjectVNextResources(
               projectDirectory,
               validated.project,
@@ -29630,9 +29634,9 @@ async function planRecovery(snapshotPath, sourcePath, briefResult) {
   const local2 = textPayload(snapshot.payload.briefLocal), base = textPayload(snapshot.payload.briefBase);
   const brief = { local: local2, base, conflict: false, decision: local2 === void 0 ? "source" : "local" };
   let dslBytes = snapshot.payload.dsl?.bytes ?? 0, matched = {};
-  const collect = async (path, action) => {
+  const collect = async (path, action2) => {
     try {
-      await action();
+      await action2();
     } catch (error51) {
       const diagnostics = error51.diagnostics;
       if (diagnostics?.length) for (const diagnostic2 of diagnostics) blockers.push(problem({ ...diagnostic2, path: join12(source, diagnostic2.component ?? "") }, path));
@@ -29679,8 +29683,8 @@ async function planRecovery(snapshotPath, sourcePath, briefResult) {
     }
   });
   if (snapshot.payload.dsl) await collect(join12(source, "project.json"), async () => {
-    const project = validateProjectVNextForSave(parseStrictJson(textPayload(snapshot.payload.dsl), PROJECT_JSON_LIMITS)).project;
-    await validateProjectVNextResources(source, project);
+    const project2 = validateProjectVNextForSave(parseStrictJson(textPayload(snapshot.payload.dsl), PROJECT_JSON_LIMITS)).project;
+    await validateProjectVNextResources(source, project2);
   });
   if (!snapshot.payload.dsl) await collect(join12(source, "project.json"), async () => {
     dslBytes = (await lstat8(join12(source, "project.json"))).size;
@@ -31406,7 +31410,7 @@ var CreationTask = class {
     await this.delivery.operate(this.opened, {
       action: "describe",
       deliveryId: current.id,
-      report: { goal: this.#state.instruction, summary: answer.summary, warnings: [.../* @__PURE__ */ new Set([...answer.warnings, ...snapshot.input.scenes.length === 0 ? ["\u6CA1\u6709\u53EF\u64AD\u653E Scene\uFF1B\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u6DFB\u52A0 Scene\u3002"] : snapshot.input.scenes.some((scene) => scene.time.source === "draft") ? ["\u7F3A\u5C11 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u4E0D\u80FD\u7528\u4E8E\u6700\u7EC8 Render\u3002"] : []])], suggestions: answer.suggestions.filter((item) => !item.required).map(({ sceneId, observation, action, content, reason }) => ({ sceneId, observation, action, content, reason })) }
+      report: { goal: this.#state.instruction, summary: answer.summary, warnings: [.../* @__PURE__ */ new Set([...answer.warnings, ...snapshot.input.scenes.length === 0 ? ["\u6CA1\u6709\u53EF\u64AD\u653E Scene\uFF1B\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u6DFB\u52A0 Scene\u3002"] : snapshot.input.scenes.some((scene) => scene.time.source === "draft") ? ["\u7F3A\u5C11 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u4E0D\u80FD\u7528\u4E8E\u6700\u7EC8 Render\u3002"] : []])], suggestions: answer.suggestions.filter((item) => !item.required).map(({ sceneId, observation, action: action2, content, reason }) => ({ sceneId, observation, action: action2, content, reason })) }
     });
     await this.#fresh();
     this.#state.pending = null;
@@ -35108,8 +35112,164 @@ async function startStdioServer(requestHandler = createNarracutRequestHandler({ 
   }
 }
 if (process.argv[1] === fileURLToPath3(import.meta.url) && !import.meta.url.endsWith("/panel.mjs")) await startStdioServer();
-export {
-  createNarracutRequestHandler,
-  handleRequest,
-  startStdioServer
-};
+
+// plugins/narracut/src/workbench-panel.ts
+var URI = "ui://narracut/workbench-v1.html";
+async function startWorkbenchPanel(options = {}) {
+  const threadId = options.threadId?.trim() || null;
+  const handler = createNarracutRequestHandler({ conversation: threadId ? { threadId } : null });
+  const conversation = threadId ? { status: "bound", threadId, source: "CODEX_THREAD_ID" } : { status: "unavailable", threadId: null };
+  const token = randomBytes4(32).toString("hex");
+  let origin = "";
+  const prefix = `/${token}/`;
+  const call = async (request2) => {
+    if (request2.method !== "tools/call") throw new Error("\u9762\u677F\u53EA\u63A5\u53D7\u5DE5\u4F5C\u53F0\u5DE5\u5177\u8C03\u7528\u3002");
+    return handler(request2);
+  };
+  const server = createServer3(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    try {
+      if (req.headers.host !== new URL(origin).host || !req.url?.startsWith(prefix)) {
+        res.writeHead(404).end();
+        return;
+      }
+      const route = req.url.slice(prefix.length);
+      if (req.method === "GET" && route === "") {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.end(panelHtml());
+        return;
+      }
+      if (req.method === "GET" && route === "view") {
+        const resource = await handler({ jsonrpc: "2.0", id: 1, method: "resources/read", params: { uri: URI } });
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.end(resource.contents[0].text.replace("</head>", `${pickerBridge()}</head>`));
+        return;
+      }
+      if (req.method === "GET" && route === "state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify(await call({ id: 1, method: "tools/call", params: { name: "get_workbench", arguments: {} } })));
+        return;
+      }
+      if (req.method !== "POST" || route !== "rpc") {
+        res.writeHead(404).end();
+        return;
+      }
+      if (req.headers.origin !== origin || req.headers["content-type"] !== "application/json") {
+        res.writeHead(403).end();
+        return;
+      }
+      const chunks = [];
+      let bytes = 0;
+      for await (const chunk of req) {
+        bytes += chunk.length;
+        if (bytes > 256 * 1024 * 1024) {
+          res.writeHead(413).end();
+          return;
+        }
+        chunks.push(chunk);
+      }
+      const request2 = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const result = await call(request2);
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: request2.id, result }));
+    } catch (error51) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: { message: error51 instanceof Error ? error51.message : "\u5DE5\u4F5C\u53F0\u8BF7\u6C42\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002" } }));
+    }
+  });
+  try {
+    await new Promise((resolve6, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        server.off("error", reject);
+        resolve6();
+      });
+    });
+  } catch (error51) {
+    await handler.dispose();
+    throw error51;
+  }
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("\u672C\u5730\u9762\u677F\u672A\u8FD4\u56DE\u76D1\u542C\u5730\u5740\u3002");
+  origin = `http://127.0.0.1:${address.port}`;
+  return {
+    url: `${origin}${prefix}`,
+    conversation,
+    status: "prepared",
+    close: async () => {
+      await new Promise((resolve6, reject) => server.close((error51) => error51 ? reject(error51) : resolve6()));
+      await handler.dispose();
+    }
+  };
+}
+function pickerBridge() {
+  return `<script>
+(()=>{let id=0;const pending=new Map();
+window.addEventListener('message',event=>{if(event.source!==parent||event.origin!==location.origin)return;const m=event.data,entry=pending.get(m?.id);if(!entry)return;pending.delete(m.id);clearTimeout(entry.timer);const failure=m.error??(m.result?.isError?m.result.structuredContent?.error:null);if(failure)entry.reject(new Error(failure.message));else entry.resolve(m.result?.structuredContent);});
+function pick(kind,options){return new Promise((resolve,reject)=>{const key='picker-'+(++id),project=kind==='directory'&&['create-parent','open-project'].includes(options?.purpose);const timer=setTimeout(()=>{pending.delete(key);reject(new Error('\u7CFB\u7EDF\u9009\u62E9\u7A97\u53E3\u8D85\u65F6\uFF0C\u8BF7\u91CD\u8BD5\u3002'));},330000);pending.set(key,{resolve,reject,timer});parent.postMessage({jsonrpc:'2.0',id:key,method:'tools/call',params:{name:project?'select_project_directory':'select_workbench_path',arguments:project?{purpose:options.purpose}:{kind}}},location.origin);});}
+window.openai={selectDirectory:options=>pick('directory',options),selectFile:options=>pick('file',options),selectFiles:options=>pick('files',options)};
+})();
+</script>`;
+}
+function panelHtml() {
+  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Narracut \u5DE5\u4F5C\u53F0</title>
+<style>html,body{margin:0;height:100%;background:#090d0e;color:#f1f3eb;font-family:"Noto Sans SC",sans-serif}iframe{display:block;border:0;width:100%;height:100dvh}#feedback{position:fixed;inset:0;display:grid;place-content:center;padding:24px;background:#0d1213}#feedback[hidden]{display:none}h1{font-size:22px}p{max-width:65ch;line-height:1.75;overflow-wrap:anywhere}button{justify-self:start;min-height:44px;padding:8px 16px;border:1px solid #9dbcf0;border-radius:6px;background:#245da9;color:white;font-size:16px;cursor:pointer}button:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}</style>
+<iframe title="Narracut \u5B8C\u6574\u5DE5\u4F5C\u53F0"></iframe><section id="feedback" role="status"><h1>\u6B63\u5728\u8FDE\u63A5\u5DE5\u4F5C\u53F0</h1><p id="reason">\u6B63\u5728\u6838\u5BF9\u5F53\u524D\u5BF9\u8BDD\u4E0E\u9879\u76EE\u72B6\u6001\u2026</p><button id="retry" hidden>\u91CD\u8BD5\u663E\u793A\u5DE5\u4F5C\u53F0</button></section>
+<script>
+const frame=document.querySelector('iframe'), feedback=document.getElementById('feedback'), reason=document.getElementById('reason'), retry=document.getElementById('retry');
+let timer;
+function failed(message){clearTimeout(timer);feedback.hidden=false;feedback.querySelector('h1').textContent='\u5DE5\u4F5C\u53F0\u672A\u80FD\u663E\u793A';reason.textContent=message+' \u5DF2\u5C31\u7EEA\u7684\u9879\u76EE\u4F1A\u4FDD\u7559\uFF1B\u91CD\u8BD5\u53EA\u91CD\u65B0\u8BFB\u53D6\u5DE5\u4F5C\u53F0\u3002';retry.hidden=false;}
+function post(message){frame.contentWindow.postMessage(message,location.origin);}
+async function json(path,options){const response=await fetch(path,options);const value=await response.json();if(!response.ok)throw new Error(value.error?.message??'\u672C\u5730\u5DE5\u4F5C\u53F0\u8FDE\u63A5\u5931\u8D25');return value;}
+window.addEventListener('message',async event=>{
+ if(event.source!==frame.contentWindow||event.origin!==location.origin)return;
+ const m=event.data;if(m?.jsonrpc!=='2.0')return;
+ try {
+  if(m.method==='ui/initialize')post({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2026-01-26',hostInfo:{name:'narracut-local-panel',version:'1'},hostCapabilities:{},hostContext:{}}});
+  else if(m.method==='ui/notifications/initialized'){
+   const result=await json('state');if(result.isError)throw new Error(result.structuredContent?.error?.message??'\u9879\u76EE\u72B6\u6001\u8BFB\u53D6\u5931\u8D25');post({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:result});clearTimeout(timer);feedback.hidden=true;
+  } else if(m.method==='tools/call')post(await json('rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)}));
+ } catch(error){if(m.id!==undefined)post({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:error.message}});else failed(error.message);}
+});
+function connect(){retry.hidden=true;feedback.querySelector('h1').textContent='\u6B63\u5728\u8FDE\u63A5\u5DE5\u4F5C\u53F0';reason.textContent='\u6B63\u5728\u6838\u5BF9\u5F53\u524D\u5BF9\u8BDD\u4E0E\u9879\u76EE\u72B6\u6001\u2026';clearTimeout(timer);timer=setTimeout(()=>failed('\u8FDE\u63A5\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5\u672C\u5730\u9762\u677F\u670D\u52A1\u662F\u5426\u4ECD\u5728\u8FD0\u884C\u3002'),15000);frame.src='view';}
+retry.addEventListener('click',connect);connect();
+</script></html>`;
+}
+
+// plugins/narracut/src/panel-entry.ts
+var [action, directory2, ...extra] = process.argv.slice(2);
+if (action !== void 0 && !["--open", "--create"].includes(action) || action && !directory2 || extra.length) {
+  throw new Error("\u7528\u6CD5\uFF1Anode panel.mjs [--open \u9879\u76EE\u7EDD\u5BF9\u76EE\u5F55 | --create \u4E0D\u5B58\u5728\u7684\u9879\u76EE\u7EDD\u5BF9\u76EE\u5F55]");
+}
+var panel = await startWorkbenchPanel({ threadId: process.env.CODEX_THREAD_ID });
+var project;
+if (action) {
+  try {
+    const response = await fetch(`${panel.url}rpc`, {
+      method: "POST",
+      headers: { Origin: new URL(panel.url).origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+        name: action === "--create" ? "create_project" : "open_project",
+        arguments: { projectDirectory: directory2 }
+      } })
+    });
+    const reply = await response.json();
+    const result = reply.result?.structuredContent;
+    project = result ? { status: result.status, operation: result.operation, project: result.project, error: result.error } : reply;
+  } catch (error51) {
+    project = { error: { message: error51.message } };
+  }
+}
+console.log(JSON.stringify({
+  status: panel.status,
+  url: panel.url,
+  conversation: panel.conversation,
+  project,
+  next: "\u4F7F\u7528 open_in_codex\uFF1Aplacement=right\uFF0Ctarget.type=browser\uFF0Ctarget.url=\u4E0A\u8FF0 url\uFF0C\u7701\u7565 threadId\u3002\u4EC5\u5F53\u5BBF\u4E3B\u786E\u8BA4\u6253\u5F00\u4E14\u9875\u9762\u53EF\u7528\u540E\u62A5\u544A\u5C55\u793A\u6210\u529F\uFF1B\u5931\u8D25\u65F6\u5728\u5F53\u524D\u5BF9\u8BDD\u62A5\u544A\u5177\u4F53\u539F\u56E0\u5E76\u91CD\u8BD5\u540C\u4E00 url\uFF0C\u4E0D\u91CD\u5EFA\u9879\u76EE\u3002"
+}));
+for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => {
+  void panel.close().then(() => process.exit(0));
+});
