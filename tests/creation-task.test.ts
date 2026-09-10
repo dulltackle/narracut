@@ -7,6 +7,17 @@ import { tmpdir } from 'node:os';
 import { createProjectVNext } from '../src/server/project-lifecycle';
 import { createNarracutRequestHandler } from '../plugins/narracut/src/server';
 import { CodexThreadUnavailableError, type CodexHostAdapter, type CodexHostEvent, type StartCodexTurnInput } from '../plugins/narracut/src/codex-host';
+const commitFault = vi.hoisted(() => ({ pending: null as null | { path: string; entered: () => void; release: Promise<void> } }));
+vi.mock('node:fs/promises', async importOriginal => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...fs, rename: async (...args: Parameters<typeof fs.rename>) => {
+    await fs.rename(...args);
+    const pending = commitFault.pending;
+    if (pending && String(args[1]) === pending.path) {
+      commitFault.pending = null; pending.entered(); await pending.release;
+    }
+  } };
+});
 class Host implements CodexHostAdapter {
   listeners = new Set<(event: CodexHostEvent) => void>();
   turns: (StartCodexTurnInput & { turnId: string })[] = [];
@@ -475,7 +486,7 @@ test('混合消息仅作讨论后恢复原 Scene 等待，而非丢失待办', a
   } finally { await app.close(); }
 });
 
-test('停止先撤销写权，回执待核对时禁止写入和重复操作；明确继续恢复原线程', async () => {
+test('停止先撤销写权，回执待核对时禁止写入和重复操作；明确继续使用当前对话', async () => {
   const app = await setup();
   try {
     const started = (await app.call('start_creation_task', { instruction: '保留候选并继续' })).structuredContent.creationTask;
@@ -594,6 +605,17 @@ test.each(['before','after'])('原子候选提交 %s 停止只承认已完成边
       const result = await reopened({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'open_project', arguments: { projectDirectory: app.projectDirectory } } }) as any;
       expect(result.structuredContent.creationTask).toMatchObject({ status: 'stopped', reason: 'APP_RESTARTED', lastSafeStage: checkpoint.lastSafeStage });
       expect(result.structuredContent.creationRecovery).toBeNull(); expect(app.host.turns).toHaveLength(turns);
+      await writeFile(join(app.projectDirectory, 'video.md'), '# 安全边界后更新的 Brief');
+      const continued = await reopened({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'respond_creation_task', arguments: { projectDirectory: app.projectDirectory, projectId: app.projectId, action: 'continue' } } }) as any;
+      expect(continued.isError, JSON.stringify(continued)).not.toBe(true);
+      expect(continued.structuredContent.creationTask.taskId).toBe(checkpoint.taskId);
+      expect(continued.structuredContent.candidate.baseline).toBe(candidate.baseline);
+      await expect.poll(() => app.host.turns.length).toBe(turns + 1);
+      expect(app.host.turns.at(-1)!.threadId).toBe('thread-1');
+      expect(app.host.turns.at(-1)!.prompt).toContain('安全边界后更新的 Brief');
+      const committed = readFile(join(app.projectDirectory, candidate.candidate.path, 'resources/checkpoint.txt'), 'utf8');
+      if (when === 'before') await expect(committed).rejects.toMatchObject({ code: 'ENOENT' });
+      else expect(await committed).toBe('安全成果');
     } finally { await reopened.dispose(); }
   } finally { await app.close(); }
 });
@@ -1093,4 +1115,120 @@ test('当前 Composer 明确修订自动追加原文，讨论不追加，含糊�
     expect(checkpoint.instruction).toBe(`原始目标\n\n${revision}\n\n更安静一点`);
     expect(app.host.turns.every(turn => turn.threadId === 'thread-1')).toBe(true);
   } finally { await app.close(); }
+});
+
+test('审批中重启后只在当前对话明确继续，丢弃旧工具调用并读取最新项目', async () => {
+  const app = await setup();
+  let reopened: ReturnType<typeof createNarracutRequestHandler> | undefined;
+  try {
+    const task = (await app.call('start_creation_task', { instruction: '保留已提交候选' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    const candidate = (await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    const turn = app.host.turns[0]!;
+    for (const listener of app.host.listeners) listener({ type: 'approval-required', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'old-approval', summary: '旧工具调用' });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('TOOL_APPROVAL_REQUIRED');
+    await app.handler.dispose();
+    await writeFile(join(app.projectDirectory, 'video.md'), '# 重启后最新 Brief');
+    const host = new Host();
+    reopened = createNarracutRequestHandler({ codexHost: host, conversation: { threadId: 'current-thread' } });
+    const call = async (name: string, args = {}) => await reopened!({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { projectDirectory: app.projectDirectory, projectId: app.projectId, ...args } } }) as any;
+    expect((await call('open_project')).structuredContent.creationTask).toMatchObject({ taskId: task.taskId, status: 'stopped', reason: 'APP_RESTARTED' });
+    expect(host.turns).toHaveLength(0);
+    const resumed = await call('respond_creation_task', { action: 'continue' });
+    expect(resumed.isError, JSON.stringify(resumed)).not.toBe(true);
+    await expect.poll(() => host.turns.length).toBe(1);
+    expect(host.turns[0]).toMatchObject({ threadId: 'current-thread' });
+    expect(host.turns[0]!.prompt).toContain('重启后最新 Brief');
+    expect(host.threads).toEqual([]);
+    expect((await call('get_creation_task')).structuredContent.creationTask).toMatchObject({ taskId: task.taskId, toolApproval: null });
+    expect((await call('respond_creation_task', { action: 'approve-tool', id: 'old-approval' })).isError).toBe(true);
+    app.host.complete({ action: 'apply', changes: [{ path: 'resources/late.txt', content: '旧结果' }] });
+    host.complete({ action: 'wait' });
+    await expect.poll(async () => (await call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    expect((await call('manage_project_candidate', { action: 'read' })).structuredContent.candidate.baseline).toBe(candidate.baseline);
+    const checkpoint = JSON.parse(await readFile(join(app.projectDirectory, '.narracut/agent-task.json'), 'utf8'));
+    expect(checkpoint).toMatchObject({ taskId: task.taskId, threadPointer: 'current-thread', toolApproval: null, instruction: '保留已提交候选' });
+  } finally { await reopened?.dispose(); await app.close(); }
+});
+
+test.each(['missing', 'corrupt', 'mismatch'])('跨对话继续不能用旧内存修补 %s 检查点，候选仍可明确交给新任务', async mode => {
+  const app = await setup();
+  const host = new Host(), other = createNarracutRequestHandler({ codexHost: host, conversation: { threadId: 'thread-2' } });
+  const call = async (name: string, args = {}) => await other({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { projectDirectory: app.projectDirectory, projectId: app.projectId, ...args } } }) as any;
+  try {
+    const task = (await app.call('start_creation_task', { instruction: '旧目标' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await app.call('respond_creation_task', { action: 'stop' });
+    const candidate = (await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    const source = await readFile(join(app.projectDirectory, candidate.candidate.path, 'program.json'));
+    const path = join(app.projectDirectory, '.narracut/agent-task.json');
+    if (mode === 'missing') await rm(path);
+    else if (mode === 'corrupt') await writeFile(path, '{');
+    else { const checkpoint = JSON.parse(await readFile(path, 'utf8')); checkpoint.candidateBaseline = 'invalid'; await writeFile(path, JSON.stringify(checkpoint)); }
+    const damaged = await readFile(path).catch(() => null);
+    await call('open_project');
+    expect((await call('respond_creation_task', { action: 'continue' })).isError).toBe(true);
+    expect((await call('get_creation_task')).structuredContent.creationRecovery.code).toBe('TASK_CHECKPOINT_INVALID');
+    expect(host.turns).toHaveLength(0);
+    expect(await readFile(path).catch(() => null)).toEqual(damaged);
+    expect(await readFile(join(app.projectDirectory, candidate.candidate.path, 'program.json'))).toEqual(source);
+    const adopted = await call('respond_creation_task', { action: 'takeover', instruction: '新目标', baseline: candidate.baseline });
+    expect(adopted.isError, JSON.stringify(adopted)).not.toBe(true);
+    expect(adopted.structuredContent.creationTask.taskId).not.toBe(task.taskId);
+    await expect.poll(() => host.turns.length).toBe(1);
+    expect(host.turns[0]!.threadId).toBe('thread-2');
+    expect(adopted.structuredContent.candidate.baseline).toBe(candidate.baseline);
+  } finally { await other.dispose(); await app.close(); }
+});
+
+test('审批中主动停止后可直接明确继续，旧审批与旧 Turn 均失效', async () => {
+  const app = await setup();
+  try {
+    const task = (await app.call('start_creation_task', { instruction: '继续同一候选' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    const turn = app.host.turns[0]!;
+    for (const listener of app.host.listeners) listener({ type: 'approval-required', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'stopped-approval', summary: '旧工具请求' });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.reason).toBe('TOOL_APPROVAL_REQUIRED');
+    await app.call('respond_creation_task', { action: 'stop' });
+    const resumed = await app.call('respond_creation_task', { action: 'continue' });
+    expect(resumed.isError, JSON.stringify(resumed)).not.toBe(true);
+    expect(resumed.structuredContent.creationTask).toMatchObject({ taskId: task.taskId, toolApproval: null, waitingReason: null });
+    await expect.poll(() => app.host.turns.length).toBe(2);
+    for (const listener of app.host.listeners) listener({ type: 'approval-resolved', threadId: turn.threadId, turnId: turn.turnId, approvalId: 'stopped-approval', approved: false });
+    app.host.complete({ action: 'apply', changes: [{ path: 'resources/late.txt', content: '未提交' }] }, 0);
+    app.host.complete({ action: 'wait' });
+    await expect.poll(async () => (await app.call('get_creation_task')).structuredContent.creationTask.status).toBe('waiting');
+    const candidate = (await app.call('manage_project_candidate', { action: 'read' })).structuredContent.candidate;
+    await expect(readFile(join(app.projectDirectory, candidate.candidate.path, 'resources/late.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally { await app.close(); }
+});
+
+
+test('候选已原子提交但检查点尚在收尾时跨对话继续，保留同一任务及已提交成果', async () => {
+  const app = await setup();
+  const host = new Host(), other = createNarracutRequestHandler({ codexHost: host, conversation: { threadId: 'thread-2' } });
+  const call = async (name: string, args = {}) => await other({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { projectDirectory: app.projectDirectory, projectId: app.projectId, ...args } } }) as any;
+  let release!: () => void;
+  try {
+    const task = (await app.call('start_creation_task', { instruction: '保留原子成果' })).structuredContent.creationTask;
+    await expect.poll(() => app.host.turns.length).toBe(1);
+    await call('open_project');
+    let entered = false;
+    commitFault.pending = { path: join(app.projectDirectory, '.narracut/candidate.json'), entered: () => { entered = true; }, release: new Promise<void>(resolve => { release = resolve; }) };
+    app.host.complete({ action: 'apply', changes: [{ path: 'resources/committed.txt', content: '已原子提交' }] });
+    await expect.poll(() => entered).toBe(true);
+    const continuing = call('respond_creation_task', { action: 'continue' });
+    await expect.poll(async () => (await app.call('save_project_scenes')).structuredContent.error?.code).toBe('PROJECT_CONTROL_REQUIRED');
+    release();
+    const result = await continuing;
+    expect(result.isError, JSON.stringify(result)).not.toBe(true);
+    expect(result.structuredContent.creationTask).toMatchObject({ taskId: task.taskId, status: 'running' });
+    expect(result.structuredContent.creationRecovery).toBeNull();
+    await expect.poll(() => host.turns.length).toBe(1);
+    expect(host.turns[0]!.threadId).toBe('thread-2');
+    const candidate = result.structuredContent.candidate;
+    expect(await readFile(join(app.projectDirectory, candidate.candidate.path, 'resources/committed.txt'), 'utf8')).toBe('已原子提交');
+    const checkpoint = JSON.parse(await readFile(join(app.projectDirectory, '.narracut/agent-task.json'), 'utf8'));
+    expect(checkpoint).toMatchObject({ taskId: task.taskId, candidateBaseline: candidate.baseline, threadPointer: 'thread-2' });
+  } finally { release?.(); commitFault.pending = null; await other.dispose(); await app.close(); }
 });

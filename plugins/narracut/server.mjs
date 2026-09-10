@@ -30579,6 +30579,7 @@ var CreationTask = class {
   delivery;
   currentThreadId;
   #state = null;
+  #checkpointBytes = null;
   #driver = null;
   #operation = null;
   #interrupted = null;
@@ -30650,6 +30651,12 @@ var CreationTask = class {
       }
       const candidate = await this.opened.candidate({ action: "read" });
       if (checkpoint.status !== "terminated" && checkpoint.candidateBaseline !== candidate.baseline) throw new Error("\u4EFB\u52A1\u5019\u9009\u68C0\u67E5\u70B9\u4E0D\u5339\u914D");
+      this.#state.toolApproval = null;
+      if (this.#state.waitingReason === "TOOL_APPROVAL_REQUIRED") this.#state.waitingReason = null;
+      if (this.#state.reason === "TOOL_APPROVAL_REQUIRED") {
+        this.#state.status = "stopped";
+        this.#state.reason = "CODEX_INTERRUPTED";
+      }
       if (checkpoint.briefProposal?.status === "saved") {
         const proposal = checkpoint.briefProposal;
         this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: this.opened.inspection.videoBriefRevision };
@@ -30691,7 +30698,12 @@ var CreationTask = class {
         await this.host.interruptTurn(this.#interrupted);
         this.#interrupted = null;
       }
-      if (this.#state) {
+      if (this.#state && this.#state.status !== "terminated" && !this.#recovery) {
+        await this.#validateCheckpoint(true).catch((error51) => {
+          if (!this.#recovery) throw error51;
+        });
+      }
+      if (this.#state && !this.#recovery) {
         this.#state.threadPointer = null;
         await this.#save();
       }
@@ -30727,6 +30739,7 @@ var CreationTask = class {
       await validate?.();
       await this.opened.assertWritable();
       await rename6(temporary, this.#path());
+      this.#checkpointBytes = bytes;
       await syncDirectory(parent).catch(() => void 0);
     } finally {
       await rm11(temporary, { force: true }).catch(() => void 0);
@@ -30851,12 +30864,14 @@ var CreationTask = class {
     this.checks.invalidate();
     this.delivery.clear();
   }
-  async #validateCheckpoint() {
+  async #validateCheckpoint(finishingTransfer = false) {
     try {
       const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 2e7)).toString()));
       const candidate = await this.opened.candidate({ action: "read" });
       const { externalBaseline, stage, divergence, preview, deliveryId, ...current } = this.#state;
-      if (JSON.stringify(checkpoint) !== JSON.stringify(checkpointSchema.parse(current)) || checkpoint.projectId !== this.opened.inspection.manifest.projectId || checkpoint.candidateBaseline !== candidate.baseline) throw new Error("\u68C0\u67E5\u70B9\u4E0D\u4E00\u81F4");
+      const expected = finishingTransfer ? this.#checkpointBytes : JSON.stringify(checkpointSchema.parse(current));
+      const baseline2 = finishingTransfer ? current.candidateBaseline : checkpoint.candidateBaseline;
+      if (JSON.stringify(checkpoint) !== expected || checkpoint.projectId !== this.opened.inspection.manifest.projectId || baseline2 !== candidate.baseline) throw new Error("\u68C0\u67E5\u70B9\u4E0D\u4E00\u81F4");
     } catch {
       await this.#invalid();
       throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u4EFB\u52A1\u68C0\u67E5\u70B9\u7F3A\u5931\u3001\u635F\u574F\u6216\u4E0E\u5019\u9009\u4E0D\u4E00\u81F4\uFF0C\u65E0\u6CD5\u7EE7\u7EED\u539F\u4EFB\u52A1\u3002\u5019\u9009\u5DF2\u4FDD\u7559\uFF1B\u8FD9\u4E0D\u4EE3\u8868\u5019\u9009\u635F\u574F\u3002");
@@ -31098,6 +31113,11 @@ var CreationTask = class {
           }
         }
       } else if (input.action === "continue" || input.action === "regenerate-brief") {
+        if (state.status === "stopped" && !this.#driver && state.toolApproval) {
+          state.toolApproval = null;
+          if (state.waitingReason === "TOOL_APPROVAL_REQUIRED") state.waitingReason = null;
+          await this.#save();
+        }
         if (state.status === "running" || state.pendingMessage || state.reason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" || state.waitingReason === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" || state.waitingReason === "TOOL_APPROVAL_REQUIRED" || state.reason === "TOOL_APPROVAL_REQUIRED") throw new Error("\u8BF7\u5148\u5904\u7406\u5F53\u524D\u5F85\u529E");
         if (input.action === "continue" && state.briefProposal?.status === "review") throw new Error("\u8BF7\u5148\u63A5\u53D7\u6216\u62D2\u7EDD Brief \u63D0\u6848");
         if (input.action === "regenerate-brief") state.briefProposal = null;

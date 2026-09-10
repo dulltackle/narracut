@@ -46,6 +46,7 @@ type Driver = { token: string; turnId: string | null; signature: string };
 /** 一个项目只保留一项任务。模型没有项目写能力，只有此服务可以提交其经过校验的批次。 */
 export class CreationTask {
   #state: CreationState | null = null;
+  #checkpointBytes: string | null = null;
   #driver: Driver | null = null;
   #operation: 'stopping' | 'stop-uncertain' | 'reconciling' | 'transfer-uncertain' | null = null;
   #interrupted: { threadId: string; turnId: string } | null = null;
@@ -119,6 +120,12 @@ export class CreationTask {
       }
       const candidate = await this.opened.candidate({ action: 'read' });
       if (checkpoint.status !== 'terminated' && checkpoint.candidateBaseline !== candidate.baseline) throw new Error('任务候选检查点不匹配');
+      // 宿主工具调用不能跨驱动恢复；保留创作待办，但旧审批不能阻塞明确继续。
+      this.#state.toolApproval = null;
+      if (this.#state.waitingReason === 'TOOL_APPROVAL_REQUIRED') this.#state.waitingReason = null;
+      if (this.#state.reason === 'TOOL_APPROVAL_REQUIRED') {
+        this.#state.status = 'stopped'; this.#state.reason = 'CODEX_INTERRUPTED';
+      }
       if (checkpoint.briefProposal?.status === 'saved') { const proposal = checkpoint.briefProposal; this.#briefChange = { id: proposal.id, base: proposal.base, content: proposal.content, revision: this.opened.inspection.videoBriefRevision }; }
       await this.#save();
     } catch (error) {
@@ -146,7 +153,11 @@ export class CreationTask {
       if (this.#interrupted) { await this.host.interruptTurn(this.#interrupted); this.#interrupted = null; }
       await this.#pendingRun;
       if (this.#interrupted) { await this.host.interruptTurn(this.#interrupted); this.#interrupted = null; }
-      if (this.#state) {
+      // 交接不能把旧内存当作恢复来源；无效检查点原样留给新控制者报告或接管。
+      if (this.#state && this.#state.status !== 'terminated' && !this.#recovery) {
+        await this.#validateCheckpoint(true).catch(error => { if (!this.#recovery) throw error; });
+      }
+      if (this.#state && !this.#recovery) {
         this.#state.threadPointer = null;
         await this.#save();
       }
@@ -171,6 +182,7 @@ export class CreationTask {
         await validate?.();
         await this.opened.assertWritable();
         await rename(temporary, this.#path());
+        this.#checkpointBytes = bytes;
         await syncDirectory(parent).catch(() => undefined);
       } finally { await rm(temporary, { force: true }).catch(() => undefined); }
   }
@@ -239,12 +251,15 @@ export class CreationTask {
     this.#sceneSavePending = false; this.#snapshotValue = null; this.#early = [];
     this.checks.invalidate(); this.delivery.clear();
   }
-  async #validateCheckpoint() {
+  async #validateCheckpoint(finishingTransfer = false) {
     try {
       const checkpoint = checkpointSchema.parse(JSON.parse((await regular(this.#path(), 20_000_000)).toString()));
       const candidate = await this.opened.candidate({ action: 'read' });
       const { externalBaseline, stage, divergence, preview, deliveryId, ...current } = this.#state!;
-      if (JSON.stringify(checkpoint) !== JSON.stringify(checkpointSchema.parse(current)) || checkpoint.projectId !== this.opened.inspection.manifest.projectId || checkpoint.candidateBaseline !== candidate.baseline) throw new Error('检查点不一致');
+      // 交接可封存本驱动已原子提交的候选，但磁盘仍须等于最后成功写入的检查点。
+      const expected = finishingTransfer ? this.#checkpointBytes : JSON.stringify(checkpointSchema.parse(current));
+      const baseline = finishingTransfer ? current.candidateBaseline : checkpoint.candidateBaseline;
+      if (JSON.stringify(checkpoint) !== expected || checkpoint.projectId !== this.opened.inspection.manifest.projectId || baseline !== candidate.baseline) throw new Error('检查点不一致');
     } catch {
       await this.#invalid();
       throw new Error('TASK_CHECKPOINT_INVALID：任务检查点缺失、损坏或与候选不一致，无法继续原任务。候选已保留；这不代表候选损坏。');
@@ -424,6 +439,11 @@ export class CreationTask {
           }
         }
       } else if (input.action === 'continue' || input.action === 'regenerate-brief') {
+        if (state.status === 'stopped' && !this.#driver && state.toolApproval) {
+          state.toolApproval = null;
+          if (state.waitingReason === 'TOOL_APPROVAL_REQUIRED') state.waitingReason = null;
+          await this.#save();
+        }
         if (state.status === 'running' || state.pendingMessage || state.reason === 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED' || state.waitingReason === 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED' || state.waitingReason === 'TOOL_APPROVAL_REQUIRED' || state.reason === 'TOOL_APPROVAL_REQUIRED') throw new Error('请先处理当前待办');
         if (input.action === 'continue' && state.briefProposal?.status === 'review') throw new Error('请先接受或拒绝 Brief 提案');
         if (input.action === 'regenerate-brief') state.briefProposal = null;
