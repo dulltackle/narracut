@@ -113,15 +113,23 @@ describe("Narracut Codex 插件", () => {
       resolve("plugins/narracut/.codex-plugin/plugin.json"),
       "utf8",
     )) as Record<string, unknown>;
-    const mcp = JSON.parse(await readFile(resolve("plugins/narracut/.mcp.json"), "utf8")) as {
+    const mcp = JSON.parse(await readFile(resolve("plugins/narracut/mcp.json"), "utf8")) as {
+      $schema: string;
       mcpServers: Record<string, Record<string, unknown>>;
     };
+    const portable = JSON.parse(await readFile(resolve("plugins/narracut/plugin.json"), "utf8"));
 
     expect(manifest).toMatchObject({
       name: "narracut",
-      mcpServers: "./.mcp.json",
     });
+    expect(portable).toMatchObject({
+      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      name: manifest.name,
+      version: manifest.version,
+    });
+    expect(mcp.$schema).toBe("https://agent-plugins.org/schemas/1.0.0/mcp.schema.json");
     expect(mcp.mcpServers.narracut).toEqual({
+      type: "stdio",
       command: "node",
       args: ["${PLUGIN_ROOT}/server.mjs"],
     });

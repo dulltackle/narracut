@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "pnpm build:plugin",
-    "build:plugin": "esbuild plugins/narracut/src/server.ts --bundle --platform=node --format=esm --outfile=plugins/narracut/server.mjs --banner:js='import { createRequire } from \"node:module\"; const require = createRequire(import.meta.url);'",
-    "test:plugin": "pnpm build:plugin && bash scripts/test-plugin-stdio.sh",
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "test:plugin": "pnpm build:plugin && node scripts/test-plugin-package.mjs && bash scripts/test-plugin-stdio.sh",
     "start": "tsx src/server/cli.ts",
     "create": "tsx src/server/cli.ts create",
     "open": "tsx src/server/cli.ts open",
@@ -20,7 +20,8 @@
     "test:e2e:public": "playwright test --config playwright.public.config.ts",
     "test:e2e:real": "pnpm test:e2e:public",
     "test:codex-host:real": "NARRACUT_REAL_CODEX_HOST=1 vitest run tests/narracut-codex-host.live.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:plugin:installed": "node scripts/test-installed-plugin.mjs"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-sc": "5.3.0",

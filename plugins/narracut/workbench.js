@@ -5,6 +5,8 @@
   const HISTORY_BYTE_LIMIT = 24 * 1024 * 1024;
   const pending = new Map();
   let rpcId = 10;
+  let hostReady = false;
+  let directoryPicking = false;
   let pollTimer = null;
   let pollFailures = 0;
   let saveTimer = null;
@@ -1027,6 +1029,9 @@
 
   function invalid(result) {
     const error = result.error ?? {};
+    if (error.code === 'HOST_INITIALIZATION_FAILED') {
+      return `<main class="stage"><section class="state-panel"><div class="state-copy"><h1>工作台连接失败</h1><p>${escapeHtml(error.message)}</p><p>请重新打开 Narracut 项目启动器。</p><div class="state-code">HOST_INITIALIZATION_FAILED</div></div></section></main>`;
+    }
     const diagnostics = error.diagnostics ?? [];
     return `<div class="workspace"><main class="stage"><section class="state-panel"><div class="state-copy"><h1>项目无法打开</h1><p>${escapeHtml(error.message ?? "项目检查失败，请核对目录与内容后重试。")}</p><div class="state-code">${escapeHtml(error.code ?? "PROJECT_INSPECTION_FAILED")}</div><ul class="diagnostics">${diagnostics.map((item) => `<li><strong>${escapeHtml(item.component)}</strong><br><span>${escapeHtml(item.message)}</span></li>`).join("")}</ul></div></section></main><aside class="inspection" aria-label="项目检查" data-open="${state.inspectionOpen}"><button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button><h2>项目检查</h2><div class="rule"></div><section class="readonly"><strong>只读检查失败</strong><p>错误已同时返回给模型与工作台；Narracut 未修改该目录。</p></section></aside></div>`;
   }
@@ -2615,13 +2620,13 @@
     }
   }
 
-  function request(method, params) {
+  function request(method, params, timeout = 15_000) {
     const id = rpcId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!pending.delete(id)) return;
         reject(new Error("宿主请求超时，请重试。"));
-      }, 15_000);
+      }, timeout);
       pending.set(id, { resolve, reject, timer });
       window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
     });
@@ -2647,16 +2652,26 @@
   }
 
   async function chooseDirectory(purpose, trigger) {
+    if (directoryPicking) return null;
     const api = window.openai;
     const picker = api?.selectDirectory ?? api?.pickDirectory ?? api?.requestDirectoryPicker;
-    if (typeof picker !== "function") {
+    if (typeof picker !== "function" && !hostReady) {
       state.launcher.error = { code: "HOST_DIRECTORY_PICKER_UNAVAILABLE", message: "当前插件宿主没有提供系统文件夹选择能力；Narracut 不会退化为网页文件浏览器。" };
       render();
       document.querySelector(trigger)?.focus();
       return null;
     }
+    directoryPicking = true;
+    document.querySelector(trigger)?.setAttribute('disabled', '');
     try {
-      const selected = await picker.call(api, { purpose, title: purpose === "create-parent" ? "选择新项目的父目录" : "选择要打开的 Project VNext", canCreateDirectories: true });
+      let selected;
+      if (typeof picker === 'function') {
+        selected = await picker.call(api, { purpose, title: purpose === "create-parent" ? "选择新项目的父目录" : "选择要打开的 Project VNext", canCreateDirectories: true });
+      } else {
+        const response = await request('tools/call', { name: 'select_project_directory', arguments: { purpose } }, 330_000);
+        if (response?.isError || response?.structuredContent?.error) throw new Error(response?.structuredContent?.error?.message ?? '系统文件夹窗口无法打开。');
+        selected = response?.structuredContent;
+      }
       const path = directoryPath(selected);
       if (path === null) document.querySelector(trigger)?.focus();
       return path;
@@ -2665,6 +2680,10 @@
       render();
       document.querySelector(trigger)?.focus();
       return null;
+    } finally {
+      directoryPicking = false;
+      document.querySelector(trigger)?.removeAttribute('disabled');
+      document.querySelector(trigger)?.focus();
     }
   }
 
@@ -2950,5 +2969,19 @@
   }, { passive: true });
 
   render();
-  window.parent.postMessage({ jsonrpc: "2.0", id: 1, method: "ui/initialize", params: { appInfo: { name: "narracut-workbench", version: "0.1.0" }, capabilities: {}, protocolVersion: "2025-06-18" } }, "*");
+  // 宿主收到视图就绪通知后才交付工具结果；初始化必须走请求应答通道。
+  request('ui/initialize', {
+    appInfo: { name: 'narracut-workbench', version: '0.1.0' },
+    appCapabilities: {},
+    protocolVersion: '2026-01-26',
+  }).then(result => {
+    if (result?.protocolVersion !== '2026-01-26') throw new Error('宿主返回了不支持的 MCP Apps 协议版本。');
+    hostReady = true;
+    window.parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} }, '*');
+  }).catch(error => {
+    if (state.result !== null) return;
+    accept({ status: 'invalid', connection: { status: 'disconnected', readOnly: true }, error: {
+      code: 'HOST_INITIALIZATION_FAILED', message: error.message,
+    } });
+  });
 })();

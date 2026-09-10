@@ -29896,6 +29896,61 @@ var RecoveryOperations = class {
   }
 };
 
+// plugins/narracut/src/directory-picker.ts
+import { execFile as execFile4 } from "node:child_process";
+import { isAbsolute as isAbsolute5 } from "node:path";
+var picking = false;
+async function selectProjectDirectory(input) {
+  const args = input;
+  if (!args || Array.isArray(args) || Object.keys(args).some((key) => key !== "purpose") || !["create-parent", "open-project"].includes(String(args.purpose))) {
+    throw new Error("\u76EE\u5F55\u9009\u62E9\u7528\u9014\u65E0\u6548\u3002");
+  }
+  if (picking) throw new Error("\u5DF2\u6709\u6587\u4EF6\u5939\u9009\u62E9\u7A97\u53E3\uFF0C\u8BF7\u5148\u5B8C\u6210\u6216\u53D6\u6D88\u9009\u62E9\u3002");
+  const title = args.purpose === "create-parent" ? "\u9009\u62E9\u65B0\u9879\u76EE\u7684\u7236\u76EE\u5F55" : "\u9009\u62E9\u8981\u6253\u5F00\u7684 Project VNext";
+  let command;
+  let parameters;
+  if (process.platform === "linux") {
+    command = "zenity";
+    parameters = ["--file-selection", "--directory", `--title=${title}`];
+  } else if (process.platform === "darwin") {
+    command = "/usr/bin/osascript";
+    parameters = ["-e", `try
+POSIX path of (choose folder with prompt "${title}")
+on error number -128
+return ""
+end try`];
+  } else if (process.platform === "win32") {
+    command = "powershell.exe";
+    parameters = [
+      "-NoProfile",
+      "-NonInteractive",
+      "-STA",
+      "-Command",
+      `Add-Type -AssemblyName System.Windows.Forms; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $picker = New-Object System.Windows.Forms.FolderBrowserDialog; $picker.Description = '${title}'; try { if ($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::WriteLine($picker.SelectedPath) } } finally { $picker.Dispose() }`
+    ];
+  } else {
+    throw new Error("\u5F53\u524D\u7CFB\u7EDF\u4E0D\u652F\u6301\u672C\u5730\u6587\u4EF6\u5939\u7A97\u53E3\uFF1B\u8BF7\u5728\u5BF9\u8BDD\u4E2D\u660E\u786E\u63D0\u4F9B\u9879\u76EE\u7EDD\u5BF9\u8DEF\u5F84\u3002");
+  }
+  picking = true;
+  try {
+    const path = await new Promise((resolve6, reject) => {
+      execFile4(command, parameters, { encoding: "utf8", timeout: 3e5, maxBuffer: 64 * 1024 }, (error51, stdout) => {
+        if (error51) {
+          if (process.platform === "linux" && error51.code === 1) return resolve6(null);
+          return reject(new Error(error51.code === "ENOENT" ? "\u7CFB\u7EDF\u6587\u4EF6\u5939\u9009\u62E9\u5668\u4E0D\u53EF\u7528\uFF1BLinux \u9700\u8981 Zenity\u3002\u4E5F\u53EF\u5728\u5BF9\u8BDD\u4E2D\u660E\u786E\u63D0\u4F9B\u9879\u76EE\u7EDD\u5BF9\u8DEF\u5F84\u3002" : "\u7CFB\u7EDF\u6587\u4EF6\u5939\u7A97\u53E3\u672A\u80FD\u5B8C\u6210\u9009\u62E9\uFF0C\u8BF7\u91CD\u8BD5\u3002"));
+        }
+        const selected = stdout.replace(/\r?\n$/u, "");
+        if (!selected) return resolve6(null);
+        if (!isAbsolute5(selected) || /[\x00\r\n]/u.test(selected)) return reject(new Error("\u7CFB\u7EDF\u7A97\u53E3\u8FD4\u56DE\u7684\u76EE\u5F55\u8DEF\u5F84\u65E0\u6548\u3002"));
+        resolve6(selected);
+      });
+    });
+    return { path };
+  } finally {
+    picking = false;
+  }
+}
+
 // plugins/narracut/src/creation-interaction.ts
 var text = external_exports.string().min(1).max(4e3);
 var sceneCondition = external_exports.object({
@@ -31609,13 +31664,13 @@ var ProjectAcceptance = class {
 import { randomUUID as randomUUID13, randomBytes as randomBytes3 } from "node:crypto";
 import { constants as constants4, watch } from "node:fs";
 import { open as open9, realpath as realpath8, link as link4, unlink as unlink2, lstat as lstat10 } from "node:fs/promises";
-import { basename as basename5, dirname as dirname10, isAbsolute as isAbsolute6, join as join15 } from "node:path";
+import { basename as basename5, dirname as dirname10, isAbsolute as isAbsolute7, join as join15 } from "node:path";
 
 // src/server/project-preview.ts
 import { constants as constants3 } from "node:fs";
 import { randomBytes as randomBytes2 } from "node:crypto";
 import { lstat as lstat9, open as open8, realpath as realpath7 } from "node:fs/promises";
-import { join as join14, relative as relative6, isAbsolute as isAbsolute5 } from "node:path";
+import { join as join14, relative as relative6, isAbsolute as isAbsolute6 } from "node:path";
 
 // src/server/render-program-input.ts
 function deepFreeze(value) {
@@ -31674,7 +31729,7 @@ function createRenderProgramInput(state, output, assetSources) {
 // src/server/project-preview.ts
 async function snapshotFile(root, path, limit) {
   const full = join14(root, path), resolved = await realpath7(full), rel = relative6(await realpath7(root), resolved);
-  if (rel.startsWith("..") || isAbsolute5(rel) || (await lstat9(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
+  if (rel.startsWith("..") || isAbsolute6(rel) || (await lstat9(full)).isSymbolicLink()) throw new Error("Preview \u6587\u4EF6\u8D8A\u8FC7\u9879\u76EE\u8FB9\u754C\u3002");
   const expected = await lstat9(resolved);
   const file2 = await open8(full, constants3.O_RDONLY | constants3.O_NOFOLLOW | constants3.O_NONBLOCK);
   try {
@@ -31976,7 +32031,7 @@ var ProjectRender = class {
     const known = [...this.#jobs.values()].find((job) => job.requestId === args.requestId);
     if (known) return { job: structuredClone(known) };
     if (this.#abort) throw new FinalRenderError("RENDER_BUSY", "\u5F53\u524D\u9879\u76EE\u5DF2\u6709\u6700\u7EC8 Render\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210\u6216\u53D6\u6D88\u3002");
-    if (!isAbsolute6(args.outputPath) || !args.outputPath.endsWith(".mp4") || /[\0\r\n]/.test(args.outputPath)) throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8BF7\u901A\u8FC7\u7CFB\u7EDF\u9009\u62E9\u5668\u6307\u5B9A\u65B0\u7684 MP4 \u8F93\u51FA\u4F4D\u7F6E\u3002");
+    if (!isAbsolute7(args.outputPath) || !args.outputPath.endsWith(".mp4") || /[\0\r\n]/.test(args.outputPath)) throw new FinalRenderError("RENDER_OUTPUT_FAILED", "\u8BF7\u901A\u8FC7\u7CFB\u7EDF\u9009\u62E9\u5668\u6307\u5B9A\u65B0\u7684 MP4 \u8F93\u51FA\u4F4D\u7F6E\u3002");
     const abort = this.#abort = new AbortController();
     let preparedDone;
     this.#preparing = new Promise((resolve6) => {
@@ -32523,7 +32578,7 @@ var ProjectChecks = class {
 // plugins/narracut/src/server.ts
 import { randomUUID as randomUUID16 } from "node:crypto";
 import { readFile as readFile7 } from "node:fs/promises";
-import { basename as basename7, isAbsolute as isAbsolute7 } from "node:path";
+import { basename as basename7, isAbsolute as isAbsolute8 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // plugins/narracut/src/codex-app-server-host.ts
@@ -32979,6 +33034,15 @@ var taskToolAnnotations = {
   openWorldHint: false
 };
 var tools = [
+  {
+    name: "select_project_directory",
+    title: "\u9009\u62E9\u9879\u76EE\u6587\u4EF6\u5939",
+    description: "\u4EC5\u4F9B\u5DE5\u4F5C\u53F0\u70B9\u51FB\u4F7F\u7528\uFF1A\u6253\u5F00\u672C\u5730\u7CFB\u7EDF\u6587\u4EF6\u5939\u7A97\u53E3\uFF0C\u53EA\u8FD4\u56DE\u7528\u6237\u9009\u5B9A\u7684\u76EE\u5F55\uFF1B\u53D6\u6D88\u4E0D\u521B\u5EFA\u6216\u6253\u5F00\u9879\u76EE\u3002",
+    inputSchema: { type: "object", required: ["purpose"], additionalProperties: false, properties: { purpose: { enum: ["create-parent", "open-project"] } } },
+    outputSchema: { type: "object" },
+    annotations: { ...readOnlyToolAnnotations, idempotentHint: false },
+    _meta: { ui: { visibility: ["app"] } }
+  },
   { name: "restore_project", title: "\u4ECE\u6062\u590D\u5FEB\u7167\u521B\u5EFA\u9879\u76EE", description: "\u53EA\u8BFB\u68C0\u67E5\u6062\u590D\u6750\u6599\u548C\u8BA1\u5212\uFF0C\u660E\u786E\u786E\u8BA4\u540E\u5728\u65B0\u8DEF\u5F84\u6062\u590D\u539F\u8EAB\u4EFD\u9879\u76EE\uFF1B\u6765\u6E90\u53D7\u963B\u65F6\u53EF\u63D0\u53D6\u666E\u901A\u6587\u4EF6\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["inspect", "plan", "content", "recover", "extract", "status", "cancel"] }, snapshotPath: { type: "string" }, sourcePath: { type: "string" }, targetPath: { type: "string" }, planId: { type: "string" }, briefResult: { type: "string" }, component: { enum: ["dsl", "briefLocal", "briefBase"] }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "project_recovery", title: "\u9879\u76EE\u6062\u590D\u5FEB\u7167", description: "\u6838\u5BF9\u9879\u76EE\u8EAB\u4EFD\u3001\u5C01\u5B58\u672A\u4FDD\u5B58\u7F16\u8F91\u5E76\u5728\u9879\u76EE\u5916\u5BFC\u51FA\u6062\u590D\u5FEB\u7167\u3002", inputSchema: { type: "object", required: ["action", "projectDirectory", "projectId"], additionalProperties: false, properties: { action: { enum: ["check", "seal", "export", "status", "leave"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, draft: { type: "object", additionalProperties: false, properties: { dsl: { type: "string" }, briefLocal: { type: "string" }, briefBase: { type: "string" } } }, target: { type: "string" }, operationId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "copy_project", title: "\u590D\u5236\u9879\u76EE", description: "\u5B89\u5168\u505C\u6B62\u5E76\u5173\u95ED\u6765\u6E90\uFF0C\u5B8C\u6574\u590D\u5236\u540E\u6253\u5F00\u72EC\u7ACB\u526F\u672C\uFF1B\u53EF\u67E5\u8BE2\u9636\u6BB5\u548C\u5728\u53D1\u5E03\u524D\u53D6\u6D88\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["start", "status", "cancel"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, targetDirectory: { type: "string" }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
@@ -33515,7 +33579,7 @@ async function inspectProject(argumentsValue) {
     };
   }
   const projectDirectory = argumentsValue.projectDirectory;
-  if (!isAbsolute7(projectDirectory)) {
+  if (!isAbsolute8(projectDirectory)) {
     return {
       isError: true,
       structuredContent: {
@@ -33670,7 +33734,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     }
     if (this.copying || this.#opening || this.#choosingIdentity || this.#resolvingCandidate) throw new Error("\u9879\u76EE\u64CD\u4F5C\u5C1A\u672A\u7ED3\u675F\u3002");
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
-    if (typeof input.targetDirectory !== "string" || !isAbsolute7(input.targetDirectory)) throw new Error("\u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
+    if (typeof input.targetDirectory !== "string" || !isAbsolute8(input.targetDirectory)) throw new Error("\u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
     this.#copy = { operationId: typeof input.operationId === "string" && /^[0-9a-f-]{36}$/i.test(input.operationId) ? input.operationId : randomUUID16(), status: "running", phase: "stopping", sourceDirectory: input.projectDirectory, targetDirectory: input.targetDirectory, sourceClosed: false };
     const operation = this.#copy;
     const controller = this.#copyController = new AbortController();
@@ -34237,6 +34301,13 @@ async function callTool(params, hostValidation, workspace) {
     throw new Error("tools/call \u7F3A\u5C11\u53C2\u6570\u3002");
   }
   const { name, arguments: argumentsValue } = params;
+  if (name === "select_project_directory") {
+    try {
+      return { structuredContent: await selectProjectDirectory(argumentsValue), content: [] };
+    } catch (error51) {
+      return { isError: true, structuredContent: { error: { code: "HOST_DIRECTORY_PICKER_FAILED", message: error51.message } }, content: [] };
+    }
+  }
   if (name === "restore_project") {
     try {
       return { structuredContent: await workspace.restore.call(argumentsValue), content: [] };
@@ -34330,7 +34401,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "create_project" || name === "open_project") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute7(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute8(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {
@@ -34394,7 +34465,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "coordinate_project_dependencies") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["projectDirectory", "projectId", "baseline", "dependencies", "packages"].includes(key)) || typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baseline !== "string") {
       return { isError: true, structuredContent: { status: "dependency-failed", error: { code: "DEPENDENCY_SOURCE_UNSUPPORTED", message: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" } }, content: [{ type: "text", text: "\u4F9D\u8D56\u534F\u8C03\u53C2\u6570\u65E0\u6548\uFF1B\u4E0D\u63A5\u53D7\u81EA\u5B9A\u4E49\u6765\u6E90\u6216\u51ED\u636E\u3002" }] };
     }
     try {
@@ -34409,7 +34480,7 @@ async function callTool(params, hostValidation, workspace) {
   }
   if (name === "manage_project_candidate") {
     const input = argumentsValue;
-    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
+    if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || !["read", "create", "apply", "discard"].includes(String(input.action)) || input.baseline !== void 0 && typeof input.baseline !== "string" || input.confirmed !== void 0 && typeof input.confirmed !== "boolean") {
       return { isError: true, structuredContent: { status: "candidate-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" } }, content: [{ type: "text", text: "\u5019\u9009\u64CD\u4F5C\u53C2\u6570\u65E0\u6548\u3002" }] };
     }
     try {
@@ -34434,7 +34505,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || !("project" in input)) {
       return {
         isError: true,
         structuredContent: {
@@ -34483,7 +34554,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -34536,7 +34607,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute7(input.targetDirectory) || typeof input.content !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.targetDirectory !== "string" || !isAbsolute8(input.targetDirectory) || typeof input.content !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -34580,7 +34651,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute7(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.sourcePath !== "string" || !isAbsolute8(input.sourcePath) || input.targetSceneId !== void 0 && typeof input.targetSceneId !== "string") {
       return {
         isError: true,
         structuredContent: {
@@ -34631,7 +34702,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.assetId !== "string") {
       return {
         isError: true,
         structuredContent: { assetPreview: { status: "dangling", id: "", reason: "\u9879\u76EE\u8EAB\u4EFD\u6216 Asset ID \u65E0\u6548\u3002" } },
@@ -34674,7 +34745,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
       return {
         isError: true,
         structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u914D\u7F6E\u6216\u51ED\u636E\u64CD\u4F5C\u65E0\u6548\u3002" } },
@@ -34731,7 +34802,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute7(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
       return {
         isError: true,
         structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u6216 Scene ID \u65E0\u6548\u3002" } },
@@ -34795,7 +34866,7 @@ async function callTool(params, hostValidation, workspace) {
   if (name === "inspect_project") return inspectProject(argumentsValue);
   if (name === "start_agent_host_validation") {
     const projectDirectory = stringArgument(argumentsValue, "projectDirectory");
-    if (projectDirectory === null || !isAbsolute7(projectDirectory)) {
+    if (projectDirectory === null || !isAbsolute8(projectDirectory)) {
       return {
         isError: true,
         structuredContent: {

@@ -1,4 +1,5 @@
 import { RecoveryOperations } from '../../../src/server/project-restore';
+import { selectProjectDirectory } from './directory-picker';
 import { RecoveryExportUncertain, RecoveryExports, type RecoveryCut, type RecoveryDraft } from '../../../src/server/project-recovery';
 import { changeProjectIdentity } from '../../../src/server/project-identity';
 import { copyProjectVNext } from '../../../src/server/project-copy';
@@ -111,6 +112,13 @@ type InternalSpeechJob = SpeechJob & {
 };
 
 const tools = [
+  {
+    name: 'select_project_directory', title: '选择项目文件夹',
+    description: '仅供工作台点击使用：打开本地系统文件夹窗口，只返回用户选定的目录；取消不创建或打开项目。',
+    inputSchema: { type: 'object', required: ['purpose'], additionalProperties: false, properties: { purpose: { enum: ['create-parent', 'open-project'] } } },
+    outputSchema: { type: 'object' }, annotations: { ...readOnlyToolAnnotations, idempotentHint: false },
+    _meta: { ui: { visibility: ['app'] } },
+  },
   { name: 'restore_project', title: '从恢复快照创建项目', description: '只读检查恢复材料和计划，明确确认后在新路径恢复原身份项目；来源受阻时可提取普通文件。', inputSchema: { type: 'object', required: ['action'], additionalProperties: false, properties: { action: { enum: ['inspect', 'plan', 'content', 'recover', 'extract', 'status', 'cancel'] }, snapshotPath: { type: 'string' }, sourcePath: { type: 'string' }, targetPath: { type: 'string' }, planId: { type: 'string' }, briefResult: { type: 'string' }, component: { enum: ['dsl', 'briefLocal', 'briefBase'] }, operationId: { type: 'string' }, confirmTemporaryCleanup: { type: 'boolean' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'project_recovery', title: '项目恢复快照', description: '核对项目身份、封存未保存编辑并在项目外导出恢复快照。', inputSchema: { type: 'object', required: ['action', 'projectDirectory', 'projectId'], additionalProperties: false, properties: { action: { enum: ['check', 'seal', 'export', 'status', 'leave'] }, projectDirectory: { type: 'string' }, projectId: { type: 'string' }, draft: { type: 'object', additionalProperties: false, properties: { dsl: { type: 'string' }, briefLocal: { type: 'string' }, briefBase: { type: 'string' } } }, target: { type: 'string' }, operationId: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'copy_project', title: '复制项目', description: '安全停止并关闭来源，完整复制后打开独立副本；可查询阶段和在发布前取消。', inputSchema: { type: 'object', required: ['action'], additionalProperties: false, properties: { action: { enum: ['start', 'status', 'cancel'] }, projectDirectory: { type: 'string' }, projectId: { type: 'string' }, targetDirectory: { type: 'string' }, operationId: { type: 'string' }, confirmTemporaryCleanup: { type: 'boolean' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
@@ -1389,6 +1397,10 @@ async function callTool(
     throw new Error("tools/call 缺少参数。");
   }
   const { name, arguments: argumentsValue } = params as { name?: unknown; arguments?: unknown };
+  if (name === 'select_project_directory') {
+    try { return { structuredContent: await selectProjectDirectory(argumentsValue), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { error: { code: 'HOST_DIRECTORY_PICKER_FAILED', message: (error as Error).message } }, content: [] }; }
+  }
   if (name === 'restore_project') {
     try { return { structuredContent: await workspace.restore.call(argumentsValue), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? 'RECOVERY_FAILED', path: (error as any).path, message: (error as Error).message, diagnostics: (error as any).diagnostics } }, content: [] }; }
