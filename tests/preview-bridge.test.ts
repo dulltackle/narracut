@@ -23,6 +23,15 @@ test('真实胶囊 Bundle 跨 origin INIT、逐帧与 seek 提交、版本拒绝
   const browser = await chromium.launch({ headless: true });
   try {
     const descriptor = await service.publish({ ...request, bundle, media, parentOrigin, target: 'candidate', baseline: 'test', label: '候选', key: 'a'.repeat(48) });
+    const mediaUrl = new URL(src, descriptor.url);
+    const partial = await fetch(mediaUrl, { headers: { Range: 'bytes=1-999999' } });
+    expect(partial.status).toBe(206);
+    expect(partial.headers.get('content-range')).toBe(`bytes 1-${png.length - 1}/${png.length}`);
+    expect(Buffer.from(await partial.arrayBuffer())).toEqual(png.subarray(1));
+    const head = await fetch(mediaUrl, { method: 'HEAD', headers: { Range: 'bytes=0-1' } });
+    expect(head.status).toBe(206); expect(head.headers.get('content-length')).toBe('2');
+    expect((await head.arrayBuffer()).byteLength).toBe(0);
+    expect((await fetch(mediaUrl, { headers: { Range: `bytes=${png.length}-` } })).status).toBe(416);
     const page = await browser.newPage(); await page.goto(parentOrigin);
     const mount = async (binding: typeof descriptor) => page.evaluate(d => {
       const win = window as any; win.events = []; win.d = d;

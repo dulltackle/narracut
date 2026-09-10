@@ -75,7 +75,7 @@ try {
     // 全部源码参与类型检查，配置不从项目读取，防止插件或环境型配置介入。
     await write('/tmp/work/tsconfig.json', JSON.stringify({ compilerOptions: {
       target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', jsx: 'react-jsx', strict: true,
-      noEmit: true, skipLibCheck: true, types: [], lib: ['ES2022', 'DOM'],
+      noEmit: true, skipLibCheck: true, resolveJsonModule: true, types: [], lib: ['ES2022', 'DOM'],
     }, files: [...sourceFiles, '/tmp/work/runtime/entry-contract.ts'] }));
     const diagnostics: Array<{ code: string; path?: string }> = [];
     try { await exec('/tmp/tools/tsc/tsc', ['--project', '/tmp/work/tsconfig.json'], { maxBuffer: 512 * 1024 }); }

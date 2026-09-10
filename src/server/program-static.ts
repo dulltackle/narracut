@@ -9,7 +9,7 @@ export function assertDeterministicModule(source: string) {
   const allowedImports: Record<string, Set<string>> = {
     react: new Set(['useMemo', 'useCallback', 'Fragment']),
     'react/jsx-runtime': new Set(['jsx', 'jsxs', 'Fragment']),
-    remotion: new Set(['AbsoluteFill', 'Sequence', 'Series', 'Img', 'interpolate', 'interpolateColors', 'spring', 'Easing', 'random', 'useCurrentFrame', 'useVideoConfig']),
+    remotion: new Set(['AbsoluteFill', 'Sequence', 'Series', 'Img', 'Html5Video', 'interpolate', 'interpolateColors', 'spring', 'Easing', 'random', 'useCurrentFrame', 'useVideoConfig']),
     '@narracut/runtime': new Set(['getSceneFrame', 'findSceneAtFrame', 'findAssetById']),
   };
   let ast: any;
@@ -77,7 +77,8 @@ export function assertDeterministicModule(source: string) {
     }
     if (node.type === 'ImportDeclaration') {
       const specifier = node.source.value;
-      if (specifier.startsWith('.') && !specifier.includes('..')) return;
+      // 相对资源导入仍由固定 resolver 的 realpath 项目根边界校验。
+      if (specifier.startsWith('./') || specifier.startsWith('../')) return;
       if (allowedImports[specifier]) {
         if (node.specifiers.some((s: any) => s.type !== 'ImportSpecifier' || !allowedImports[specifier].has(s.imported.name))) fail('STATIC_FORBIDDEN_CAPABILITY', `只允许 ${specifier} 的显式纯能力导入。`);
       } else if (['react-dom', '@remotion/player', 'scheduler'].includes(specifier)) fail('STATIC_FORBIDDEN_CAPABILITY', '禁止直接导入 Runtime 实现。');

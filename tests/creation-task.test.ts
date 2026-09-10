@@ -44,7 +44,11 @@ test('MCP 原文创建单任务、唯一写权、专用线程；等待用户与�
   const app = await setup();
   try {
     const instruction = '  开场更安静\n保留“原文”与空格  ';
-    const [first, duplicate] = await Promise.all([app.call('start_creation_task', { instruction }), app.call('start_creation_task', { instruction })]);
+    const attempts = await Promise.all([app.call('start_creation_task', { instruction }), app.call('start_creation_task', { instruction })]);
+    // 并发请求不保证获胜顺序，只允许一个请求取得创作写权。
+    expect(attempts.filter(result => !result.isError)).toHaveLength(1);
+    const first = attempts.find(result => !result.isError)!;
+    const duplicate = attempts.find(result => result.isError)!;
     expect(first.structuredContent.creationTask.instruction).toBe(instruction);
     expect(duplicate.isError).toBe(true);
     await expect.poll(() => app.host.turns.length).toBe(1);

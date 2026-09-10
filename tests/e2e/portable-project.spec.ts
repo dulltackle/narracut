@@ -1,0 +1,144 @@
+import { test, expect } from '@playwright/test';
+import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdtemp, mkdir, readFile, writeFile, rename, rm, access, cp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createNarracutRequestHandler } from '../../plugins/narracut/src/server';
+import type { CodexHostAdapter, CodexHostEvent, StartCodexTurnInput } from '../../plugins/narracut/src/codex-host';
+import { populatePortableProject } from '../helpers/portable-project';
+import { installAppToolBridge } from '../helpers/workbench-fixture';
+import { compareVisualFrames } from '../support/visual-comparison';
+
+// 与认证胶囊使用同一软件图形后端，避免宿主 GPU 色彩转换差异。
+test.use({ launchOptions: { args: ['--use-gl=angle', '--use-angle=swiftshader', '--in-process-gpu'] } });
+
+class ControlledHost implements CodexHostAdapter {
+  listener?: (event: CodexHostEvent) => void;
+  turns: (StartCodexTurnInput & { turnId: string })[] = [];
+  subscribe(listener: (event: CodexHostEvent) => void) { this.listener = listener; return () => { this.listener = undefined; }; }
+  async createThread() { return { threadId: 'portable-creation' }; }
+  async resumeThread() { return { threadId: 'portable-creation' }; }
+  async startTurn(input: StartCodexTurnInput) { const turnId = `turn-${this.turns.length}`; this.turns.push({ ...input, turnId }); return { turnId }; }
+  async interruptTurn() {}
+  async dispose() {}
+  complete(action = 'wait') {
+    const turn = this.turns.at(-1)!;
+    this.listener?.({ type: 'turn-completed', threadId: turn.threadId, turnId: turn.turnId, status: 'completed', output: JSON.stringify({ verificationToken: turn.verificationToken, action, changes: action === 'apply' ? [{ path: 'resources/palette.json', content: '["#152f38","#463b20","#28483a"]' }] : [], summary: '三幕已准备好，请检查候选。', divergence: '', warnings: [], suggestions: [], reviews: [] }) });
+  }
+}
+
+test('插件工作台：关闭移动后断网重建、精确 Preview、接受与同 Bundle 最终 Render', async ({ page }, info) => {
+  test.setTimeout(600000);
+  const root = await mkdtemp(join(tmpdir(), 'portable-vnext-'));
+  let directory = join(root, '原项目'), projectId: string;
+  const host = new ControlledHost();
+  let handler = createNarracutRequestHandler({ codexHost: host });
+  let lastPreview: any;
+  const raw = async (name: string, args: any) => { const result = await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any; if (name === 'project_preview' && args.action === 'build') lastPreview = result.structuredContent?.preview; return result; };
+  const call = async (name: string, args: any = {}) => {
+    const result = await raw(name, { projectDirectory: directory, projectId, ...args });
+    expect(result.isError, JSON.stringify(result)).not.toBe(true); return result.structuredContent;
+  };
+  const originalFetch = globalThis.fetch;
+  let networkAttempts = 0;
+  const server = createServer();
+  try {
+    await promisify(execFile)(process.execPath, ['--import', 'tsx', 'src/server/cli.ts', 'create', directory]);
+    projectId = JSON.parse(await readFile(join(directory, 'narracut.json'), 'utf8')).projectId;
+    const fixture = await populatePortableProject(directory);
+    // 仅准备期提供本地归档；安装、构建、采帧及编码始终使用真实执行胶囊。
+    globalThis.fetch = async (input) => { const bytes = fixture.urls.get(String(input)); if (!bytes) throw new Error(`未声明来源 ${input}`); return new Response(new Uint8Array(bytes)); };
+    await call('open_project');
+    const resource = await handler({ jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri: 'ui://narracut/workbench-v1.html' } }) as any;
+    server.on('request', (_req, res) => { res.setHeader('content-type', 'text/html'); res.end(resource.contents[0].text); });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const origin = `http://127.0.0.1:${(server.address() as any).port}`;
+    await page.goto(origin); await installAppToolBridge(page, raw);
+    await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), await call('open_project'));
+    await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+    await page.getByRole('textbox', { name: 'Composer', exact: true }).fill('检查三幕素材与叠化，保留已生成 Speech。');
+    await page.getByRole('button', { name: '开始创作', exact: true }).click();
+    await expect.poll(() => host.turns.length).toBe(1); host.complete('dependencies');
+    await expect.poll(() => host.turns.length, { timeout: 60000 }).toBe(2); host.complete('apply');
+    await expect.poll(() => host.turns.length, { timeout: 120000 }).toBe(3); host.complete();
+    await expect.poll(async () => (await call('get_creation_task')).creationTask.status).toBe('waiting');
+    const candidateBeforeMove = (await call('manage_project_candidate', { action: 'read' })).candidate;
+    const lockBeforeMove = await readFile(join(directory, candidateBeforeMove.candidate.path, 'pnpm-lock.yaml'));
+    // 关闭服务销毁全部内存缓存与安装树，然后移动完整项目，旧绝对路径消失。
+    await handler.dispose();
+    const previous = directory;
+    directory = join(root, '移动后很长的项目目录-保持身份-离线验收'); await rename(previous, directory);
+    await expect(access(previous)).rejects.toThrow();
+    globalThis.fetch = async () => { networkAttempts++; throw new Error('离线验收禁止网络'); };
+    handler = createNarracutRequestHandler({ codexHost: host });
+    await promisify(execFile)(process.execPath, ['--import', 'tsx', 'src/server/cli.ts', 'open', directory]);
+    const reopened = await call('open_project');
+    expect(reopened.project.projectId).toBe(projectId);
+    await page.reload(); await page.evaluate(() => { (window as any).openai = { callTool: (name: string, args: any) => (window as any).handleNarracutAppTool(name, args) }; });
+    await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), reopened);
+    await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+    await expect(page.locator('[data-preview-state]')).toContainText('尚无预览');
+    expect(host.turns).toHaveLength(3);
+    await page.getByRole('button', { name: '构建候选', exact: true }).click();
+    await expect.poll(async () => { const state = await page.locator('[data-preview-state]').textContent(); if (state?.includes('失败')) throw new Error(state); return page.locator('[data-frame-output]').textContent(); }, { timeout: 120000 }).toContain('已提交帧 0');
+    // 从公开工具状态取得同一候选的实例，再通过公开交付工具审阅完整证据。
+    const checks = await call('project_checks', { action: 'start' });
+    const preview = lastPreview;
+    const boundaries = preview.input.scenes.slice(1).map((scene: any) => scene.time.startFrame);
+    const supplements = boundaries.flatMap((frame: number) => [{ frame: frame - 2, source: 'transition', reason: '叠化中段' }, { frame: frame + 2, source: 'motion', reason: '边界后运动' }]);
+    await call('project_delivery', { action: 'prepare', instanceId: preview.instanceId, supplements });
+    let delivery: any;
+    await expect.poll(async () => { delivery = await call('project_delivery', { action: 'status' }); return !delivery.collecting && delivery.checks.batches.at(-1)?.status === 'complete'; }, { timeout: 180000 }).toBe(true);
+    const samples = delivery.delivery.frames;
+    const images = new Map<number, string>();
+    const player = page.locator('[data-preview-screen] iframe:not([hidden])');
+    await player.evaluate((node: HTMLIFrameElement) => { node.style.cssText = 'position:fixed;top:0;left:0;width:320px;height:240px;z-index:9999'; });
+    for (const sample of samples) {
+      expect(sample.digest, JSON.stringify(sample)).toBeTruthy();
+      await page.getByLabel('帧号', { exact: true }).fill(String(sample.frame));
+      await page.getByRole('button', { name: '跳转', exact: true }).click();
+      await expect(page.locator('[data-frame-output]')).toContainText(`已提交帧 ${sample.frame}`);
+      const browserImage = info.outputPath(`browser-${sample.frame}.png`); await player.screenshot({ path: browserImage });
+      const result = await raw('project_delivery', { projectDirectory: directory, projectId, action: 'image', deliveryId: delivery.delivery.id, frame: sample.frame });
+      const image = result.content.find((item: any) => item.type === 'image');
+      const path = info.outputPath(`preview-${sample.frame}.png`); await writeFile(path, Buffer.from(image.data, 'base64')); images.set(sample.frame, path);
+      await compareVisualFrames(browserImage, path, { sceneId: 'portable-browser', frame: sample.frame, channelThreshold: 30, maxDifferentPixelRatio: 0.012, artifactDirectory: info.outputDir });
+    }
+    for (let start = 0; start < samples.length; start += 12) await call('project_delivery', { action: 'review', deliveryId: delivery.delivery.id, reviews: samples.slice(start, start + 12).map((sample: any) => ({ frame: sample.frame, digest: sample.digest, observation: '三幕素材、叠化和 seeded 运动代表帧已读取，将与最终输出逐帧比较。' })) });
+    await call('project_delivery', { action: 'describe', deliveryId: delivery.delivery.id, report: { goal: '离线可移动短片', summary: '三幕素材与跨 Scene 叠化', warnings: [], suggestions: [] } });
+    // 等待工作台实际展示报告并提交展示回执，随后由用户明确接受。
+    await expect(page.locator('[data-delivery-state]')).toHaveText('可交付 · 等待用户判断', { timeout: 30000 });
+    await page.getByRole('button', { name: '审阅并接受', exact: true }).click();
+    await expect(page.getByRole('button', { name: '接受完整候选', exact: true })).toBeVisible({ timeout: 30000 });
+    await page.getByRole('button', { name: '接受完整候选', exact: true }).click();
+    await expect(page.locator('[data-accept-message]')).toContainText('已接受', { timeout: 30000 });
+    const renderRegion = page.getByRole('region', { name: '最终 Render', exact: true });
+    await page.evaluate(path => { (window as any).openai.selectDirectory = async () => ({ path }); }, root);
+    await renderRegion.getByRole('button', { name: '准备最终 Render', exact: true }).click();
+    await renderRegion.getByRole('button', { name: '选择输出文件夹' }).click();
+    await renderRegion.getByRole('button', { name: '开始 Render', exact: true }).click();
+    let render: any;
+    await expect.poll(async () => { render = await call('project_render', { action: 'status' }); return render.jobs.at(-1)?.status; }, { timeout: 240000 }).toBe('succeeded');
+    expect(render.source.details.bundle).toBe(preview.identity.bundle);
+    expect(render.jobs.at(-1).source.details).toEqual(render.source.details);
+    for (const [frame, path] of images) {
+      const output = info.outputPath(`render-${frame}.png`);
+      await promisify(execFile)('ffmpeg', ['-v', 'error', '-i', render.jobs.at(-1).outputPath, '-vf', `select=eq(n\\,${frame})`, '-frames:v', '1', output]);
+      await compareVisualFrames(path, output, { sceneId: 'portable', frame, channelThreshold: 30, maxDifferentPixelRatio: 0.012, artifactDirectory: info.outputDir });
+    }
+    await player.evaluate((node: HTMLIFrameElement) => { node.style.cssText = ''; });
+    await page.screenshot({ path: info.outputPath('portable-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: info.outputPath('portable-mobile.png'), fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(networkAttempts).toBe(0);
+    const current = JSON.parse(await readFile(join(directory, '.narracut/current.json'), 'utf8')).revisionId;
+    expect(await readFile(join(directory, '.narracut/revisions', current, 'render-program/pnpm-lock.yaml'))).toEqual(lockBeforeMove);
+    await cp(render.jobs.at(-1).outputPath, info.outputPath('final.mp4'));
+    await handler.dispose();
+    await cp(directory, info.outputPath('project'), { recursive: true });
+    await writeFile(info.outputPath('evidence.json'), JSON.stringify({ projectId, movedFrom: previous, directory, input: preview.input, identity: preview.identity, render: render.jobs.at(-1), frames: [...images.keys()], networkAttempts }, null, 2));
+  } finally { globalThis.fetch = originalFetch; await handler.dispose(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); }
+});

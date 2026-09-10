@@ -858,7 +858,9 @@ test("保存失败可显式重试，工作区切换保留编辑与历史；冲�
   const initial = validResult(1);
   let mode: "fail" | "success" | "conflict" = "fail";
   let calls = 0;
-  await installAppToolBridge(page, (_name, args) => {
+  await installAppToolBridge(page, (name, args) => {
+    // 后台只读轮询不属于保存重试。
+    if (name !== "save_project_scenes") return { structuredContent: {} };
     calls += 1;
     if (mode === "fail") {
       return {

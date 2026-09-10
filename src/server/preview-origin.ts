@@ -1,3 +1,4 @@
+import { snapshotResponse } from './snapshot-response';
 import { createServer, type Server } from 'node:http';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { ProgramBundle, RuntimeSpeech } from './program-bundle';
@@ -41,15 +42,9 @@ export class PreviewOrigin {
         const type = match[2].endsWith('.html') ? 'text/html; charset=utf-8' : match[2].endsWith('.js') ? 'text/javascript; charset=utf-8' : 'application/octet-stream';
         res.setHeader('Content-Type', type);
         // 固定媒体支持范围读取；浏览器无法借此访问可变项目文件。
-        const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
-        let start = 0, end = bytes.length - 1;
-        if (range) {
-          start = Number(range[1]); end = range[2] ? Number(range[2]) : end;
-          if (start > end || end >= bytes.length) { res.writeHead(416).end(); return; }
-          res.statusCode = 206; res.setHeader('Content-Range', `bytes ${start}-${end}/${bytes.length}`);
-        }
-        res.setHeader('Accept-Ranges', 'bytes'); res.setHeader('Content-Length', end - start + 1);
-        res.end(req.method === 'HEAD' ? undefined : bytes.subarray(start, end + 1));
+        const response = snapshotResponse(bytes, req.headers.range);
+        res.writeHead(response.status, response.headers);
+        res.end(req.method === 'HEAD' ? undefined : response.body);
       });
       this.#server.once('error', reject);
       this.#server.listen(0, '127.0.0.1', () => {

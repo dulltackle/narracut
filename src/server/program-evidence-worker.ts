@@ -1,3 +1,4 @@
+import { snapshotResponse } from './snapshot-response';
 /** 固定驱动在 preview 胶囊内重放实例字节；所有网络请求只允许从快照应答。 */
 import { spawn } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -40,7 +41,9 @@ async function respond(params: any, sessionId: string) {
     if (file) { bytes = await readFile('/inputs/' + file); type = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.html') ? 'text/html' : type; }
   }
   if (!bytes) { await command('Fetch.failRequest', { requestId: params.requestId, errorReason: 'BlockedByClient' }, sessionId); return; }
-  await command('Fetch.fulfillRequest', { requestId: params.requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: type }], body: bytes.toString('base64') }, sessionId);
+  const range = Object.entries(params.request.headers ?? {}).find(([name]) => name.toLowerCase() === 'range')?.[1];
+  const response = snapshotResponse(bytes, typeof range === 'string' ? range : undefined);
+  await command('Fetch.fulfillRequest', { requestId: params.requestId, responseCode: response.status, responseHeaders: Object.entries({ ...response.headers, 'Content-Type': type }).map(([name, value]) => ({ name, value })), body: params.request.method === 'HEAD' ? undefined : response.body.toString('base64') }, sessionId);
 }
 const results: Array<{ frame: number; error?: string; errorCode?: string }> = [];
 function frameFailure(error: unknown) {

@@ -156,3 +156,9 @@ it('Metadata 可读取超过旧 64 MiB 预算的不可变媒体快照', async ()
   const bundle = await buildProgramBundle({ ...request, media: new Map([[path, bytes]]) });
   expect(bundle.runtime).toBe('passed');
 }, 120000);
+
+it('相对 Program Resource 导入不能越过项目根进入 Runtime', async () => {
+  const request = await fixture();
+  request.program.set('src/RenderProgram.tsx', Buffer.from('import type {RenderProgramInputV1} from "@narracut/runtime"; import {getSceneFrame} from "../../runtime/node_modules/@narracut/runtime/index"; export function RenderProgram(input:RenderProgramInputV1){return <div>{getSceneFrame(input.scenes[0],0)}</div>}'));
+  await expect(buildProgramBundle(request)).rejects.toMatchObject({ code: 'STATIC_FORBIDDEN_CAPABILITY' });
+});

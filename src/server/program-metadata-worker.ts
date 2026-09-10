@@ -1,3 +1,4 @@
+import { snapshotResponse } from './snapshot-response';
 // 固定 CDP 驱动仅在 Metadata 胶囊运行，不能从项目配置加载。
 import { spawn } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -34,7 +35,9 @@ async function respond(params: any, sessionId: string) {
   const path = url.origin === 'https://narracut.invalid' && /^\/media\/[a-f0-9]{64}$/.test(url.pathname) ? url.pathname.slice(1) : undefined;
   const bytes = path ? await readFile('/inputs/' + path).catch(() => undefined) : undefined;
   if (!bytes) { await command('Fetch.failRequest', { requestId: params.requestId, errorReason: 'BlockedByClient' }, sessionId); return; }
-  await command('Fetch.fulfillRequest', { requestId: params.requestId, responseCode: 200, body: bytes.toString('base64') }, sessionId);
+  const range = Object.entries(params.request.headers ?? {}).find(([name]) => name.toLowerCase() === 'range')?.[1];
+  const response = snapshotResponse(bytes, typeof range === 'string' ? range : undefined);
+  await command('Fetch.fulfillRequest', { requestId: params.requestId, responseCode: response.status, responseHeaders: Object.entries({ ...response.headers, 'Content-Type': 'application/octet-stream' }).map(([name, value]) => ({ name, value })), body: params.request.method === 'HEAD' ? undefined : response.body.toString('base64') }, sessionId);
 }
 try {
   const { targetId } = await command('Target.createTarget', { url: 'about:blank' });

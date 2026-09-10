@@ -1,0 +1,23 @@
+import { AbsoluteFill, Html5Video, Img, Sequence, interpolate, random, useCurrentFrame } from 'remotion';
+import names from 'color-name';
+const easeCubicInOut = (t: number) => t * t * (3 - 2 * t);
+import type { RenderProgramInputV1 } from '@narracut/runtime';
+import colors from '../resources/palette.json';
+
+/** 三个 Scene 的素材与套准线；跨边界叠化及每帧纯函数动画。 */
+export function RenderProgram(input: RenderProgramInputV1) {
+  const frame = useCurrentFrame();
+  return <AbsoluteFill style={{ backgroundColor: colors[0] }}>
+    {input.scenes.map((scene, index) => {
+      const start = scene.time.startFrame;
+      const opacity = index === 0 ? 1 : easeCubicInOut(interpolate(frame, [start - 3, start + 3], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }));
+      const asset = input.assets.find(item => item.id === scene.assetIds[0]);
+      return <AbsoluteFill key={scene.id} style={{ opacity, backgroundColor: index === 0 ? colors[0] : index === 1 ? colors[1] : colors[2] }}>
+        {asset?.availability === 'available' && (index === 1
+          ? <Sequence from={start - 3} durationInFrames={scene.time.durationInFrames + 6}><Html5Video src={asset.src} style={{ width: 320, height: 240 }} /></Sequence>
+          : <Img src={asset.src} style={{ width: 320, height: 240 }} />)}
+        <div style={{ position: 'absolute', left: 30 + easeCubicInOut((frame % 12) / 12) * 180, marginTop: 80 + random(scene.id) * 60, width: 28, height: 28, backgroundColor: `rgb(${names.white.join(',')})` }} />
+      </AbsoluteFill>;
+    })}
+  </AbsoluteFill>;
+}

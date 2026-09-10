@@ -85,17 +85,15 @@ it('固定临时目录只有复制操作与目标匹配且明确确认才清理'
   expect(result.projectDirectory).toBe(target);
 });
 
-it('CLI copy 默认完成后退出，只在显式 --open 时启动工作区', async () => {
+it('CLI copy 与 --open 均完成后退出，--open 输出插件工作台指引', async () => {
   const { runCopyCli } = await import('../src/server/cli');
   const root = await mkdtemp(join(tmpdir(), 'narracut-copy-cli-'));
   await createProjectVNext(join(root, 'source'));
-  let starts = 0;
-  const startServer = async () => { starts++; return { url: 'http://localhost', close: async () => {} } as any; };
-  const result = await runCopyCli({ args: [join(root, 'source'), join(root, 'target')], startServer });
-  expect(result.server).toBeUndefined(); expect(starts).toBe(0);
-  const opened = await runCopyCli({ args: [join(root, 'source'), join(root, 'opened'), '--open'], startServer });
-  expect(starts).toBe(1);
-  await opened.server?.close();
+  const logs: string[] = [];
+  await runCopyCli({ args: [join(root, 'source'), join(root, 'target')], log: line => logs.push(line) });
+  expect(logs.some(line => line.includes('PROJECT_OPENED'))).toBe(false);
+  await runCopyCli({ args: [join(root, 'source'), join(root, 'opened'), '--open'], log: line => logs.push(line) });
+  expect(logs.some(line => line.includes('PROJECT_OPENED'))).toBe(true);
 });
 
 it('发布后的来源租约清理失败不会掩盖已创建副本', async () => {
