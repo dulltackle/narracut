@@ -25238,17 +25238,47 @@ function readOfflineDependencyGraph(manifestBytes, lockBytes, store) {
     if (!record2(item?.resolution) || Object.keys(item.resolution).some((k) => k !== "integrity")) return invalid("\u9501\u56FE\u6765\u6E90\u5FC5\u987B\u4EC5\u7531\u516C\u5171\u5305\u8EAB\u4EFD\u548C\u5B8C\u6574\u6027\u6458\u8981\u51B3\u5B9A\u3002");
     pins.set(id, pin);
   }
+  const snapshots = /* @__PURE__ */ new Map();
+  const snapshotIds = /* @__PURE__ */ new Map();
+  for (const [id, snapshot] of Object.entries(lock.snapshots)) {
+    let context2 = function(depth) {
+      if (depth > 16 || rest.length > 4096) return invalid("peer \u4E0A\u4E0B\u6587\u8D85\u51FA\u652F\u6301\u8303\u56F4\u3002");
+      while (rest.startsWith("(")) {
+        rest = rest.slice(1);
+        const token = /^[^()]+/.exec(rest)?.[0];
+        if (!token || !pins.has(token)) return invalid("peer \u4E0A\u4E0B\u6587\u5F15\u7528\u672A\u56FA\u5B9A\u7684\u5305\u3002");
+        rest = rest.slice(token.length);
+        context2(depth + 1);
+        if (!rest.startsWith(")")) return invalid("peer \u4E0A\u4E0B\u6587\u683C\u5F0F\u65E0\u6548\u3002");
+        rest = rest.slice(1);
+      }
+    };
+    var context = context2;
+    const base = id.split("(")[0];
+    if (!pins.has(base) || snapshots.has(base)) return invalid("\u5FEB\u7167\u5305\u8EAB\u4EFD\u7F3A\u5931\u6216\u5B58\u5728\u591A\u4E2A peer \u4E0A\u4E0B\u6587\u3002");
+    let rest = id.slice(base.length);
+    context2(0);
+    if (rest) return invalid("peer \u4E0A\u4E0B\u6587\u683C\u5F0F\u65E0\u6548\u3002");
+    snapshots.set(base, snapshot);
+    snapshotIds.set(base, id);
+  }
+  function resolvedVersion(name, reference) {
+    if (typeof reference !== "string") return invalid("\u9501\u56FE\u4F9D\u8D56\u5F15\u7528\u65E0\u6548\u3002");
+    const version2 = reference.split("(")[0];
+    if (!versionValid(version2) || snapshotIds.get(`${name}@${version2}`) !== `${name}@${reference}`) return invalid("\u9501\u56FE\u4F9D\u8D56\u5F15\u7528\u4E0E\u5FEB\u7167\u4E0D\u4E00\u81F4\u3002");
+    return version2;
+  }
   const roots = /* @__PURE__ */ Object.create(null);
   for (const [name, version2] of Object.entries(manifest.dependencies)) {
     const entry = lock.importers["."].dependencies[name];
-    if (!nameValid(name) || !versionValid(version2) || entry?.specifier !== version2 || entry.version !== version2 || !pins.has(`${name}@${version2}`)) return invalid("\u4F9D\u8D56\u58F0\u660E\u4E0E\u6839\u9501\u56FE\u4E0D\u4E00\u81F4\u3002");
+    if (!nameValid(name) || !versionValid(version2) || entry?.specifier !== version2 || resolvedVersion(name, entry.version) !== version2 || !pins.has(`${name}@${version2}`)) return invalid("\u4F9D\u8D56\u58F0\u660E\u4E0E\u6839\u9501\u56FE\u4E0D\u4E00\u81F4\u3002");
     roots[name] = `${name}@${version2}`;
   }
   if (Object.keys(lock.importers["."].dependencies).length !== Object.keys(roots).length) return invalid("\u6839\u9501\u56FE\u5305\u542B\u672A\u58F0\u660E\u4F9D\u8D56\u3002");
   const graph = /* @__PURE__ */ new Map();
   function visit(id) {
     if (graph.has(id)) return;
-    const pin = pins.get(id), snapshot = lock.snapshots[id];
+    const pin = pins.get(id), snapshot = snapshots.get(id);
     if (!pin || !record2(snapshot) || Object.keys(snapshot).some((k) => k !== "dependencies") || snapshot.dependencies !== void 0 && !record2(snapshot.dependencies)) return invalid("\u4F20\u9012\u9501\u56FE\u4E0D\u5B8C\u6574\u3002");
     const bytes = store.get(integrityKey(pin.integrity));
     if (!bytes) throw new DependencyError("DEPENDENCY_UNAVAILABLE", `\u79BB\u7EBF\u5E93\u7F3A\u5C11 ${id}\uFF1B\u8BF7\u663E\u5F0F\u534F\u8C03\u4F9D\u8D56\u3002`);
@@ -25256,8 +25286,9 @@ function readOfflineDependencyGraph(manifestBytes, lockBytes, store) {
     const edges = /* @__PURE__ */ Object.create(null);
     const required2 = { ...meta3.dependencies, ...meta3.optionalDependencies, ...meta3.peerDependencies };
     for (const [name, range] of Object.entries(required2)) {
-      const version2 = snapshot.dependencies?.[name];
-      if (version2 === void 0 && meta3.peerDependenciesMeta?.[name]?.optional === true && !meta3.dependencies?.[name] && !meta3.optionalDependencies?.[name]) continue;
+      const reference = snapshot.dependencies?.[name];
+      if (reference === void 0 && meta3.peerDependenciesMeta?.[name]?.optional === true && !meta3.dependencies?.[name] && !meta3.optionalDependencies?.[name]) continue;
+      const version2 = resolvedVersion(name, reference);
       if (!nameValid(name) || !versionValid(version2) || typeof range !== "string" || !(0, import_semver.validRange)(range) || !(0, import_semver.satisfies)(version2, range)) return invalid("\u4F20\u9012\u4F9D\u8D56\u4E0E\u5305\u58F0\u660E\u4E0D\u4E00\u81F4\u3002");
       edges[name] = `${name}@${version2}`;
     }

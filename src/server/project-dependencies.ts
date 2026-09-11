@@ -177,17 +177,46 @@ export function readOfflineDependencyGraph(manifestBytes: Buffer, lockBytes: Buf
     if (!record(item?.resolution) || Object.keys(item.resolution).some(k => k !== 'integrity')) return invalid('锁图来源必须仅由公共包身份和完整性摘要决定。');
     pins.set(id, pin);
   }
+  // 初始修订保留 pnpm 的 peer 上下文；只在内存解析，不改写不可变修订。
+  const snapshots = new Map<string, any>();
+  const snapshotIds = new Map<string, string>();
+  for (const [id, snapshot] of Object.entries(lock.snapshots)) {
+    const base = id.split('(')[0]!;
+    if (!pins.has(base) || snapshots.has(base)) return invalid('快照包身份缺失或存在多个 peer 上下文。');
+    let rest = id.slice(base.length);
+    function context(depth: number): void {
+      if (depth > 16 || rest.length > 4096) return invalid('peer 上下文超出支持范围。');
+      while (rest.startsWith('(')) {
+        rest = rest.slice(1);
+        const token = /^[^()]+/.exec(rest)?.[0];
+        if (!token || !pins.has(token)) return invalid('peer 上下文引用未固定的包。');
+        rest = rest.slice(token.length);
+        context(depth + 1);
+        if (!rest.startsWith(')')) return invalid('peer 上下文格式无效。');
+        rest = rest.slice(1);
+      }
+    }
+    context(0);
+    if (rest) return invalid('peer 上下文格式无效。');
+    snapshots.set(base, snapshot); snapshotIds.set(base, id);
+  }
+  function resolvedVersion(name: string, reference: unknown): string {
+    if (typeof reference !== 'string') return invalid('锁图依赖引用无效。');
+    const version = reference.split('(')[0]!;
+    if (!versionValid(version) || snapshotIds.get(`${name}@${version}`) !== `${name}@${reference}`) return invalid('锁图依赖引用与快照不一致。');
+    return version;
+  }
   const roots: Record<string, string> = Object.create(null);
   for (const [name, version] of Object.entries(manifest.dependencies)) {
     const entry = lock.importers['.'].dependencies[name];
-    if (!nameValid(name) || !versionValid(version) || entry?.specifier !== version || entry.version !== version || !pins.has(`${name}@${version}`)) return invalid('依赖声明与根锁图不一致。');
+    if (!nameValid(name) || !versionValid(version) || entry?.specifier !== version || resolvedVersion(name, entry.version) !== version || !pins.has(`${name}@${version}`)) return invalid('依赖声明与根锁图不一致。');
     roots[name] = `${name}@${version}`;
   }
   if (Object.keys(lock.importers['.'].dependencies).length !== Object.keys(roots).length) return invalid('根锁图包含未声明依赖。');
   const graph = new Map<string, { pin: DependencyPin; bytes: Buffer; dependencies: Record<string, string> }>();
   function visit(id: string) {
     if (graph.has(id)) return;
-    const pin = pins.get(id), snapshot = lock.snapshots[id];
+    const pin = pins.get(id), snapshot = snapshots.get(id);
     if (!pin || !record(snapshot) || Object.keys(snapshot).some(k => k !== 'dependencies') || (snapshot.dependencies !== undefined && !record(snapshot.dependencies))) return invalid('传递锁图不完整。');
     const bytes = store.get(integrityKey(pin.integrity));
     if (!bytes) throw new DependencyError('DEPENDENCY_UNAVAILABLE', `离线库缺少 ${id}；请显式协调依赖。`);
@@ -195,8 +224,9 @@ export function readOfflineDependencyGraph(manifestBytes: Buffer, lockBytes: Buf
     const edges: Record<string, string> = Object.create(null);
     const required = { ...meta.dependencies, ...meta.optionalDependencies, ...meta.peerDependencies };
     for (const [name, range] of Object.entries(required)) {
-      const version = snapshot.dependencies?.[name];
-      if (version === undefined && meta.peerDependenciesMeta?.[name]?.optional === true && !meta.dependencies?.[name] && !meta.optionalDependencies?.[name]) continue;
+      const reference = snapshot.dependencies?.[name];
+      if (reference === undefined && meta.peerDependenciesMeta?.[name]?.optional === true && !meta.dependencies?.[name] && !meta.optionalDependencies?.[name]) continue;
+      const version = resolvedVersion(name, reference);
       if (!nameValid(name) || !versionValid(version) || typeof range !== 'string' || !validRange(range) || !satisfies(version, range)) return invalid('传递依赖与包声明不一致。');
       edges[name] = `${name}@${version}`;
     }

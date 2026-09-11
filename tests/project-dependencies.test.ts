@@ -25,7 +25,7 @@ it('依赖协调拒绝非精确声明与非公共来源，失败不改变候选�
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { readFile, writeFile, readdir, access } from 'node:fs/promises';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 
 function archive(meta: Record<string, unknown>, path = 'package/package.json', type = '0') {
   const content = Buffer.from(JSON.stringify(meta));
@@ -252,5 +252,27 @@ it('放弃后的保留库损坏仍可离线创建候选，再通过唯一协调�
     const repaired = await project.candidate({ action: 'dependencies', baseline: candidate.baseline, dependencies: {}, packages: [] });
     expect(repaired.status).toBe('saved');
     expect(fetch).toHaveBeenCalledTimes(1);
+  } finally { await project.release(); }
+});
+
+it('初始修订的 pnpm peer 快照在未改写锁文件时可读取离线图', async () => {
+  const { directory, project, files } = await fixture();
+  try {
+    const current = JSON.parse(await readFile(join(directory, '.narracut/current.json'), 'utf8'));
+    const root = join(directory, '.narracut/revisions', current.revisionId, 'render-program');
+    const manifest = await readFile(join(root, 'package.json'));
+    const lock = await readFile(join(root, 'pnpm-lock.yaml'));
+    const store = new Map([...files.values()].map(bytes => [createHash('sha512').update(bytes).digest('hex'), bytes]));
+    const { readOfflineDependencyGraph } = await import('../src/server/project-dependencies');
+    const result = readOfflineDependencyGraph(manifest, lock, store);
+    expect([...result.graph.keys()].sort()).toEqual(['react-dom@19.2.8', 'react@19.2.8', 'remotion@4.0.512', 'scheduler@0.27.0']);
+    expect(result.graph.get('remotion@4.0.512')?.dependencies['react-dom']).toBe('react-dom@19.2.8');
+    const ambiguous = parse(lock.toString());
+    ambiguous.snapshots['react-dom@19.2.8'] = structuredClone(ambiguous.snapshots['react-dom@19.2.8(react@19.2.8)']);
+    expect(() => readOfflineDependencyGraph(manifest, Buffer.from(stringify(ambiguous)), store)).toThrow('多个 peer 上下文');
+    const wrongReference = parse(lock.toString());
+    wrongReference.importers['.'].dependencies['react-dom'].version = '19.2.8(react@99.0.0)';
+    expect(() => readOfflineDependencyGraph(manifest, Buffer.from(stringify(wrongReference)), store)).toThrow('快照不一致');
+    expect(await readFile(join(root, 'pnpm-lock.yaml'))).toEqual(lock);
   } finally { await project.release(); }
 });
