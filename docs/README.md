@@ -10,7 +10,7 @@
 | 本地插件构建、安装与启动验证 | [插件打包](plugin-packaging.md) |
 | 当前对话右侧工作台与展示重试 | [工作台面板](workbench-panel.md) |
 | 当前实现验收范围 | [可移动项目验收](portable-project-acceptance.md)、[当前对话完整流程验收](current-conversation-acceptance.md) |
-| 胶囊交接中尚未完成的维护事项 | [胶囊维护事项](capsule-maintenance.md) |
+| 胶囊专项诊断与维护缺口 | [内存诊断](execution-capsule.md#内存诊断)、[维护事项](execution-capsule.md#维护事项) |
 | 追溯旧架构、研究依据或原会话证据 | [历史追溯](#历史追溯) |
 
 验收记录只证明所列基线和执行范围；模块说明维护当前接口与约束。历史资料用于追溯，不补充当前规范。
