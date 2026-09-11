@@ -31609,6 +31609,11 @@ import { createServer as createServer2 } from "node:http";
 import { createHash as createHash12, randomBytes, randomUUID as randomUUID11 } from "node:crypto";
 var previewDigest = (value) => `sha256:${createHash12("sha256").update(value).digest("hex")}`;
 var CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
+function previewMediaType(bytes) {
+  if (bytes.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))) return "video/webm";
+  if (bytes.subarray(4, 8).toString() === "ftyp") return "video/mp4";
+  return "application/octet-stream";
+}
 var PreviewOrigin = class {
   #server;
   #starting;
@@ -31637,7 +31642,7 @@ var PreviewOrigin = class {
           res.writeHead(404).end();
           return;
         }
-        const type = match[2].endsWith(".html") ? "text/html; charset=utf-8" : match[2].endsWith(".js") ? "text/javascript; charset=utf-8" : "application/octet-stream";
+        const type = match[2].endsWith(".html") ? "text/html; charset=utf-8" : match[2].endsWith(".js") ? "text/javascript; charset=utf-8" : previewMediaType(bytes);
         res.setHeader("Content-Type", type);
         const response = snapshotResponse(bytes, req.headers.range);
         res.writeHead(response.status, response.headers);

@@ -21,6 +21,12 @@ export type PreviewDescriptor = {
   input: RenderProgramInputV1; label: string; target: 'current' | 'candidate'; baseline: string;
 };
 const CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
+/** 媒体路由使用摘要命名，按文件签名提供浏览器可识别的类型。 */
+function previewMediaType(bytes: Buffer): string {
+  if (bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) return 'video/webm';
+  if (bytes.subarray(4, 8).toString() === 'ftyp') return 'video/mp4';
+  return 'application/octet-stream';
+}
 /** 每个服务仅托管已认证 Bundle 的副本与固定媒体字节，无文件系统路由、API 或写接口。 */
 export class PreviewOrigin {
   #server?: Server;
@@ -41,7 +47,7 @@ export class PreviewOrigin {
         const match = /^\/([a-f0-9]{48})\/(index.html|bundle.js|bootstrap.js|media\/[a-f0-9]{64})$/.exec(path);
         const bytes = match && this.#instances.get(match[1])?.get(match[2]);
         if (!bytes) { res.writeHead(404).end(); return; }
-        const type = match[2].endsWith('.html') ? 'text/html; charset=utf-8' : match[2].endsWith('.js') ? 'text/javascript; charset=utf-8' : 'application/octet-stream';
+        const type = match[2].endsWith('.html') ? 'text/html; charset=utf-8' : match[2].endsWith('.js') ? 'text/javascript; charset=utf-8' : previewMediaType(bytes);
         res.setHeader('Content-Type', type);
         // 固定媒体支持范围读取；浏览器无法借此访问可变项目文件。
         const response = snapshotResponse(bytes, req.headers.range);
