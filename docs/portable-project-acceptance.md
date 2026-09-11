@@ -2,7 +2,7 @@
 
 交互工作区通过 Narracut Codex 插件使用。`pnpm start <目录>` 和 `pnpm open <目录>` 严格打开并检查 Project VNext，输出项目身份和插件入口说明后释放租约并退出；不再启动独立浏览器服务。`create`、`copy`、`recover` 的 `--open` 执行同样的检查和指引。CLI 不自动续跑 Agent。
 
-旧浏览器、Visual/Preset、固定 Composition 及其专属端到端测试已经删除。`docs/archive/legacy/spec/project-v1.md` 至 `project-v3.md` 和旧 schema 只保留为历史资料，不被生产模块或默认验收导入。`pnpm build` 构建插件；`pnpm test:schema` 检查严格 VNext。
+旧浏览器、Visual/Preset、固定 Composition 及其专属端到端测试已经删除。V1–V3 规格和旧 schema 已从工作树移除，仅保留于 [Git 历史](README.md#历史追溯)，不被生产模块或默认验收导入。`pnpm build` 构建插件；`pnpm test:schema` 检查严格 VNext。
 
 ## 真实旅程
 

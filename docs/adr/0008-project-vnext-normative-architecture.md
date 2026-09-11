@@ -28,7 +28,7 @@ Project VNext 采用一次破坏性架构切换：
 
 ## Consequences
 
-- [`project-v1.md`](../archive/legacy/spec/project-v1.md)、[`project-v2.md`](../archive/legacy/spec/project-v2.md)、[`project-v3.md`](../archive/legacy/spec/project-v3.md) 与文字 Preset 规格全部降为 Legacy。
+- V1–V3 与文字 Preset 规格全部降为 Legacy；原文仅保留于 [Git 历史](../README.md#历史追溯)。
 - 旧 ADR 覆盖关系固定如下：
 
   | 旧 ADR | VNext 状态 | 直接替代者 |
@@ -40,5 +40,5 @@ Project VNext 采用一次破坏性架构切换：
   | ADR-0005 | 整体替代 | ADR-0009 |
   | ADR-0006 | 整体替代 | ADR-0009 |
   | ADR-0007 | 整体替代 | ADR-0008 |
-- VNext 已替代 Legacy 生产入口；实现与验收范围见[可移动项目验收](../portable-project-acceptance.md)和[补充验收收口记录](../project-vnext-acceptance-closure.md)。此决策不提供兼容或迁移路径。
+- VNext 已替代 Legacy 生产入口；实现与验收范围见[可移动项目验收](../portable-project-acceptance.md)和[当前对话完整流程验收](../current-conversation-acceptance.md)。此决策不提供兼容或迁移路径。
 - 实现与后续变更必须以公开工作台/CLI 到持久项目与最终 Render 的边界作为主要验收 seam。
