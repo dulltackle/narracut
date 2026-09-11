@@ -66,6 +66,7 @@
     ttsClearCredential: false,
     ttsSaving: false,
     ttsError: null,
+    ttsConflict: false,
     ttsBlockedReason: null,
     ttsPendingConfirm: null,
     brief: {
@@ -557,6 +558,7 @@
         <div class="credential-state"><span class="status-mark" data-status="${credential.status === "available" && !state.ttsClearCredential ? "connected" : "unavailable"}" aria-hidden="true"></span><span>${credential.status === "available" && !state.ttsClearCredential ? `API Key 已就绪 · ${escapeHtml(credential.masked ?? "已隐藏")}` : "API Key 缺失"}</span>${credential.status === "available" && !state.ttsClearCredential ? '<button type="button" data-clear-tts-key>清除会话凭据</button>' : ""}</div>
         <p class="session-warning">当前宿主未提供安全凭据库。API Key 只保留在本次应用会话，不写入项目、配置或日志。</p>
         ${state.ttsError ? `<div class="tts-error" role="alert">${escapeHtml(state.ttsError)}</div>` : ""}
+        ${state.ttsConflict ? `<button type="button" data-refresh-tts ${state.ttsSaving ? "disabled" : ""}>读取最新项目并保留 TTS 输入</button>` : ""}
         ${pending ? `<div class="tts-confirm" role="alertdialog" aria-label="确认更改 TTS 输出配置"><strong>将使 ${pending.affectedSpeechCount} 条 Speech 失效</strong><p>保存后会原子移除不再匹配的 Speech 记录；Scene、Narration 与 Asset 引用保持不变。</p><div><button type="button" data-confirm-tts>确认保存</button><button type="button" data-cancel-tts-confirm>取消</button></div></div>` : `<button class="tts-save" type="submit" ${state.ttsSaving ? "disabled" : ""}>${state.ttsSaving ? "正在保存…" : "保存 TTS 配置"}</button>`}
       </form>
     </aside>`;
@@ -1889,6 +1891,40 @@
     state.result = { ...state.result, ...content, status: "valid", projectDsl: state.project };
   }
 
+  async function refreshTtsProject() {
+    if (state.ttsSaving || !state.result?.writable) return;
+    if (state.version !== state.savedVersion || state.editing) {
+      state.ttsError = "存在未保存的 Scene 编辑，请先保留或解决编辑冲突。";
+      render();
+      return;
+    }
+    const projectId = state.result.project.projectId;
+    const version = state.version;
+    state.ttsSaving = true;
+    render();
+    try {
+      const response = await callHostTool("get_workbench", {});
+      const content = response?.structuredContent ?? response;
+      if (response?.isError || !content?.writable || !content.projectDsl ||
+          content.project?.projectId !== projectId || state.result.project.projectId !== projectId ||
+          !state.result.writable || state.version !== version || state.editing) {
+        throw new Error("项目状态或编辑已变化，无法安全读取最新基线；请先核对项目。" );
+      }
+      applyWorkspaceContent(content);
+      state.undo = []; state.redo = [];
+      state.candidate = content.candidate;
+      state.creationTask = content.creationTask;
+      state.ttsPendingConfirm = null;
+      state.ttsConflict = false;
+      state.ttsError = "已读取最新项目，请核对 Scene 内容后再次保存 TTS 配置。";
+    } catch (error) {
+      state.ttsError = error?.message ?? "读取最新项目失败，请重试。";
+    } finally {
+      state.ttsSaving = false;
+      render();
+    }
+  }
+
   async function saveTtsSettings(confirmed = false) {
     if (state.ttsSaving || !state.ttsForm || !state.result?.project) return;
     const oldConfig = state.result.tts?.status === "configured" ? state.result.tts.config : null;
@@ -1932,10 +1968,12 @@
         announce(`TTS 配置变更需要确认，将移除 ${content.affectedSpeechCount} 条 Speech。`);
         return;
       }
+      if (content?.status === "save-conflict") state.ttsConflict = true;
       if (response?.isError || ["tts-save-failed", "save-conflict", "identity-lost"].includes(content?.status)) {
         throw new Error(content?.error?.message ?? "TTS 配置保存失败。");
       }
       applyWorkspaceContent(content);
+      state.ttsConflict = false;
       initializeTtsForm(content.tts);
       state.ttsApiKey = "";
       state.ttsClearCredential = false;
@@ -2407,6 +2445,7 @@
       if (!event.currentTarget.reportValidity()) return;
       saveTtsSettings(false);
     }, { signal: bindings.signal });
+    document.querySelector("[data-refresh-tts]")?.addEventListener("click", refreshTtsProject, { signal: bindings.signal });
     document.querySelector("[data-confirm-tts]")?.addEventListener("click", () => saveTtsSettings(true), { signal: bindings.signal });
     document.querySelector("[data-cancel-tts-confirm]")?.addEventListener("click", () => {
       state.ttsPendingConfirm = null;
@@ -2904,6 +2943,7 @@
     state.ttsClearCredential = false;
     state.ttsSaving = false;
     state.ttsError = null;
+    state.ttsConflict = false;
     state.ttsBlockedReason = null;
     state.ttsPendingConfirm = null;
     const incomingBrief = result?.videoBrief ?? {

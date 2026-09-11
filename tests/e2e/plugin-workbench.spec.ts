@@ -1525,3 +1525,47 @@ test('同 ID 冲突完整列出四个选择，转换前明确确认受影响路�
   await expect(dialog).not.toBeVisible();
   expect(calls).toEqual([{ name: 'open_project', args: { projectDirectory: '/work/manual-copy', identityChoice: 'convert' } }]);
 });
+
+test("TTS 版本冲突后可保留凭据输入并核对最新项目再保存", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  delete initial.projectDsl.scenes[0]!.speech;
+  initial.scenes[0]!.speech = { status: "missing" };
+  const config = { provider: "tokendance", model: "minimax-speech-2.8-turbo", voice: "Chinese (Mandarin)_News_Anchor", speed: 1, volume: 1, pitch: 0 };
+  Object.assign(initial, { tts: { status: "configured", config, credential: { status: "missing", storage: "session" }, capabilities: { models: [{ value: config.model }], voices: [{ value: config.voice }] } } });
+  const latest = structuredClone(initial);
+  latest.projectRevision = `sha256:${"4".repeat(64)}`;
+  latest.projectDsl.scenes[0]!.narration.text = "外部已经更新的原文";
+  latest.scenes[0]!.narration = "外部已经更新的原文";
+  let saves = 0;
+  let refreshes = 0;
+  await installAppToolBridge(page, (name, args) => {
+    if (name === "get_workbench") {
+      refreshes++;
+      return { structuredContent: { ...latest, writable: refreshes > 1 } };
+    }
+    if (name === "save_project_tts_settings") {
+      saves++;
+      if (args.baselineRevision !== latest.projectRevision) return { isError: true, structuredContent: { status: "save-conflict", error: { code: "PROJECT_SAVE_CONFLICT", message: "project.json 已被外部修改；Narracut 已停止保存 TTS 配置。" } } };
+      expect(args.apiKey).toBe("test-only-secret");
+      return { structuredContent: { ...latest, status: "tts-saved", affectedSpeechCount: 0, tts: { ...(initial as any).tts, credential: { status: "available", storage: "session" } } } };
+    }
+    throw new Error(`意外工具：${name}`);
+  });
+  await sendResult(page, initial);
+  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await page.getByLabel("TokenDance API Key").fill("test-only-secret");
+  await page.getByRole("button", { name: "保存 TTS 配置" }).click();
+  await expect(page.getByRole("alert")).toContainText("project.json 已被外部修改");
+  await page.getByRole("button", { name: "读取最新项目并保留 TTS 输入" }).click({ timeout: 3000 });
+  await expect(page.getByRole("alert")).toContainText("无法安全读取最新基线");
+  await expect(page.getByLabel("TokenDance API Key")).toHaveValue("test-only-secret");
+  expect(saves).toBe(1);
+  await page.getByRole("button", { name: "读取最新项目并保留 TTS 输入" }).click();
+  await expect(page.getByText("已读取最新项目，请核对 Scene 内容后再次保存 TTS 配置。", { exact: true })).toBeVisible();
+  expect(saves).toBe(1);
+  await page.getByRole("button", { name: "保存 TTS 配置" }).click();
+  await expect(page.getByText("API Key 已就绪", { exact: false })).toBeVisible();
+  expect(saves).toBe(2);
+  await expect(page.getByLabel("TokenDance API Key")).toHaveValue("");
+});
