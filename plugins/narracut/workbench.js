@@ -823,6 +823,7 @@
     return `<main class="stage"><section class="agent-panel creation-panel" aria-labelledby="creation-task-title">
       <header class="agent-head"><h1 id="creation-task-title" tabindex="-1">候选审阅</h1><p>创作、继续任务或新目标接管，请在当前 Codex 对话中表达。</p></header>
       <div class="creation-state"><span class="status-mark" data-status="${task?.status === 'running' ? 'running' : task ? 'stopped' : 'idle'}" aria-hidden="true"></span><h2>${label}${reason ? ` · ${reason}` : ''}</h2>${task?.status === 'running' ? `<p>${creationStages[task.stage] ?? '读取项目'}</p>` : ''}</div>
+      ${task?.status === 'running' ? '<p class="creation-details">关闭面板后，任务仍会继续。需保持应用与 Codex 任务运行。</p>' : ''}
       ${task?.pending ? `<p class="creation-details">${escapeHtml(task.pending)}</p>` : ''}
       ${state.agentError ? `<p class="agent-diagnostic" role="alert">${escapeHtml(state.agentError)}</p>` : ''}
       ${taskControls(task)}
@@ -2970,6 +2971,7 @@
       }
       else if (content?.status !== 'valid' && content && ('creationTask' in content || 'creationRecovery' in content)) { if ('creationRecovery' in content) state.creationRecovery = content.creationRecovery; applyCreation(content.creationTask); }
       else accept(content, content?.operation === "created" && content?.project?.sceneCount === 0);
+      window.parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/workbench-synchronized', params: {} }, '*');
     }
   }, { passive: true });
 
