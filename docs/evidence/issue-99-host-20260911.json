@@ -1,0 +1,80 @@
+{
+  "date": "2026-09-11",
+  "codeBaseline": "8486795",
+  "hostPackage": {
+    "codexAppBrand": "chatgpt",
+    "codexBuildFlavor": "prod",
+    "version": "26.903.61454"
+  },
+  "cliVersion": "0.153.4",
+  "nodeVersion": "22.23.2",
+  "pnpmVersion": "11.7.0",
+  "conversation": {
+    "status": "bound",
+    "threadId": "01a08f7d-51ee-7102-81e9-61c2d1e32459",
+    "source": "CODEX_THREAD_ID"
+  },
+  "hostOpenReceipt": {
+    "status": "queued",
+    "threadId": "01a08f7d-51ee-7102-81e9-61c2d1e32459"
+  },
+  "checkpoint": {
+    "taskId": "6afb18ff-71be-42d7-bfcc-6dcdb4bd6e0d",
+    "projectId": "2572cb16-30d8-40e6-b83d-5d3403a6a057",
+    "instruction": "验收任务：保留 Scene 内容，仅在候选资源中记录本次验收，不修改项目外文件；完成后等待用户审阅。",
+    "status": "stopped",
+    "reason": "CODEX_INTERRUPTED",
+    "threadPointer": null,
+    "lastSafeStage": null,
+    "candidateBaseline": "sha256:4711b88c293cca61a118dd0c0887a8f55edde77142083b29635b3787a45ece5c",
+    "inputIdentity": "sha256:5b2d485b229941d601fae1b267a99cb203f23b093c87eee7dd1d9eb1bade67e3",
+    "pending": null,
+    "waitingReason": null,
+    "suggestions": [],
+    "briefProposal": null,
+    "pendingMessage": null,
+    "toolApproval": null
+  },
+  "projectDsl": {
+    "assets": [],
+    "scenes": [
+      {
+        "id": "82bd914b-7c24-4109-ad80-813815e8f2cd",
+        "narration": {
+          "text": "这是第 99 号验收项目的 Scene。"
+        },
+        "assetIds": []
+      }
+    ]
+  },
+  "fileDigests": {
+    "project.json": "ceef8de38b880b867794eba254edd4cd000c06064502a4087e3e8e3752334ac6",
+    ".narracut/agent-task.json": "954b6578c896b7ee50db0ec18e8fc6accfe0302752c7673643cd7c31be949760"
+  },
+  "limitations": [
+    "宿主 queued 回执不能证明右侧已展示；位置另由用户明确确认",
+    "CUA 只能读取内置浏览器页面，原生应用 API 禁用",
+    "当前创作实际停止为 CODEX_INTERRUPTED，无安全阶段或交付成果",
+    "内置浏览器截图仅保留在 #99 当前验收对话的工具记录中，不包含 Codex 外层位置"
+  ],
+  "userPositionConfirmation": "已在当前对话右侧显示",
+  "resumeProbe": {
+    "adapter": "CodexAppServerHost.resumeThread",
+    "startedTurn": false,
+    "code": "CODEX_INTERRUPTED",
+    "message": "thread/resume 失败：thread 01a08f7d-51ee-7102-81e9-61c2d1e32459 already has an active writer"
+  },
+  "projectCreationReceipt": {
+    "directory": "/tmp/narracut-issue99-desktop-20260911",
+    "folderName": "narracut-issue99-desktop-20260911",
+    "projectId": "2572cb16-30d8-40e6-b83d-5d3403a6a057",
+    "sceneCount": 0,
+    "assetCount": 0
+  },
+  "captureStages": {
+    "projectCreationReceipt": "panel.mjs --create 返回时，编辑前",
+    "projectDsl": "内置浏览器输入并保存后",
+    "checkpoint": "真实创作停止后",
+    "resumeProbe": "停止后以独立适配器探测，不启动 Turn"
+  }
+}
