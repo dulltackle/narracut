@@ -30076,7 +30076,7 @@ function authorizesBrief(instruction) {
 }
 
 // plugins/narracut/src/creation-task.ts
-import { randomUUID as randomUUID10 } from "node:crypto";
+import { randomUUID as randomUUID11 } from "node:crypto";
 import { join as join13 } from "node:path";
 import { rename as rename6, rm as rm11, open as open7 } from "node:fs/promises";
 
@@ -30512,6 +30512,55 @@ function gateOperations(batch, latest, evidence, accepted, enabled = { preview: 
   return ["preview", "delivery", "accept", "render"].map((operation) => ({ operation, eligible: { preview, delivery, accept, render }[operation], status: !enabled[operation] ? "disabled" : { preview, delivery, accept, render }[operation] ? "available" : "blocked", reason: reasons[operation], next: !enabled[operation] ? "\u6B64\u64CD\u4F5C\u5C1A\u672A\u542F\u7528" : next[operation] }));
 }
 
+// plugins/narracut/src/current-conversation-host.ts
+import { randomUUID as randomUUID10 } from "node:crypto";
+var CurrentConversationHost = class {
+  constructor(threadId) {
+    this.threadId = threadId;
+  }
+  threadId;
+  #listeners = /* @__PURE__ */ new Set();
+  #pending = null;
+  #closed = false;
+  subscribe(listener) {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
+  async createThread() {
+    throw new Error("\u5F53\u524D\u5BF9\u8BDD\u521B\u4F5C\u4E0D\u80FD\u521B\u5EFA\u4E13\u7528\u7EBF\u7A0B\u3002");
+  }
+  async resumeThread(input) {
+    if (this.#closed || !this.threadId || input.threadId !== this.threadId) throw new CodexThreadUnavailableError(input.threadId);
+    return { threadId: this.threadId };
+  }
+  async startTurn(input) {
+    await this.resumeThread(input);
+    if (this.#pending) throw new Error("\u5F53\u524D\u521B\u4F5C\u6B65\u9AA4\u5C1A\u672A\u5904\u7406\u3002");
+    const stepId = randomUUID10();
+    this.#pending = { ...structuredClone(input), stepId };
+    return { turnId: stepId };
+  }
+  read() {
+    return this.#pending ? structuredClone(this.#pending) : null;
+  }
+  submit(stepId, output) {
+    const pending = this.#pending;
+    if (this.#closed || !pending || pending.stepId !== stepId) throw new Error("\u521B\u4F5C\u6B65\u9AA4\u5DF2\u5931\u6548\uFF0C\u8BF7\u8BFB\u53D6\u5F53\u524D\u4EFB\u52A1\u3002");
+    this.#pending = null;
+    for (const listener of this.#listeners) listener({ type: "turn-completed", threadId: pending.threadId, turnId: stepId, status: "completed", output });
+  }
+  async interruptTurn(input) {
+    if (this.#pending?.threadId === input.threadId && this.#pending.stepId === input.turnId) this.#pending = null;
+  }
+  async dispose() {
+    this.#closed = true;
+    this.#pending = null;
+    this.#listeners.clear();
+  }
+};
+
 // plugins/narracut/src/creation-task.ts
 var stages = ["read", "modify", "check", "preview", "frames", "deliver"];
 var checkpointSchema = external_exports.object({
@@ -30614,6 +30663,35 @@ var CreationTask = class {
   }
   get blocksCandidateWrites() {
     return this.ownsCandidate || this.#busy || this.#operation !== null;
+  }
+  async step(input) {
+    const request2 = external_exports.discriminatedUnion("action", [
+      external_exports.object({ action: external_exports.literal("read"), taskId: external_exports.string().uuid() }).strict(),
+      external_exports.object({ action: external_exports.literal("submit"), taskId: external_exports.string().uuid(), stepId: external_exports.string().uuid(), answer: external_exports.unknown() }).strict(),
+      external_exports.object({ action: external_exports.literal("interrupt"), taskId: external_exports.string().uuid(), reason: external_exports.enum(["CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "CODEX_USAGE_LIMIT", "CODEX_AUTH_REQUIRED", "CODEX_UNAVAILABLE"]) }).strict()
+    ]).parse(input);
+    if (!(this.host instanceof CurrentConversationHost)) throw new Error("\u5F53\u524D\u5BBF\u4E3B\u4E0D\u4F7F\u7528\u5DE5\u5177\u521B\u4F5C\u6B65\u9AA4\u534F\u8BAE\u3002");
+    if (!this.#state || this.#state.taskId !== request2.taskId || this.#closed || this.#transferred) throw new Error("\u521B\u4F5C\u4EFB\u52A1\u8EAB\u4EFD\u5DF2\u5931\u6548\u3002");
+    if (request2.action === "interrupt") {
+      if (this.#busy || this.#state.status === "terminated") throw new Error("\u4EFB\u52A1\u6B63\u5728\u5904\u7406\u5176\u4ED6\u64CD\u4F5C\u6216\u5DF2\u7EC8\u7ED3\u3002");
+      this.#busy = true;
+      try {
+        return { step: null, creationTask: await this.#stopByUser(request2.reason) };
+      } finally {
+        this.#busy = false;
+      }
+    }
+    if (request2.action === "submit") {
+      this.#assert();
+      const step = this.host.read();
+      if (!step || step.stepId !== request2.stepId || this.#driver?.turnId !== step.stepId) throw new Error("\u521B\u4F5C\u6B65\u9AA4\u5DF2\u5931\u6548\uFF0C\u8BF7\u8BFB\u53D6\u5F53\u524D\u4EFB\u52A1\u3002");
+      const answer = (this.#messageMode ? messageDecision : answerSchema).parse(request2.answer);
+      if (answer.verificationToken !== step.verificationToken) throw new Error("\u521B\u4F5C\u7ED3\u679C\u9A71\u52A8\u8EAB\u4EFD\u4E0D\u5339\u914D\u3002");
+      this.host.submit(request2.stepId, JSON.stringify(answer));
+      return { receipt: "received", step: null, creationTask: this.value };
+    }
+    const pending = this.ownsCandidate ? this.host.read() : null;
+    return { step: pending && this.#driver?.turnId === pending.stepId ? pending : null, creationTask: await this.status() };
   }
   async status() {
     if (!this.#closed && !this.#operation && !this.#recovery && this.#state?.status === "waiting" && this.#state.reason === "CANDIDATE_READY") {
@@ -30726,7 +30804,7 @@ var CreationTask = class {
   }
   async #writeCheckpoint(bytes, validate) {
     const parent = join13(this.opened.inspection.projectDirectory, ".narracut");
-    const identity2 = await directory(parent), temporary = join13(parent, `task-${randomUUID10()}.tmp`);
+    const identity2 = await directory(parent), temporary = join13(parent, `task-${randomUUID11()}.tmp`);
     try {
       const handle = await open7(temporary, "wx", 384);
       try {
@@ -30758,7 +30836,7 @@ var CreationTask = class {
       if (candidate.status !== "absent") throw new Error("\u5DF2\u6709\u5019\u9009\uFF1B\u672C\u6B21\u4E0D\u4F1A\u66FF\u6362\u6216\u63A5\u7BA1\uFF0C\u8349\u7A3F\u5DF2\u4FDD\u7559\u3002");
       this.#resetTaskContext();
       this.#state = {
-        taskId: randomUUID10(),
+        taskId: randomUUID11(),
         projectId: this.opened.inspection.manifest.projectId,
         instruction,
         externalBaseline: null,
@@ -30809,7 +30887,7 @@ var CreationTask = class {
         if (candidate.status === "external-change") candidate = await manager({ action: "adopt", baseline: baseline2, confirmed: true });
         if (candidate.status !== "saved") throw new Error(candidate.error?.message ?? "\u8BF7\u5148\u5728\u5019\u9009\u533A\u57DF\u5904\u7406\u5B8C\u6574\u6027\u95EE\u9898\u3002");
         const checkpoint = {
-          taskId: requestId ?? randomUUID10(),
+          taskId: requestId ?? randomUUID11(),
           projectId: this.opened.inspection.manifest.projectId,
           instruction,
           status: "running",
@@ -30877,7 +30955,7 @@ var CreationTask = class {
       throw new Error("TASK_CHECKPOINT_INVALID\uFF1A\u4EFB\u52A1\u68C0\u67E5\u70B9\u7F3A\u5931\u3001\u635F\u574F\u6216\u4E0E\u5019\u9009\u4E0D\u4E00\u81F4\uFF0C\u65E0\u6CD5\u7EE7\u7EED\u539F\u4EFB\u52A1\u3002\u5019\u9009\u5DF2\u4FDD\u7559\uFF1B\u8FD9\u4E0D\u4EE3\u8868\u5019\u9009\u635F\u574F\u3002");
     }
   }
-  async #stopByUser() {
+  async #stopByUser(reason = "USER_STOPPED") {
     const state = this.#state;
     if (state.status === "stopped" && !this.#operation) return this.value;
     if (!this.#operation && state.status === "waiting") state.waitingReason = state.reason;
@@ -30904,7 +30982,7 @@ var CreationTask = class {
         state.externalBaseline = candidate.baseline;
       } else if (candidate.baseline !== state.candidateBaseline) await this.#invalid();
       state.status = "stopped";
-      state.reason = "USER_STOPPED";
+      state.reason = reason;
       await this.#save();
       this.#operation = null;
       return this.value;
@@ -31048,7 +31126,7 @@ var CreationTask = class {
         if (!original?.trim() || original.length > 4e3 || state.pendingMessage) throw new Error("\u8BF7\u5148\u5904\u7406\u62DF\u4FDD\u5B58\u7684\u539F\u6587\u7247\u6BB5\uFF0C\u6216\u586B\u5199 1\u20134000 \u5B57\u6D88\u606F");
         const resume = state.status === "running";
         await this.#interrupt();
-        state.pendingMessage = { id: randomUUID10(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
+        state.pendingMessage = { id: randomUUID11(), original, fragments: [], reply: "\u6B63\u5728\u8BC6\u522B\u672C\u6B21\u6D88\u606F\uFF1B\u5C1A\u672A\u8FFD\u52A0\u521B\u4F5C\u6307\u4EE4\u3002", previousStatus: state.status, previousReason: state.reason };
         this.#messageMode = { original, resume, stopped: state.status === "stopped" };
         state.status = "running";
         await this.#save();
@@ -31193,7 +31271,7 @@ var CreationTask = class {
     const state = this.#state, snapshot = await this.#snapshot();
     state.inputIdentity = snapshot.signature;
     if (!state.threadPointer) await this.#bindThread();
-    const driver = { token: randomUUID10(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID11(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -31246,7 +31324,7 @@ var CreationTask = class {
     state.lastSafeStage = state.stage === "read" ? "read" : state.lastSafeStage;
     await this.#save();
     this.#assert();
-    const driver = { token: randomUUID10(), turnId: null, signature: snapshot.signature };
+    const driver = { token: randomUUID11(), turnId: null, signature: snapshot.signature };
     this.#driver = driver;
     this.#starting = true;
     try {
@@ -31396,7 +31474,7 @@ var CreationTask = class {
     if (answer.action === "wait") return this.#wait(this.#state.suggestions.some((item) => item.required && !item.satisfied) ? "SCENE_CHANGE_REQUIRED" : "USER_DECISION_REQUIRED", answer.summary);
     if (answer.action === "brief") {
       if (!answer.brief) throw new Error("Brief \u63D0\u6848\u7F3A\u5C11\u5B8C\u6574\u7ED3\u679C");
-      const proposal = { id: randomUUID10(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
+      const proposal = { id: randomUUID11(), base: snapshot.input.videoBrief, baseline: snapshot.brief, ...answer.brief, status: "review" };
       this.#state.briefProposal = proposal;
       if (!authorizesBrief(this.#state.instruction)) return this.#wait("BRIEF_REVIEW_REQUIRED", answer.brief.purpose);
       const saved = await this.opened.saveVideoBrief(proposal.content, proposal.baseline, () => this.#assert());
@@ -31584,7 +31662,7 @@ var CreationTask = class {
 };
 
 // src/server/project-acceptance.ts
-import { randomUUID as randomUUID12 } from "node:crypto";
+import { randomUUID as randomUUID13 } from "node:crypto";
 
 // src/server/snapshot-response.ts
 function snapshotResponse(bytes, rangeHeader) {
@@ -31606,7 +31684,7 @@ function snapshotResponse(bytes, rangeHeader) {
 
 // src/server/preview-origin.ts
 import { createServer as createServer2 } from "node:http";
-import { createHash as createHash12, randomBytes, randomUUID as randomUUID11 } from "node:crypto";
+import { createHash as createHash12, randomBytes, randomUUID as randomUUID12 } from "node:crypto";
 var previewDigest = (value) => `sha256:${createHash12("sha256").update(value).digest("hex")}`;
 var CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-same-origin";
 function previewMediaType(bytes) {
@@ -31663,7 +31741,7 @@ var PreviewOrigin = class {
     const boundIdentity = previewDigest(Buffer.concat([Buffer.from(JSON.stringify(["binding", bindingBytes.length]) + "\n"), bindingBytes]));
     if (boundIdentity !== args.bundle.inputIdentity) throw new Error("Preview \u8F93\u5165\u4E0E Bundle \u6784\u5EFA\u7ED1\u5B9A\u4E0D\u4E00\u81F4\u3002");
     const identity2 = { bundle: args.bundle.identity, input: args.bundle.inputIdentity, media: previewDigest(JSON.stringify([...args.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())), environment: args.bundle.environmentIdentity };
-    const instanceId = randomUUID11(), token = randomBytes(32).toString("hex");
+    const instanceId = randomUUID12(), token = randomBytes(32).toString("hex");
     if (!/^[a-f0-9]{48}$/.test(args.key) || this.#instances.has(args.key)) throw new Error("Preview \u5B9E\u4F8B\u4E0D\u80FD\u91CD\u590D\u7ED1\u5B9A\u3002");
     const files = /* @__PURE__ */ new Map([["bundle.js", args.bundle.files().get("bundle.js")]]);
     for (const [path, bytes] of args.media) {
@@ -31690,7 +31768,7 @@ var PreviewOrigin = class {
     const files = this.snapshot(descriptor.url);
     const source = files.get("bootstrap.js").toString();
     const binding = JSON.parse(source.slice(source.indexOf("{detail:") + 8, -4));
-    const instanceId = randomUUID11(), token = randomBytes(32).toString("hex"), key = randomBytes(24).toString("hex");
+    const instanceId = randomUUID12(), token = randomBytes(32).toString("hex"), key = randomBytes(24).toString("hex");
     files.set("bootstrap.js", Buffer.from(`window.dispatchEvent(new CustomEvent('narracut-preview-binding',{detail:${JSON.stringify({ ...binding, instanceId, token, parentOrigin })}}));`));
     this.#instances.set(key, files);
     return { ...structuredClone(descriptor), instanceId, token, parentOrigin, url: `${this.#origin}/${key}/index.html` };
@@ -31743,7 +31821,7 @@ var ProjectAcceptance = class {
     };
     const summary = delivery.report.summary;
     const key = previewDigest(JSON.stringify([delivery, batch, history.current, history.revisions.map((item) => item.revisionId), record3]));
-    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID12() };
+    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID13() };
   }
   async operate(opened, args) {
     if (args.action === "review") return { confirmation: await this.review(opened) };
@@ -31784,7 +31862,7 @@ var ProjectAcceptance = class {
 };
 
 // src/server/project-render.ts
-import { randomUUID as randomUUID13, randomBytes as randomBytes3 } from "node:crypto";
+import { randomUUID as randomUUID14, randomBytes as randomBytes3 } from "node:crypto";
 import { constants as constants4, watch } from "node:fs";
 import { open as open9, realpath as realpath8, link as link4, unlink as unlink2, lstat as lstat10 } from "node:fs/promises";
 import { basename as basename5, dirname as dirname10, isAbsolute as isAbsolute7, join as join15 } from "node:path";
@@ -32193,7 +32271,7 @@ var ProjectRender = class {
         if (error51.code !== "ENOENT") throw error51;
       }
       abort.signal.throwIfAborted();
-      const job = { id: randomUUID13(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
+      const job = { id: randomUUID14(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
       this.#jobs.set(job.id, job);
       this.#running = this.#run(opened, prepared, job, abort);
       this.#pending.delete(args.requestId);
@@ -32282,7 +32360,7 @@ var ProjectRender = class {
       job.stage = "publishing";
       await verifyMedia();
       if (await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("CAPSULE_UNAVAILABLE", "\u6267\u884C\u73AF\u5883\u5728 Render \u671F\u95F4\u53D8\u5316\uFF0C\u672A\u751F\u6210\u4EA7\u7269\u3002");
-      temporary = join15(dirname10(job.outputPath), `.narracut-render-${randomUUID13()}.tmp`);
+      temporary = join15(dirname10(job.outputPath), `.narracut-render-${randomUUID14()}.tmp`);
       const file2 = await open9(temporary, constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | constants4.O_NOFOLLOW, 384);
       try {
         await file2.writeFile(bytes);
@@ -32328,7 +32406,7 @@ var ProjectRender = class {
 };
 
 // src/server/project-delivery.ts
-import { randomUUID as randomUUID14 } from "node:crypto";
+import { randomUUID as randomUUID15 } from "node:crypto";
 
 // src/shared/representative-frames.ts
 function representativePlan(input, supplemental = []) {
@@ -32469,7 +32547,7 @@ var ProjectDelivery = class {
       if (this.#current && this.#current.binding.instanceId === args.instanceId && !args.supplements && await this.#fresh(opened, this.#current)) return this.status(opened);
       const supplements = supplementsSchema.parse(args.supplements ?? []);
       this.clear();
-      const current2 = new CandidateDelivery(randomUUID14(), snapshot.binding, snapshot.descriptor.input, supplements);
+      const current2 = new CandidateDelivery(randomUUID15(), snapshot.binding, snapshot.descriptor.input, supplements);
       this.#current = current2;
       this.#output = snapshot.descriptor.input.output;
       if (!await this.#fresh(opened, current2)) throw new Error("\u5019\u9009 Preview \u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6784\u5EFA\u3002");
@@ -32578,7 +32656,7 @@ var ProjectDelivery = class {
 };
 
 // src/server/project-checks.ts
-import { randomUUID as randomUUID15 } from "node:crypto";
+import { randomUUID as randomUUID16 } from "node:crypto";
 var ProjectChecks = class {
   constructor(preview) {
     this.preview = preview;
@@ -32674,7 +32752,7 @@ var ProjectChecks = class {
           }
         } }
       ];
-      const batch = new CheckBatch(randomUUID15(), identity2, checks);
+      const batch = new CheckBatch(randomUUID16(), identity2, checks);
       this.#batches.push(batch);
       this.#batches = this.#batches.slice(-2);
       void batch.run().then(async () => {
@@ -32719,7 +32797,7 @@ var ProjectChecks = class {
 };
 
 // plugins/narracut/src/server.ts
-import { randomUUID as randomUUID16 } from "node:crypto";
+import { randomUUID as randomUUID17 } from "node:crypto";
 import { readFile as readFile7 } from "node:fs/promises";
 import { basename as basename7, isAbsolute as isAbsolute8, join as join17 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -33209,6 +33287,7 @@ var tools = [
   { name: "restore_project", title: "\u4ECE\u6062\u590D\u5FEB\u7167\u521B\u5EFA\u9879\u76EE", description: "\u53EA\u8BFB\u68C0\u67E5\u6062\u590D\u6750\u6599\u548C\u8BA1\u5212\uFF0C\u660E\u786E\u786E\u8BA4\u540E\u5728\u65B0\u8DEF\u5F84\u6062\u590D\u539F\u8EAB\u4EFD\u9879\u76EE\uFF1B\u6765\u6E90\u53D7\u963B\u65F6\u53EF\u63D0\u53D6\u666E\u901A\u6587\u4EF6\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["inspect", "plan", "content", "recover", "extract", "status", "cancel"] }, snapshotPath: { type: "string" }, sourcePath: { type: "string" }, targetPath: { type: "string" }, planId: { type: "string" }, briefResult: { type: "string" }, component: { enum: ["dsl", "briefLocal", "briefBase"] }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "project_recovery", title: "\u9879\u76EE\u6062\u590D\u5FEB\u7167", description: "\u6838\u5BF9\u9879\u76EE\u8EAB\u4EFD\u3001\u5C01\u5B58\u672A\u4FDD\u5B58\u7F16\u8F91\u5E76\u5728\u9879\u76EE\u5916\u5BFC\u51FA\u6062\u590D\u5FEB\u7167\u3002", inputSchema: { type: "object", required: ["action", "projectDirectory", "projectId"], additionalProperties: false, properties: { action: { enum: ["check", "seal", "export", "status", "leave"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, draft: { type: "object", additionalProperties: false, properties: { dsl: { type: "string" }, briefLocal: { type: "string" }, briefBase: { type: "string" } } }, target: { type: "string" }, operationId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "copy_project", title: "\u590D\u5236\u9879\u76EE", description: "\u5B89\u5168\u505C\u6B62\u5E76\u5173\u95ED\u6765\u6E90\uFF0C\u5B8C\u6574\u590D\u5236\u540E\u6253\u5F00\u72EC\u7ACB\u526F\u672C\uFF1B\u53EF\u67E5\u8BE2\u9636\u6BB5\u548C\u5728\u53D1\u5E03\u524D\u53D6\u6D88\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["start", "status", "cancel"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, targetDirectory: { type: "string" }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
+  { name: "creation_step", description: "\u5F53\u524D\u5BF9\u8BDD Agent \u8BFB\u53D6\u521B\u4F5C\u6B65\u9AA4\u6216\u63D0\u4EA4\u7ED3\u6784\u5316\u7ED3\u679C\u3002\u4EC5\u6536\u5230\u56DE\u6267\u4E0D\u4EE3\u8868\u5019\u9009\u843D\u76D8\uFF0C\u987B\u7EE7\u7EED\u8BFB\u53D6\u76F4\u5230\u7B49\u5F85\u7528\u6237\u6216\u505C\u6B62\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "taskId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, taskId: { type: "string" }, action: { enum: ["read", "submit", "interrupt"] }, reason: { enum: ["CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "CODEX_USAGE_LIMIT", "CODEX_AUTH_REQUIRED", "CODEX_UNAVAILABLE"] }, stepId: { type: "string" }, answer: { type: "object" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "respond_creation_task", description: "\u7528\u6237\u5904\u7406\u540C\u4E00\u4EFB\u52A1\u7684\u6D88\u606F\u3001Scene \u5F85\u529E\u4E0E Brief \u5BA1\u6838\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, action: { enum: ["message", "confirm-message", "discuss-message", "edit-message", "accept-brief", "ack-brief", "reject-brief", "regenerate-brief", "continue", "stop", "takeover", "approve-tool", "reject-tool"] }, id: { type: "string" }, baseline: { type: "string" }, parentOrigin: { type: "string" }, instruction: { type: "string", maxLength: 4e3 } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "start_creation_task", description: "\u4ECE\u5F53\u524D Codex \u5BF9\u8BDD\u7684 Composer \u539F\u6587\u53D1\u8D77\u521B\u4F5C\u4EFB\u52A1\uFF1B\u590D\u7528\u5F53\u524D\u5BF9\u8BDD\uFF0C\u53EA\u4FEE\u6539\u5019\u9009\uFF0C\u4E0D\u81EA\u52A8\u63A5\u53D7\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "instruction"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, instruction: { type: "string", minLength: 1, maxLength: 4e3 }, parentOrigin: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "get_creation_task", description: "\u8BFB\u53D6\u5F53\u524D\u5355\u9879\u521B\u4F5C\u4EFB\u52A1\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ["app"] } } },
@@ -33956,7 +34035,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     if (this.copying || this.#opening || this.#choosingIdentity || this.#resolvingCandidate) throw new Error("\u9879\u76EE\u64CD\u4F5C\u5C1A\u672A\u7ED3\u675F\u3002");
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     if (typeof input.targetDirectory !== "string" || !isAbsolute8(input.targetDirectory)) throw new Error("\u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
-    this.#copy = { operationId: typeof input.operationId === "string" && /^[0-9a-f-]{36}$/i.test(input.operationId) ? input.operationId : randomUUID16(), status: "running", phase: "stopping", sourceDirectory: input.projectDirectory, targetDirectory: input.targetDirectory, sourceClosed: false };
+    this.#copy = { operationId: typeof input.operationId === "string" && /^[0-9a-f-]{36}$/i.test(input.operationId) ? input.operationId : randomUUID17(), status: "running", phase: "stopping", sourceDirectory: input.projectDirectory, targetDirectory: input.targetDirectory, sourceClosed: false };
     const operation = this.#copy;
     const controller = this.#copyController = new AbortController();
     this.#copyPromise = (async () => {
@@ -34005,6 +34084,13 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
   creation = null;
   #resolvingCandidate = false;
   creationError = null;
+  async creationStep(input) {
+    if (!input || typeof input.projectDirectory !== "string" || typeof input.projectId !== "string") throw new Error("\u521B\u4F5C\u6B65\u9AA4\u53C2\u6570\u65E0\u6548\u3002");
+    this.#requireOpened(input.projectDirectory, input.projectId);
+    if (!this.creation || this.#resolvingCandidate) throw new Error("\u521B\u4F5C\u4EFB\u52A1\u4E0D\u53EF\u7528\u3002");
+    const { projectDirectory: _directory, projectId: _id, ...request2 } = input;
+    return this.creation.step(request2);
+  }
   async creationOperation(input, start = false, resume = false, respond = false) {
     if (!input || typeof input.projectDirectory !== "string" || typeof input.projectId !== "string" || start && typeof input.instruction !== "string") throw new Error("\u521B\u4F5C\u4EFB\u52A1\u53C2\u6570\u65E0\u6548\u3002");
     if ((this.#transferred || this.#handoffPending) && !start && !resume && !respond && this.#opened?.inspection.projectDirectory === input.projectDirectory && this.#opened?.inspection.manifest.projectId === input.projectId) return { creationTask: this.creation?.value ?? null, candidate: this.#candidateStatus, creationRecovery: this.creation?.recovery ?? null, transferred: this.#transferred };
@@ -34360,7 +34446,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const job = {
-      id: randomUUID16(),
+      id: randomUUID17(),
       sceneId: scene.id,
       status: "queued",
       stage: "\u6392\u961F",
@@ -34609,6 +34695,15 @@ async function callTool(params, hostValidation, workspace) {
     }
   }
   if (workspace.copying) return { isError: true, structuredContent: { error: { code: "PROJECT_COPY_BUSY", message: "\u6B63\u5728\u590D\u5236\u9879\u76EE\uFF0C\u6682\u4E0D\u63A5\u6536\u65B0\u7684\u7F16\u8F91\u548C\u5199\u4EFB\u52A1\u3002" } }, content: [] };
+  if (name === "creation_step") {
+    try {
+      const result = await workspace.creationStep(argumentsValue);
+      const images = result.step?.images ?? [];
+      return { structuredContent: { ...result, step: result.step ? { ...result.step, images: void 0 } : null }, content: images.map((url2) => ({ type: "image", mimeType: "image/png", data: url2.replace(/^data:image\/png;base64,/, "") })) };
+    } catch (error51) {
+      return { isError: true, structuredContent: { error: { code: "CREATION_STEP_FAILED", message: error51.message } }, content: [] };
+    }
+  }
   if (name === "respond_creation_task" || name === "start_creation_task" || name === "get_creation_task" || name === "continue_creation_task") {
     try {
       return { structuredContent: await workspace.creationOperation(argumentsValue, name === "start_creation_task", name === "continue_creation_task", name === "respond_creation_task"), content: [] };
@@ -35189,8 +35284,9 @@ async function callTool(params, hostValidation, workspace) {
   throw new Error(`\u672A\u77E5\u5DE5\u5177\uFF1A${String(name)}`);
 }
 function createNarracutRequestHandler(options = {}) {
-  const codexHost = options.codexHost ?? new CodexAppServerHost();
-  const hostValidation = new AgentHostValidationService(codexHost);
+  const codexHost = options.codexHost ?? new CurrentConversationHost(options.conversation?.threadId ?? null);
+  const validationHost = options.codexHost ?? new CodexAppServerHost();
+  const hostValidation = new AgentHostValidationService(validationHost);
   const workspace = new ProjectWorkspaceSession({
     codexHost,
     conversation: options.conversation,
@@ -35308,6 +35404,7 @@ function createNarracutRequestHandler(options = {}) {
     dispose: async () => {
       await workspace.dispose();
       await hostValidation.dispose();
+      if (codexHost !== validationHost) await codexHost.dispose();
     }
   });
 }

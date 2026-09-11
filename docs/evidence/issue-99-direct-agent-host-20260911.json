@@ -1,0 +1,84 @@
+{
+  "capturedAt": "2026-09-11T09:01:37.631691+00:00",
+  "implementationBase": "872c684",
+  "scope": "真实当前 Agent 通过生产步骤 RPC 创作；不使用模型替身",
+  "threadId": "01a08f7d-51ee-7102-81e9-61c2d1e32459",
+  "projectId": "f4a79f01-1534-4e90-9133-4d518b06714b",
+  "projectDirectory": "/tmp/narracut-99-current-agent-clips",
+  "taskId": "b6ae2ef0-f8d5-44df-bc24-a2dbd303231c",
+  "panelOpenReceipt": "queued",
+  "outerPanelPositionConfirmedThisRun": false,
+  "sceneEditing": "真实 CUA 新增、输入脚本原文、失焦保存并重载核对",
+  "sceneId": "ca7b4c5d-774a-4e3c-8570-438182c87b86",
+  "narration": "从球囊连接管套装中取出连接管",
+  "assetImport": "公开 RPC 导入用户指定文件并绑定；未验收原生选择窗口",
+  "source": "fixtures/clips/2.mp4",
+  "sourceSha256": "ec594f51037a7b3cec9bd846662cbef97dec186a2b1a8400120fc949cb3abad2",
+  "importedSha256": "ec594f51037a7b3cec9bd846662cbef97dec186a2b1a8400120fc949cb3abad2",
+  "projectDslSha256": "8d2be6629fbfb058bd323aa37d11d027209276b78577b5a5ada2f72920694b20",
+  "candidateProgramSha256": "88a822a9c405429984718caa821e427a0fccbbac7ae4ad708a761089edba282b",
+  "checkpointSha256": "73d07eff948276d31f1c9261c3646768c01c26b28e60b86f850bc6dada25708f",
+  "safeStage": "deliver",
+  "status": "waiting",
+  "reason": "CANDIDATE_READY",
+  "dependencyProbe": {
+    "code": "CAPSULE_TIMEOUT",
+    "message": "执行胶囊达到墙钟上限，已销毁全部进程并丢弃输出。",
+    "retry": "同一任务明确继续并重试后成功，胶囊限制未改，首轮超时根因未确定。"
+  },
+  "verified": [
+    "当前真实任务绑定",
+    "读取步骤",
+    "结构化候选修改原子落盘",
+    "必要检查执行",
+    "真实 UI 重载显示素材与候选",
+    "同一真实任务明确继续",
+    "输入变化自动作废旧步骤",
+    "依赖重试成功",
+    "静态诊断修复",
+    "WebM Preview",
+    "实际逐帧观察并交付候选"
+  ],
+  "notVerified": [
+    "用户接受",
+    "真实最终 Render",
+    "原生桌面生命周期订阅",
+    "Scene 待办满足后自动唤醒",
+    "真实双任务接管"
+  ],
+  "speechCount": 0,
+  "deliveryId": "e5af0163-265b-422b-b9a4-ba12428e6bb4",
+  "assets": [
+    {
+      "source": "fixtures/clips/2.mp4",
+      "importedPath": "assets/2.mp4",
+      "sourceSha256": "ec594f51037a7b3cec9bd846662cbef97dec186a2b1a8400120fc949cb3abad2",
+      "importedSha256": "ec594f51037a7b3cec9bd846662cbef97dec186a2b1a8400120fc949cb3abad2"
+    },
+    {
+      "source": "fixtures/clips/输卵管通液/assets/2.webm",
+      "importedPath": "assets/2.webm",
+      "sourceSha256": "bbe3ccf7dfc03aea191c3b1f69b5608fa75abefcd67f8012d5c1beb94d0645ca",
+      "importedSha256": "bbe3ccf7dfc03aea191c3b1f69b5608fa75abefcd67f8012d5c1beb94d0645ca"
+    }
+  ],
+  "frames": [
+    {
+      "frame": 0,
+      "digest": "sha256:46a91e3387a917631d4746ac2add7140a31a02dbf169ee5f4798db3142467014"
+    },
+    {
+      "frame": 74,
+      "digest": "sha256:6fad95b0176af661bc8f624dceca0b6988bae1932a25d0145a75246f0113767b"
+    },
+    {
+      "frame": 149,
+      "digest": "sha256:cf4fac7a0358117ae8194bc6ec75f00a41c5fa5e384272566cba32f05978f8b5"
+    }
+  ],
+  "warnings": [
+    "没有 Speech，目前使用 5 秒 Draft Duration，不能最终 Render。",
+    "MP4 首轮未显示，候选使用用户目录中已有 WebM 版本。",
+    "默认字体缺少中文，候选未显示可选旁白字幕；Scene 原文保持不变。"
+  ]
+}

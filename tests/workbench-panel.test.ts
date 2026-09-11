@@ -31,7 +31,7 @@ class ConversationHost implements CodexHostAdapter {
 }
 
 const cleanup: Array<() => Promise<unknown>> = [];
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+afterEach(async () => { try { for (const close of cleanup.splice(0).reverse()) await close(); } finally { vi.unstubAllEnvs(); } });
 
 it('只读工作台可绑定既有 Preview 的不可变副本，禁止借预览启动新构建', async () => {
   const root = await mkdtemp(join(tmpdir(), 'narracut-view-preview-')); cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -219,4 +219,82 @@ it('其他网站不能使用本地面板调用项目工具', async () => {
     get(panel.url, { headers: { Host: 'unrelated.example' } }, response => { response.resume(); resolve(response.statusCode); }).on('error', reject);
   });
   expect(status).toBe(404);
+});
+
+
+it('生产当前对话通过公开创作步骤协议提交结果，停止后拒绝旧步骤且不启动独立 Codex', async () => {
+  vi.stubEnv('NARRACUT_CODEX_COMMAND', '/不存在的独立-codex');
+  const root = await mkdtemp(join(tmpdir(), 'narracut-direct-')); cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const handler = createNarracutRequestHandler({ conversation: { threadId: 'desktop-active-writer' } }); cleanup.push(handler.dispose);
+  const call = async (name: string, args = {}) => await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any;
+  const created = (await call('create_project', { projectDirectory: join(root, '项目') })).structuredContent;
+  const identity = { projectDirectory: created.project.directory, projectId: created.project.projectId };
+  const started = (await call('start_creation_task', { ...identity, instruction: '只审阅候选，等待用户决定' })).structuredContent;
+  const task = { ...identity, taskId: started.creationTask.taskId };
+  let step: any;
+  await expect.poll(async () => {
+    const result = await call('creation_step', { ...task, action: 'read' });
+    step = result.structuredContent?.step;
+    return Boolean(step);
+  }).toBe(true);
+  expect(step.prompt).toContain('只审阅候选，等待用户决定');
+  const answer = { verificationToken: step.verificationToken, action: 'wait', changes: [], summary: '请确认成片风格', divergence: '', warnings: [], suggestions: [], reviews: [] };
+  expect((await call('creation_step', { ...task, action: 'submit', stepId: step.stepId, answer })).isError).not.toBe(true);
+  await expect.poll(async () => (await call('get_creation_task', identity)).structuredContent.creationTask.status).toBe('waiting');
+  expect((await call('get_creation_task', identity)).structuredContent.creationTask).toMatchObject({ threadPointer: 'desktop-active-writer', reason: 'USER_DECISION_REQUIRED' });
+  await call('respond_creation_task', { ...identity, action: 'continue' });
+  await expect.poll(async () => { step = (await call('creation_step', { ...task, action: 'read' })).structuredContent?.step; return Boolean(step); }).toBe(true);
+  await call('respond_creation_task', { ...identity, action: 'stop' });
+  expect((await call('creation_step', { ...task, action: 'submit', stepId: step.stepId, answer: { ...answer, verificationToken: step.verificationToken } })).isError).toBe(true);
+  expect((await call('get_creation_task', identity)).structuredContent.creationTask.status).toBe('stopped');
+});
+
+
+it('当前对话步骤隔离只读面板、接管前结果、错误 token 与另一任务身份', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'narracut-direct-control-')); cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const first = createNarracutRequestHandler({ conversation: { threadId: 'direct-first' } }); cleanup.push(first.dispose);
+  const second = createNarracutRequestHandler({ conversation: { threadId: 'direct-second' } }); cleanup.push(second.dispose);
+  const call = async (handler: typeof first, name: string, args = {}) => await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any;
+  const created = (await call(first, 'create_project', { projectDirectory: join(root, '项目') })).structuredContent;
+  const identity = { projectDirectory: created.project.directory, projectId: created.project.projectId };
+  const started = (await call(first, 'start_creation_task', { ...identity, instruction: '保留候选，等待审阅' })).structuredContent;
+  const task = { ...identity, taskId: started.creationTask.taskId };
+  let step: any;
+  await expect.poll(async () => { step = (await call(first, 'creation_step', { ...task, action: 'read' })).structuredContent?.step; return Boolean(step); }).toBe(true);
+  const answer = { verificationToken: step.verificationToken, action: 'wait', changes: [], summary: '请审阅候选', divergence: '', warnings: [], suggestions: [], reviews: [] };
+  expect((await call(first, 'creation_step', { ...task, action: 'submit', stepId: step.stepId, answer: { ...answer, verificationToken: '伪造' } })).isError).toBe(true);
+  expect((await call(first, 'creation_step', { ...task, taskId: '00000000-0000-4000-8000-000000000000', action: 'read' })).isError).toBe(true);
+  await call(second, 'open_project', identity);
+  for (const action of ['read', 'submit']) expect((await call(second, 'creation_step', { ...task, action, ...(action === 'submit' ? { stepId: step.stepId, answer } : {}) })).structuredContent.error.code).toBe('PROJECT_CONTROL_REQUIRED');
+  expect((await call(second, 'project_control', { ...identity, action: 'takeover' })).isError).not.toBe(true);
+  expect((await call(first, 'creation_step', { ...task, action: 'submit', stepId: step.stepId, answer })).structuredContent.error.code).toBe('PROJECT_CONTROL_REQUIRED');
+  expect((await call(second, 'creation_step', { ...task, action: 'submit', stepId: step.stepId, answer })).isError).toBe(true);
+  await call(second, 'respond_creation_task', { ...identity, action: 'continue' });
+  let next: any;
+  await expect.poll(async () => { next = (await call(second, 'creation_step', { ...task, action: 'read' })).structuredContent?.step; return Boolean(next); }).toBe(true);
+  expect(next.stepId).not.toBe(step.stepId);
+  expect(next.threadId).toBe('direct-second');
+  expect((await call(second, 'creation_step', { ...task, action: 'submit', stepId: next.stepId, answer: { ...answer, verificationToken: next.verificationToken } })).isError).not.toBe(true);
+  await expect.poll(async () => (await call(second, 'get_creation_task', identity)).structuredContent.creationTask.status).toBe('waiting');
+});
+
+it('当前对话显式报告宿主中断，重启保留任务且旧步骤不能在新会话复活', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'narracut-direct-restart-')); cleanup.push(() => rm(root, { recursive: true, force: true }));
+  let handler = createNarracutRequestHandler({ conversation: { threadId: 'restart-direct' } }); cleanup.push(() => handler.dispose());
+  const call = async (name: string, args = {}) => await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any;
+  const created = (await call('create_project', { projectDirectory: join(root, '项目') })).structuredContent;
+  const identity = { projectDirectory: created.project.directory, projectId: created.project.projectId };
+  const started = (await call('start_creation_task', { ...identity, instruction: '检查中断边界' })).structuredContent;
+  const task = { ...identity, taskId: started.creationTask.taskId };
+  let step: any;
+  await expect.poll(async () => { step = (await call('creation_step', { ...task, action: 'read' })).structuredContent?.step; return Boolean(step); }).toBe(true);
+  const stopped = await call('creation_step', { ...task, action: 'interrupt', reason: 'CODEX_INTERRUPTED' });
+  expect(stopped.structuredContent.creationTask).toMatchObject({ status: 'stopped', reason: 'CODEX_INTERRUPTED' });
+  expect((await call('creation_step', { ...task, action: 'read' })).structuredContent.step).toBeNull();
+  await handler.dispose();
+  handler = createNarracutRequestHandler({ conversation: { threadId: 'restart-direct' } });
+  expect((await call('open_project', identity)).structuredContent.creationTask).toMatchObject({ taskId: task.taskId, status: 'stopped', reason: 'APP_RESTARTED' });
+  expect((await call('creation_step', { ...task, action: 'read' })).structuredContent.step).toBeNull();
+  await call('respond_creation_task', { ...identity, action: 'continue' });
+  expect((await call('creation_step', { ...task, action: 'submit', stepId: step.stepId, answer: { verificationToken: step.verificationToken, action: 'wait', changes: [], summary: '旧结果', divergence: '', warnings: [], suggestions: [], reviews: [] } })).isError).toBe(true);
 });

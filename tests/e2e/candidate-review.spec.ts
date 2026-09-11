@@ -17,6 +17,9 @@ test('公开工作台只提供候选审阅，停止任务不出现继续或新�
     await page.goto(panel.url);
     const app = page.frameLocator('iframe');
     await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    // 生产接入现在能够运行；通过用户停止入口建立本场景的已停止状态。
+    await expect(app.locator('[data-agent-content]')).toContainText('运行中');
+    await app.getByRole('button', { name: '停止任务', exact: true }).click();
     await expect(app.locator('[data-agent-content]')).toContainText('已停止');
     await expect(app.locator('[data-preview-screen]')).toBeHidden();
     await page.screenshot({ path: '/tmp/review-stopped-desktop.png' });

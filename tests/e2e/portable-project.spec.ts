@@ -6,7 +6,6 @@ import { mkdtemp, mkdir, readFile, writeFile, rename, rm, access, cp } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createNarracutRequestHandler } from '../../plugins/narracut/src/server';
-import type { CodexHostAdapter, CodexHostEvent, StartCodexTurnInput } from '../../plugins/narracut/src/codex-host';
 import { populatePortableProject } from '../helpers/portable-project';
 import { installAppToolBridge } from '../helpers/workbench-fixture';
 import { compareVisualFrames } from '../support/visual-comparison';
@@ -14,29 +13,14 @@ import { compareVisualFrames } from '../support/visual-comparison';
 // 与认证胶囊使用同一软件图形后端，避免宿主 GPU 色彩转换差异。
 test.use({ launchOptions: { args: ['--use-gl=angle', '--use-angle=swiftshader', '--in-process-gpu'] } });
 
-class ControlledHost implements CodexHostAdapter {
-  listener?: (event: CodexHostEvent) => void;
-  turns: (StartCodexTurnInput & { turnId: string })[] = [];
-  subscribe(listener: (event: CodexHostEvent) => void) { this.listener = listener; return () => { this.listener = undefined; }; }
-  async createThread(): Promise<{ threadId: string }> { throw new Error('创作必须复用当前对话'); }
-  async resumeThread() { return { threadId: 'portable-creation' }; }
-  async startTurn(input: StartCodexTurnInput) { const turnId = `turn-${this.turns.length}`; this.turns.push({ ...input, turnId }); return { turnId }; }
-  async interruptTurn() {}
-  async dispose() {}
-  complete(action = 'wait') {
-    const turn = this.turns.at(-1)!;
-    this.listener?.({ type: 'turn-completed', threadId: turn.threadId, turnId: turn.turnId, status: 'completed', output: JSON.stringify({ verificationToken: turn.verificationToken, action, changes: action === 'apply' ? [{ path: 'resources/palette.json', content: '["#152f38","#463b20","#28483a"]' }] : [], summary: '三幕已准备好，请检查候选。', divergence: '', warnings: [], suggestions: [], reviews: [] }) });
-  }
-}
-
 test('插件工作台：关闭移动后断网重建、精确 Preview、接受与同 Bundle 最终 Render', async ({ page }, info) => {
   test.setTimeout(600000);
   const root = await mkdtemp(join(tmpdir(), 'portable-vnext-'));
   let directory = join(root, '原项目'), projectId: string;
-  const host = new ControlledHost();
-  let handler = createNarracutRequestHandler({ codexHost: host, conversation: { threadId: 'portable-creation' } });
+  let handler = createNarracutRequestHandler({ conversation: { threadId: 'portable-creation' } });
   let lastPreview: any;
-  const raw = async (name: string, args: any) => { const result = await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any; if (name === 'project_preview' && args.action === 'build') lastPreview = result.structuredContent?.preview; return result; };
+  let stepImageCount = 0;
+  const raw = async (name: string, args: any) => { const result = await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any; if (name === 'creation_step') stepImageCount = result.content?.filter((item: any) => item.type === 'image').length ?? 0; if (name === 'project_preview' && args.action === 'build') lastPreview = result.structuredContent?.preview; return result; };
   const call = async (name: string, args: any = {}) => {
     const result = await raw(name, { projectDirectory: directory, projectId, ...args });
     expect(result.isError, JSON.stringify(result)).not.toBe(true); return result.structuredContent;
@@ -61,12 +45,36 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     await expect(page.getByRole('textbox', { name: 'Composer', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /开始创作|继续任务|新目标接管/ })).toHaveCount(0);
     // 当前对话通过公开工具发起，工作台承载后续审阅与明确接受。
-    await call('start_creation_task', { instruction: '检查三幕素材与叠化，保留已生成 Speech。', parentOrigin: origin });
-    await expect.poll(() => host.turns.length).toBe(1); host.complete('dependencies');
-    await expect.poll(() => host.turns.length, { timeout: 60000 }).toBe(2); host.complete('apply');
-    await expect.poll(() => host.turns.length, { timeout: 120000 }).toBe(3); host.complete();
-    await expect.poll(async () => (await call('get_creation_task')).creationTask.status).toBe('waiting');
-    expect(host.turns.every(turn => turn.threadId === 'portable-creation')).toBe(true);
+    const started = await call('start_creation_task', { instruction: '检查三幕素材与叠化，保留已生成 Speech。', parentOrigin: origin });
+    const taskId = started.creationTask.taskId;
+    for (const action of ['dependencies', 'apply', 'deliver']) {
+      let step: any;
+      await expect.poll(async () => { step = (await call('creation_step', { taskId, action: 'read' })).step; return Boolean(step); }, { timeout: 120000 }).toBe(true);
+      expect(step.threadId).toBe('portable-creation');
+      await call('creation_step', { taskId, action: 'submit', stepId: step.stepId, answer: {
+        verificationToken: step.verificationToken, action,
+        changes: action === 'apply' ? [{ path: 'resources/palette.json', content: '["#152f38","#463b20","#28483a"]' }] : [],
+        summary: '三幕已准备好，请检查候选。', divergence: '', warnings: [], suggestions: [], reviews: [],
+      } });
+    }
+    // 可控 Agent 通过真实工具图像通道逐批回交观察；视觉正确性由后面的逐帧对照另行验证。
+    for (let batch = 0; batch < 4; batch++) {
+      let step: any;
+      await expect.poll(async () => {
+        const result = await call('creation_step', { taskId, action: 'read' }); step = result.step;
+        return Boolean(step) || result.creationTask.status === 'waiting';
+      }, { timeout: 120000 }).toBe(true);
+      if (!step) break;
+      const evidence = (await call('project_delivery', { action: 'status' })).delivery;
+      const frames = evidence.frames.filter((frame: any) => !frame.observation).slice(0, 12);
+      expect(stepImageCount).toBe(frames.length);
+      expect(stepImageCount).toBeGreaterThan(0);
+      await call('creation_step', { taskId, action: 'submit', stepId: step.stepId, answer: {
+        verificationToken: step.verificationToken, action: 'deliver', changes: [], summary: '三幕候选已交付', divergence: '', warnings: [], suggestions: [],
+        reviews: frames.map((frame: any) => ({ frame: frame.frame, digest: frame.digest, observation: '自动化协议替身：该帧交由后续逐帧对照验证。' })),
+      } });
+    }
+    await expect.poll(async () => (await call('get_creation_task')).creationTask.reason).toBe('CANDIDATE_READY');
     const candidateBeforeMove = (await call('manage_project_candidate', { action: 'read' })).candidate;
     const lockBeforeMove = await readFile(join(directory, candidateBeforeMove.candidate.path, 'pnpm-lock.yaml'));
     // 关闭服务销毁全部内存缓存与安装树，然后移动完整项目，旧绝对路径消失。
@@ -75,7 +83,7 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     directory = join(root, '移动后很长的项目目录-保持身份-离线验收'); await rename(previous, directory);
     await expect(access(previous)).rejects.toThrow();
     globalThis.fetch = async () => { networkAttempts++; throw new Error('离线验收禁止网络'); };
-    handler = createNarracutRequestHandler({ codexHost: host, conversation: { threadId: 'portable-creation' } });
+    handler = createNarracutRequestHandler({ conversation: { threadId: 'portable-creation' } });
     await promisify(execFile)(process.execPath, ['--import', 'tsx', 'src/server/cli.ts', 'open', directory]);
     const reopened = await call('open_project');
     expect(reopened.project.projectId).toBe(projectId);
@@ -83,7 +91,8 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), reopened);
     await page.getByRole('tab', { name: 'Agent 工作区' }).click();
     await expect(page.locator('[data-preview-state]')).toContainText('尚无预览');
-    expect(host.turns).toHaveLength(3);
+    expect((await call('get_creation_task')).creationTask).toMatchObject({ taskId, status: 'stopped', reason: 'APP_RESTARTED' });
+    expect((await call('creation_step', { taskId, action: 'read' })).step).toBeNull();
     await page.getByRole('button', { name: '构建候选', exact: true }).click();
     await expect.poll(async () => { const state = await page.locator('[data-preview-state]').textContent(); if (state?.includes('失败')) throw new Error(state); return page.locator('[data-frame-output]').textContent(); }, { timeout: 120000 }).toContain('已提交帧 0');
     // 从公开工具状态取得同一候选的实例，再通过公开交付工具审阅完整证据。

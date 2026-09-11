@@ -1,0 +1,56 @@
+{
+  "capturedAt": "2026-09-11T09:01:37.737125+00:00",
+  "implementationBase": "872c684",
+  "scope": "自动化使用确定性Agent答案与生产步骤协议；不等于真实桌面完整验收",
+  "logs": [
+    {
+      "name": "typecheck",
+      "path": "/tmp/n99-typecheck5.log",
+      "sha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+      "result": "通过"
+    },
+    {
+      "name": "focused",
+      "path": "/tmp/n99-focused2.log",
+      "sha256": "e3d127e66c0d7ffe7d8193062ec844f5bd48fd211f37cb8b7705a66edf6c36b7",
+      "result": "83 通过"
+    },
+    {
+      "name": "full",
+      "path": "/tmp/n99-full-final.log",
+      "sha256": "0d1f698fc1d29ecd24cef3e62f5d36128b466aeb2cb241cef63952fa38f75191",
+      "result": "schema19及插件通过；单元332通过3失败2跳过；退出1"
+    },
+    {
+      "name": "failedFilesRecheck",
+      "path": "/tmp/n99-recheck-final.log",
+      "sha256": "67a07fcc310841e2407afe03067092e17cee346bc4260ef7a3ff91278d1f41be",
+      "result": "3文件85通过"
+    },
+    {
+      "name": "portable",
+      "path": "/tmp/n99-portable.log",
+      "sha256": "873d342131f488e4d8eefc8a28a95582618e0983f54a58b6de8ee3a14b26e3c8",
+      "result": "新协议完整成片1通过"
+    },
+    {
+      "name": "e2eFull",
+      "path": "/tmp/n99-e2e-final.log",
+      "sha256": "824805fbd73cb799e2b1234db787bd5862ee300f69e137d56fffa5bfd665c6b4",
+      "result": "84通过1失败"
+    },
+    {
+      "name": "candidateReproduction",
+      "path": "/tmp/n99-candidate-recheck.log",
+      "sha256": "0c8e0681de140b7f7299292db3844bbc87056204c5578533ad765f768d26fad0",
+      "result": "旧测试前提复现失败"
+    },
+    {
+      "name": "candidateFixed",
+      "path": "/tmp/n99-candidate-green.log",
+      "sha256": "68b4249a7463fe2198862234e5c8d31a53edfb88a97e63430bd21654e3569fc0",
+      "result": "显式停止后2通过"
+    }
+  ],
+  "originalFullRunPassed": false
+}

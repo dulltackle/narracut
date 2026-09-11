@@ -12,6 +12,7 @@ import { ProjectPreview } from '../../../src/server/project-preview';
 import { ProjectChecks } from '../../../src/server/project-checks';
 import { sameIdentity } from '../../../src/shared/program-checks';
 import { ProjectDelivery } from '../../../src/server/project-delivery';
+import { CurrentConversationHost } from './current-conversation-host';
 
 
 const stages = ['read', 'modify', 'check', 'preview', 'frames', 'deliver'] as const;
@@ -43,7 +44,7 @@ export type CreationState = CreationCheckpoint & { externalBaseline: string | nu
 const externalMessage = '已保留外部修改，已丢弃 Agent 未提交修改。继续后，Agent 将基于外部候选和最新项目内容重新检查并创作。';
 class InputsChanged extends Error {}
 type Driver = { token: string; turnId: string | null; signature: string };
-/** 一个项目只保留一项任务。模型没有项目写能力，只有此服务可以提交其经过校验的批次。 */
+/** 一个项目只保留一项任务；创作结果通过此服务校验并原子提交候选批次。 */
 export class CreationTask {
   #state: CreationState | null = null;
   #checkpointBytes: string | null = null;
@@ -90,6 +91,33 @@ export class CreationTask {
   }
   get ownsCandidate() { return !this.#closed && !this.#transferred && this.#state?.status === 'running' && !this.#operation && !this.#recovery; }
   get blocksCandidateWrites() { return this.ownsCandidate || this.#busy || this.#operation !== null; }
+  async step(input: unknown) {
+    const request = z.discriminatedUnion('action', [
+      z.object({ action: z.literal('read'), taskId: z.string().uuid() }).strict(),
+      z.object({ action: z.literal('submit'), taskId: z.string().uuid(), stepId: z.string().uuid(), answer: z.unknown() }).strict(),
+      z.object({ action: z.literal('interrupt'), taskId: z.string().uuid(), reason: z.enum(['CODEX_INTERRUPTED', 'CODEX_THREAD_UNAVAILABLE', 'CODEX_USAGE_LIMIT', 'CODEX_AUTH_REQUIRED', 'CODEX_UNAVAILABLE']) }).strict(),
+    ]).parse(input);
+    if (!(this.host instanceof CurrentConversationHost)) throw new Error('当前宿主不使用工具创作步骤协议。');
+    if (!this.#state || this.#state.taskId !== request.taskId || this.#closed || this.#transferred) throw new Error('创作任务身份已失效。');
+    if (request.action === 'interrupt') {
+      if (this.#busy || this.#state.status === 'terminated') throw new Error('任务正在处理其他操作或已终结。');
+      this.#busy = true;
+      try { return { step: null, creationTask: await this.#stopByUser(request.reason) }; }
+      finally { this.#busy = false; }
+    }
+    if (request.action === 'submit') {
+      this.#assert();
+      const step = this.host.read();
+      if (!step || step.stepId !== request.stepId || this.#driver?.turnId !== step.stepId) throw new Error('创作步骤已失效，请读取当前任务。');
+      const answer = (this.#messageMode ? messageDecision : answerSchema).parse(request.answer);
+      if (answer.verificationToken !== step.verificationToken) throw new Error('创作结果驱动身份不匹配。');
+      this.host.submit(request.stepId, JSON.stringify(answer));
+      // 收到结果不代表修改已经落盘；检查、构建等继续沿任务队列执行。
+      return { receipt: 'received' as const, step: null, creationTask: this.value };
+    }
+    const pending = this.ownsCandidate ? this.host.read() : null;
+    return { step: pending && this.#driver?.turnId === pending.stepId ? pending : null, creationTask: await this.status() };
+  }
   async status() {
     if (!this.#closed && !this.#operation && !this.#recovery && this.#state?.status === 'waiting' && this.#state.reason === 'CANDIDATE_READY') {
       const latest = await this.delivery.status(this.opened);
@@ -265,7 +293,7 @@ export class CreationTask {
       throw new Error('TASK_CHECKPOINT_INVALID：任务检查点缺失、损坏或与候选不一致，无法继续原任务。候选已保留；这不代表候选损坏。');
     }
   }
-  async #stopByUser() {
+  async #stopByUser(reason = 'USER_STOPPED') {
     const state = this.#state!;
     if (state.status === 'stopped' && !this.#operation) return this.value;
     if (!this.#operation && state.status === 'waiting') state.waitingReason = state.reason;
@@ -280,7 +308,7 @@ export class CreationTask {
       const candidate = await this.opened.candidate({ action: 'read' });
       if (state.waitingReason === 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED') { state.candidateBaseline = candidate.baseline; state.externalBaseline = candidate.baseline; }
       else if (candidate.baseline !== state.candidateBaseline) await this.#invalid();
-      state.status = 'stopped'; state.reason = 'USER_STOPPED';
+      state.status = 'stopped'; state.reason = reason;
       await this.#save(); this.#operation = null;
       return this.value;
     } catch (error) {

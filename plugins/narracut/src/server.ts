@@ -19,6 +19,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CodexAppServerHost } from "./codex-app-server-host";
+import { CurrentConversationHost } from './current-conversation-host';
 import {
   AgentHostValidationService,
   type CodexHostAdapter,
@@ -142,6 +143,7 @@ const tools = [
   { name: 'restore_project', title: '从恢复快照创建项目', description: '只读检查恢复材料和计划，明确确认后在新路径恢复原身份项目；来源受阻时可提取普通文件。', inputSchema: { type: 'object', required: ['action'], additionalProperties: false, properties: { action: { enum: ['inspect', 'plan', 'content', 'recover', 'extract', 'status', 'cancel'] }, snapshotPath: { type: 'string' }, sourcePath: { type: 'string' }, targetPath: { type: 'string' }, planId: { type: 'string' }, briefResult: { type: 'string' }, component: { enum: ['dsl', 'briefLocal', 'briefBase'] }, operationId: { type: 'string' }, confirmTemporaryCleanup: { type: 'boolean' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'project_recovery', title: '项目恢复快照', description: '核对项目身份、封存未保存编辑并在项目外导出恢复快照。', inputSchema: { type: 'object', required: ['action', 'projectDirectory', 'projectId'], additionalProperties: false, properties: { action: { enum: ['check', 'seal', 'export', 'status', 'leave'] }, projectDirectory: { type: 'string' }, projectId: { type: 'string' }, draft: { type: 'object', additionalProperties: false, properties: { dsl: { type: 'string' }, briefLocal: { type: 'string' }, briefBase: { type: 'string' } } }, target: { type: 'string' }, operationId: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'copy_project', title: '复制项目', description: '安全停止并关闭来源，完整复制后打开独立副本；可查询阶段和在发布前取消。', inputSchema: { type: 'object', required: ['action'], additionalProperties: false, properties: { action: { enum: ['start', 'status', 'cancel'] }, projectDirectory: { type: 'string' }, projectId: { type: 'string' }, targetDirectory: { type: 'string' }, operationId: { type: 'string' }, confirmTemporaryCleanup: { type: 'boolean' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
+  { name: 'creation_step', description: '当前对话 Agent 读取创作步骤或提交结构化结果。仅收到回执不代表候选落盘，须继续读取直到等待用户或停止。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'taskId', 'action'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, taskId: { type: 'string' }, action: { enum: ['read', 'submit', 'interrupt'] }, reason: { enum: ['CODEX_INTERRUPTED', 'CODEX_THREAD_UNAVAILABLE', 'CODEX_USAGE_LIMIT', 'CODEX_AUTH_REQUIRED', 'CODEX_UNAVAILABLE'] }, stepId: { type: 'string' }, answer: { type: 'object' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'respond_creation_task', description: '用户处理同一任务的消息、Scene 待办与 Brief 审核。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'action'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['message','confirm-message','discuss-message','edit-message','accept-brief','ack-brief','reject-brief','regenerate-brief','continue','stop','takeover','approve-tool','reject-tool'] }, id: { type: 'string' }, baseline: { type: 'string' }, parentOrigin: { type: 'string' }, instruction: { type: 'string', maxLength: 4000 } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'start_creation_task', description: '从当前 Codex 对话的 Composer 原文发起创作任务；复用当前对话，只修改候选，不自动接受。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'instruction'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, instruction: { type: 'string', minLength: 1, maxLength: 4000 }, parentOrigin: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'get_creation_task', description: '读取当前单项创作任务。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: { ...taskToolAnnotations, readOnlyHint: true }, _meta: { ui: { visibility: ['app'] } } },
@@ -888,6 +890,13 @@ class ProjectWorkspaceSession {
   creation: CreationTask | null = null;
   #resolvingCandidate = false;
   creationError: string | null = null;
+  async creationStep(input: any) {
+    if (!input || typeof input.projectDirectory !== 'string' || typeof input.projectId !== 'string') throw new Error('创作步骤参数无效。');
+    this.#requireOpened(input.projectDirectory, input.projectId);
+    if (!this.creation || this.#resolvingCandidate) throw new Error('创作任务不可用。');
+    const { projectDirectory: _directory, projectId: _id, ...request } = input;
+    return this.creation.step(request);
+  }
   async creationOperation(input: any, start = false, resume = false, respond = false) {
     if (!input || typeof input.projectDirectory !== 'string' || typeof input.projectId !== 'string' || start && typeof input.instruction !== 'string') throw new Error('创作任务参数无效。');
     if ((this.#transferred || this.#handoffPending) && !start && !resume && !respond && this.#opened?.inspection.projectDirectory === input.projectDirectory && this.#opened?.inspection.manifest.projectId === input.projectId) return { creationTask: this.creation?.value ?? null, candidate: this.#candidateStatus, creationRecovery: this.creation?.recovery ?? null, transferred: this.#transferred };
@@ -1521,6 +1530,13 @@ async function callTool(
   }
   if (workspace.copying) return { isError: true, structuredContent: { error: { code: 'PROJECT_COPY_BUSY', message: '正在复制项目，暂不接收新的编辑和写任务。' } }, content: [] };
 
+  if (name === 'creation_step') {
+    try {
+      const result = await workspace.creationStep(argumentsValue);
+      const images = result.step?.images ?? [];
+      return { structuredContent: { ...result, step: result.step ? { ...result.step, images: undefined } : null }, content: images.map(url => ({ type: 'image' as const, mimeType: 'image/png' as const, data: url.replace(/^data:image\/png;base64,/, '') })) };
+    } catch (error) { return { isError: true, structuredContent: { error: { code: 'CREATION_STEP_FAILED', message: (error as Error).message } }, content: [] }; }
+  }
   if (name === 'respond_creation_task' || name === 'start_creation_task' || name === 'get_creation_task' || name === 'continue_creation_task') {
     try { return { structuredContent: await workspace.creationOperation(argumentsValue, name === 'start_creation_task', name === 'continue_creation_task', name === 'respond_creation_task'), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: 'CREATION_TASK_FAILED', message: (error as Error).message } }, content: [] }; }
@@ -2175,8 +2191,9 @@ export function createNarracutRequestHandler(
     probeSpeechDurationMs?: (path: string) => Promise<number>;
   } = {},
 ): NarracutRequestHandler {
-  const codexHost = options.codexHost ?? new CodexAppServerHost();
-  const hostValidation = new AgentHostValidationService(codexHost);
+  const codexHost = options.codexHost ?? new CurrentConversationHost(options.conversation?.threadId ?? null);
+  const validationHost = options.codexHost ?? new CodexAppServerHost();
+  const hostValidation = new AgentHostValidationService(validationHost);
   const workspace = new ProjectWorkspaceSession({
     codexHost,
     conversation: options.conversation,
@@ -2285,6 +2302,7 @@ export function createNarracutRequestHandler(
     dispose: async () => {
       await workspace.dispose();
       await hostValidation.dispose();
+      if (codexHost !== validationHost) await codexHost.dispose();
     },
   });
 }
