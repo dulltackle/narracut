@@ -51,6 +51,10 @@ test('分项新鲜度绑定对应版本，Brief 重新构建仍待复核，候�
     const current = await preview.build(opened, 'current', 'http://localhost:12345');
     expect(current.freshness).toMatchObject({ brief: { status: 'latest', review: 'reviewed' }, input: { status: 'latest' }, media: { status: 'latest' }, environment: { status: 'latest' } });
     const next = await preview.build(opened, 'candidate', 'http://localhost:12345');
+    const view = await preview.view(opened, 'candidate', 'http://localhost:54321');
+    expect(view.preview?.sourceInstanceId).toBe(next.instanceId);
+    expect(view.preview?.instanceId).not.toBe(next.instanceId);
+    expect((await preview.view(opened, 'candidate', 'http://localhost:54321')).preview?.instanceId).toBe(view.preview?.instanceId);
     expect(next.freshness?.brief).toMatchObject({ status: 'latest', review: 'pending' });
     await opened.candidate({ action: 'apply', baseline: candidate.baseline, changes: [{ path: 'src/RenderProgram.tsx', content: 'invalid typescript {' }] });
     await expect(preview.build(opened, 'candidate', 'http://localhost:12345')).rejects.toThrow();

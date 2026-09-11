@@ -9,7 +9,7 @@ test.beforeAll(async()=>{
   host=createServer((_req,res)=>res.end(resource.contents[0].text));await new Promise<void>(resolve=>host.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${(host.address() as any).port}`;
 });
 test.afterAll(async()=>{host.closeAllConnections();await new Promise<void>(resolve=>host.close(()=>resolve()));});
-test('整体验收确认、过期与结果核对；历史详情保持焦点、草稿和响应式布局',async({page})=>{
+test('整体验收确认、过期与结果核对；历史详情保持焦点、Scene 选择和响应式布局',async({page})=>{
   const currentId='10000000-0000-4000-8000-000000000001', newId='10000000-0000-4000-8000-000000000002';
   const record={protocolVersion:1,checkerVersion:1,identity:{program:'sha256:'+'a'.repeat(64)},bundle:'sha256:'+'b'.repeat(64),instanceId:'preview',stages:[{id:'manifest',status:'passed'},{id:'build',status:'passed'}],warnings:['开场停留时间较短，请结合成片判断节奏。'],frames:[],zeroScenes:true};
   let key='initial', accepted=false, submits=0, results=0, cleanup=true, fromHistory=0;
@@ -30,8 +30,8 @@ test('整体验收确认、过期与结果核对；历史详情保持焦点、�
   });
   await page.evaluate(result=>window.postMessage({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:{structuredContent:result}},'*'),{...validResult(),candidate:{status:'saved',candidate:{identity:'program'},baseline:'baseline'}});
   await page.getByRole('tab',{name:'Agent 工作区'}).click();
-  const composer=page.locator('textarea').filter({visible:true}).last();
-  await composer.fill('保留我的创作草稿');
+  const selectedScene = await page.locator('[data-scene-row][data-selected="true"]').getAttribute('data-scene-id');
+  await expect(page.getByRole('textbox', { name: 'Composer', exact: true })).toHaveCount(0);
   await page.getByRole('button',{name:'审阅并接受',exact:true}).click();
   await expect(page.locator('[data-accept-confirm]')).toBeVisible();
   await expect(page.locator('[data-accept-confirm]')).toContainText('最旧修订将自动移出');
@@ -65,7 +65,7 @@ test('整体验收确认、过期与结果核对；历史详情保持焦点、�
   await dialog.evaluate(el=>el.scrollTop=0);
   await page.screenshot({path:'.impeccable/review/history-mobile.png',fullPage:true});
   await page.keyboard.press('Escape');await expect(dialog).not.toBeVisible();await expect(page.getByRole('button',{name:'修订历史',exact:true})).toBeFocused();
-  await expect(composer).toHaveValue('保留我的创作草稿');
+  await expect(page.locator('[data-scene-row][data-selected="true"]')).toHaveAttribute('data-scene-id', selectedScene!);
   await page.getByRole('button',{name:'修订历史',exact:true}).click();
   await expect(dialog.locator('[data-record-details]')).toHaveAttribute('open','');
   await dialog.locator('[data-from-revision]').first().click();

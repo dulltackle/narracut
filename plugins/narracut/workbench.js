@@ -37,7 +37,6 @@
     autosaveStopped: false,
     saveInFlight: false,
     workspace: "table",
-    composerDraft: "",
     selected: null,
     start: 0,
     inspectionOpen: false,
@@ -59,17 +58,7 @@
     creationTask: null,
     creationRecovery: null,
     taskOperation: null,
-    takeoverOpen: false,
-    takeoverDraft: "",
-    takeoverBusy: false,
-    takeoverError: "",
-    takeoverPending: null,
-    takeoverBaseline: null,
     candidateUncertain: false,
-    externalBusy: false,
-    composerRevision: 0,
-    creationFocusPending: false,
-    agentBusy: false,
     agentError: null,
     speechJobs: {},
     ttsForm: null,
@@ -233,7 +222,7 @@
   let controlNotice = '';
   let controlEpoch = 0;
   let controlPollBusy = false;
-  const readButtons = '[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
+  const readButtons = '[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
   function enforceControl() {
     if (!state.result?.control || state.result.status !== 'valid') return;
     const blocked = state.result.writable !== true;
@@ -381,17 +370,8 @@
     </nav>`;
   }
 
-  function composer() {
-    if (state.result?.conversation) return `<footer class="conversation-footer" data-conversation-footer>${state.result.conversation.status === 'bound' ? '在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。' : escapeHtml(state.result.conversation.reason)}</footer>`;
-    return `<footer class="composer" aria-label="创作草稿">
-      <label class="composer-label" for="composer-draft">Composer</label>
-      <div class="composer-field">
-        <textarea id="composer-draft" aria-label="Composer" aria-describedby="composer-draft-reason composer-scope" rows="2" maxlength="4000" placeholder="描述这次希望如何调整成片表现…">${escapeHtml(state.composerDraft)}</textarea>
-        <p class="composer-reason" id="composer-draft-reason">输入明确目标后开始创作；草稿仅保留在本次会话</p>
-        <p class="composer-reason" id="composer-scope">Agent 只修改候选；Scene 请在表格工作区编辑。候选由你决定是否接受。</p>
-      </div>
-      <button class="composer-send" type="button" disabled aria-describedby="composer-draft-reason">开始创作</button>
-    </footer>`;
+  function conversationFooter() {
+    return `<footer class="conversation-footer" data-conversation-footer>${state.result?.conversation?.status === 'unavailable' ? escapeHtml(state.result.conversation.reason) : '在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。'}</footer>`;
   }
 
   function launcherRail() {
@@ -786,18 +766,12 @@
   }
 
   // 沿用暗房工作台：状态后呈现必要待办；所有内容写入由用户明确决定。
-  let taskActionBusy = false, proposalView = null, proposalTab = 'diff', seenBriefChange = null;
+  let taskActionBusy = false, seenBriefChange = null;
   function suggestionMarkup(items, required) {
     return items.filter(item => !!item.required === required).map(item => {
       const index = state.project?.scenes?.findIndex(scene => scene.id === item.sceneId) ?? -1;
       return `<article class="scene-todo"><header><h3>${index < 0 ? 'Scene 已删除' : `Scene ${pad(index + 1)}`} · ${escapeHtml(item.action)}</h3><span>${required ? item.satisfied ? '必要条件已满足' : '完成目标所必需' : '可选优化'}</span></header><code>${escapeHtml(item.sceneId)}</code><p>当前观察：${escapeHtml(item.observation)}</p><details><summary>建议值与理由</summary><p class="creation-instruction">${escapeHtml(item.content)}</p><p>理由：${escapeHtml(item.reason)}</p></details>${required ? `<p>继续条件：${escapeHtml(item.condition?.description ?? '等待用户判断')}${index < 0 ? '。目标已删除，继续后重新判断，不会定位其他 Scene。' : ''}</p>` : ''}<div class="todo-actions"><button class="agent-action" data-todo-scene="${escapeHtml(item.sceneId)}" data-todo-field="${escapeHtml(item.condition?.field ?? 'narration')}" ${index < 0 ? 'disabled' : ''}>定位 Scene</button><button class="agent-action" data-todo-copy="${state.creationTask.suggestions.indexOf(item)}">复制建议值</button></div></article>`;
     }).join('');
-  }
-  function taskInteractions(task) {
-    if (!task || task.status === 'terminated' || state.creationRecovery) return '';
-    if (task.transferred) return '<div class="creation-details"><p>任务已转移到另一线程。请在新工作台继续操作；本地草稿仍保留。</p><button class="agent-action" disabled>任务由另一线程控制</button></div>';
-    const proposal = task.briefProposal, message = task.pendingMessage;
-    return `${task.toolApproval ? `<section class="creation-details"><h3>等待工具批准</h3><p>${escapeHtml(task.toolApproval.summary)}</p><div class="todo-actions"><button class="agent-action" data-task-action="approve-tool">批准此工具操作</button><button class="agent-action" data-task-action="reject-tool">拒绝此工具操作</button></div></section>` : ''}${suggestionMarkup(task.suggestions ?? [], true)}${proposal && ['review','stale','rejected'].includes(proposal.status) ? `<section class="creation-details"><h3>Brief 提案</h3><p>${escapeHtml(proposal.purpose)}</p>${proposal.status === 'rejected' ? '<p>已拒绝提案，原 Brief 保留。</p><button class="agent-action" data-task-action="continue">按当前创作指令继续</button>' : `<button class="agent-action" data-review-proposal>审核 Brief 提案</button>${proposal.status === 'stale' ? '<p>Brief 已变化，需要重新生成提案。</p><button class="agent-action" data-task-action="regenerate-brief">重新生成提案</button>' : ''}`}</section>` : ''}${message ? `<section class="creation-details"><h3>确认保存的创作意图</h3><p>${escapeHtml(message.reply)}</p>${message.fragments.map(fragment => `<blockquote class="creation-instruction">${escapeHtml(fragment)}</blockquote>`).join('')}<div class="todo-actions"><button class="agent-action" data-task-action="confirm-message" ${!message.fragments.length ? 'disabled' : ''}>确认追加</button><button class="agent-action" data-task-action="discuss-message">仅作讨论</button><button class="agent-action" data-task-action="edit-message">返回修改</button></div></section>` : ''}${task.discussion ? `<p class="creation-details creation-instruction">${escapeHtml(task.discussion)}</p>` : ''}${taskControls(task)}`;
   }
   function locateSuggestion(id, field = 'narration') {
     if (!state.project?.scenes.some(scene => scene.id === id)) { announce('目标 Scene 已删除，未定位其他 Scene。'); return; }
@@ -809,132 +783,50 @@
     switchWorkspace('table'); render();
     requestAnimationFrame(() => { const scroll = document.querySelector('.scene-scroll'); if (scroll) scroll.scrollTop = index * ROW_HEIGHT; });
   }
-  function unifiedBriefDiff(proposal) {
-    const before = proposal.base.split('\n'), after = proposal.content.split('\n');
-    return `--- 原 Brief\n+++ 提案结果\n@@ -1,${before.length} +1,${after.length} @@\n${before.map(line => '-'+line).join('\n')}\n${after.map(line => '+'+line).join('\n')}`;
-  }
   async function respondTask(action) {
-    if (taskActionBusy || state.creationTask?.transferred) return;
-    const task = state.creationTask, project = state.result.project;
-    const original = task?.pendingMessage?.original;
-    if (action === 'edit-message' && state.composerDraft && state.composerDraft !== original) { announce('Composer 已有新草稿，请先保留或清空后再返回修改。'); return; }
-    if (action === 'accept-brief' && (state.brief.saveInFlight || state.brief.conflict || state.brief.version !== state.brief.savedVersion)) { announce('请先保存或处理本地 Brief 修改，再接受提案。'); return; }
-    taskActionBusy = true;
-    state.taskOperation = action === 'stop' ? 'stopping' : action === 'continue' ? 'reconciling' : null;
-    updateTaskRegion();
-    document.querySelectorAll('[data-task-action]').forEach(button => { button.disabled = true; });
+    if (action !== 'stop' || taskActionBusy || !state.result?.writable || state.creationTask?.transferred) return;
+    const project = state.result.project;
+    taskActionBusy = true; state.taskOperation = 'stopping'; updateTaskRegion();
     try {
-      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action, id: action.endsWith('-tool') ? task.toolApproval?.approvalId : action.includes('message') ? task.pendingMessage?.id : task.briefProposal?.id });
+      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action });
       if (state.result.project !== project) return;
-      if (response.isError || !response.structuredContent?.creationTask) throw new Error(response.structuredContent?.error?.message ?? '任务操作回执不完整，请重新核对');
-      if (action === 'edit-message') { state.composerDraft = original; state.composerRevision++; document.getElementById('composer-draft').value = original; }
-      if (action === 'regenerate-brief' || action === 'reject-brief' || action === 'accept-brief' && response.structuredContent.creationTask.briefProposal?.status === 'saved') { proposalView = null; state.brief.open = false; }
-      state.taskOperation = null;
-      state.creationRecovery = response.structuredContent.creationRecovery ?? null;
-      applyCreation(response.structuredContent.creationTask);
-      if (proposalView) proposalView = state.creationTask.briefProposal;
-      if (!['stop','continue'].includes(action)) render();
-      if (action === 'edit-message') document.getElementById('composer-draft')?.focus();
-    } catch (error) { state.taskOperation = action === 'stop' ? 'stop-uncertain' : action === 'continue' ? 'connection-uncertain' : null; state.agentError = error.message; updateTaskRegion(); announce(error.message); schedulePoll(); }
+      if (response.isError || !response.structuredContent?.creationTask) throw new Error(response.structuredContent?.error?.message ?? '停止回执不完整，请重新核对');
+      state.taskOperation = null; applyCreation(response.structuredContent.creationTask);
+    } catch (error) { if (state.result.project === project) { state.taskOperation = 'stop-uncertain'; state.agentError = error.message; schedulePoll(); } }
     finally { taskActionBusy = false; updateTaskRegion(); bindings.abort(); bindings = new AbortController(); bind(); }
   }
   function taskControls(task) {
-    if (!task || task.status === 'terminated' || state.creationRecovery) return '';
+    if (!task || task.transferred || task.status === 'terminated' || state.creationRecovery) return '';
     const operation = state.taskOperation ?? task.operation;
-    if (operation === 'connection-uncertain' || operation === 'transfer-uncertain') return '<p class="creation-details" role="status" tabindex="-1" id="task-operation-status">线程连接结果待核对</p>';
-    if (operation === 'stopping' || operation === 'reconciling') return `<p class="creation-details" role="status" tabindex="-1" id="task-operation-status">${operation === 'stopping' ? '正在停止…' : '正在核对恢复条件…'}</p>`;
+    if (operation === 'stopping') return '<p class="creation-details" role="status">正在停止…</p>';
     if (operation === 'stop-uncertain') return '<div class="creation-details"><p role="status">停止结果待核对</p><button class="agent-action" data-task-action="stop">重新核对停止结果</button></div>';
-    const stop = ['running', 'waiting'].includes(task.status) ? '<button class="agent-action" data-task-action="stop">停止任务</button>' : '';
-    const blocked = task.pendingMessage || ['review','stale','rejected'].includes(task.briefProposal?.status) || ['EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED','TOOL_APPROVAL_REQUIRED'].includes(task.waitingReason ?? task.reason);
-    const resume = task.status !== 'running' && !blocked ? '<button class="agent-action" data-task-action="continue">继续任务</button>' : '';
-    return `<div class="creation-details todo-actions">${stop}${resume}</div>`;
+    return ['running', 'waiting'].includes(task.status) ? '<div class="creation-details"><button class="agent-action" data-task-action="stop">停止任务</button></div>' : '';
   }
   function updateRecoveryRegion() {
     const region = document.querySelector('[data-task-recovery]');
     if (!region) return;
-    const eligible = state.creationRecovery || state.creationTask && state.creationTask.status !== 'terminated' && !state.creationTask.transferred && state.candidate?.candidate;
-    region.hidden = !eligible;
-    if (!eligible) return;
-    if (!region.firstElementChild) {
-      region.innerHTML = `<div class="creation-details"><h2 tabindex="-1" id="task-recovery-title">原任务无法恢复</h2><p data-recovery-copy>任务检查点缺失、损坏或与候选不一致，无法继续原任务。候选已保留；这不代表候选损坏。</p><button class="agent-action" data-open-takeover>用新目标接管…</button><form data-takeover-form hidden><label for="takeover-goal">新任务目标</label><textarea id="takeover-goal" rows="4" maxlength="4000" required aria-describedby="takeover-description"></textarea><p id="takeover-description">保留候选字节，终结旧任务，以新 Task ID 和新目标开始创作。旧审批和待办不继承，旧检查与 Preview 证据需重新核对。</p><p>候选对象：<code data-takeover-path></code></p><p data-takeover-error role="status"></p><button type="button" class="agent-action" data-takeover-reconcile hidden>核对操作结果</button><div class="todo-actions"><button class="agent-action" type="submit" data-submit-takeover>开始新任务并接管候选</button><button class="agent-action" type="button" data-cancel-takeover>取消</button></div></form></div>`;
-      region.querySelector('[data-open-takeover]').onclick = () => { state.takeoverOpen = true; state.takeoverBaseline = state.creationRecovery?.candidateBaseline ?? state.candidate?.baseline; updateRecoveryRegion(); region.querySelector('textarea').focus(); };
-      region.querySelector('[data-cancel-takeover]').onclick = () => { state.takeoverOpen = false; updateRecoveryRegion(); region.querySelector('[data-open-takeover]').focus(); };
-      region.querySelector('textarea').value = state.takeoverDraft;
-      region.querySelector('textarea').oninput = event => { state.takeoverDraft = event.target.value; };
-      region.querySelector('[data-takeover-reconcile]').onclick = () => void takeoverTask();
-      region.querySelector('form').onsubmit = event => { event.preventDefault(); void takeoverTask(); };
-    }
-    region.querySelector('#task-recovery-title').textContent = state.creationRecovery ? '原任务无法恢复' : '用新目标接管候选';
-    region.querySelector('[data-recovery-copy]').hidden = !state.creationRecovery;
-    region.querySelector('form').hidden = !state.takeoverOpen;
-    region.querySelector('[data-open-takeover]').hidden = state.takeoverOpen;
-    region.querySelector('[data-takeover-path]').textContent = state.creationRecovery?.candidatePath ?? state.candidate?.candidate?.path ?? '候选暂不可用，请在候选区域处理完整性问题';
-    region.querySelector('[data-takeover-error]').textContent = state.takeoverError;
-    region.querySelectorAll('button').forEach(button => { button.disabled = state.takeoverBusy || !!state.takeoverPending || state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation; });
-    region.querySelector('[data-takeover-reconcile]').hidden = !state.takeoverPending;
-    region.querySelector('[data-takeover-reconcile]').disabled = state.takeoverBusy;
-    region.querySelector('[data-submit-takeover]').textContent = state.takeoverBusy ? '正在核对并接管…' : '开始新任务并接管候选';
-  }
-  async function takeoverTask() {
-    if (state.takeoverBusy || !state.takeoverDraft.trim()) return;
-    const project = state.result.project;
-    const pending = state.takeoverPending ?? { id: createUuid(), previousTaskId: state.creationTask?.taskId, baseline: state.takeoverBaseline, instruction: state.takeoverDraft };
-    const reconciling = !!state.takeoverPending;
-    state.takeoverBusy = true; state.takeoverPending = pending; state.takeoverError = '正在核对操作结果'; updateRecoveryRegion(); updateCandidate();
-    try {
-      let response;
-      if (!reconciling) {
-        response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action: 'takeover', id: pending.id, instruction: pending.instruction, baseline: pending.baseline, parentOrigin: location.origin }).catch(() => null);
-      }
-      const failure = response?.structuredContent?.error?.message;
-      if (!response?.structuredContent?.creationTask || response.isError) response = await callHostTool('get_creation_task', { projectDirectory: project.directory, projectId: project.projectId });
-      if (state.result.project !== project) return;
-      const value = response?.structuredContent;
-      if (!value || response.isError || !('creationTask' in value)) throw new Error('正在核对操作结果；连接恢复后点击“核对操作结果”，核对前不会重复提交。');
-      if (value.candidate) state.candidate = value.candidate;
-      state.creationRecovery = value.creationRecovery ?? null;
-      const next = value.creationTask;
-      if (next && next.taskId === pending.id && !state.creationRecovery) {
-        state.takeoverPending = null; state.takeoverOpen = false; state.takeoverDraft = ''; state.takeoverError = '';
-        applyCreation(next); previewWorkbench.superseded(); await deliveryWorkbench.refresh().catch(() => {});
-        document.getElementById('creation-task-title')?.focus();
-      } else {
-        state.takeoverPending = null;
-        state.takeoverError = failure ?? '接管尚未提交，请核对候选对象后再次明确提交。';
-        state.takeoverBaseline = state.creationRecovery?.candidateBaseline ?? state.candidate?.baseline;
-        applyCreation(next);
-      }
-    } catch (error) { if (state.result.project === project) state.takeoverError = `正在核对操作结果。${error.message}`; }
-    finally { if (state.result.project === project) { state.takeoverBusy = false; updateRecoveryRegion(); updateCandidate(); } }
+    region.hidden = !state.creationRecovery;
+    if (state.creationRecovery) updateRegion(region, '<div class="creation-details"><h2>原任务无法恢复</h2><p>候选已保留。请在当前 Codex 对话中表达新目标，或在下方明确放弃候选。</p></div>');
   }
   const creationStages = { read: "读取项目", modify: "修改候选", check: "运行检查", preview: "构建 Preview", frames: "检查代表帧", deliver: "准备交付" };
   const creationStopCopy = {
-    USER_STOPPED: ['你已停止任务', '点击“继续任务”，从检查点与最新项目内容重新开始。'],
-    APP_RESTARTED: ['应用已重启', '点击“继续任务”，重新核对检查点与最新项目内容。'],
-    CODEX_USAGE_LIMIT: ['Codex 额度受限', '额度恢复后点击“继续任务”。'],
-    CODEX_AUTH_REQUIRED: ['Codex 需要认证', '完成 Codex 认证后点击“继续任务”。'],
-    CODEX_UNAVAILABLE: ['Codex 服务不可用', '服务恢复后点击“继续任务”。'],
-    CODEX_THREAD_UNAVAILABLE: ['原线程不可用', '点击“继续任务”，自动尝试替代线程。'],
-    CODEX_INTERRUPTED: ['Codex 已中断', '点击“继续任务”。'],
-    NO_PROGRESS: ['连续多轮没有新的持久成果', '查看当前指令与已有成果，明确继续后重新尝试。'],
+    USER_STOPPED: ['你已停止任务'], APP_RESTARTED: ['应用已重启'], CODEX_USAGE_LIMIT: ['Codex 额度受限'],
+    CODEX_AUTH_REQUIRED: ['Codex 需要认证'], CODEX_UNAVAILABLE: ['Codex 服务不可用'],
+    CODEX_THREAD_UNAVAILABLE: ['原线程不可用'], CODEX_INTERRUPTED: ['Codex 已中断'],
+    NO_PROGRESS: ['连续多轮没有新的持久成果'],
   };
+
   function agent(result) {
     const task = state.creationTask;
-    const briefPending = result.currentRenderProgram?.briefReviewPending;
-    const label = task?.transferred ? "任务已转移到另一线程" : [state.taskOperation, task?.operation].some(value => ["connection-uncertain", "transfer-uncertain"].includes(value)) ? "线程连接结果待核对" : state.taskOperation === "stopping" || task?.operation === "stopping" ? "正在停止…" : state.taskOperation === "stop-uncertain" || task?.operation === "stop-uncertain" ? "停止结果待核对" : state.taskOperation === "reconciling" || task?.operation === "reconciling" ? "正在核对恢复条件…" : state.creationRecovery ? "原任务无法恢复" : state.agentBusy ? "正在创建创作任务" : !task ? "尚无任务" : { running: "运行中", waiting: "等待用户", stopped: "已停止", terminated: "已终结" }[task.status];
+    const label = task?.transferred ? "任务已转移到另一线程" : [state.taskOperation, task?.operation].some(value => ["connection-uncertain", "transfer-uncertain"].includes(value)) ? "线程连接结果待核对" : state.taskOperation === "stopping" || task?.operation === "stopping" ? "正在停止…" : state.taskOperation === "stop-uncertain" || task?.operation === "stop-uncertain" ? "停止结果待核对" : state.taskOperation === "reconciling" || task?.operation === "reconciling" ? "正在核对恢复条件…" : state.creationRecovery ? "原任务无法恢复" : !task ? "尚无任务" : { running: "运行中", waiting: "等待用户", stopped: "已停止", terminated: "已终结" }[task.status];
     const reason = task?.transferred ? null : creationStopCopy[task?.reason]?.[0] ?? { USER_STOPPED: "你已停止任务", CODEX_INTERRUPTED: "Codex 已中断", CODEX_THREAD_UNAVAILABLE: "原线程不可用", CODEX_UNAVAILABLE: "Codex 暂不可用", NO_PROGRESS: "连续多轮没有新的持久成果", EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED: "候选已被外部修改", CANDIDATE_READY: "候选已就绪", CANDIDATE_ACCEPTED: "候选已接受", CANDIDATE_ABANDONED: "候选已放弃", TASK_SUPERSEDED: "已被新目标取代", APP_RESTARTED: "应用已重启" }[task?.reason];
     return `<main class="stage"><section class="agent-panel creation-panel" aria-labelledby="creation-task-title">
-      <header class="agent-head"><div><h1 id="creation-task-title" tabindex="-1">当前创作指令</h1>${task ? `<p class="creation-instruction">${escapeHtml(task.instruction.slice(0, 200))}${task.instruction.length > 200 ? "…" : ""}</p>${task.instruction.length > 200 ? `<details><summary>展开完整原文</summary><p class="creation-instruction">${escapeHtml(task.instruction)}</p></details>` : ""}` : '<p>在下方 Composer 描述这次希望如何调整成片表现。</p>'}</div></header>
-      <div class="creation-state"><span class="status-mark" data-status="${task?.status === "running" && !task.transferred && !state.taskOperation && !task.operation ? "running" : task ? "stopped" : "idle"}" aria-hidden="true"></span><h2>${label}${task?.status === "running" && task.pending ? " · 正在跟进最新项目内容" : ""}${reason ? ` · ${reason}` : ""}</h2>${task?.status === "running" && !task.transferred ? `<p>${creationStages[task.stage] ?? "读取项目"}</p>` : ""}</div>
-      ${task?.status === "stopped" && !task.transferred && creationStopCopy[task.reason] ? `<p class="creation-details">${creationStopCopy[task.reason][1]} 候选与有效检查点已保留，不会后台重试。</p>` : ""}
-      ${state.agentError ? `<p class="agent-diagnostic" role="alert">${escapeHtml(state.agentError)} · 草稿已保留，可重试。</p>` : ""}
-      ${task ? `<section class="creation-details creation-saved"><h3>已保存成果</h3><p>${task.lastSafeStage ? `已保存至：${{read:'项目读取',modify:'候选修改',check:'候选检查',preview:'候选 Preview',frames:'代表帧检查',deliver:'候选交付'}[task.lastSafeStage]}` : '尚无已完成的安全阶段'}</p>${task.status === 'stopped' ? '<p>未完成的修改、工具调用和中间判断不会恢复，必要时会重新执行。检查与 Preview 证据需要重新核对；应用不会自动继续。</p>' : ''}${task.connectionNotice === 'taken-over' ? '<p>任务已由此工作台接管；仍是同一任务，原有停止与等待条件继续有效。</p>' : ''}${task.replacementThread && !task.transferred ? '<p>原线程不可用，已连接替代线程；仍是同一任务。</p>' : ''}</section>` : ''}
-      ${task?.pending && !task.transferred ? `<div class="agent-diagnostic"><h3>待处理事项</h3><p>${escapeHtml(task.pending)}</p>${(task.waitingReason ?? task.reason) === "EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED" ? `<button class="agent-action" data-continue-external ${state.externalBusy ? "disabled" : ""}>${state.externalBusy ? "正在核对候选" : "基于外部候选继续"}</button>` : ""}${task.reason === "SCENE_CHANGE_REQUIRED" ? '<button class="agent-action" data-scene-suggestion>前往表格工作区修改 Scene</button>' : ""}</div>` : ""}
-      ${taskInteractions(task)}
-      ${briefPending !== false ? `<div class="agent-diagnostic" data-brief-review="${briefPending === true}"><strong>${briefPending ? "Brief 待复核" : "Brief 关系未检查"}</strong><p>${briefPending ? "当前 Render Program 与既有 Preview 保持不变" : "打开可写项目后校验当前 Render Program 的 Brief 指纹"}</p></div>` : ""}
-      ${task?.divergence ? `<div class="agent-diagnostic"><h3>与 Video Brief 的分歧</h3><div class="brief-divergence"><section><h4>Video Brief</h4><p class="creation-instruction">${escapeHtml(state.brief.base)}</p></section><section><h4>本次用户要求</h4><p class="creation-instruction">${escapeHtml(task.instruction)}</p></section></div><p>${escapeHtml(task.divergence)}</p><p>本次成片表现遵循上方用户原文；Scene、Speech、时间与安全硬约束保持有效。</p></div>` : ""}
-      ${task ? `<details class="creation-details"><summary>任务详情</summary><dl><dt>原因</dt><dd>${escapeHtml(task.reason ?? "无")}</dd><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>线程连接</dt><dd>${escapeHtml(task.threadPointer ?? "尚未连接")}</dd><dt>最后完成的安全阶段</dt><dd>${creationStages[task.lastSafeStage] ?? "尚无"}</dd><dt>Agent 任务检查点</dt><dd>${task.status === "terminated" ? "任务已终结，检查点已消费" : state.creationRecovery ? "无法恢复；候选字节已保留" : task.candidateBaseline ? "已保留，用于继续此任务" : "尚无"}</dd></dl></details>` : ""}
-      ${task?.reason === "CANDIDATE_READY" ? '<footer class="agent-actions"><button class="agent-action" data-show-delivery>查看候选交付</button></footer>' : ""}
+      <header class="agent-head"><h1 id="creation-task-title" tabindex="-1">候选审阅</h1><p>创作、继续任务或新目标接管，请在当前 Codex 对话中表达。</p></header>
+      <div class="creation-state"><span class="status-mark" data-status="${task?.status === 'running' ? 'running' : task ? 'stopped' : 'idle'}" aria-hidden="true"></span><h2>${label}${reason ? ` · ${reason}` : ''}</h2>${task?.status === 'running' ? `<p>${creationStages[task.stage] ?? '读取项目'}</p>` : ''}</div>
+      ${task?.pending ? `<p class="creation-details">${escapeHtml(task.pending)}</p>` : ''}
+      ${state.agentError ? `<p class="agent-diagnostic" role="alert">${escapeHtml(state.agentError)}</p>` : ''}
+      ${taskControls(task)}
+      ${task ? `<details class="creation-details"><summary>当前创作指令与任务详情</summary><p class="creation-instruction">${escapeHtml(task.instruction)}</p><dl><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>最后保存阶段</dt><dd>${creationStages[task.lastSafeStage] ?? '尚无'}</dd></dl>${task.divergence ? `<h3>与 Video Brief 的分歧</h3><p>${escapeHtml(task.divergence)}</p>` : ''}${task.status === 'stopped' ? '<p>候选与有效检查点已保留。请在当前 Codex 对话中明确继续。</p>' : ''}</details>` : '<p class="creation-details">尚无候选任务。请在当前 Codex 对话中描述创作目标。</p>'}
     </section></main>`;
   }
 
@@ -944,6 +836,9 @@
   }
   function updateTaskRegion() {
     updateRecoveryRegion();
+    const briefReview = document.querySelector('[data-brief-review-state]');
+    const pending = state.result?.currentRenderProgram?.briefReviewPending;
+    if (briefReview) { briefReview.hidden = pending === false; updateRegion(briefReview, pending === false ? '' : `<strong>${pending ? 'Brief 待复核' : 'Brief 关系未检查'}</strong><p>当前 Render Program 与既有 Preview 保持不变</p>`); }
     const notice = document.querySelector('[data-task-notice]');
     if (notice) updateRegion(notice, taskNotice());
     const region = document.querySelector('[data-agent-content]');
@@ -956,19 +851,12 @@
     const focusAction = focused?.dataset.taskAction;
     updateRegion(region, agent(state.result));
     const optional = document.querySelector("[data-optional-suggestions]");
-    if (optional) updateRegion(optional, suggestionMarkup(state.creationTask?.suggestions ?? [], false));
+    if (optional) updateRegion(optional, suggestionMarkup(state.creationTask?.suggestions ?? [], true) + suggestionMarkup(state.creationTask?.suggestions ?? [], false));
     [...region.querySelectorAll('details')].forEach((node, index) => { node.open = details[index] ?? false; });
     if (focused && !focused.isConnected) {
       const next = focusId ? document.getElementById(focusId) ?? region.querySelector('[data-task-action]') ?? document.getElementById('creation-task-title') : focusAction ? region.querySelector(`[data-task-action="${focusAction}"]`) ?? document.getElementById('task-operation-status') ?? region.querySelector('[data-task-action]') ?? document.getElementById('creation-task-title') : region.querySelectorAll('summary')[focusIndex];
       next?.focus({ preventScroll: true });
     }
-  }
-
-  function updateComposer() {
-    const button = document.querySelector('.composer-send');
-    const reason = document.getElementById('composer-draft-reason');
-    if (reason) { reason.textContent = state.creationTask?.transferred ? "任务已转移到另一线程；本地草稿仍保留" : state.agentError ? `${state.agentError} · 草稿已保留。` : state.creationTask && state.creationTask.status !== 'terminated' ? '发送到同一任务；仅明确创作要求会保存为当前创作指令' : '输入明确目标后开始创作；草稿仅保留在本次会话'; reason.setAttribute('role', 'status'); }
-    if (button) { button.disabled = !!state.creationTask?.transferred || !!state.creationTask?.toolApproval || !!state.creationRecovery || !!state.taskOperation || !!state.creationTask?.operation || state.agentBusy || !state.composerDraft.trim() || !state.result?.writable; button.textContent = state.agentBusy ? state.creationTask && state.creationTask.status !== 'terminated' ? '正在发送' : '正在创建创作任务' : state.creationTask && state.creationTask.status !== 'terminated' ? '发送' : '开始创作'; }
   }
 
   function formatBytes(bytes) {
@@ -1008,10 +896,6 @@
   function briefEditorLayer() {
     const brief = state.brief;
     if (!brief.open) return "";
-    if (proposalView) {
-      const proposal = state.creationTask?.briefProposal ?? proposalView;
-      return `<div class="brief-layer" role="dialog" aria-modal="true" aria-labelledby="brief-review-title"><section class="brief-sheet"><header class="brief-head"><div><h1 id="brief-review-title">审核 Brief 提案</h1><p>${escapeHtml(proposal.purpose)}</p></div><button type="button" data-close-brief>关闭</button></header><main class="brief-proposal-main"><div class="todo-actions"><button class="agent-action" data-proposal-tab="diff" aria-pressed="${proposalTab === 'diff'}">统一 diff</button><button class="agent-action" data-proposal-tab="full" aria-pressed="${proposalTab === 'full'}">完整结果</button></div><p>${proposalTab === 'diff' ? '− 表示删除，+ 表示新增；接受将保存下方完整变化。' : '提案的完整 Markdown 结果 · 只读'}</p><textarea readonly aria-label="${proposalTab === 'diff' ? '统一 diff' : '完整结果'}">${escapeHtml(proposalTab === 'diff' ? unifiedBriefDiff(proposal) : proposal.content)}</textarea>${proposal.status === 'stale' ? '<p role="alert">Brief 已变化，不能覆盖最新内容。请重新生成提案。</p>' : ''}<div class="todo-actions"><button class="agent-action" data-kind="primary" data-task-action="accept-brief" ${proposal.status !== 'review' ? 'disabled' : ''}>接受并保存 Brief</button><button class="agent-action" data-task-action="reject-brief">拒绝提案</button>${proposal.status === 'stale' ? '<button class="agent-action" data-task-action="regenerate-brief">重新生成提案</button>' : ''}</div></main></section></div>`;
-    }
     const conflict = brief.conflict;
     const status = briefStatusLabel();
     const byteCount = new TextEncoder().encode(brief.local).length;
@@ -1032,12 +916,12 @@
   function candidatePanel() {
     const candidate = state.candidate;
     const absent = candidate?.status === "absent";
-    const disabled = state.candidateBusy || state.takeoverBusy || !!state.takeoverPending || state.candidateUncertain || acceptanceWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation || state.autosaveStopped || !state.result?.writable;
+    const disabled = state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation || state.autosaveStopped || !state.result?.writable;
     return `<section class="candidate-panel" aria-labelledby="candidate-title"><header><h2 id="candidate-title">候选 Render Program</h2><span class="candidate-save" role="status"><span class="status-mark" data-status="${candidate?.status === "saved" ? "succeeded" : "unavailable"}" aria-hidden="true"></span>${candidateLabel()}</span></header>
-      <p>${absent ? "从当前修订建立唯一可写候选。创建后尚未接受。" : "Agent、人工与受控工具共享这个候选。停止活动或切换工作区都会保留它。"}</p>
+      <p>${absent ? "尚无候选，请在当前 Codex 对话中表达创作目标。" : "Agent、人工与受控工具共享这个候选。停止活动或切换工作区都会保留它。"}</p>
       <dl><div><dt>检查</dt><dd>检查批次与操作条件见下方；构建与播放见上方成片 Preview</dd></div><div><dt>恢复检查点</dt><dd>${candidate?.checkpoint ? "上一份完整候选已保留" : "尚无恢复检查点"}</dd></div></dl>
       ${state.candidateError || candidate?.error ? `<p class="candidate-error" role="alert">${escapeHtml((state.candidateError ?? candidate.error).message)}</p>` : ""}
-      ${state.candidateUncertain ? '<p role="status">正在核对操作结果；核对前不会重复提交。</p><button class="agent-action" data-candidate-action="read">核对操作结果</button>' : ''}<div class="candidate-actions">${absent ? `<button type="button" class="agent-action primary" data-candidate-action="create" ${disabled ? "disabled" : ""}>从当前修订创建候选</button>` : ""}<button type="button" class="agent-action" data-candidate-action="read" ${disabled ? "disabled" : ""}>重新检查完整性</button>${candidate && !absent ? `<button type="button" class="agent-action" data-candidate-discard ${disabled ? "disabled" : ""}>放弃候选</button>` : ""}</div>
+      ${state.candidateUncertain ? '<p role="status">正在核对操作结果；核对前不会重复提交。</p><button class="agent-action" data-candidate-action="read">核对操作结果</button>' : ''}<div class="candidate-actions"><button type="button" class="agent-action" data-candidate-action="read" ${disabled ? "disabled" : ""}>重新检查完整性</button>${candidate && !absent ? `<button type="button" class="agent-action" data-candidate-discard ${disabled ? "disabled" : ""}>放弃候选</button>` : ""}</div>
       <details ${state.candidateDetails ? "open" : ""} data-candidate-details><summary>身份与完整性详情</summary><dl><div><dt>来源修订</dt><dd>${escapeHtml(candidate?.sourceRevision ?? "尚未读取")}</dd></div>${[ ["候选", candidate?.candidate], ["恢复检查点", candidate?.checkpoint] ].map(([label, ref]) => ref ? `<div><dt>${label}路径</dt><dd><code>${escapeHtml(ref.path)}</code></dd></div><div><dt>${label}完整树身份</dt><dd><code>${escapeHtml(ref.identity)}</code></dd></div>` : "").join("")}</dl><p>完整性检查核对目录、普通文件和完整树字节；不表示源码、类型或构建检查通过。恢复替换与损坏导出尚未接入。</p></details>
       ${state.candidateConfirm ? `<div class="candidate-confirm" role="alertdialog" aria-modal="true" aria-labelledby="candidate-discard-title" aria-describedby="candidate-discard-help"><h3 id="candidate-discard-title">放弃候选并终结任务？</h3><p id="candidate-discard-help">候选、候选恢复检查点和 Agent 任务检查点将一起删除，并终结旧任务。当前修订保留，操作不可撤销。</p><div class="candidate-actions"><button type="button" class="agent-action" data-candidate-cancel>取消</button><button type="button" class="agent-action" data-candidate-action="discard">放弃候选并终结任务</button></div></div>` : ""}</section>`;
   }
@@ -1056,7 +940,7 @@
   }
 
   async function candidateOperation(action, quiet = false) {
-    if (state.candidateBusy || (action !== 'read' && (state.takeoverBusy || state.takeoverPending || state.candidateUncertain || acceptanceWorkbench.blocked())) || !state.result?.writable || state.autosaveStopped || (quiet && state.candidateConfirm)) return;
+    if (state.candidateBusy || (action !== 'read' && (state.candidateUncertain || acceptanceWorkbench.blocked())) || !state.result?.writable || state.autosaveStopped || (quiet && state.candidateConfirm)) return;
     const project = state.result.project;
     state.candidateBusy = true;
     state.candidateAction = action;
@@ -1120,7 +1004,7 @@
   });
   setInterval(() => { if (!document.hidden && state.candidate) candidateOperation("read", true); }, 4000);
 
-  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project, instanceId => deliveryWorkbench.candidateReady(instanceId), () => !!state.result?.conversation);
+  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project ? { ...state.result.project, writable: state.result.writable } : undefined, instanceId => deliveryWorkbench.candidateReady(instanceId), () => !!state.result?.conversation);
   const deliveryWorkbench = createDeliveryWorkbench((action, args) => callHostTool(action === "displayed" ? "project_delivery_display" : "project_delivery", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, ...(action === "displayed" ? {} : { action }), ...args }), () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate, scenes: currentScenes() } : undefined, previewWorkbench, id => locateSuggestion(id));
   const finalRenderWorkbench = createRenderWorkbench(
     (action, args) => callHostTool('project_render', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
@@ -1135,7 +1019,7 @@
   const acceptanceWorkbench = createAcceptanceWorkbench(
     (action, args) => callHostTool('project_acceptance', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
     () => state.result?.project,
-    () => !state.takeoverBusy && !state.takeoverPending && !state.candidateUncertain && !(state.candidateBusy && state.candidateAction !== 'read') && state.creationTask?.status !== 'running' && !state.creationTask?.operation && state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict,
+    () => state.result?.writable === true && !state.candidateUncertain && !(state.candidateBusy && state.candidateAction !== 'read') && state.creationTask?.status !== 'running' && !state.creationTask?.operation && state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict,
     deliveryWorkbench, previewWorkbench,
     async (result) => {
       if (result?.status === 'accepted' && result.revision.valid !== false && result.revision.current !== false) {
@@ -1151,7 +1035,7 @@
   });
 
   function valid(result) {
-    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="agent-panel" data-task-recovery hidden></section><section class="creation-optional" data-optional-suggestions></section><section class="delivery-panel" data-program-delivery aria-label="候选交付"></section><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><section class="preview-context" data-final-render aria-label="最终 Render"></section><div data-candidate-region></div><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section><section class="preview-context"><button class="agent-action" type="button" data-scene-suggestion>前往表格工作区修改 Scene</button><p>Scene 修改建议由你在表格工作区手工完成。</p></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
+    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="agent-panel" data-task-recovery hidden></section><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><section class="delivery-panel" data-program-delivery aria-label="候选交付"></section><section class="delivery-panel" data-brief-review-state hidden></section><section class="creation-optional" data-optional-suggestions></section><details class="checks-details"><summary>详细检查与操作状态</summary><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section></details><section class="delivery-panel" data-program-acceptance aria-label="接受候选"></section><div data-candidate-region></div><section class="preview-context" data-final-render aria-label="最终 Render"></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
   }
 
   function invalid(result) {
@@ -1210,16 +1094,14 @@
     const result = state.result;
     const launcherMode = result?.status === "launcher";
     app.className = `app-shell${launcherMode ? " launcher-shell" : state.project ? " editing-shell" : ""}`;
-    app.classList.toggle('conversation-shell', !!result?.conversation && !launcherMode);
+    app.classList.toggle('conversation-shell', !launcherMode);
     bindings.abort();
     bindings = new AbortController();
     if (launcherMode) {
       app.innerHTML = `${launcherRail()}${launcher()}${launcherFooter()}`;
     } else {
-      if ((!document.getElementById("composer-draft") && !document.querySelector('[data-conversation-footer]')) || (result?.conversation && document.getElementById('composer-draft'))) {
-        app.innerHTML = `<div data-rail-region></div><div data-control-region></div><div data-tabs-region></div><div data-workspace-region></div>${composer()}`;
-        const draft = document.getElementById("composer-draft");
-        draft?.addEventListener("input", () => { state.composerDraft = draft.value; state.composerRevision++; updateComposer(); });
+      if (!document.querySelector('[data-conversation-footer]')) {
+        app.innerHTML = `<div data-rail-region></div><div data-control-region></div><div data-tabs-region></div><div data-workspace-region></div>${conversationFooter()}`;
       }
       updateRegion(document.querySelector("[data-rail-region]"), rail(result));
       updateRegion(document.querySelector("[data-control-region]"), controlMarkup());
@@ -1247,7 +1129,7 @@
       footer.textContent = result.conversation.reason;
       footer.setAttribute('role', 'status');
     }
-    updateComposer();
+
     if (state.focusTarget) {
       const target = state.focusTarget;
       state.focusTarget = null;
@@ -1261,7 +1143,7 @@
   app.addEventListener("compositionend", () => {
     composing = false;
     // 最后一条 input 先提交，避免用上一次草稿替换中文候选。
-    queueMicrotask(() => { if (renderPending) render(); if (state.creationFocusPending) { state.creationFocusPending = false; switchWorkspace('agent'); document.getElementById('creation-task-title')?.focus(); } });
+    queueMicrotask(() => { if (renderPending) render(); });
   });
 
   function announce(message) {
@@ -2455,7 +2337,6 @@
       render();
     }, { signal: bindings.signal }));
     document.querySelector("[data-open-brief]")?.addEventListener("click", () => {
-      proposalView = null;
       state.brief.open = true;
       state.brief.error = null;
       state.focusTarget = state.brief.conflict ? "[data-brief-merge]" : "[data-brief-editor]";
@@ -2538,9 +2419,8 @@
     document.querySelector("[data-close-brief]")?.addEventListener("click", () => {
       state.brief.open = false;
       state.brief.editGroupOpen = false;
-      state.focusTarget = proposalView ? "[data-review-proposal]" : "[data-open-brief]";
-      if (!proposalView) saveVideoBrief();
-      proposalView = null;
+      state.focusTarget = "[data-open-brief]";
+      saveVideoBrief();
       render();
     }, { signal: bindings.signal });
     document.querySelector("[data-brief-undo]")?.addEventListener("click", () => moveBriefHistory(state.brief.undo, state.brief.redo), { signal: bindings.signal });
@@ -2703,15 +2583,12 @@
       if (state.result?.status === "valid") switchWorkspace(tab.dataset.workspace);
     }, { signal: bindings.signal }));
     document.querySelectorAll('[data-view-task]').forEach(button => button.addEventListener('click', () => switchWorkspace('agent'), { signal: bindings.signal }));
-    document.querySelector('[data-continue-external]')?.addEventListener('click', continueExternal, { signal: bindings.signal });
     document.querySelectorAll('[data-todo-scene]').forEach(button => button.addEventListener('click', () => locateSuggestion(button.dataset.todoScene, button.dataset.todoField), { signal: bindings.signal }));
     document.querySelectorAll('[data-todo-copy]').forEach(button => button.addEventListener('click', async () => {
       const item = state.creationTask?.suggestions[Number(button.dataset.todoCopy)];
       try { await navigator.clipboard.writeText(item.content); announce('完整建议值已复制。'); } catch { announce('复制失败，请展开建议值并手工复制。'); }
     }, { signal: bindings.signal }));
     document.querySelectorAll('[data-task-action]').forEach(button => button.addEventListener('click', () => respondTask(button.dataset.taskAction), { signal: bindings.signal }));
-    document.querySelector('[data-review-proposal]')?.addEventListener('click', () => { proposalView = state.creationTask.briefProposal; proposalTab = 'diff'; state.brief.open = true; state.focusTarget = '[data-proposal-tab="diff"]'; render(); }, { signal: bindings.signal });
-    document.querySelectorAll('[data-proposal-tab]').forEach(button => button.addEventListener('click', () => { proposalTab = button.dataset.proposalTab; state.focusTarget = `[data-proposal-tab="${proposalTab}"]`; render(); }, { signal: bindings.signal }));
     document.querySelectorAll("[data-scene-suggestion]").forEach(button => button.addEventListener("click", () => switchWorkspace("table"), { signal: bindings.signal }));
     document.querySelectorAll("[data-workspace]").forEach((tab) => tab.addEventListener("keydown", (event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -2725,7 +2602,6 @@
       document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "true");
       document.querySelector(".inspection [data-close-inspection]")?.focus();
     }, { signal: bindings.signal });
-    document.querySelector('.composer-send')?.addEventListener('click', startCreation, { signal: bindings.signal });
     document.querySelector('[data-show-delivery]')?.addEventListener('click', () => { const region = document.querySelector('[data-program-delivery]'); region?.scrollIntoView({ block: 'start' }); const title = region?.querySelector('h2'); title?.setAttribute('tabindex', '-1'); title?.focus({ preventScroll: true }); }, { signal: bindings.signal });
     document.querySelector("[data-close-preview]")?.addEventListener("click", closeAssetPreview, { signal: bindings.signal });
     document.onkeydown = (event) => {
@@ -2943,7 +2819,7 @@
         state.creationRecovery = response.structuredContent?.creationRecovery ?? null;
         if (response.structuredContent?.creationTask && !response.structuredContent.creationTask.operation) state.taskOperation = null;
         applyCreation(response.structuredContent?.creationTask);
-      } catch (error) { if (state.result?.project !== project) return; state.agentError = error.message; updateTaskRegion(); updateComposer(); schedulePoll(2000); }
+      } catch (error) { if (state.result?.project !== project) return; state.agentError = error.message; updateTaskRegion();  schedulePoll(2000); }
     }, state.creationTask?.status === 'running' ? delay : Math.max(delay, 2000));
   }
   function applyCreation(task) {
@@ -2963,52 +2839,15 @@
       } else { state.agentError = 'Brief 保存回执与本地内容不同，请在 Brief 编辑器处理本地内容后继续。'; }
     }
     state.creationTask = task;
-    if (task?.reason === 'BRIEF_SAVED' && change?.id === seenBriefChange) queueMicrotask(() => respondTask('ack-brief'));
     updateRecoveryRegion();
     if (!changed) { schedulePoll(); return; }
     updateTaskRegion();
     if (task?.preview) previewWorkbench.receive(task.preview);
     if (task?.deliveryId) void deliveryWorkbench.refresh();
-    bindings.abort(); bindings = new AbortController(); bind(); updateComposer();
+    bindings.abort(); bindings = new AbortController(); bind();
     if (previousStatus !== task?.status || previousReason !== task?.reason) document.getElementById('agent-status-announcer').textContent = task ? `${{running:'运行中',waiting:'等待用户',stopped:'已停止',terminated:'已终结'}[task.status]}。${task.pending ?? creationStages[task.stage]}` : '尚无任务';
     schedulePoll();
   }
-  async function continueExternal() {
-    if (state.externalBusy) return;
-    state.externalBusy = true; updateTaskRegion();
-    try {
-      const project = state.result.project;
-      const response = await callHostTool('continue_creation_task', { projectDirectory: project.directory, projectId: project.projectId, baseline: state.creationTask?.externalBaseline });
-      if (response.isError) throw new Error(response.structuredContent?.error?.message ?? '继续失败，请重新检查候选');
-      if (response.structuredContent?.candidate) state.candidate = response.structuredContent.candidate;
-      applyCreation(response.structuredContent.creationTask);
-    } catch (error) { state.agentError = error.message; }
-    finally { state.externalBusy = false; updateTaskRegion(); bindings.abort(); bindings = new AbortController(); bind(); }
-  }
-  async function startCreation() {
-    if (composing || state.agentBusy || !state.composerDraft.trim()) return;
-    const project = state.result?.project;
-    if (!project) return;
-    const instruction = state.composerDraft, revision = state.composerRevision;
-    state.agentBusy = true; state.agentError = null; updateComposer();
-    updateTaskRegion();
-    try {
-      if (!await flushProjectBeforeAssetImport()) throw new Error('Scene 尚未安全保存，请先处理保存问题');
-      if (state.brief.version !== state.brief.savedVersion || state.brief.saveInFlight || state.brief.conflict) throw new Error('Video Brief 尚未安全保存，请先处理后再开始创作');
-      if (state.result?.project !== project) throw new Error('当前项目已变化，请在当前项目重试');
-      const existing = state.creationTask && state.creationTask.status !== 'terminated';
-      const response = await callHostTool(existing ? 'respond_creation_task' : 'start_creation_task', { projectDirectory: project.directory, projectId: project.projectId, instruction, ...(existing ? { action: 'message' } : { parentOrigin: location.origin }) });
-      if (response?.isError || !response?.structuredContent?.creationTask) throw new Error(response?.structuredContent?.error?.message ?? '未收到任务创建成功回执');
-      if (state.result?.project !== project) return;
-      state.agentBusy = false;
-      if (state.composerRevision === revision && !composing) { state.composerDraft = ''; document.getElementById('composer-draft').value = ''; }
-      if (response.structuredContent?.candidate) { state.candidate = response.structuredContent.candidate; updateCandidate(); }
-      applyCreation(response.structuredContent.creationTask);
-      if (composing) state.creationFocusPending = true;
-      else { switchWorkspace('agent'); document.getElementById('creation-task-title')?.focus(); }
-    } catch (error) { if (state.result?.project !== project) return; state.agentBusy = false; state.agentError = error.message; updateComposer(); updateTaskRegion(); }
-  }
-
   function deriveReadonlyProject(result) {
     return {
       assets: [...new Map((result.scenes ?? []).flatMap((scene) => scene.assets ?? []).map((asset) => [asset.id, asset])).values()],
@@ -3035,7 +2874,7 @@
     state.candidateError = null;
     state.candidateConfirm = false;
     state.start = 0;
-    proposalView = null; seenBriefChange = null;
+    seenBriefChange = null;
     state.inspectionOpen = false;
     state.inspectorMode = "project";
     state.assetSearch = "";
@@ -3097,9 +2936,7 @@
     state.focusTarget = focusEmpty ? "[data-empty-title]" : null;
     if (previousProjectId !== result?.project?.projectId) {
       state.creationTask = result?.creationTask ?? null;
-      state.creationRecovery = result?.creationRecovery ?? null; state.taskOperation = null; state.takeoverOpen = false; state.takeoverDraft = ''; state.takeoverError = ''; state.takeoverBusy = false; state.takeoverPending = null; state.takeoverBaseline = null; state.candidateUncertain = false;
-      state.agentBusy = false;
-      state.creationFocusPending = false;
+      state.creationRecovery = result?.creationRecovery ?? null; state.taskOperation = null; state.candidateUncertain = false;
       state.agentError = result?.creationError ?? null;
       clearTimeout(pollTimer);
       clearTimeout(speechPollTimer);

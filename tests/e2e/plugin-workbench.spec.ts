@@ -504,12 +504,8 @@ test("有效项目首屏显示连接、身份、双工作区、Scene 与检查�
   await expect(page.getByText("项目清单", { exact: true })).toBeVisible();
   await expect(page.getByText("Project DSL", { exact: true })).toBeVisible();
   await expect(page.getByText("video.md", { exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toBeEnabled();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toHaveAttribute(
-    "aria-describedby",
-    "composer-draft-reason composer-scope",
-  );
-  await expect(page.getByText("输入明确目标后开始创作；草稿仅保留在本次会话", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Composer" })).toHaveCount(0);
+  await expect(page.locator('[data-conversation-footer]')).toContainText('当前 Codex 对话');
 });
 
 test("只读检查的非空项目不显示无响应的 Scene 写控件", async ({ page }) => {
@@ -538,8 +534,8 @@ test("键盘焦点不改变 Scene，显式激活后切换工作区仍保留选�
 
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
   await expect(page.getByRole("tab", { name: "Agent 工作区" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("heading", { name: "当前创作指令" })).toBeVisible();
-  await expect(page.getByText("输入明确目标后开始创作；草稿仅保留在本次会话", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "候选审阅" })).toBeVisible();
+  await expect(page.getByText("在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。", { exact: true })).toBeVisible();
 });
 
 test("零 Scene 与无效项目都有明确、非纯颜色状态", async ({ page }) => {
@@ -592,7 +588,7 @@ test("客户端在调用保存工具前拒绝 Speech 与 Narration 摘要不一�
   await expect.poll(() => calls).toBe(0);
 });
 
-test("窄面板把项目检查收进可操作抽屉，Composer 仍可见", async ({ page }) => {
+test("窄面板把项目检查收进可操作抽屉，当前对话指引仍可见", async ({ page }) => {
   await page.setViewportSize({ width: 430, height: 860 });
   await loadWorkbench(page);
   await sendResult(page, validResult());
@@ -610,7 +606,7 @@ test("窄面板把项目检查收进可操作抽屉，Composer 仍可见", async
   await inspectionToggle.click();
   await expect(page.getByRole("complementary", { name: "项目检查" })).toBeVisible();
   await expect(page.getByRole("button", { name: "关闭项目检查" })).toBeFocused();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toBeInViewport();
+  await expect(page.locator("[data-conversation-footer]")).toBeInViewport();
   await page.getByRole("button", { name: "关闭项目检查" }).click();
   await expect(inspectionToggle).toBeFocused();
 });
@@ -904,11 +900,9 @@ test("保存失败可显式重试，工作区切换保留编辑与历史；冲�
   await page.getByRole("textbox", { name: "Scene 01 Narration" }).blur();
   await expect(page.getByText("保存失败", { exact: true })).toBeVisible();
   await expect.poll(() => calls).toBe(1);
-  await page.getByRole("textbox", { name: "Composer" }).fill("保存失败时保留创作草稿");
 
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
   await page.getByRole("tab", { name: "表格工作区" }).click();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toHaveValue("保存失败时保留创作草稿");
   await expect(page.getByRole("textbox", { name: "Scene 01 Narration" })).toHaveValue("保留在内存中的合法修改");
   await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
   mode = "success";
@@ -1274,66 +1268,6 @@ test("Asset 容量、有界列表、文件不可用与悬空 ID 都有明确非�
   await expect(page.getByText("仅显示前 100 项，请缩小搜索范围。", { exact: true })).toBeVisible();
 });
 
-test("Composer 创建任务保留精确原文及新草稿，重复点击只创建一次并聚焦目标", async ({ page }) => {
-  await loadWorkbench(page); await sendResult(page, validResult());
-  let finish: ((value: unknown) => void) | undefined, starts = 0;
-  const task = { taskId: 'task-82', status: 'waiting', reason: 'CANDIDATE_READY', stage: 'deliver', instruction: '  让开场更安静\n保留空格  ', threadPointer: 'dedicated-82', lastSafeStage: 'deliver', candidateBaseline: 'saved', pending: '候选已就绪，由你决定是否接受。' };
-  await installAppToolBridge(page, (name) => {
-    if (name === 'start_creation_task') { starts++; return new Promise(resolve => { finish = resolve; }); }
-    return { structuredContent: {} };
-  });
-  await page.getByRole('button', { name: /Scene 02/ }).click();
-  const draft = page.getByRole('textbox', { name: 'Composer' });
-  await draft.fill(task.instruction); const node = await draft.elementHandle();
-  await page.getByRole('button', { name: '开始创作', exact: true }).click();
-  await expect(page.getByRole('button', { name: '正在创建创作任务' })).toBeDisabled();
-  await draft.fill('等待回执时的新草稿');
-  finish!({ structuredContent: { creationTask: task } });
-  await expect(page.getByRole('heading', { name: '当前创作指令' })).toBeFocused();
-  await expect(page.getByRole('tabpanel', { name: 'Agent 工作区' })).toBeVisible();
-  await expect(page.locator('.creation-instruction')).toHaveText(task.instruction);
-  await expect(draft).toHaveValue('等待回执时的新草稿');
-  expect(starts).toBe(1); expect(await node!.evaluate(node => node === document.getElementById('composer-draft'))).toBe(true);
-  await expect(page.getByRole('heading', { name: '等待用户 · 候选已就绪' })).toBeVisible();
-  await page.getByRole('tab', { name: '表格工作区' }).click();
-  await expect(page.locator('[data-scene-row]').nth(1)).toHaveAttribute('data-selected', 'true');
-});
-
-test("Composer 失败保留原文可重试；任务刷新不中断输入，窄屏与桌面状态可读", async ({ page }) => {
-  await loadWorkbench(page); await sendResult(page, validResult());
-  let starts = 0;
-  const task = { taskId: 'task-82', status: 'running', reason: null, instruction: '让开场更安静', stage: 'modify', threadPointer: 'dedicated-82', lastSafeStage: 'read', pending: null };
-  await installAppToolBridge(page, name => {
-    if (name === 'start_creation_task') { if (++starts === 1) return { isError: true, structuredContent: { error: { message: '宿主连接失败' } } }; return { structuredContent: { creationTask: task } }; }
-    if (name === 'get_creation_task') return { structuredContent: { creationTask: task } };
-    return { structuredContent: {} };
-  });
-  const draft = page.getByRole('textbox', { name: 'Composer' });
-  await expect(page.getByRole('button', { name: '开始创作', exact: true })).toBeDisabled();
-  await draft.fill(task.instruction); await draft.press('Enter');
-  expect(starts).toBe(0);
-  await draft.fill(task.instruction);
-  await page.getByRole('button', { name: '开始创作', exact: true }).click();
-  await expect(draft).toHaveValue(task.instruction);
-  await page.getByRole('button', { name: '开始创作', exact: true }).click();
-  await expect(draft).toHaveValue('');
-  await draft.fill('继续输入'); await draft.focus();
-  await draft.dispatchEvent('compositionstart');
-  await draft.evaluate((node: HTMLTextAreaElement) => { node.setSelectionRange(1, 3); });
-  await sendResult(page, { creationTask: { ...task, stage: 'check' } });
-  await expect(draft).toBeFocused();
-  expect(await draft.evaluate((node: HTMLTextAreaElement) => [node.selectionStart, node.selectionEnd])).toEqual([1, 3]);
-  await draft.dispatchEvent('compositionend');
-  const { mkdir } = await import('node:fs/promises'); await mkdir('.impeccable/review', { recursive: true });
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 1000 });
-    await page.locator('#workspace-agent').evaluate(node => { node.scrollTop = 0; });
-    await expect(page.getByRole('heading', { name: '当前创作指令' })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: `.impeccable/review/creation-${width === 1440 ? 'desktop' : 'mobile'}.png`, fullPage: true });
-  }
-});
-
 test("Agent 标题在支持的窄屏与桌面宽度不产生孤字换行或溢出", async ({ page }) => {
   await loadWorkbench(page);
   await sendResult(page, validResult());
@@ -1341,64 +1275,14 @@ test("Agent 标题在支持的窄屏与桌面宽度不产生孤字换行或溢�
 
   for (const width of [320, 430, 1440]) {
     await page.setViewportSize({ width, height: 860 });
-    const titleFits = await page.getByRole("heading", { name: "当前创作指令" }).evaluate(
+    const titleFits = await page.getByRole("heading", { name: "候选审阅" }).evaluate(
       (element) => element.scrollWidth <= element.clientWidth,
     );
     expect(titleFits).toBe(true);
   }
 });
 
-test("双工作区共享多行草稿、Scene 历史与活动任务，刷新不中断中文输入", async ({ page }) => {
-  await loadWorkbench(page);
-  const initial = validResult(2);
-  const calls: string[] = [];
-  await installAppToolBridge(page, (name) => {
-    calls.push(name);
-    return { structuredContent: { status: "saved", projectRevision: `sha256:${"2".repeat(64)}` } };
-  });
-  const taskCalls: string[] = [];
-  await installHostToolBridge(page, (name) => {
-    taskCalls.push(name);
-    return { taskId: "task-shared", status: "running", reason: null,
-      connection: { status: "connected", threadId: "thread-shared", replaced: false } };
-  });
-  await sendResult(page, initial);
-  await page.getByRole("button", { name: /Scene 02/ }).click();
-  await page.locator('[data-scene-row]').nth(1).getByRole("button", { name: "编辑 Narration" }).click();
-  await page.getByRole("textbox", { name: "Scene 02 Narration" }).fill("保留第二幕的修改");
-  const draft = page.getByRole("textbox", { name: "Composer" });
-  await draft.fill("第一行创作要求\n第二行待补充");
-  const draftNode = await draft.elementHandle();
-  const tableNode = await page.getByRole("tabpanel", { name: "表格工作区" }).elementHandle();
-  await page.getByRole("tab", { name: "Agent 工作区" }).click();
-  await expect(page.getByRole("heading", { name: "当前创作指令" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "开始创作", exact: true })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "管理项目 Asset" })).toHaveCount(0);
-  await expect(page.getByRole("textbox", { name: /Narration/ })).toHaveCount(0);
-  await draft.focus();
-  await draft.dispatchEvent("compositionstart", { data: "创" });
-  await sendResult(page, { creationTask: { taskId: "task-shared", status: "waiting", instruction: "原始目标", stage: "deliver", reason: "CANDIDATE_READY" } });
-  await draft.evaluate((node: HTMLTextAreaElement) => {
-    node.value += "\n创作中";
-    node.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
-  });
-  await draft.dispatchEvent("compositionend", { data: "创作中" });
-  await expect(draft).toBeFocused();
-  await expect(draft).toHaveValue("第一行创作要求\n第二行待补充\n创作中");
-  expect(await draftNode!.evaluate((node) => node === document.getElementById("composer-draft"))).toBe(true);
-  await page.getByRole("button", { name: "前往表格工作区修改 Scene" }).click();
-  expect(await tableNode!.evaluate((node) => node === document.getElementById("workspace-table"))).toBe(true);
-  await expect(page.getByRole("textbox", { name: "Scene 02 Narration" })).toHaveValue("保留第二幕的修改");
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(page.locator('[data-scene-row]').nth(1)).toContainText(initial.scenes[1]!.narration);
-  expect(calls.every((name) => name === "save_project_scenes")).toBe(true);
-  expect(taskCalls).toHaveLength(0);
-  await page.getByRole("tab", { name: "Agent 工作区" }).click();
-  await page.getByText("任务详情", { exact: true }).click();
-  await expect(page.getByText("task-shared", { exact: true })).toBeVisible();
-});
-
-test("工作区标签支持手动键盘激活，零 Scene 与长草稿在窄屏可用", async ({ page }) => {
+test("工作区标签支持手动键盘激活，零 Scene 在窄屏可用", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await loadWorkbench(page);
   await sendResult(page, validResult(0));
@@ -1412,13 +1296,10 @@ test("工作区标签支持手动键盘激活，零 Scene 与长草稿在窄屏�
   await expect(page.getByRole("tabpanel", { name: "Agent 工作区" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "尚无任务" })).toBeVisible();
   await expect(page.getByText("尚无预览 · 构建当前版本或候选后检查成片", { exact: true })).toBeVisible();
-  await page.getByRole("heading", { name: "当前创作指令" }).scrollIntoViewIfNeeded();
+  await page.getByRole("heading", { name: "候选审阅" }).scrollIntoViewIfNeeded();
   expect(await page.locator("#workspace-agent .stage").evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true);
-  const draft = page.getByRole("textbox", { name: "Composer" });
-  await draft.fill("长草稿保留\n".repeat(100));
-  await expect(draft).toBeInViewport();
   await table.click();
-  await expect(draft).toHaveValue("长草稿保留\n".repeat(100));
+  await expect(page.getByRole('textbox', { name: 'Composer' })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -1437,10 +1318,9 @@ for (const width of [1440, 390]) {
     await loadWorkbench(page);
     await installAppToolBridge(page, tool);
     await sendResult(page, created.structuredContent);
-    const composer = page.locator('#composer-draft');
-    await composer.fill('保留这份创作草稿');
     await page.locator('[data-workspace="agent"]').click();
-    await page.getByRole('button', { name: '从当前修订创建候选' }).click();
+    await tool('manage_project_candidate', { projectDirectory: directory, projectId: created.structuredContent.project.projectId, action: 'create' });
+    await sendResult(page, (await tool('get_workbench', {})).structuredContent);
     await expect(page.locator('.candidate-save')).toContainText('已保存');
     const args = { projectDirectory: directory, projectId: created.structuredContent.project.projectId };
     const first = (await tool('manage_project_candidate', { ...args, action: 'read' })).structuredContent.candidate;
@@ -1449,7 +1329,6 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: '重新检查完整性' }).click();
     await expect(page.locator('.candidate-panel')).toContainText('上一份完整候选已保留');
     await page.locator('[data-workspace="table"]').click();
-    await expect(composer).toHaveValue('保留这份创作草稿');
     await page.locator('[data-workspace="agent"]').click();
     await expect(page.locator('.candidate-save')).toContainText('已保存');
     await mkdir('.impeccable/review', { recursive: true });
@@ -1461,8 +1340,7 @@ for (const width of [1440, 390]) {
     expect(await readFile(join(directory, saved.structuredContent.candidate.candidate.path, 'resources/说明.txt'), 'utf8')).toBe('第二批原子保存');
     await page.getByRole('button', { name: '放弃候选', exact: true }).click();
     await page.getByRole('button', { name: '放弃候选并终结任务' }).click();
-    await expect(page.getByRole('button', { name: '从当前修订创建候选' })).toBeVisible();
-    await expect(composer).toHaveValue('保留这份创作草稿');
+    await expect(page.locator('.candidate-save')).toContainText('尚无候选');
     await handler.dispose();
   });
 }
@@ -1475,7 +1353,6 @@ test('候选失败和外部变化通知保留草稿、所选 Scene 与详情焦�
     return { structuredContent: { status: 'candidate-state', candidate } };
   });
   await sendResult(page, { ...validResult(), candidate });
-  await page.locator('#composer-draft').fill('不要清空这份草稿');
   await page.locator('[data-workspace="agent"]').click();
   await page.getByRole('button', { name: '重新检查完整性' }).click();
   await expect(page.locator('.candidate-save')).toContainText('正在检查完整性');
@@ -1488,7 +1365,6 @@ test('候选失败和外部变化通知保留草稿、所选 Scene 与详情焦�
   await expect(summary).toBeFocused();
   await sendResult(page, { status: 'candidate-failed', error: { code: 'CANDIDATE_SAVE_FAILED', message: '本批未保存，上一份候选已保留' } });
   await expect(page.locator('.candidate-error')).toContainText('本批未保存');
-  await expect(page.locator('#composer-draft')).toHaveValue('不要清空这份草稿');
   await page.locator('[data-workspace="table"]').click();
   await expect(page.locator('.scene-row')).toHaveCount(5);
 });
@@ -1506,318 +1382,14 @@ test('等待用户期间仍刷新任务终结，连接恢复清除错误且任�
     }
     return { structuredContent: {} };
   });
-  await page.getByRole('textbox', { name: 'Composer' }).fill(task.instruction);
-  await page.getByRole('button', { name: '开始创作', exact: true }).click();
-  const details = page.getByText('任务详情', { exact: true });
+  await sendResult(page, { creationTask: task });
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  const details = page.getByText('当前创作指令与任务详情', { exact: true });
+  await expect(page.locator('[data-agent-content]')).toContainText('临时网络失败');
   await details.click();
-  await expect(page.locator('#composer-draft-reason')).toContainText('临时网络失败');
   await expect(page.getByRole('heading', { name: '已终结 · 候选已接受' })).toBeVisible({ timeout: 10000 });
-  await expect(page.locator('#composer-draft-reason')).not.toContainText('临时网络失败');
   await expect(details).toBeFocused();
   await expect(page.getByText('task-refresh', { exact: true })).toBeVisible();
-});
-
-test('自动跟进保留 Composer 与 Scene，外部候选直接继续且防止重复提交', async ({ page }) => {
-  await loadWorkbench(page); await sendResult(page, validResult());
-  const task = { taskId: 'task-83', status: 'running', reason: null, instruction: '跟随最新内容', stage: 'check', pending: 'Scene、Speech 已更新，正在重新检查' };
-  let calls = 0, finish: ((value: unknown) => void) | undefined;
-  await installAppToolBridge(page, name => {
-    if (name === 'continue_creation_task') { calls++; return new Promise(resolve => { finish = resolve; }); }
-    if (name === 'get_creation_task') return { structuredContent: { creationTask: task } };
-    return { structuredContent: {} };
-  });
-  const draft = page.getByRole('textbox', { name: 'Composer' });
-  await draft.fill('保留正在输入的文字'); await draft.focus();
-  await sendResult(page, { creationTask: task });
-  await expect(draft).toBeFocused(); await expect(draft).toHaveValue('保留正在输入的文字');
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 1000 });
-    expect(await page.locator('.contact-sheet').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(200);
-    await page.screenshot({ path: `/tmp/narracut-83-table-${width}.png`, fullPage: true });
-  }
-  await page.getByRole('button', { name: '查看任务', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '运行中 · 正在跟进最新项目内容' })).toBeVisible();
-  const waiting = { ...task, status: 'waiting', reason: 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', pending: '已保留外部修改，已丢弃 Agent 未提交修改。继续后，Agent 将基于外部候选和最新项目内容重新检查并创作。' };
-  await sendResult(page, { creationTask: waiting });
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 1000 });
-    await expect(page.getByRole('button', { name: '基于外部候选继续' })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: `/tmp/narracut-83-${width}.png`, fullPage: true });
-  }
-  await page.getByRole('button', { name: '基于外部候选继续' }).click();
-  await expect(page.getByRole('button', { name: '正在核对候选' })).toBeDisabled();
-  expect(calls).toBe(1);
-  finish!({ structuredContent: { creationTask: task } });
-  await expect(page.getByRole('heading', { name: '运行中 · 正在跟进最新项目内容' })).toBeVisible();
-  await expect(draft).toHaveValue('保留正在输入的文字');
-});
-
-test('Scene 待办按稳定 ID 定位并保留 Composer；Brief 提案提供只读 diff 和完整结果', async ({ page }) => {
-  await loadWorkbench(page); const result = validResult(3); await sendResult(page, result);
-  const task = { taskId: 'task-84', status: 'waiting', reason: 'SCENE_CHANGE_REQUIRED', instruction: '开场更简洁', pending: '请缩短旁白', stage: 'read', suggestions: [{ sceneId: result.scenes[1]!.id, observation: '旁白偏长', action: '缩短 Narration', content: '欢迎', reason: '让开场紧凑', required: true, satisfied: false, condition: { field: 'narration', description: '两字以内' } }] };
-  await installAppToolBridge(page, () => ({ structuredContent: { creationTask: task } }));
-  await sendResult(page, { creationTask: task });
-  const draft = page.getByRole('textbox', { name: 'Composer' }); await draft.fill('中文草稿'); const node = await draft.elementHandle();
-  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
-  await expect(page.getByText('完成目标所必需', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '定位 Scene', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Scene 02 Narration', exact: true })).toBeFocused();
-  expect(await node!.evaluate(el => el.isConnected)).toBe(true); await expect(draft).toHaveValue('中文草稿');
-  await sendResult(page, { creationTask: { ...task, suggestions: task.suggestions.map(item => ({ ...item, condition: { field: 'asset', description: '绑定可用素材' } })) } });
-  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
-  await page.getByRole('button', { name: '定位 Scene', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Scene 02 · Asset' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '导入并绑定' })).toBeFocused();
-  const proposal = { id: 'proposal-84', base: '旧方向\n', content: '新方向\n', baseline: result.videoBrief.revision, purpose: '明确创作方向', status: 'review' };
-  await sendResult(page, { creationTask: { ...task, reason: 'BRIEF_REVIEW_REQUIRED', suggestions: [], briefProposal: proposal } });
-  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
-  await page.getByRole('button', { name: '审核 Brief 提案' }).click();
-  await expect(page.getByRole('textbox', { name: '统一 diff' })).toHaveValue(/-旧方向[\s\S]*\+新方向/);
-  await page.getByRole('button', { name: '完整结果', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: '完整结果' })).toHaveValue('新方向\n');
-  await expect(page.getByRole('textbox', { name: '完整结果' })).toHaveAttribute('readonly', '');
-  await expect(page.getByRole('button', { name: '接受并保存 Brief' })).toBeVisible();
-});
-
-for (const width of [1440, 390]) test(`任务待办与 Brief 审核在 ${width}px 可用，独立 Brief 撤销与中文输入连续`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 1000 });
-  await loadWorkbench(page); const result = validResult(3); await sendResult(page, result);
-  let task: any = { taskId: 'task-84-visual', status: 'waiting', reason: 'SCENE_CHANGE_REQUIRED', instruction: '让开场简洁、安静，保留纸张与胶片的触感。', pending: '请完成下方必要修改；保存并满足条件后会继续同一任务。', stage: 'read', suggestions: [{ sceneId: result.scenes[1]!.id, observation: '开场旁白偏长，会分散对画面的注意。', action: '缩短 Narration', content: '欢迎来到日常。', reason: '给开场画面留下阅读空间。', required: true, satisfied: false, condition: { field: 'narration', description: '旁白非空且不超过十字；可以使用其他措辞。' } }] };
-  await installAppToolBridge(page, (name, args) => {
-    if (name === 'save_project_video_brief') return { structuredContent: { videoBrief: { content: args.content, revision: result.videoBrief.revision }, status: 'brief-saved' } };
-    if (name === 'respond_creation_task' && args.action === 'ack-brief') task = { ...task, status: 'running', reason: null };
-    return { structuredContent: { creationTask: task } };
-  });
-  await sendResult(page, { creationTask: task });
-  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
-  const draft = page.getByRole('textbox', { name: 'Composer' }); await draft.fill('保留输入中的中文草稿'); const node = await draft.elementHandle();
-  await draft.evaluate((el: HTMLTextAreaElement) => { el.focus(); el.setSelectionRange(2, 5); });
-  await draft.dispatchEvent('compositionstart');
-  task = { ...task, pending: '还有 1 项必要修改未满足。' }; await sendResult(page, { creationTask: task });
-  expect(await node!.evaluate(el => el.isConnected)).toBe(true);
-  expect(await draft.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd])).toEqual([2,5]);
-  await draft.dispatchEvent('compositionend');
-  await page.screenshot({ path: `.impeccable/review/issue84-todos-${width}.png`, fullPage: true });
-  task = { ...task, reason: 'BRIEF_REVIEW_REQUIRED', briefProposal: { id: 'brief-84', base: result.videoBrief.content, content: '# 产品演示\n\n开场安静、简洁，保留纸张与胶片的触感。\n', purpose: '把本次创作方向整理为共享 Brief', status: 'review' } };
-  await sendResult(page, { creationTask: task });
-  await page.getByRole('button', { name: '审核 Brief 提案' }).click();
-  await expect(page.getByRole('textbox', { name: '统一 diff' })).toBeVisible();
-  await page.screenshot({ path: `.impeccable/review/issue84-brief-${width}.png`, fullPage: true });
-  await page.getByRole('button', { name: '关闭', exact: true }).click();
-  task = { ...task, reason: 'BRIEF_SAVED', briefProposal: { ...task.briefProposal, status: 'saved' }, briefChange: { id: 'brief-84', base: result.videoBrief.content, content: task.briefProposal.content, revision: `sha256:${'2'.repeat(64)}` } };
-  await sendResult(page, { creationTask: task });
-  if (await page.locator('[data-open-inspection]').isVisible()) await page.locator('[data-open-inspection]').click();
-  await page.locator('[data-open-brief]').click();
-  await page.getByRole('button', { name: 'Video Brief Undo' }).click();
-  await expect(page.getByRole('textbox', { name: 'Video Brief 原始 Markdown' })).toHaveValue(result.videoBrief.content);
-  await expect(draft).toHaveValue('保留输入中的中文草稿');
-});
-
-test('Composer 同任务混合消息确认精确片段、展示 Brief 分歧，同 Scene 建议复制各自值', async ({ page }) => {
-  await loadWorkbench(page); const result = validResult(2); await sendResult(page, result);
-  const fragment = '把开场改成明亮色彩。';
-  let task: any = { taskId: 'task-message', status: 'waiting', reason: 'USER_DECISION_REQUIRED', instruction: '原始目标', stage: 'read', pending: '等待要求' };
-  const calls: any[] = [];
-  await installAppToolBridge(page, (name, args) => {
-    if (name === 'respond_creation_task') {
-      calls.push(args);
-      if (args.action === 'message') task = { ...task, reason: 'INSTRUCTION_CONFIRMATION_REQUIRED', pendingMessage: { id: 'message-84', original: args.instruction, fragments: [fragment], reply: '仅保存创作要求，状态问题不追加。' }, divergence: 'Brief 希望保留胶片触感；本次要求明亮色彩，成片表现采用本次要求。' };
-      if (args.action === 'confirm-message') task = { ...task, instruction: task.instruction + '\n\n' + fragment, pendingMessage: null, status: 'running', reason: null };
-    }
-    return { structuredContent: { creationTask: task } };
-  });
-  await sendResult(page, { creationTask: task });
-  const draft = page.getByRole('textbox', { name: 'Composer' }); await draft.fill('现在进展怎样？' + fragment);
-  await page.getByRole('button', { name: '发送', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '确认保存的创作意图' })).toBeVisible();
-  await expect(page.locator('blockquote')).toHaveText(fragment);
-  await expect(page.getByRole('heading', { name: '与 Video Brief 的分歧' })).toBeVisible();
-  await expect(page.locator('.brief-divergence')).toContainText('保留纸张与胶片的触感');
-  await page.getByRole('button', { name: '确认追加' }).click();
-  await expect(page.locator('.creation-instruction').first()).toHaveText('原始目标\n\n' + fragment);
-  expect(calls[0].instruction).toBe('现在进展怎样？' + fragment);
-  await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as any).copiedSuggestion = text; } } }); });
-  task = { ...task, status: 'waiting', suggestions: ['第一条完整建议值', '第二条完整建议值'].map(content => ({ sceneId: result.scenes[0]!.id, observation: '观察', action: '编辑', reason: '理由', content, required: true, condition: { description: '完成修改' } })) };
-  await sendResult(page, { creationTask: task });
-  await page.getByRole('button', { name: '复制建议值', exact: true }).nth(1).click();
-  expect(await page.evaluate(() => (window as any).copiedSuggestion)).toBe('第二条完整建议值');
-});
-
-for (const width of [1440, 390]) test(`停止与恢复在两个工作区可操作且保留草稿与焦点 ${width}`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 1000 });
-  await loadWorkbench(page);
-  let task: any = { taskId: 'task-85', status: 'running', reason: null, instruction: '调整开场的节奏，保留现有旁白与素材', stage: 'modify', lastSafeStage: 'modify', candidateBaseline: 'safe', threadPointer: 'thread-original', pending: null };
-  let finish: (value: unknown) => void = () => {};
-  let stops = 0;
-  await installAppToolBridge(page, (name, args) => {
-    if (name === 'respond_creation_task' && args.action === 'stop') { stops++; return new Promise(resolve => { finish = resolve; }); }
-    if (name === 'respond_creation_task' && args.action === 'continue') task = { ...task, status: 'running', reason: null, replacementThread: true };
-    return { structuredContent: { creationTask: task } };
-  });
-  await sendResult(page, { ...validResult(), creationTask: task });
-  const draft = page.locator('#composer-draft');
-  await draft.fill('正在输入的中文草稿');
-  await page.locator('[data-task-notice] [data-task-action="stop"]').click();
-  await expect(page.locator('[data-task-notice]')).toContainText('正在停止…');
-  await expect(page.locator('[data-task-notice] [data-task-action="stop"]')).toBeDisabled();
-  expect(stops).toBe(1);
-  task = { ...task, status: 'stopped', reason: 'USER_STOPPED' };
-  finish({ structuredContent: { creationTask: task } });
-  await page.locator('[data-workspace="agent"]').click();
-  await expect(page.locator('.creation-state')).toContainText('已停止 · 你已停止任务');
-  await expect(page.locator('.creation-saved')).toContainText('已保存至：候选修改');
-  await expect(draft).toHaveValue('正在输入的中文草稿');
-  await page.locator('[data-agent-content]').screenshot({ path: `/tmp/issue85-stopped-${width}.png` });
-  await page.getByRole('button', { name: '继续任务', exact: true }).click();
-  await expect(page.locator('.creation-state')).toContainText('运行中');
-  await expect(page.locator('.creation-saved')).toContainText('仍是同一任务');
-  task = { ...task, status: 'waiting', reason: 'USER_DECISION_REQUIRED', pending: '请确认当前候选的开场效果' };
-  await sendResult(page, { creationTask: task });
-  await page.locator('[data-agent-content] [data-task-action="stop"]').click();
-  expect(stops).toBe(2);
-  task = { ...task, status: 'stopped', reason: 'USER_STOPPED' };
-  finish({ structuredContent: { creationTask: task } });
-  await expect(page.locator('.creation-state')).toContainText('已停止');
-  await expect(page.getByRole('button', { name: '继续任务', exact: true })).toBeFocused();
-  await expect(draft).toHaveValue('正在输入的中文草稿');
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-});
-
-for (const width of [1440, 390]) test(`检查点失效内联接管保留目标，候选变化须再次提交 ${width}`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 1000 });
-  await loadWorkbench(page);
-  let recovery: any = { code: 'TASK_CHECKPOINT_INVALID', candidateBaseline: 'first', candidatePath: '.narracut/candidates/保留的候选/render-program' };
-  let task: any = null;
-  const submits: any[] = [];
-  await installAppToolBridge(page, (name, args) => {
-    if (name === 'respond_creation_task' && args.action === 'takeover') {
-      submits.push(args);
-      if (submits.length === 1) { recovery = { ...recovery, candidateBaseline: 'second', candidatePath: '.narracut/candidates/最新候选/render-program' }; return { isError: true, structuredContent: { error: { message: '候选再次变化，请核对后再次明确提交。' } } }; }
-      task = { taskId: args.id, status: 'running', instruction: args.instruction, reason: null, stage: 'read' }; recovery = null;
-    }
-    return { structuredContent: { creationTask: task, creationRecovery: recovery } };
-  });
-  await sendResult(page, { ...validResult(), creationTask: null, creationRecovery: recovery });
-  await page.locator('#composer-draft').fill('另一份 Composer 草稿');
-  await page.locator('[data-workspace="agent"]').click();
-  await expect(page.locator('[data-task-recovery]')).toContainText('这不代表候选损坏');
-  await page.getByRole('button', { name: '用新目标接管…' }).click();
-  const goal = page.getByLabel('新任务目标');
-  await goal.fill('  新目标\n保留完整中文  ');
-  await goal.dispatchEvent('compositionstart');
-  await page.waitForTimeout(2200);
-  await expect(goal).toBeFocused(); await expect(goal).toHaveValue('  新目标\n保留完整中文  ');
-  await goal.dispatchEvent('compositionend');
-  await page.getByRole('button', { name: '开始新任务并接管候选' }).click();
-  await expect(page.locator('[data-takeover-error]')).toContainText('候选再次变化');
-  await expect(page.locator('[data-takeover-path]')).toContainText('最新候选');
-  await expect(goal).toHaveValue('  新目标\n保留完整中文  ');
-  await page.locator('[data-task-recovery]').screenshot({ path: `/tmp/issue85-takeover-${width}.png` });
-  expect(submits).toHaveLength(1);
-  await page.getByRole('button', { name: '开始新任务并接管候选' }).press('Enter');
-  await expect(page.locator('[data-task-recovery]')).toBeHidden();
-  expect(submits[1].baseline).toBe('second'); expect(submits[1].instruction).toBe('  新目标\n保留完整中文  ');
-  await expect(page.locator('#composer-draft')).toHaveValue('另一份 Composer 草稿');
-});
-
-for (const width of [1440, 390]) test(`外部停止指引与线程转移保留中文草稿和工作区 ${width}`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 1000 });
-  await loadWorkbench(page);
-  let task: any = { taskId: 'task-86', status: 'stopped', reason: 'CODEX_USAGE_LIMIT', instruction: '调整开场节奏，保留旁白与已有素材', stage: 'read', lastSafeStage: 'modify', candidateBaseline: 'safe', threadPointer: 'thread-original', pending: null };
-  await installAppToolBridge(page, () => ({ structuredContent: { creationTask: task } }));
-  await sendResult(page, { ...validResult(), creationTask: task });
-  const draft = page.locator('#composer-draft');
-  await draft.fill('尚未发送的中文草稿');
-  for (const [reason, label, guidance] of [
-    ['CODEX_USAGE_LIMIT', 'Codex 额度受限', '额度恢复后点击“继续任务”'],
-    ['CODEX_AUTH_REQUIRED', 'Codex 需要认证', '完成 Codex 认证后点击“继续任务”'],
-    ['CODEX_UNAVAILABLE', 'Codex 服务不可用', '服务恢复后点击“继续任务”'],
-    ['CODEX_THREAD_UNAVAILABLE', '原线程不可用', '点击“继续任务”，自动尝试替代线程'],
-    ['CODEX_INTERRUPTED', 'Codex 已中断', '点击“继续任务”'],
-    ['NO_PROGRESS', '连续多轮没有新的持久成果', '查看当前指令与已有成果'],
-  ]) {
-    task = { ...task, reason }; await sendResult(page, { creationTask: task });
-    await expect(page.locator('[data-task-notice]')).toContainText(label);
-    await page.locator('[data-workspace="agent"]').click();
-    await expect(page.locator('.creation-state')).toContainText(label);
-    await expect(page.locator('[data-agent-content]')).toContainText(guidance);
-    await expect(page.getByRole('button', { name: '继续任务', exact: true })).toBeEnabled();
-    await page.locator('[data-workspace="table"]').click();
-  }
-  await page.locator('[data-workspace="agent"]').click();
-  await page.locator('[data-agent-content]').screenshot({ path: `/tmp/issue86-stopped-${width}.png` });
-  await draft.focus();
-  await draft.dispatchEvent('compositionstart');
-  task = { ...task, status: 'running', reason: null, transferred: true }; await sendResult(page, { creationTask: task });
-  await draft.dispatchEvent('compositionend');
-  await expect(draft).toBeFocused(); await expect(draft).toHaveValue('尚未发送的中文草稿');
-  await expect(page.locator('[data-agent-content]')).toContainText('任务已转移到另一线程');
-  await expect(page.locator('.composer-send')).toBeDisabled();
-  expect(await page.locator('[data-agent-content] [data-task-action]:enabled').count()).toBe(0);
-  await page.locator('[data-agent-content]').screenshot({ path: `/tmp/issue86-transferred-${width}.png` });
-  await page.locator('[data-workspace="table"]').click();
-  await expect(page.locator('[data-task-notice]')).toContainText('任务已转移到另一线程');
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-});
-
-for (const width of [1440, 390]) test(`正常任务显式接管，失败保留目标和焦点 ${width}`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 1000 }); await loadWorkbench(page);
-  const candidate = { status: 'saved', baseline: 'first', candidate: { path: '.narracut/candidate-123/candidate', identity: 'tree' }, checkpoint: null };
-  let task: any = { taskId: 'old-task', status: 'stopped', instruction: '旧目标', reason: 'USER_STOPPED', stage: 'read' };
-  const submissions: any[] = [];
-  await installAppToolBridge(page, (name, args) => {
-    if (name === 'respond_creation_task' && args.action === 'takeover') {
-      submissions.push(args);
-      if (submissions.length === 1) return { isError: true, structuredContent: { error: { message: '提交失败，请重试' } } };
-      task = { ...task, taskId: args.id, instruction: args.instruction, reason: 'CODEX_UNAVAILABLE' };
-    }
-    return { structuredContent: { creationTask: task, candidate } };
-  });
-  await sendResult(page, { ...validResult(), creationTask: task, candidate });
-  await page.locator('#composer-draft').fill('保留 Composer');
-  await page.locator('[data-workspace="agent"]').click();
-  await page.getByRole('button', { name: '用新目标接管…' }).click();
-  const goal = page.getByLabel('新任务目标'); await goal.fill('  新目标\n保留中文全文  ');
-  await sendResult(page, { creationTask: task, candidate });
-  await expect(goal).toBeFocused(); await expect(goal).toHaveValue('  新目标\n保留中文全文  ');
-  await page.locator('[data-task-recovery]').screenshot({ path: `/tmp/issue87-takeover-${width}.png` });
-  await page.getByRole('button', { name: '开始新任务并接管候选' }).click();
-  await expect(page.locator('[data-takeover-error]')).toContainText('提交失败');
-  await expect(goal).toHaveValue('  新目标\n保留中文全文  ');
-  await page.getByRole('button', { name: '开始新任务并接管候选' }).click();
-  await expect(page.locator('.creation-instruction').first()).toContainText('新目标');
-  expect(submissions).toHaveLength(2); expect(submissions[1].baseline).toBe('first');
-  await expect(page.locator('#composer-draft')).toHaveValue('保留 Composer');
-});
-
-test('接管回执丢失时锁住重复提交，核对后显示新任务停止', async ({ page }) => {
-  await loadWorkbench(page);
-  const candidate = { status: 'saved', baseline: 'first', candidate: { path: '.narracut/candidate-123/candidate', identity: 'tree' }, checkpoint: null };
-  let task: any = { taskId: 'old-task', status: 'stopped', instruction: '旧目标', reason: 'USER_STOPPED' };
-  let offline = false, submits = 0;
-  await installAppToolBridge(page, (name, args) => {
-    if (name === 'respond_creation_task' && args.action === 'takeover') {
-      submits++; task = { ...task, taskId: args.id, instruction: args.instruction, reason: 'CODEX_UNAVAILABLE' }; offline = true;
-      throw new Error('回执丢失');
-    }
-    if (name === 'get_creation_task' && offline) throw new Error('连接中断');
-    return { structuredContent: { creationTask: task, candidate } };
-  });
-  await sendResult(page, { ...validResult(), creationTask: task, candidate });
-  await page.locator('[data-workspace="agent"]').click();
-  await page.getByRole('button', { name: '用新目标接管…' }).click();
-  await page.getByLabel('新任务目标').fill('新目标全文');
-  await page.getByRole('button', { name: '开始新任务并接管候选' }).click();
-  await expect(page.getByRole('button', { name: '开始新任务并接管候选' })).toBeDisabled();
-  await expect(page.locator('[data-takeover-error]')).toContainText('连接中断');
-  await expect(page.getByRole('button', { name: '审阅并接受' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '放弃候选', exact: true })).toBeDisabled();
-  expect(submits).toBe(1); offline = false;
-  await page.locator('[data-takeover-reconcile]').click();
-  await expect(page.locator('.creation-state')).toContainText('已停止');
-  await expect(page.locator('.creation-instruction').first()).toContainText('新目标全文');
-  expect(submits).toBe(1);
 });
 
 test('放弃确认默认取消，回执不明先核对且不重复删除', async ({ page }) => {

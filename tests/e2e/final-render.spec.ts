@@ -12,7 +12,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { host?.closeAllConnections(); if (host) await new Promise<void>(resolve => host.close(() => resolve())); });
 
-test('最终输出展示准确来源，核对未知结果、取消与重试保持工作区草稿及焦点', async ({ page }) => {
+test('最终输出展示准确来源，核对未知结果、取消与重试保持 Scene 选择及焦点', async ({ page }) => {
   const source = { revisionId: '10000000-0000-4000-8000-000000000002', summary: '调整标题位置与开场节奏', key: 'accepted-state', accepted: true, ready: true, issues: [] as any[], durationInFrames: 300, output: { width: 1920, height: 1080, fps: 30 }, details: { bundle: 'sha256:' + 'b'.repeat(64), input: 'sha256:' + 'a'.repeat(64), media: 'sha256:' + 'c'.repeat(64), environment: 'sha256:' + 'd'.repeat(64) } };
   let job: any, starts = 0, disconnected = true;
   await page.goto(origin);
@@ -34,7 +34,8 @@ test('最终输出展示准确来源，核对未知结果、取消与重试保�
   await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), validResult());
   await page.getByRole('tab', { name: 'Agent 工作区' }).click();
   const region = page.getByRole('region', { name: '最终 Render', exact: true });
-  const composer = page.getByRole('textbox', { name: 'Composer', exact: true }); await composer.fill('不要清空我的草稿');
+  const selectedScene = await page.locator('[data-scene-row][data-selected="true"]').getAttribute('data-scene-id');
+  await expect(page.getByRole('textbox', { name: 'Composer', exact: true })).toHaveCount(0);
   await expect(region).toContainText('10000000 · 调整标题位置与开场节奏');
   await expect(region).toContainText('正在查看的 Preview 与本次输出来源不同');
   await region.getByRole('button', { name: '查看目标修订', exact: true }).click();
@@ -57,7 +58,7 @@ test('最终输出展示准确来源，核对未知结果、取消与重试保�
   await expect(region).toContainText('90 / 300 帧', { timeout: 10000 });
   await page.getByRole('tab', { name: '表格工作区' }).click();
   await page.getByRole('tab', { name: 'Agent 工作区' }).click();
-  await expect(region).toContainText('90 / 300 帧'); await expect(composer).toHaveValue('不要清空我的草稿');
+  await expect(region).toContainText('90 / 300 帧'); await expect(page.locator('[data-scene-row][data-selected="true"]')).toHaveAttribute('data-scene-id', selectedScene!);
   await region.getByRole('button', { name: '取消 Render', exact: true }).click();
   await expect(region).toContainText('正在取消并清理产物');
   job.status = 'cancelled';
@@ -80,5 +81,5 @@ test('最终输出展示准确来源，核对未知结果、取消与重试保�
   job.status = 'succeeded'; job.stage = 'completed'; job.projectUpdated = true;
   await expect(region).toContainText('这是启动时状态的产物', { timeout: 10000 });
   await expect(region.getByRole('button', { name: '在文件夹中显示 / 复制路径' })).toBeVisible();
-  await expect(composer).toHaveValue('不要清空我的草稿'); expect(starts).toBe(1);
+  await expect(page.locator('[data-scene-row][data-selected="true"]')).toHaveAttribute('data-scene-id', selectedScene!); expect(starts).toBe(1);
 });

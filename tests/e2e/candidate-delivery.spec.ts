@@ -12,7 +12,7 @@ test.beforeAll(async () => {
   await new Promise<void>(resolve => host.listen(0,'127.0.0.1',resolve)); origin = `http://127.0.0.1:${(host.address() as any).port}`;
 });
 test.afterAll(async () => { host?.closeAllConnections(); await new Promise<void>(resolve => host ? host.close(() => resolve()) : resolve()); });
-test('交付摘要先于 Preview，警告及建议展开，采集与检查分离；桌面与窄屏保持完整证据', async ({page}) => {
+test('Preview 先于交付摘要，警告及建议展开，采集与检查分离；桌面与窄屏保持完整证据', async ({page}) => {
   const scenes = validResult().scenes.slice(0,2).map((scene,i) => ({id:scene.id,time:{startFrame:i*3,durationInFrames:3}}));
   const identity = {project:'p',program:'program',baseline:'baseline',brief:'brief',input:'input',media:'media',environment:'environment'};
   const set = new CandidateDelivery('delivery', {instanceId:'preview',bundle:'bundle',identity}, {durationInFrames:6,scenes});
@@ -30,7 +30,7 @@ test('交付摘要先于 Preview，警告及建议展开，采集与检查分离
   await page.evaluate(result=>window.postMessage({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:{structuredContent:result}},'*'),{...validResult(),candidate:{status:'saved',candidate:{identity:'program'},baseline:'baseline'}});
   await page.getByRole('tab',{name:'Agent 工作区'}).click();
   await expect(page.locator('[data-delivery-summary]')).toContainText('让开场更清晰');
-  expect(await page.locator('[data-program-delivery]').evaluate(el=>!!(el.compareDocumentPosition(document.querySelector('[data-program-preview]')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+  expect(await page.locator('[data-program-delivery]').evaluate(el=>!!(el.compareDocumentPosition(document.querySelector('[data-program-preview]')!) & Node.DOCUMENT_POSITION_PRECEDING))).toBe(true);
   await expect(page.locator('[data-delivery-progress]')).toContainText('已采集 6 / 6');
   await expect(page.locator('[data-delivery-progress]')).toContainText('已检查 0 / 6');
   await expect(page.getByText('开场停留时间较短，请结合成片判断节奏。',{exact:true})).toBeVisible();
@@ -63,6 +63,9 @@ test('交付摘要先于 Preview，警告及建议展开，采集与检查分离
   await expect(page.locator('[data-boundary] [data-enlarge]').first()).toHaveAttribute('aria-expanded','true');
   await page.locator('[data-boundary]').first().scrollIntoViewIfNeeded();
   await page.screenshot({path:'.impeccable/review/delivery-mobile-enlarged.png',fullPage:true});
+  await page.evaluate(result=>window.postMessage({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:{structuredContent:result}},'*'), { ...validResult(1), projectRevision: 'sha256:' + '2'.repeat(64) });
+  await expect(page.locator('[data-go-scene="0"]')).toBeDisabled({ timeout: 10000 });
+  await expect(page.locator('[data-delivery-suggestions]')).toContainText('目标 Scene 已删除');
   stale=true;await expect(page.locator('[data-delivery-state]')).toContainText('已过期',{timeout:10000});
 });
 test('超过四个 Scene 的分页保持键盘上下文与完整计划',async({page})=>{

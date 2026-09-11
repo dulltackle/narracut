@@ -58,6 +58,8 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     await page.goto(origin); await installAppToolBridge(page, raw);
     await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), await call('open_project'));
     await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+    await expect(page.getByRole('textbox', { name: 'Composer', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /开始创作|继续任务|新目标接管/ })).toHaveCount(0);
     // 当前对话通过公开工具发起，工作台承载后续审阅与明确接受。
     await call('start_creation_task', { instruction: '检查三幕素材与叠化，保留已生成 Speech。', parentOrigin: origin });
     await expect.poll(() => host.turns.length).toBe(1); host.complete('dependencies');
@@ -108,7 +110,42 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
       await compareVisualFrames(browserImage, path, { sceneId: 'portable-browser', frame: sample.frame, channelThreshold: 30, maxDifferentPixelRatio: 0.012, artifactDirectory: info.outputDir });
     }
     for (let start = 0; start < samples.length; start += 12) await call('project_delivery', { action: 'review', deliveryId: delivery.delivery.id, reviews: samples.slice(start, start + 12).map((sample: any) => ({ frame: sample.frame, digest: sample.digest, observation: '三幕素材、叠化和 seeded 运动代表帧已读取，将与最终输出逐帧比较。' })) });
-    await call('project_delivery', { action: 'describe', deliveryId: delivery.delivery.id, report: { goal: '离线可移动短片', summary: '三幕素材与跨 Scene 叠化', warnings: [], suggestions: [] } });
+    const goal = '离线可移动短片：' + '保持旁白与 Scene 顺序，以画面变化呈现三个段落。'.repeat(16);
+    const suggestions = [
+      { sceneId: preview.input.scenes[1].id, observation: '第二幕信息密集', action: '精简 Narration', content: '留下最重要的一句话', reason: '给画面留出阅读时间' },
+      { sceneId: preview.input.scenes[2].id, observation: '第三幕还有调整空间', action: '核对结尾旁白', content: '保留可复制的建议值', reason: '供用户参考' },
+    ];
+    await call('project_delivery', { action: 'describe', deliveryId: delivery.delivery.id, report: { goal, summary: '三幕素材与跨 Scene 叠化', warnings: ['草稿节奏需要结合成片判断。'], suggestions } });
+    await expect(page.locator('[data-delivery-summary]')).toContainText(goal);
+    await expect(page.locator('[data-delivery-warnings]')).toContainText('草稿节奏需要结合成片判断。');
+    await expect(page.locator('[data-delivery-suggestions] article')).toHaveCount(2);
+    await expect(page.locator('[data-go-scene="1"]')).toBeEnabled();
+    const beforeSuggestion = (await call('get_workbench')).projectDsl;
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.locator('[data-copy-suggestion="0"]').click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(suggestions[0].content);
+    await page.locator('[data-go-scene="0"]').click();
+    await expect(page.getByRole('textbox', { name: 'Scene 02 Narration' })).toHaveValue(beforeSuggestion.scenes[1].narration.text);
+    expect((await call('get_workbench')).projectDsl).toEqual(beforeSuggestion);
+    await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+    await expect(page.locator('[data-preview-title]')).toContainText('候选');
+    await page.getByRole('button', { name: '对比当前', exact: true }).click();
+    await expect(page.locator('[data-preview-title]')).toContainText('正在查看：当前', { timeout: 120000 });
+    await expect(page.locator('[data-preview-screen] iframe')).toHaveCount(2);
+    await expect(page.locator('[data-preview-screen] iframe:not([hidden])')).toHaveCount(1);
+    await page.getByRole('tab', { name: '表格工作区' }).click();
+    await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+    await expect(page.locator('[data-preview-title]')).toContainText('正在查看：当前');
+    await page.getByRole('button', { name: '返回候选', exact: true }).click();
+    await expect(page.locator('[data-preview-title]')).toContainText('正在查看：候选');
+    // 完整候选报告在实际面板宽度下可读。
+    await player.evaluate((node: HTMLIFrameElement) => { node.style.cssText = ''; });
+    await page.locator('#workspace-agent').evaluate(node => { node.scrollTop = 0; });
+    await page.screenshot({ path: info.outputPath('review-desktop.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: info.outputPath('review-mobile.png') });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 1000 });
     // 等待工作台实际展示报告并提交展示回执，随后由用户明确接受。
     await expect(page.locator('[data-delivery-state]')).toHaveText('可交付 · 等待用户判断', { timeout: 30000 });
     await page.getByRole('button', { name: '审阅并接受', exact: true }).click();

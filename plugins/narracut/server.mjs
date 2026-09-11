@@ -31878,7 +31878,7 @@ var ProjectPreview = class {
       view = { original: original.descriptor.instanceId, descriptor: this.source.fork(original.descriptor, parentOrigin) };
       this.#views.set(key, view);
     }
-    return { preview: { ...view.descriptor, ...await this.status(opened, view.original) } };
+    return { preview: { ...view.descriptor, sourceInstanceId: view.original, ...await this.status(opened, view.original) } };
   }
   #bundles = /* @__PURE__ */ new Map();
   cachedBundle(identity2) {

@@ -88,6 +88,7 @@ test('显式 READY 切换、失败保留画面、精确 Scene 与隐藏暂停，
   await expect(page.locator('[data-preview-state]')).toContainText('测试构建失败');
   await expect(page.locator('[data-preview-freshness]')).toContainText('已过期');
   await expect(page.locator('[data-preview-screen] iframe:not([hidden])')).toHaveCount(1);
+  await page.getByText('版本与输入新鲜度', { exact: true }).click();
   await page.locator('[data-version-switch="current"]').click();
   await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 0');
   await expect(page.locator('[data-preview-freshness]')).toBeHidden();
@@ -192,7 +193,7 @@ test('代表帧采集不抢占当前版本；显式证据定位切换准确实�
   expect(await page.locator('.scene-select[aria-pressed="true"]').getAttribute('aria-label')).toBe(selected);
 });
 
-test('Composer 创建回执与任务刷新只提供候选切换入口，保留当前 Preview 实例和帧', async ({ page }) => {
+test('当前对话任务回执与任务刷新只提供候选切换入口，保留当前 Preview 实例和帧', async ({ page }) => {
   await page.goto(origin);
   const task = { taskId: 'task-preview-82', status: 'waiting', reason: 'CANDIDATE_READY', instruction: '调整成片表现', stage: 'deliver', preview: next };
   const calls: string[] = [];
@@ -210,9 +211,8 @@ test('Composer 创建回执与任务刷新只提供候选切换入口，保留�
   await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
   const current = await page.locator('[data-preview-screen] iframe:not([hidden])').elementHandle();
   await page.getByRole('tab', { name: '表格工作区' }).click();
-  await page.getByRole('textbox', { name: 'Composer' }).fill(task.instruction);
-  await page.getByRole('button', { name: '开始创作', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '当前创作指令' })).toBeFocused();
+  await page.evaluate(creationTask => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: { creationTask } } }, '*'), task);
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
   await expect(page.locator('[data-preview-screen] iframe')).toHaveCount(2);
   await expect(page.locator('[data-preview-screen] iframe:not([hidden])')).toHaveAttribute('title', first.label);
   expect(await current!.evaluate(node => node.isConnected)).toBe(true);
@@ -221,7 +221,7 @@ test('Composer 创建回执与任务刷新只提供候选切换入口，保留�
   expect(calls).not.toContain('project_render');
 });
 
-for (const width of [1440, 390]) test(`任务状态变化及 Scene 建议重排删除保留 Preview 帧与中文选区 ${width}`, async ({ page }) => {
+for (const width of [1440, 390]) test(`任务状态变化及 Scene 建议重排删除保留 Preview 帧与 Scene 选择 ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });
   await page.goto(origin);
   const initial = validResult(2);
@@ -241,19 +241,11 @@ for (const width of [1440, 390]) test(`任务状态变化及 Scene 建议重排�
   await page.locator('[data-frame-input]').fill('4'); await page.locator('[data-jump]').click();
   await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
   const current = await page.locator('[data-preview-screen] iframe:not([hidden])').elementHandle();
-  const draft = page.getByRole('textbox', { name: 'Composer' });
-  await draft.fill('保留中文输入与选区');
   for (const [status, reason] of [['waiting', 'SCENE_CHANGE_REQUIRED'], ['running', null], ['stopped', 'USER_STOPPED'], ['running', null], ['stopped', 'CODEX_USAGE_LIMIT'], ['waiting', 'CANDIDATE_READY']]) {
-    await draft.focus();
-    await draft.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(2, 5));
-    await draft.dispatchEvent('compositionstart');
     task = { ...task, status, reason }; await notify({ creationTask: task });
-    await expect(draft).toBeFocused();
-    expect(await draft.evaluate((node: HTMLTextAreaElement) => [node.selectionStart, node.selectionEnd])).toEqual([2, 5]);
-    await draft.dispatchEvent('compositionend');
-    await expect(draft).toHaveValue('保留中文输入与选区');
     await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
     expect(await current!.evaluate(node => node.isConnected)).toBe(true);
+    await expect(page.getByRole('textbox', { name: 'Composer' })).toHaveCount(0);
   }
   task = { ...task, status: 'waiting', reason: 'SCENE_CHANGE_REQUIRED' };
   const reordered = { ...initial, projectRevision: `sha256:${'2'.repeat(64)}`, scenes: [...initial.scenes].reverse(), projectDsl: { ...initial.projectDsl, scenes: [...initial.projectDsl.scenes].reverse() } };
@@ -269,4 +261,63 @@ for (const width of [1440, 390]) test(`任务状态变化及 Scene 建议重排�
   await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 4');
   expect(await current!.evaluate(node => node.isConnected)).toBe(true);
   expect(writes).toEqual([]);
+});
+
+test('当前对话已准备候选时优先审阅，单画面比较并保留版本，更新不抢占', async ({ page }) => {
+  await page.goto(origin);
+  let candidate = next;
+  await installAppToolBridge(page, (name, args) => {
+    if (name !== 'project_preview') return { structuredContent: {} };
+    if (args.action === 'view') return { structuredContent: { preview: args.target === 'candidate' ? candidate : first } };
+    return { structuredContent: { stale: false } };
+  });
+  await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), { ...validResult(), conversation: { status: 'bound', threadId: 'review-current' } });
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await expect(page.locator('[data-preview-title]')).toContainText('正在查看：候选', { timeout: 10000 });
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 0');
+  await expect(page.locator('[data-preview-screen] iframe')).toHaveCount(2);
+  await page.getByRole('button', { name: '播放', exact: true }).click();
+  await expect(page.getByRole('button', { name: '暂停', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '对比当前', exact: true }).click();
+  await expect(page.locator('[data-preview-title]')).toContainText('正在查看：当前');
+  await expect(page.locator('[data-preview-screen] iframe:not([hidden])')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: '播放', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: '表格工作区' }).click();
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await expect(page.locator('[data-preview-title]')).toContainText('正在查看：当前');
+  await page.getByRole('button', { name: '返回候选', exact: true }).click();
+  await expect(page.locator('[data-preview-title]')).toContainText('正在查看：候选');
+  candidate = empty;
+  await expect(page.getByRole('button', { name: '新候选已就绪 · 切换查看' })).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-preview-title]')).toContainText(next.label);
+  await expect(page.locator('[data-preview-screen] iframe')).toHaveCount(2);
+  await page.getByRole('button', { name: '新候选已就绪 · 切换查看' }).click();
+  await expect(page.locator('[data-preview-title]')).toContainText('零 Scene');
+  await expect(page.locator('[data-preview-screen] iframe:not([hidden])')).toHaveCount(1);
+});
+
+test('同内容重新构建仍接纳新证据；当前实例的查看副本不挤占比较槽位', async ({ page }) => {
+  const rebuilt = source.fork(next, origin);
+  let published = next;
+  const released: string[] = [];
+  await page.goto(origin);
+  await installAppToolBridge(page, (name, args) => {
+    if (name !== 'project_preview') return { structuredContent: {} };
+    if (args.action === 'build') return { structuredContent: { preview: published } };
+    if (args.action === 'release') released.push(args.instanceId);
+    if (args.action === 'view') return { structuredContent: { preview: args.target === 'candidate' ? { ...source.fork(published, origin), sourceInstanceId: published.instanceId } : first } };
+    return { structuredContent: { stale: false } };
+  });
+  await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), { ...validResult(), conversation: { status: 'bound', threadId: 'review-rebuild' } });
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await page.getByRole('button', { name: '构建候选', exact: true }).click();
+  await expect(page.locator('[data-frame-output]')).toContainText('已提交帧 0');
+  await expect(page.locator('[data-preview-screen] iframe')).toHaveCount(2, { timeout: 10000 });
+  expect(await page.locator('[data-preview-screen] iframe').evaluateAll(nodes => nodes.map(node => (node as HTMLIFrameElement).src))).toContain(first.url);
+  published = rebuilt;
+  await page.getByRole('button', { name: '构建候选', exact: true }).click();
+  await expect(page.getByRole('button', { name: '新候选已就绪 · 切换查看' })).toBeVisible();
+  await page.getByRole('button', { name: '新候选已就绪 · 切换查看' }).click();
+  await expect(page.locator('[data-preview-screen] iframe:not([hidden])')).toHaveAttribute('src', rebuilt.url);
+  await expect.poll(() => released).toContain(next.instanceId);
 });

@@ -28,6 +28,7 @@ test('检查面板展示门禁、定位边界、取消与具名过期批次，�
   });
   await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), validResult());
   await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await page.getByText('详细检查与操作状态', { exact: true }).click();
   const panel = page.getByRole('region', { name: '检查与操作状态' });
   await page.getByRole('button', { name: '检查当前候选', exact: true }).click();
   await expect(panel).toContainText('MANIFEST_UNKNOWN_FIELD'); await expect(panel).toContainText('警告 · 不阻断'); await expect(panel).toContainText('主观建议 · 不阻断');

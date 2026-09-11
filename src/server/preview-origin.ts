@@ -12,6 +12,8 @@ export type PreviewFreshness = {
   environment: { status: 'latest' | 'stale' | 'unknown'; captured?: string; latest?: string };
 };
 export type PreviewDescriptor = {
+  /** 查看副本关联的原始 Preview；内容相同的重建仍拥有新的实例身份。 */
+  sourceInstanceId?: string;
   revisionId?: string;
   version: 1; parentOrigin?: string; instanceId: string; token: string; url: string; origin: string;
   identity: { bundle: string; input: string; media: string; environment: string };
