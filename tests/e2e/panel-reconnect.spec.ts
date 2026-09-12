@@ -195,3 +195,38 @@ test('候选就绪重开直接呈现审阅状态，重试同步前没有可编�
     expect(host.turns).toHaveLength(1);
   } finally { release?.(); await page.close(); await panel.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test('编辑中断连保留原页面与内容，重连核对后手动重试写入原 Scene', async ({ page, request }) => {
+  const root = await mkdtemp(join(tmpdir(), 'panel-edit-reconnect-'));
+  const panel = await startWorkbenchPanel({ threadId: 'edit-reconnect' });
+  const call = async (name: string, args = {}) => (await (await request.post(`${panel.url}rpc`, {
+    headers: { Origin: new URL(panel.url).origin }, data: { id: 1, method: 'tools/call', params: { name, arguments: args } },
+  })).json()).result.structuredContent;
+  try {
+    const created = await call('create_project', { projectDirectory: join(root, '断连编辑') });
+    await page.goto(panel.url);
+    const app = page.frameLocator('iframe');
+    await app.getByRole('button', { name: '新增第一个 Scene' }).click();
+    const editor = app.getByRole('textbox', { name: 'Scene 01 Narration' });
+    await editor.fill('已经保存'); await editor.blur();
+    await expect.poll(async () => (await call('get_workbench')).scenes[0]?.narration).toBe('已经保存');
+    const id = (await call('get_workbench')).scenes[0].id;
+    await editor.fill('断连期间保留的完整旁白');
+    await page.route(`${panel.url}rpc`, route => {
+      if (route.request().postDataJSON().params.name === 'get_workbench') return route.fulfill({ status: 503, json: { error: { message: '测试：连接暂时中断' } } });
+      return route.continue();
+    });
+    await expect(app.getByRole('region', { name: '保存与连接状态' })).toContainText('最后确认状态');
+    await expect(editor).toHaveValue('断连期间保留的完整旁白');
+    await expect(editor).toHaveJSProperty('readOnly', true);
+    await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    await app.getByRole('tab', { name: '表格工作区' }).click();
+    await expect(editor).toHaveValue('断连期间保留的完整旁白');
+    await page.unroute(`${panel.url}rpc`);
+    await app.getByRole('button', { name: '重新连接', exact: true }).click();
+    await expect(app.getByRole('button', { name: '重试保存', exact: true })).toBeEnabled();
+    expect((await call('get_workbench')).scenes[0].narration).toBe('已经保存');
+    await app.getByRole('button', { name: '重试保存', exact: true }).click();
+    await expect.poll(async () => JSON.parse(await readFile(join(created.project.directory, 'project.json'), 'utf8')).scenes[0]).toMatchObject({ id, narration: { text: '断连期间保留的完整旁白' } });
+  } finally { await page.close(); await panel.close(); await rm(root, { recursive: true, force: true }); }
+});

@@ -191,6 +191,7 @@ test("Video Brief 使用独立历史与串行 ETag 保存，关闭后恢复入�
   });
   await sendResult(page, initial);
 
+  await page.getByRole("button", { name: "打开项目检查" }).click();
   const entry = page.getByRole("button", { name: /Video Brief.*已保存/ });
   await entry.click();
   const editor = page.getByRole("textbox", { name: "Video Brief 原始 Markdown" });
@@ -258,6 +259,7 @@ test("Video Brief 保留混合原始换行，且编辑后可立即 Undo", async 
     };
   });
   await sendResult(page, initial);
+  await page.getByRole("button", { name: "打开项目检查" }).click();
   const entry = page.getByRole("button", { name: /Video Brief.*已保存/ });
   await entry.click();
   const editor = page.getByRole("textbox", { name: "Video Brief 原始 Markdown" });
@@ -296,6 +298,7 @@ test("Video Brief 外部冲突展示 BASE、LOCAL、DISK 与显式出口", async
     };
   });
   await sendResult(page, initial);
+  await page.getByRole("button", { name: "打开项目检查" }).click();
   await page.getByRole("button", { name: "打开项目检查" }).click();
   await page.getByRole("button", { name: /Video Brief.*已保存/ }).click();
   await page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }).fill("# LOCAL\n\n我的版本。\n");
@@ -367,6 +370,7 @@ test("Video Brief 冲突中的 LOCAL 可经系统目录选择导出后载入 DIS
     };
   });
   await sendResult(page, initial);
+  await page.getByRole("button", { name: "打开项目检查" }).click();
   await page.getByRole("button", { name: /Video Brief.*已保存/ }).click();
   await page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }).fill("# LOCAL\n");
   await expect(page.getByRole("heading", { name: "外部冲突" })).toBeVisible();
@@ -496,10 +500,11 @@ test("有效项目首屏显示连接、身份、双工作区、Scene 与检查�
   await expect(page.getByText("10000000-0000-4000-8000-000000000001", { exact: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: "表格工作区" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tab", { name: "Agent 工作区" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Scene 01/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /^Scene 01：/ })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("[data-scene-row]").first()).toHaveAttribute("role", "group");
   await expect(page.locator("[data-scene-row]").first()).toHaveAttribute("data-selected", "true");
-  expect(await page.locator("[data-scene-row]").first().evaluate((element) => element.getBoundingClientRect().height)).toBe(112);
+  await expect(page.getByRole("button", { name: "打开项目检查" })).toBeVisible();
+  await page.getByRole("button", { name: "打开项目检查" }).click();
   expect(await page.locator("[data-scene-row]").first().locator('[role="button"] button, [role="button"] textarea, [role="button"] input').count()).toBe(0);
   await expect(page.getByText("项目清单", { exact: true })).toBeVisible();
   await expect(page.getByText("Project DSL", { exact: true })).toBeVisible();
@@ -515,22 +520,22 @@ test("只读检查的非空项目不显示无响应的 Scene 写控件", async (
   result.connection = { status: "connected", readOnly: true };
   await sendResult(page, result);
 
-  await expect(page.getByRole("button", { name: /Scene 01/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Scene 01：/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "新增 Scene" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "编辑 Narration" })).toHaveCount(0);
-  await expect(page.getByText("READ ONLY", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开项目检查" })).toBeVisible();
 });
 
 test("键盘焦点不改变 Scene，显式激活后切换工作区仍保留选择", async ({ page }) => {
   await loadWorkbench(page);
   await sendResult(page, validResult());
-  const secondScene = page.getByRole("button", { name: /Scene 02/ });
+  const secondScene = page.getByRole("button", { name: /^Scene 02：/ });
 
   await secondScene.focus();
-  await expect(page.getByRole("button", { name: /Scene 01/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /^Scene 01：/ })).toHaveAttribute("aria-pressed", "true");
   await secondScene.press("Enter");
   await expect(secondScene).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("heading", { name: "Scene 02" })).toBeVisible();
+  await expect(secondScene).toBeFocused();
 
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
   await expect(page.getByRole("tab", { name: "Agent 工作区" })).toHaveAttribute("aria-selected", "true");
@@ -559,19 +564,18 @@ test("零 Scene 与无效项目都有明确、非纯颜色状态", async ({ page
   await expect(page.getByText("未知字段 visual。", { exact: true })).toBeVisible();
 });
 
-test("一千个 Scene 只渲染可视窗口，长 Narration 可在详情完整读取", async ({ page }) => {
+test("一千个 Scene 可滚动访问，长 Narration 可在原位完整编辑", async ({ page }) => {
   await loadWorkbench(page);
   const result = validResult(1000);
   result.scenes[0]!.narration = "这是一段很长的 Narration。".repeat(80);
   result.projectDsl.scenes[0]!.narration.text = result.scenes[0]!.narration;
   await sendResult(page, result);
 
-  await expect(page.getByText("1,000 SCENES", { exact: true }).first()).toBeVisible();
-  expect(await page.locator("[data-scene-row]").count()).toBeLessThanOrEqual(30);
+  await expect(page.getByText("1,000 个 Scene", { exact: true })).toBeVisible();
   await expect(page.locator("[data-copy]").first()).toBeDisabled();
   await expect(page.getByText("已保存", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /Scene 01/ }).click();
-  await expect(page.getByTestId("scene-narration-detail")).toHaveText(result.scenes[0]!.narration);
+  await page.getByRole("button", { name: "编辑 Narration", exact: true }).first().click();
+  await expect(page.getByRole("textbox", { name: "Scene 01 Narration" })).toHaveValue(result.scenes[0]!.narration);
 });
 
 test("客户端在调用保存工具前拒绝 Speech 与 Narration 摘要不一致", async ({ page }) => {
@@ -582,7 +586,7 @@ test("客户端在调用保存工具前拒绝 Speech 与 Narration 摘要不一�
   await installAppToolBridge(page, () => { calls += 1; });
   await sendResult(page, result);
 
-  await page.getByRole("button", { name: /Scene 01/ }).click();
+  await page.getByRole("button", { name: /^Scene 01：/ }).click();
   await page.getByRole("button", { name: "下移", exact: true }).click();
   await expect(page.getByText("保存失败", { exact: true })).toBeVisible();
   await expect.poll(() => calls).toBe(0);
@@ -707,7 +711,7 @@ test("Scene Speech 单元格引导项目 TTS 配置、生成状态与半开时�
   });
   await sendResult(page, initial);
 
-  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await page.getByRole("button", { name: /^生成 Speech/ }).click();
   await expect(page.getByRole("heading", { name: "项目 TTS 配置" })).toBeVisible();
   await expect(page.getByText("需要先保存 TTS 配置与 API Key", { exact: true })).toBeVisible();
   await expect(page.getByText("MP3 · 32 kHz · 单声道", { exact: true })).toBeVisible();
@@ -722,21 +726,23 @@ test("Scene Speech 单元格引导项目 TTS 配置、生成状态与半开时�
   });
 
   await page.getByRole("button", { name: "返回项目检查" }).click();
-  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await page.getByRole("button", { name: "关闭项目检查" }).click();
+  await page.getByRole("button", { name: /^生成 Speech/ }).click();
   await expect(page.getByText("正在校验", { exact: true })).toBeVisible();
   await expect(page.getByText("1.001 秒", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^重新生成 Speech/ })).toBeFocused();
+  await page.getByRole("button", { name: "打开项目检查" }).click();
   await expect(page.getByText("帧 0–31（不含 31）", { exact: true })).toBeVisible();
   await expect(page.getByText("可用于最终 Render", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "重新生成 Speech" })).toBeFocused();
 
   await page.setViewportSize({ width: 430, height: 860 });
   await page.getByRole("button", { name: "关闭项目检查" }).click();
-  await expect(page.getByRole("button", { name: "重新生成 Speech" })).toBeVisible();
-  expect(await page.getByRole("button", { name: "重新生成 Speech" }).evaluate((element) => element.getBoundingClientRect().height))
+  await expect(page.getByRole("button", { name: /^重新生成 Speech/ })).toBeVisible();
+  expect(await page.getByRole("button", { name: /^重新生成 Speech/ }).evaluate((element) => element.getBoundingClientRect().height))
     .toBeGreaterThanOrEqual(44);
 });
 
-test("零 Scene 可新增并在 Narration 停顿后通过 app 专用工具自动保存", async ({ page }) => {
+test("零 Scene 可新增并在离开 Narration 后通过 app 专用工具保存", async ({ page }) => {
   await loadWorkbench(page);
   const initial = validResult(0);
   const saves: Array<Record<string, any>> = [];
@@ -768,6 +774,7 @@ test("零 Scene 可新增并在 Narration 停顿后通过 app 专用工具自动
   await expect(editor).toBeFocused();
   await editor.fill("从一束清晨的光开始。 ");
   await expect(page.getByText("待保存", { exact: true })).toBeVisible();
+  await editor.blur();
   await expect.poll(() => saves.at(-1)?.project.scenes[0]?.narration.text).toBe("从一束清晨的光开始。 ");
   expect(saves.at(-1)).toMatchObject({
     projectDirectory: "/work/projects/product-demo",
@@ -811,7 +818,7 @@ test("编辑、复制、移动、删除与 Undo/Redo 保持 Scene 身份和保�
   });
   await sendResult(page, initial);
   const secondId = initial.projectDsl.scenes[1]!.id;
-  const secondScene = page.getByRole("button", { name: /Scene 02/ });
+  const secondScene = page.getByRole("button", { name: /^Scene 02：/ });
   await secondScene.click();
   const secondRow = page.locator(`[data-scene-id="${scene(2).id}"]`);
   await secondRow.getByRole("button", { name: "编辑 Narration" }).click();
@@ -902,7 +909,8 @@ test("保存失败可显式重试，工作区切换保留编辑与历史；冲�
   await expect.poll(() => calls).toBe(1);
 
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
-  await page.getByRole("tab", { name: "表格工作区" }).click();
+  await page.getByRole("button", { name: "返回编辑", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Scene 01 Narration" })).toBeFocused();
   await expect(page.getByRole("textbox", { name: "Scene 01 Narration" })).toHaveValue("保留在内存中的合法修改");
   await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
   mode = "success";
@@ -1005,6 +1013,7 @@ test("从 Scene Asset 面板逐项导入并绑定，失败项不回滚且 Undo �
   ]);
   await expect(page.getByRole("button", { name: "第 01 个 Scene 的 Asset：mountain.png" })).toBeVisible();
 
+  await page.getByRole("button", { name: "关闭项目检查" }).click();
   await page.getByRole("button", { name: "Undo" }).click();
   await expect.poll(() => calls.filter((call) => call.name === "save_project_scenes").at(-1)?.args.project)
     .toMatchObject({ assets: [importedAsset], scenes: [{ assetIds: [] }] });
@@ -1103,7 +1112,7 @@ test("Asset 导入前等待未保存 Scene，且导入期间锁住项目写操�
 
   resolveImport();
   await expect(page.getByText("已导入并绑定", { exact: true })).toBeVisible();
-  await expect(page.getByText("导入前必须保存的 Narration", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Scene 01 Narration" })).toHaveValue("导入前必须保存的 Narration");
   await expect(page.getByRole("button", { name: "新增 Scene" })).toBeEnabled();
 });
 
@@ -1261,6 +1270,7 @@ test("Asset 容量、有界列表、文件不可用与悬空 ID 都有明确非�
   full.project.assetCount = 1000;
   full.assetStates = full.projectDsl.assets.map((asset) => ({ ...asset, status: "available" as const, size: 10 }));
   await sendResult(page, full);
+  await page.getByRole("button", { name: "返回项目检查" }).click();
   await page.getByRole("button", { name: "管理项目 Asset" }).click();
   await expect(page.getByRole("button", { name: "导入暂未绑定 Asset" })).toBeDisabled();
   await expect(page.getByText("项目已达到 1,000 个 Asset 上限，不能继续导入。", { exact: true })).toBeVisible();
@@ -1422,7 +1432,7 @@ for (const width of [1440, 390]) test(`项目复制确认保留完整路径与�
   await page.setViewportSize({ width, height: 1000 });
   await loadWorkbench(page);
   await sendResult(page, validResult(2));
-  if (width === 390) await page.locator('[data-open-inspection]').click();
+  await page.locator('[data-open-inspection]').click();
   await page.screenshot({ path: `/tmp/issue88-before-${width}.png`, fullPage: true });
   await page.getByRole('button', { name: '复制项目…', exact: true }).click();
   await expect(page.getByRole('dialog', { name: '复制项目' })).toBeVisible();
@@ -1447,7 +1457,8 @@ for (const width of [1440, 390]) test(`选择目标后复制并打开独立副�
   });
   await page.evaluate(() => { (window as any).openai = { selectDirectory: async () => '/work/copies', callTool: (name: string, args: unknown) => (window as any).copyHost(name, args) }; });
   await sendResult(page, result);
-  if (width === 390) await page.locator('[data-open-inspection]').click();
+  await page.locator('[data-open-inspection]').click();
+  await page.locator('[data-open-inspection]').click();
   await page.locator('[data-copy-project]').click();
   await page.locator('[data-copy-parent]').click();
   await page.locator('[data-copy-name]').fill('独立副本');
@@ -1465,6 +1476,7 @@ test('复制状态轮询保留展开详情和取消按钮焦点', async ({ page 
   await page.exposeFunction('runningCopyHost', async () => ({ structuredContent: { status: 'running', phase: 'copying', operationId: 'copy-focus', sourceClosed: true } }));
   await page.evaluate(() => { (window as any).openai = { selectDirectory: async () => '/work/copies', callTool: () => (window as any).runningCopyHost() }; });
   await sendResult(page, validResult(1));
+  await page.locator('[data-open-inspection]').click();
   await page.locator('[data-copy-project]').click();
   await page.locator('[data-copy-parent]').click();
   await page.locator('[data-copy-submit]').click();
@@ -1493,11 +1505,13 @@ for (const failure of ['save', 'brief']) test(`复制前阻止未解决的 ${fai
     await page.getByRole('textbox', { name: 'Scene 01 Narration' }).blur();
     await expect(page.getByText('保存失败', { exact: true })).toBeVisible();
   } else {
+    await page.locator('[data-open-inspection]').click();
     await page.getByRole('button', { name: /Video Brief.*已保存/ }).click();
     await page.getByRole('textbox', { name: 'Video Brief 原始 Markdown' }).fill('# 本地版本');
     await expect(page.getByRole('heading', { name: '外部冲突' })).toBeVisible();
     await page.getByRole('button', { name: '关闭 Video Brief 编辑器' }).click();
   }
+  await page.locator('[data-open-inspection]').click();
   await page.locator('[data-copy-project]').click();
   await page.locator('[data-copy-parent]').click();
   await page.locator('[data-copy-submit]').click();
@@ -1553,7 +1567,7 @@ test("TTS 版本冲突后可保留凭据输入并核对最新项目再保存", a
     throw new Error(`意外工具：${name}`);
   });
   await sendResult(page, initial);
-  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await page.getByRole("button", { name: /^生成 Speech/ }).click();
   await page.getByLabel("TokenDance API Key").fill("test-only-secret");
   await page.getByRole("button", { name: "保存 TTS 配置" }).click();
   await expect(page.getByRole("alert")).toContainText("project.json 已被外部修改");
@@ -1568,4 +1582,151 @@ test("TTS 版本冲突后可保留凭据输入并核对最新项目再保存", a
   await expect(page.getByText("API Key 已就绪", { exact: false })).toBeVisible();
   expect(saves).toBe(2);
   await expect(page.getByLabel("TokenDance API Key")).toHaveValue("");
+});
+
+test('连续 Narration 编辑在刷新与工作区往返后保留，组合输入只在离开后保存', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(30);
+  const saves: any[] = [];
+  await installAppToolBridge(page, (name, args) => {
+    if (name !== 'save_project_scenes') return { structuredContent: {} };
+    saves.push(structuredClone(args));
+    return { structuredContent: { ...initial, projectDsl: args.project, projectRevision: `sha256:${'2'.repeat(64)}` } };
+  });
+  await sendResult(page, initial);
+  await page.getByRole('button', { name: '编辑 Narration', exact: true }).first().click();
+  const editor = page.getByRole('textbox', { name: 'Scene 01 Narration', exact: true });
+  await editor.dispatchEvent('compositionstart');
+  await editor.fill('中文组合输入保留');
+  await page.waitForTimeout(650);
+  expect(saves).toHaveLength(0);
+  await editor.dispatchEvent('compositionend');
+  await sendResult(page, initial);
+  await expect(editor).toHaveValue('中文组合输入保留');
+  await expect(editor).toBeFocused();
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await expect.poll(() => saves.length).toBe(1);
+  expect(saves[0].project.scenes[0]).toMatchObject({ id: initial.scenes[0].id, narration: { text: '中文组合输入保留' } });
+  await page.getByRole('tab', { name: '表格工作区' }).click();
+  await expect(editor).toHaveValue('中文组合输入保留');
+});
+
+test('旧保存回执不能清除后续编辑，Agent 工作区可重试并返回原句', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(2);
+  let release!: () => void;
+  const saves: any[] = [];
+  await installAppToolBridge(page, async (name, args) => {
+    if (name !== 'save_project_scenes') return { structuredContent: {} };
+    saves.push(structuredClone(args));
+    if (saves.length === 1) await new Promise<void>(resolve => { release = resolve; });
+    if (saves.length === 2) return { isError: true, structuredContent: { status: 'save-failed', error: { message: '测试：磁盘暂时不可写' } } };
+    return { structuredContent: { ...initial, projectDsl: args.project, projectRevision: `sha256:${'2'.repeat(64)}` } };
+  });
+  await sendResult(page, initial);
+  await page.getByRole('button', { name: '编辑 Narration', exact: true }).first().click();
+  const editor = page.getByRole('textbox', { name: 'Scene 01 Narration', exact: true });
+  await editor.fill('第一版'); await editor.blur();
+  await expect.poll(() => saves.length).toBe(1);
+  await editor.fill('第二版保留');
+  release();
+  await expect(page.getByText('待保存', { exact: true })).toBeVisible();
+  await expect(editor).toBeFocused();
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await expect(page.getByRole('region', { name: '保存与连接状态' })).toContainText('磁盘暂时不可写');
+  await page.getByRole('button', { name: '重试保存', exact: true }).click();
+  await expect(page.getByText('已保存', { exact: true })).toBeVisible();
+  expect(saves[2].project.scenes[0].narration.text).toBe('第二版保留');
+  await page.getByRole('tab', { name: '表格工作区' }).click();
+  await expect(editor).toHaveValue('第二版保留');
+});
+
+test('浅色表格在约定视口和容量边界保留完整 Narration，记录实测证据', async ({ page }, testInfo) => {
+  test.setTimeout(90000);
+  await loadWorkbench(page);
+  const metrics: any[] = [];
+  const saved: any[] = [];
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'save_project_scenes') saved.push(structuredClone(args));
+    return { structuredContent: { projectRevision: `sha256:${'2'.repeat(64)}` } };
+  });
+  for (const count of [0, 30, 1000]) {
+    const initial = validResult(count);
+    initial.project.projectId = `10000000-0000-4000-8000-${String(count + 1).padStart(12, '0')}`;
+    const started = Date.now();
+    await sendResult(page, initial);
+    if (count) await expect(page.getByRole('button', { name: '编辑 Narration', exact: true }).first()).toBeVisible();
+    else await expect(page.getByRole('heading', { name: '项目中还没有 Scene' })).toBeVisible();
+    metrics.push({ scenes: count, readyMs: Date.now() - started });
+    if (count === 30) {
+      for (const [width, height] of [[902, 667], [960, 640], [1200, 720], [430, 860]]) {
+        await page.setViewportSize({ width, height });
+        await expect(page.getByRole('button', { name: '新增 Scene', exact: true })).toBeInViewport();
+        expect(await page.locator('body').evaluate(body => body.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: `.impeccable/review/issue109-${width}.png`, fullPage: true });
+      }
+    }
+    if (count === 1000) {
+      await page.setViewportSize({ width: 902, height: 667 });
+      const last = page.getByRole('group', { name: 'Scene 1000 行', exact: true });
+      const startScroll = Date.now();
+      await last.scrollIntoViewIfNeeded();
+      await last.getByRole('button', { name: '编辑 Narration', exact: true }).click();
+      const editor = page.getByRole('textbox', { name: 'Scene 1000 Narration' });
+      const text = '长旁白不截断。'.repeat(4000);
+      await editor.fill(text);
+      await expect(editor).toHaveValue(text);
+      expect(await editor.evaluate(e => e.scrollHeight <= e.clientHeight + 2)).toBe(true);
+      metrics.push({ scenes: count, navigateAndLongEditMs: Date.now() - startScroll, characters: text.length });
+      await editor.blur();
+      await expect.poll(() => saved.at(-1)?.project.scenes[999].narration.text).toBe(text);
+      expect(saved.at(-1).project.scenes[999].id).toBe(initial.scenes[999].id);
+    }
+  }
+  console.log('ISSUE109_METRICS', JSON.stringify(metrics));
+  await testInfo.attach('容量实测', { body: JSON.stringify(metrics, null, 2), contentType: 'application/json' });
+});
+
+test('同项目重新获得写权后解除只读门禁，仍保留工作区', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(2);
+  await sendResult(page, { ...initial, writable: false });
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await sendResult(page, initial);
+  await expect(page.getByRole('tab', { name: 'Agent 工作区' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('tab', { name: '表格工作区' }).click();
+  await expect(page.getByRole('button', { name: '新增 Scene', exact: true })).toBeEnabled();
+});
+
+test('窄屏横向检查 Speech 时列标题与操作保持对齐', async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 860 });
+  await loadWorkbench(page); await sendResult(page, validResult(30));
+  const speech = page.getByRole('button', { name: '重新生成 Speech · Scene 01', exact: true });
+  await speech.scrollIntoViewIfNeeded();
+  await expect(speech).toBeInViewport();
+  await expect.poll(async () => {
+    const header = await page.locator('.scene-header span').last().boundingBox();
+    const cell = await page.getByRole('group', { name: 'Scene 01 行', exact: true }).locator('.scene-speech').boundingBox();
+    return Math.abs(header!.x - cell!.x);
+  }).toBeLessThan(2);
+  await page.screenshot({ path: '.impeccable/review/issue109-430-speech.png', fullPage: true });
+});
+
+test('长 Narration 前置时从 Agent 建议定位后续 Scene 仍在视口内', async ({ page }) => {
+  await page.setViewportSize({ width: 902, height: 667 });
+  await loadWorkbench(page);
+  const initial: any = validResult(30);
+  initial.projectDsl.scenes[0].narration.text = '多屏长旁白。'.repeat(500);
+  delete initial.projectDsl.scenes[0].speech;
+  initial.scenes[0].narration = initial.projectDsl.scenes[0].narration.text;
+  initial.creationTask = { taskId: 'locate-long', status: 'waiting', pending: '请修改目标 Scene', instruction: '定位验证', suggestions: [{ sceneId: initial.scenes[20].id, action: '修改旁白', observation: '需要补充', content: '建议内容', reason: '补全叙事', required: false }] };
+  await installAppToolBridge(page, () => ({ structuredContent: {} }));
+  await sendResult(page, initial);
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await page.getByRole('button', { name: '定位 Scene', exact: true }).click();
+  const editor = page.getByRole('textbox', { name: 'Scene 21 Narration' });
+  await expect(editor).toBeFocused();
+  await expect(editor).toBeInViewport();
+  await page.waitForTimeout(100);
+  await expect(editor).toBeInViewport();
 });

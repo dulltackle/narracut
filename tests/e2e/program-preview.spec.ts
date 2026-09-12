@@ -267,6 +267,7 @@ test('当前对话已准备候选时优先审阅，单画面比较并保留版�
   await page.goto(origin);
   let candidate = next;
   await installAppToolBridge(page, (name, args) => {
+    if (name === 'get_workbench') return { structuredContent: { ...validResult(), control: { status: 'editable' }, conversation: { status: 'bound', threadId: 'preview-test' } } };
     if (name !== 'project_preview') return { structuredContent: {} };
     if (args.action === 'view') return { structuredContent: { preview: args.target === 'candidate' ? candidate : first } };
     return { structuredContent: { stale: false } };
@@ -302,6 +303,7 @@ test('同内容重新构建仍接纳新证据；当前实例的查看副本不�
   const released: string[] = [];
   await page.goto(origin);
   await installAppToolBridge(page, (name, args) => {
+    if (name === 'get_workbench') return { structuredContent: { ...validResult(), control: { status: 'editable' }, conversation: { status: 'bound', threadId: 'preview-test' } } };
     if (name !== 'project_preview') return { structuredContent: {} };
     if (args.action === 'build') return { structuredContent: { preview: published } };
     if (args.action === 'release') released.push(args.instanceId);

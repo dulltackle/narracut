@@ -35590,12 +35590,12 @@ window.openai={selectDirectory:options=>pick('directory',options),selectFile:opt
 }
 function panelHtml() {
   return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Narracut \u5DE5\u4F5C\u53F0</title>
-<style>html,body{margin:0;height:100%;background:#090d0e;color:#f1f3eb;font-family:"Noto Sans SC",sans-serif}iframe{display:block;border:0;width:100%;height:100dvh}#feedback{position:fixed;inset:0;display:grid;place-content:center;padding:24px;background:#0d1213}#feedback[hidden]{display:none}h1{font-size:22px}p{max-width:65ch;line-height:1.75;overflow-wrap:anywhere}button{justify-self:start;min-height:44px;padding:8px 16px;border:1px solid #9dbcf0;border-radius:6px;background:#245da9;color:white;font-size:16px;cursor:pointer}button:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}</style>
+<style>html,body{margin:0;height:100%;background:#fff;color:#171717;font-family:"Noto Sans SC",sans-serif}iframe{display:block;border:0;width:100%;height:100dvh}#feedback{position:fixed;inset:0;display:grid;place-content:center;padding:24px;background:#fff}#feedback[hidden]{display:none}h1{font-size:22px}p{max-width:65ch;line-height:1.75;overflow-wrap:anywhere}button{justify-self:start;min-height:44px;padding:8px 16px;border:1px solid #242424;border-radius:6px;background:#242424;color:white;font-size:16px;cursor:pointer}button:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}</style>
 <iframe title="Narracut \u5B8C\u6574\u5DE5\u4F5C\u53F0" inert aria-hidden="true"></iframe><section id="feedback" role="status"><h1>\u6B63\u5728\u8FDE\u63A5\u5DE5\u4F5C\u53F0</h1><p id="reason">\u6B63\u5728\u540C\u6B65\u6700\u65B0\u9879\u76EE\u4E0E\u4EFB\u52A1\u72B6\u6001\u2026</p><button id="retry" hidden>\u91CD\u8BD5\u663E\u793A\u5DE5\u4F5C\u53F0</button></section>
 <script>
 let frame=document.querySelector('iframe');
 const feedback=document.getElementById('feedback'), reason=document.getElementById('reason'), retry=document.getElementById('retry');
-let timer, generation=0, controller;
+let timer, generation=0, controller, synchronized=false;
 function failed(message){generation++;controller?.abort();clearTimeout(timer);frame.inert=true;frame.setAttribute('aria-hidden','true');feedback.hidden=false;feedback.querySelector('h1').textContent='\u5DE5\u4F5C\u53F0\u672A\u80FD\u663E\u793A';reason.textContent=message+' \u4EFB\u52A1\u72B6\u6001\u5C1A\u672A\u6838\u5B9E\uFF0C\u4E0D\u80FD\u636E\u6B64\u5224\u65AD\u4EFB\u52A1\u5DF2\u505C\u6B62\u3002\u5DF2\u4FDD\u5B58\u7684\u6210\u679C\u4F1A\u4FDD\u7559\uFF1B\u91CD\u8BD5\u53EA\u91CD\u65B0\u8BFB\u53D6\u5DE5\u4F5C\u53F0\u3002';retry.hidden=false;}
 function post(target,message){target.postMessage(message,location.origin);}
 async function json(path,options,signal){const response=await fetch(path,{...options,signal,cache:'no-store'});const value=await response.json();if(!response.ok)throw new Error(value.error?.message??'\u672C\u5730\u5DE5\u4F5C\u53F0\u8FDE\u63A5\u5931\u8D25');return value;}
@@ -35609,18 +35609,24 @@ window.addEventListener('message',async event=>{
   else if(m.method==='ui/notifications/initialized'){
    const result=await json('state',{},signal);if(attempt!==generation)return;if(result.isError)throw new Error(result.structuredContent?.error?.message??'\u9879\u76EE\u72B6\u6001\u8BFB\u53D6\u5931\u8D25');post(target,{jsonrpc:'2.0',method:'ui/notifications/tool-result',params:result});
   } else if(m.method==='ui/notifications/workbench-synchronized'){
-   clearTimeout(timer);frame.inert=false;frame.removeAttribute('aria-hidden');feedback.hidden=true;
+   synchronized=true;clearTimeout(timer);frame.inert=false;frame.removeAttribute('aria-hidden');feedback.hidden=true;
   } else if(m.method==='tools/call'){
    const response=await json('rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)},signal);
    if(attempt===generation)post(target,response);
   }
  } catch(error){if(attempt!==generation||signal.aborted)return;if(m.id!==undefined)post(target,{jsonrpc:'2.0',id:m.id,error:{code:-32000,message:error.message}});else failed(error.message);}
 });
-function connect(){
+async function connect(){
  generation++;controller?.abort();controller=new AbortController();
  retry.hidden=true;feedback.hidden=false;feedback.querySelector('h1').textContent='\u6B63\u5728\u8FDE\u63A5\u5DE5\u4F5C\u53F0';reason.textContent='\u6B63\u5728\u540C\u6B65\u6700\u65B0\u9879\u76EE\u4E0E\u4EFB\u52A1\u72B6\u6001\u2026';
  clearTimeout(timer);timer=setTimeout(()=>failed('\u8FDE\u63A5\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5\u672C\u5730\u9762\u677F\u670D\u52A1\u662F\u5426\u4ECD\u5728\u8FD0\u884C\u3002'),15000);
- // \u65B0\u6D4F\u89C8\u4E0A\u4E0B\u6587\u9694\u79BB\u65E7\u9875\u9762\u7684\u6D88\u606F\u3001\u6743\u9650\u4E0E Preview\uFF1B\u670D\u52A1\u548C\u4EFB\u52A1\u7EE7\u7EED\u8FD0\u884C\u3002
+ if(synchronized){
+  const attempt=generation;
+  try{const result=await json('state',{},controller.signal);if(attempt!==generation)return;if(result.isError)throw new Error(result.structuredContent?.error?.message??'\u9879\u76EE\u72B6\u6001\u8BFB\u53D6\u5931\u8D25');post(frame.contentWindow,{jsonrpc:'2.0',method:'ui/notifications/tool-result',params:result});}
+  catch(error){if(attempt===generation)failed(error.message);}
+  return;
+ }
+ // \u521D\u6B21\u540C\u6B65\u5C1A\u672A\u5B8C\u6210\u65F6\u53EF\u66F4\u6362\u7A7A\u89C6\u56FE\uFF1B\u5DF2\u7ECF\u540C\u6B65\u7684\u9875\u9762\u4FDD\u7559\u8349\u7A3F\u4E0E Preview\u3002
  const next=document.createElement('iframe');next.title='Narracut \u5B8C\u6574\u5DE5\u4F5C\u53F0';next.inert=true;next.setAttribute('aria-hidden','true');next.src='view';frame.replaceWith(next);frame=next;
 }
 retry.addEventListener('click',connect);connect();

@@ -12,6 +12,7 @@
 | Bundle、Preview Bridge 与最终输出实现 | [Bundle](../src/server/program-bundle.ts)、[Runtime Bridge](../src/server/program-runtime-source.ts)、[Preview 来源](../src/server/preview-origin.ts)、[Render 服务](../src/server/project-render.ts)、[Render 界面](../plugins/narracut/workbench-render.js) |
 | 本地插件构建、安装与启动验证 | [插件打包](plugin-packaging.md) |
 | 当前对话右侧工作台与展示重试 | [工作台面板](workbench-panel.md) |
+| 浅色工作台、连续编辑与断连验证 | [#109 验收记录](acceptance/issue109/README.md) |
 | 自动化入口与真实宿主验收范围 | [公开流程验证](#公开流程验证)、[当前对话完整流程验收](current-conversation-acceptance.md) |
 | 胶囊专项诊断与维护缺口 | [内存诊断](execution-capsule.md#内存诊断)、[维护事项](execution-capsule.md#维护事项) |
 | 追溯旧架构、研究依据或原会话证据 | [历史追溯](#历史追溯) |

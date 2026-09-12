@@ -1,698 +1,57 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-11T04:31:37.910158+00:00",
-  "title": "Design System: Narracut VNext Workbench",
+  "generatedAt": "2026-09-12T14:59:31.214689+00:00",
+  "title": "Design System: Narracut",
   "extensions": {
     "colorMeta": {
-      "darkroom": {
-        "role": "neutral",
-        "displayName": "暗房黑",
-        "tonalRamp": [
-          "oklch(15% 0.0069 214.4)",
-          "oklch(27% 0.0069 214.4)",
-          "oklch(39% 0.0069 214.4)",
-          "oklch(51% 0.0069 214.4)",
-          "oklch(63% 0.0069 214.4)",
-          "oklch(75% 0.0069 214.4)",
-          "oklch(87% 0.0069 214.4)",
-          "oklch(95% 0.0069 214.4)"
-        ]
-      },
-      "shell": {
-        "role": "neutral",
-        "displayName": "机身黑",
-        "tonalRamp": [
-          "oklch(15% 0.0080 211.1)",
-          "oklch(27% 0.0080 211.1)",
-          "oklch(39% 0.0080 211.1)",
-          "oklch(51% 0.0080 211.1)",
-          "oklch(63% 0.0080 211.1)",
-          "oklch(75% 0.0080 211.1)",
-          "oklch(87% 0.0080 211.1)",
-          "oklch(95% 0.0080 211.1)"
-        ]
-      },
-      "film": {
-        "role": "neutral",
-        "displayName": "胶片黑",
-        "tonalRamp": [
-          "oklch(15% 0.0047 196.6)",
-          "oklch(27% 0.0047 196.6)",
-          "oklch(39% 0.0047 196.6)",
-          "oklch(51% 0.0047 196.6)",
-          "oklch(63% 0.0047 196.6)",
-          "oklch(75% 0.0047 196.6)",
-          "oklch(87% 0.0047 196.6)",
-          "oklch(95% 0.0047 196.6)"
-        ]
-      },
-      "stage": {
-        "role": "neutral",
-        "displayName": "舞台黑",
-        "tonalRamp": [
-          "oklch(15% 0.0093 208.8)",
-          "oklch(27% 0.0093 208.8)",
-          "oklch(39% 0.0093 208.8)",
-          "oklch(51% 0.0093 208.8)",
-          "oklch(63% 0.0093 208.8)",
-          "oklch(75% 0.0093 208.8)",
-          "oklch(87% 0.0093 208.8)",
-          "oklch(95% 0.0093 208.8)"
-        ]
-      },
-      "panel": {
-        "role": "neutral",
-        "displayName": "状态台黑",
-        "tonalRamp": [
-          "oklch(15% 0.0081 211.1)",
-          "oklch(27% 0.0081 211.1)",
-          "oklch(39% 0.0081 211.1)",
-          "oklch(51% 0.0081 211.1)",
-          "oklch(63% 0.0081 211.1)",
-          "oklch(75% 0.0081 211.1)",
-          "oklch(87% 0.0081 211.1)",
-          "oklch(95% 0.0081 211.1)"
-        ]
-      },
-      "control": {
-        "role": "neutral",
-        "displayName": "控件黑",
-        "tonalRamp": [
-          "oklch(15% 0.0092 208.8)",
-          "oklch(27% 0.0092 208.8)",
-          "oklch(39% 0.0092 208.8)",
-          "oklch(51% 0.0092 208.8)",
-          "oklch(63% 0.0092 208.8)",
-          "oklch(75% 0.0092 208.8)",
-          "oklch(87% 0.0092 208.8)",
-          "oklch(95% 0.0092 208.8)"
-        ]
-      },
-      "line": {
-        "role": "neutral",
-        "displayName": "结构线",
-        "tonalRamp": [
-          "oklch(15% 0.0097 207.1)",
-          "oklch(27% 0.0097 207.1)",
-          "oklch(39% 0.0097 207.1)",
-          "oklch(51% 0.0097 207.1)",
-          "oklch(63% 0.0097 207.1)",
-          "oklch(75% 0.0097 207.1)",
-          "oklch(87% 0.0097 207.1)",
-          "oklch(95% 0.0097 207.1)"
-        ]
-      },
-      "separator": {
-        "role": "neutral",
-        "displayName": "状态分隔",
-        "tonalRamp": [
-          "oklch(15% 0.0133 204.0)",
-          "oklch(27% 0.0133 204.0)",
-          "oklch(39% 0.0133 204.0)",
-          "oklch(51% 0.0133 204.0)",
-          "oklch(63% 0.0133 204.0)",
-          "oklch(75% 0.0133 204.0)",
-          "oklch(87% 0.0133 204.0)",
-          "oklch(95% 0.0133 204.0)"
-        ]
+      "primary": {
+        "role": "primary",
+        "displayName": "深灰主操作"
       },
       "paper": {
         "role": "neutral",
-        "displayName": "背光纸白",
-        "tonalRamp": [
-          "oklch(15% 0.0108 118.0)",
-          "oklch(27% 0.0108 118.0)",
-          "oklch(39% 0.0108 118.0)",
-          "oklch(51% 0.0108 118.0)",
-          "oklch(63% 0.0108 118.0)",
-          "oklch(75% 0.0108 118.0)",
-          "oklch(87% 0.0108 118.0)",
-          "oklch(95% 0.0108 118.0)"
-        ]
-      },
-      "paper-hover": {
-        "role": "neutral",
-        "displayName": "纸面悬停",
-        "tonalRamp": [
-          "oklch(15% 0.0127 126.4)",
-          "oklch(27% 0.0127 126.4)",
-          "oklch(39% 0.0127 126.4)",
-          "oklch(51% 0.0127 126.4)",
-          "oklch(63% 0.0127 126.4)",
-          "oklch(75% 0.0127 126.4)",
-          "oklch(87% 0.0127 126.4)",
-          "oklch(95% 0.0127 126.4)"
-        ]
-      },
-      "paper-selected": {
-        "role": "neutral",
-        "displayName": "选中纸白",
-        "tonalRamp": [
-          "oklch(15% 0.0080 114.2)",
-          "oklch(27% 0.0080 114.2)",
-          "oklch(39% 0.0080 114.2)",
-          "oklch(51% 0.0080 114.2)",
-          "oklch(63% 0.0080 114.2)",
-          "oklch(75% 0.0080 114.2)",
-          "oklch(87% 0.0080 114.2)",
-          "oklch(95% 0.0080 114.2)"
-        ]
+        "displayName": "白色工作面"
       },
       "ink": {
         "role": "neutral",
-        "displayName": "纸面墨色",
-        "tonalRamp": [
-          "oklch(15% 0.0060 196.7)",
-          "oklch(27% 0.0060 196.7)",
-          "oklch(39% 0.0060 196.7)",
-          "oklch(51% 0.0060 196.7)",
-          "oklch(63% 0.0060 196.7)",
-          "oklch(75% 0.0060 196.7)",
-          "oklch(87% 0.0060 196.7)",
-          "oklch(95% 0.0060 196.7)"
-        ]
+        "displayName": "近黑正文"
       },
       "muted": {
         "role": "neutral",
-        "displayName": "暗房灰",
-        "tonalRamp": [
-          "oklch(15% 0.0108 181.2)",
-          "oklch(27% 0.0108 181.2)",
-          "oklch(39% 0.0108 181.2)",
-          "oklch(51% 0.0108 181.2)",
-          "oklch(63% 0.0108 181.2)",
-          "oklch(75% 0.0108 181.2)",
-          "oklch(87% 0.0108 181.2)",
-          "oklch(95% 0.0108 181.2)"
-        ]
-      },
-      "proof-blue": {
-        "role": "primary",
-        "displayName": "校片蓝",
-        "tonalRamp": [
-          "oklch(15% 0.1452 258.3)",
-          "oklch(27% 0.1452 258.3)",
-          "oklch(39% 0.1452 258.3)",
-          "oklch(51% 0.1452 258.3)",
-          "oklch(63% 0.1452 258.3)",
-          "oklch(75% 0.1452 258.3)",
-          "oklch(87% 0.1452 258.3)",
-          "oklch(95% 0.1452 258.3)"
-        ]
-      },
-      "proof-blue-deep": {
-        "role": "primary",
-        "displayName": "深校片蓝",
-        "tonalRamp": [
-          "oklch(15% 0.1356 256.9)",
-          "oklch(27% 0.1356 256.9)",
-          "oklch(39% 0.1356 256.9)",
-          "oklch(51% 0.1356 256.9)",
-          "oklch(63% 0.1356 256.9)",
-          "oklch(75% 0.1356 256.9)",
-          "oklch(87% 0.1356 256.9)",
-          "oklch(95% 0.1356 256.9)"
-        ]
-      },
-      "readonly-amber": {
-        "role": "secondary",
-        "displayName": "只读琥珀",
-        "tonalRamp": [
-          "oklch(15% 0.1298 73.8)",
-          "oklch(27% 0.1298 73.8)",
-          "oklch(39% 0.1298 73.8)",
-          "oklch(51% 0.1298 73.8)",
-          "oklch(63% 0.1298 73.8)",
-          "oklch(75% 0.1298 73.8)",
-          "oklch(87% 0.1298 73.8)",
-          "oklch(95% 0.1298 73.8)"
-        ]
-      },
-      "connected-green": {
-        "role": "secondary",
-        "displayName": "连接绿",
-        "tonalRamp": [
-          "oklch(15% 0.1415 147.9)",
-          "oklch(27% 0.1415 147.9)",
-          "oklch(39% 0.1415 147.9)",
-          "oklch(51% 0.1415 147.9)",
-          "oklch(63% 0.1415 147.9)",
-          "oklch(75% 0.1415 147.9)",
-          "oklch(87% 0.1415 147.9)",
-          "oklch(95% 0.1415 147.9)"
-        ]
+        "displayName": "灰色辅助信息"
       },
       "focus-blue": {
-        "role": "primary",
-        "displayName": "焦点蓝",
-        "tonalRamp": [
-          "oklch(15% 0.0818 260.6)",
-          "oklch(27% 0.0818 260.6)",
-          "oklch(39% 0.0818 260.6)",
-          "oklch(51% 0.0818 260.6)",
-          "oklch(63% 0.0818 260.6)",
-          "oklch(75% 0.0818 260.6)",
-          "oklch(87% 0.0818 260.6)",
-          "oklch(95% 0.0818 260.6)"
-        ]
-      },
-      "high-contrast-white": {
-        "role": "neutral",
-        "displayName": "高对比白",
-        "tonalRamp": [
-          "oklch(15% 0.0000 89.9)",
-          "oklch(27% 0.0000 89.9)",
-          "oklch(39% 0.0000 89.9)",
-          "oklch(51% 0.0000 89.9)",
-          "oklch(63% 0.0000 89.9)",
-          "oklch(75% 0.0000 89.9)",
-          "oklch(87% 0.0000 89.9)",
-          "oklch(95% 0.0000 89.9)"
-        ]
-      },
-      "asset-divider": {
-        "role": "neutral",
-        "displayName": "Asset 分隔线",
-        "tonalRamp": [
-          "oklch(15% 0.0121 204.8)",
-          "oklch(27% 0.0121 204.8)",
-          "oklch(39% 0.0121 204.8)",
-          "oklch(51% 0.0121 204.8)",
-          "oklch(63% 0.0121 204.8)",
-          "oklch(75% 0.0121 204.8)",
-          "oklch(87% 0.0121 204.8)",
-          "oklch(95% 0.0121 204.8)"
-        ]
-      },
-      "preview-frame": {
-        "role": "neutral",
-        "displayName": "预览框线",
-        "tonalRamp": [
-          "oklch(15% 0.0116 204.8)",
-          "oklch(27% 0.0116 204.8)",
-          "oklch(39% 0.0116 204.8)",
-          "oklch(51% 0.0116 204.8)",
-          "oklch(63% 0.0116 204.8)",
-          "oklch(75% 0.0116 204.8)",
-          "oklch(87% 0.0116 204.8)",
-          "oklch(95% 0.0116 204.8)"
-        ]
-      },
-      "preview-control-line": {
-        "role": "neutral",
-        "displayName": "预览控件线",
-        "tonalRamp": [
-          "oklch(15% 0.0140 203.3)",
-          "oklch(27% 0.0140 203.3)",
-          "oklch(39% 0.0140 203.3)",
-          "oklch(51% 0.0140 203.3)",
-          "oklch(63% 0.0140 203.3)",
-          "oklch(75% 0.0140 203.3)",
-          "oklch(87% 0.0140 203.3)",
-          "oklch(95% 0.0140 203.3)"
-        ]
-      },
-      "blue-control-hover": {
-        "role": "primary",
-        "displayName": "蓝色控件悬停",
-        "tonalRamp": [
-          "oklch(15% 0.0735 257.4)",
-          "oklch(27% 0.0735 257.4)",
-          "oklch(39% 0.0735 257.4)",
-          "oklch(51% 0.0735 257.4)",
-          "oklch(63% 0.0735 257.4)",
-          "oklch(75% 0.0735 257.4)",
-          "oklch(87% 0.0735 257.4)",
-          "oklch(95% 0.0735 257.4)"
-        ]
-      },
-      "preview-label": {
-        "role": "neutral",
-        "displayName": "预览标签",
-        "tonalRamp": [
-          "oklch(15% 0.0136 177.8)",
-          "oklch(27% 0.0136 177.8)",
-          "oklch(39% 0.0136 177.8)",
-          "oklch(51% 0.0136 177.8)",
-          "oklch(63% 0.0136 177.8)",
-          "oklch(75% 0.0136 177.8)",
-          "oklch(87% 0.0136 177.8)",
-          "oklch(95% 0.0136 177.8)"
-        ]
-      },
-      "asset-muted": {
-        "role": "neutral",
-        "displayName": "Asset 次级灰",
-        "tonalRamp": [
-          "oklch(15% 0.0123 176.1)",
-          "oklch(27% 0.0123 176.1)",
-          "oklch(39% 0.0123 176.1)",
-          "oklch(51% 0.0123 176.1)",
-          "oklch(63% 0.0123 176.1)",
-          "oklch(75% 0.0123 176.1)",
-          "oklch(87% 0.0123 176.1)",
-          "oklch(95% 0.0123 176.1)"
-        ]
-      },
-      "preview-muted": {
-        "role": "neutral",
-        "displayName": "预览次级灰",
-        "tonalRamp": [
-          "oklch(15% 0.0123 176.1)",
-          "oklch(27% 0.0123 176.1)",
-          "oklch(39% 0.0123 176.1)",
-          "oklch(51% 0.0123 176.1)",
-          "oklch(63% 0.0123 176.1)",
-          "oklch(75% 0.0123 176.1)",
-          "oklch(87% 0.0123 176.1)",
-          "oklch(95% 0.0123 176.1)"
-        ]
-      },
-      "asset-path-muted": {
-        "role": "neutral",
-        "displayName": "Asset 路径灰",
-        "tonalRamp": [
-          "oklch(15% 0.0123 176.1)",
-          "oklch(27% 0.0123 176.1)",
-          "oklch(39% 0.0123 176.1)",
-          "oklch(51% 0.0123 176.1)",
-          "oklch(63% 0.0123 176.1)",
-          "oklch(75% 0.0123 176.1)",
-          "oklch(87% 0.0123 176.1)",
-          "oklch(95% 0.0123 176.1)"
-        ]
-      },
-      "asset-search-label": {
-        "role": "neutral",
-        "displayName": "Asset 搜索标签",
-        "tonalRamp": [
-          "oklch(15% 0.0121 176.2)",
-          "oklch(27% 0.0121 176.2)",
-          "oklch(39% 0.0121 176.2)",
-          "oklch(51% 0.0121 176.2)",
-          "oklch(63% 0.0121 176.2)",
-          "oklch(75% 0.0121 176.2)",
-          "oklch(87% 0.0121 176.2)",
-          "oklch(95% 0.0121 176.2)"
-        ]
-      },
-      "preview-copy": {
-        "role": "neutral",
-        "displayName": "预览正文",
-        "tonalRamp": [
-          "oklch(15% 0.0109 174.2)",
-          "oklch(27% 0.0109 174.2)",
-          "oklch(39% 0.0109 174.2)",
-          "oklch(51% 0.0109 174.2)",
-          "oklch(63% 0.0109 174.2)",
-          "oklch(75% 0.0109 174.2)",
-          "oklch(87% 0.0109 174.2)",
-          "oklch(95% 0.0109 174.2)"
-        ]
-      },
-      "import-ledger-copy": {
-        "role": "neutral",
-        "displayName": "导入台账正文",
-        "tonalRamp": [
-          "oklch(15% 0.0108 174.2)",
-          "oklch(27% 0.0108 174.2)",
-          "oklch(39% 0.0108 174.2)",
-          "oklch(51% 0.0108 174.2)",
-          "oklch(63% 0.0108 174.2)",
-          "oklch(75% 0.0108 174.2)",
-          "oklch(87% 0.0108 174.2)",
-          "oklch(95% 0.0108 174.2)"
-        ]
-      },
-      "preview-code": {
-        "role": "neutral",
-        "displayName": "预览代码",
-        "tonalRamp": [
-          "oklch(15% 0.0097 171.7)",
-          "oklch(27% 0.0097 171.7)",
-          "oklch(39% 0.0097 171.7)",
-          "oklch(51% 0.0097 171.7)",
-          "oklch(63% 0.0097 171.7)",
-          "oklch(75% 0.0097 171.7)",
-          "oklch(87% 0.0097 171.7)",
-          "oklch(95% 0.0097 171.7)"
-        ]
-      },
-      "preview-value": {
-        "role": "neutral",
-        "displayName": "预览值",
-        "tonalRamp": [
-          "oklch(15% 0.0077 164.9)",
-          "oklch(27% 0.0077 164.9)",
-          "oklch(39% 0.0077 164.9)",
-          "oklch(51% 0.0077 164.9)",
-          "oklch(63% 0.0077 164.9)",
-          "oklch(75% 0.0077 164.9)",
-          "oklch(87% 0.0077 164.9)",
-          "oklch(95% 0.0077 164.9)"
-        ]
-      },
-      "asset-fact-value": {
-        "role": "neutral",
-        "displayName": "Asset 事实值",
-        "tonalRamp": [
-          "oklch(15% 0.0087 168.7)",
-          "oklch(27% 0.0087 168.7)",
-          "oklch(39% 0.0087 168.7)",
-          "oklch(51% 0.0087 168.7)",
-          "oklch(63% 0.0087 168.7)",
-          "oklch(75% 0.0087 168.7)",
-          "oklch(87% 0.0087 168.7)",
-          "oklch(95% 0.0087 168.7)"
-        ]
-      },
-      "asset-warning-copy": {
         "role": "secondary",
-        "displayName": "Asset 警告文案",
-        "tonalRamp": [
-          "oklch(15% 0.0768 78.9)",
-          "oklch(27% 0.0768 78.9)",
-          "oklch(39% 0.0768 78.9)",
-          "oklch(51% 0.0768 78.9)",
-          "oklch(63% 0.0768 78.9)",
-          "oklch(75% 0.0768 78.9)",
-          "oklch(87% 0.0768 78.9)",
-          "oklch(95% 0.0768 78.9)"
-        ]
-      },
-      "asset-capacity-copy": {
-        "role": "secondary",
-        "displayName": "Asset 容量文案",
-        "tonalRamp": [
-          "oklch(15% 0.0807 78.7)",
-          "oklch(27% 0.0807 78.7)",
-          "oklch(39% 0.0807 78.7)",
-          "oklch(51% 0.0807 78.7)",
-          "oklch(63% 0.0807 78.7)",
-          "oklch(75% 0.0807 78.7)",
-          "oklch(87% 0.0807 78.7)",
-          "oklch(95% 0.0807 78.7)"
-        ]
-      },
-      "asset-control-copy": {
-        "role": "neutral",
-        "displayName": "Asset 控件文案",
-        "tonalRamp": [
-          "oklch(15% 0.0076 164.9)",
-          "oklch(27% 0.0076 164.9)",
-          "oklch(39% 0.0076 164.9)",
-          "oklch(51% 0.0076 164.9)",
-          "oklch(63% 0.0076 164.9)",
-          "oklch(75% 0.0076 164.9)",
-          "oklch(87% 0.0076 164.9)",
-          "oklch(95% 0.0076 164.9)"
-        ]
-      },
-      "asset-field-copy": {
-        "role": "neutral",
-        "displayName": "Asset 字段文案",
-        "tonalRamp": [
-          "oklch(15% 0.0059 153.8)",
-          "oklch(27% 0.0059 153.8)",
-          "oklch(39% 0.0059 153.8)",
-          "oklch(51% 0.0059 153.8)",
-          "oklch(63% 0.0059 153.8)",
-          "oklch(75% 0.0059 153.8)",
-          "oklch(87% 0.0059 153.8)",
-          "oklch(95% 0.0059 153.8)"
-        ]
-      },
-      "project-asset-title": {
-        "role": "neutral",
-        "displayName": "项目 Asset 标题",
-        "tonalRamp": [
-          "oklch(15% 0.0059 153.8)",
-          "oklch(27% 0.0059 153.8)",
-          "oklch(39% 0.0059 153.8)",
-          "oklch(51% 0.0059 153.8)",
-          "oklch(63% 0.0059 153.8)",
-          "oklch(75% 0.0059 153.8)",
-          "oklch(87% 0.0059 153.8)",
-          "oklch(95% 0.0059 153.8)"
-        ]
-      },
-      "asset-title": {
-        "role": "neutral",
-        "displayName": "Asset 标题",
-        "tonalRamp": [
-          "oklch(15% 0.0059 153.8)",
-          "oklch(27% 0.0059 153.8)",
-          "oklch(39% 0.0059 153.8)",
-          "oklch(51% 0.0059 153.8)",
-          "oklch(63% 0.0059 153.8)",
-          "oklch(75% 0.0059 153.8)",
-          "oklch(87% 0.0059 153.8)",
-          "oklch(95% 0.0059 153.8)"
-        ]
-      },
-      "preview-title": {
-        "role": "neutral",
-        "displayName": "预览标题",
-        "tonalRamp": [
-          "oklch(15% 0.0062 137.8)",
-          "oklch(27% 0.0062 137.8)",
-          "oklch(39% 0.0062 137.8)",
-          "oklch(51% 0.0062 137.8)",
-          "oklch(63% 0.0062 137.8)",
-          "oklch(75% 0.0062 137.8)",
-          "oklch(87% 0.0062 137.8)",
-          "oklch(95% 0.0062 137.8)"
-        ]
-      },
-      "asset-hover-tint": {
-        "role": "neutral",
-        "displayName": "Asset 悬停薄色",
-        "tonalRamp": [
-          "oklch(15% 0.1452 258.3 / 0.035)",
-          "oklch(27% 0.1452 258.3 / 0.035)",
-          "oklch(39% 0.1452 258.3 / 0.035)",
-          "oklch(51% 0.1452 258.3 / 0.035)",
-          "oklch(63% 0.1452 258.3 / 0.035)",
-          "oklch(75% 0.1452 258.3 / 0.035)",
-          "oklch(87% 0.1452 258.3 / 0.035)",
-          "oklch(95% 0.1452 258.3 / 0.035)"
-        ]
-      },
-      "preview-scrim": {
-        "role": "neutral",
-        "displayName": "预览遮罩",
-        "tonalRamp": [
-          "oklch(15% 0.0060 196.3 / 0.9)",
-          "oklch(27% 0.0060 196.3 / 0.9)",
-          "oklch(39% 0.0060 196.3 / 0.9)",
-          "oklch(51% 0.0060 196.3 / 0.9)",
-          "oklch(63% 0.0060 196.3 / 0.9)",
-          "oklch(75% 0.0060 196.3 / 0.9)",
-          "oklch(87% 0.0060 196.3 / 0.9)",
-          "oklch(95% 0.0060 196.3 / 0.9)"
-        ]
+        "displayName": "键盘焦点蓝"
       }
     },
     "typographyMeta": {
-      "display": {
-        "displayName": "品牌展示",
-        "purpose": "仅用于 Narracut 品牌字样。"
-      },
-      "headline": {
-        "displayName": "Scene 编号",
-        "purpose": "用于 Scene 大编号及同等级校片标记。"
-      },
-      "title": {
-        "displayName": "Narration",
-        "purpose": "用于 Scene 的主要叙事内容。"
-      },
       "body": {
-        "displayName": "工作台正文",
-        "purpose": "用于检查、说明、空状态与次级正文。"
+        "displayName": "Narration 正文",
+        "purpose": "中文内容及原位编辑，不使用展示字或等宽体。"
       },
       "label": {
-        "displayName": "机器标签",
-        "purpose": "用于表头、边码、路径、时长与机器状态。"
-      },
-      "control": {
-        "displayName": "工作区控制",
-        "purpose": "用于工作区标签及同等级操作文字。"
+        "displayName": "表头标签",
+        "purpose": "四列连续表格的轻量层级。"
       }
     },
     "shadows": [
       {
-        "name": "film-pressure",
-        "value": "0 26px 70px rgba(0,0,0,.58), inset 0 1px rgba(255,255,255,.045), inset 0 0 0 5px rgba(0,0,0,.18)",
-        "purpose": "只用于整张接触印样框。"
-      },
-      {
-        "name": "paper-backlight",
-        "value": "0 0 34px rgba(241,243,235,.34), inset 0 0 36px rgba(68,76,72,.14)",
-        "purpose": "只用于背光接触表。"
-      },
-      {
-        "name": "agent-panel",
-        "value": "0 18px 54px rgba(0,0,0,.32), inset 0 1px rgba(255,255,255,.035)",
-        "purpose": "通用 Agent 整体框体；当前候选审阅任务区在最终层叠中取消阴影，不逐项使用。"
-      },
-      {
-        "name": "focus-ring",
-        "value": "0 0 0 5px rgba(78,136,223,.24)",
-        "purpose": "与 2px 可见轮廓共同出现，不能代替轮廓。"
+        "name": "scene-menu",
+        "value": "0 8px 24px #00000014",
+        "purpose": "浮动 Scene 操作菜单。"
       },
       {
         "name": "inspection-drawer",
-        "value": "-18px 0 45px rgba(0,0,0,.48)",
-        "purpose": "仅在窄屏项目检查打开时出现。"
-      },
-      {
-        "name": "asset-preview",
-        "value": "0 28px 80px rgba(0,0,0,.7)",
-        "purpose": "只用于独立 Asset 预览层，让媒体舞台与 Operate 工作台分离。"
-      },
-      {
-        "name": "brief-overlay",
-        "value": "0 28px 80px rgba(0,0,0,.72)",
-        "purpose": "用于 Video Brief 独立编辑层。"
+        "value": "-12px 8px 36px #00000014",
+        "purpose": "按需打开的项目检查抽屉。"
       }
     ],
-    "motion": [
-      {
-        "name": "lightbox-entry",
-        "value": "420ms cubic-bezier(.16,1,.3,1)",
-        "purpose": "仅在未请求减少动态效果时运行；both 保留终态背光，与静态阴影不同。"
-      }
-    ],
+    "motion": [],
     "breakpoints": [
       {
-        "name": "scene-actions",
-        "value": "980px",
-        "purpose": "Scene 次级操作收进菜单。"
-      },
-      {
-        "name": "compact-desktop",
-        "value": "900px",
-        "purpose": "收窄检查栏和 Scene 列，保留 Speech。"
-      },
-      {
-        "name": "launcher-stack",
-        "value": "760px",
-        "purpose": "启动页改为纵向。"
-      },
-      {
-        "name": "mobile-drawer",
-        "value": "700px",
-        "purpose": "检查转抽屉；隐藏 Asset 列，保留 Narration、Speech 和当前对话指引。"
-      },
-      {
-        "name": "revision-history",
-        "value": "680px",
-        "purpose": "修订历史全宽。"
-      },
-      {
-        "name": "task-actions",
-        "value": "600px",
-        "purpose": "任务通知中的操作全宽。"
+        "name": "compact-table",
+        "value": "700px"
       }
     ]
   },
@@ -700,152 +59,89 @@
     {
       "name": "主要操作",
       "kind": "button",
-      "refersTo": "agent-action-primary",
-      "description": "DESIGN.md 中 agent-action-primary 的通用主色样式示例；不绑定具体任务动作。",
-      "html": "<button class=\"ds-agent-action\" data-kind=\"primary\">主要操作</button>",
-      "css": ".ds-agent-action{min-width:126px;min-height:44px;border:1px solid #465152;border-radius:6px;background:#151b1c;color:#d4dad7;cursor:pointer;font-size:.78rem;font-weight:680}\n.ds-agent-action:hover:not(:disabled){border-color:#72807e;background:#1a2223}\n.ds-agent-action[data-kind=\"primary\"]{border-color:#4e88df;background:#245da9;color:#fff}\n.ds-agent-action[data-kind=\"primary\"]:hover:not(:disabled){background:#2e6abb}\n.ds-agent-action[data-kind=\"stop\"]{color:#e1b36c}\n.ds-agent-action:disabled{cursor:not-allowed;color:#68716f;border-color:#2c3435;background:#111617;opacity:.72}\n@media(max-width:700px){.ds-agent-action{width:100%;min-height:44px}}\n:host{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;} button:focus-visible,textarea:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}"
+      "refersTo": "button-primary",
+      "description": "Scene 工具栏按钮；窄屏真实页面触控高度提升到 44px。",
+      "html": "<button class=\"ds-primary\">新增 Scene</button>",
+      "css": ".ds-primary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;min-height:32px;padding:4px 10px;border:1px solid var(--blue-deep,#242424);background:var(--blue-deep,#242424);color:var(--white,#fff);border-radius:6px;cursor:pointer}.ds-primary:hover:not(:disabled){border-color:var(--blue-deep,#242424)}.ds-primary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-primary:disabled{opacity:.5;cursor:not-allowed}"
     },
     {
-      "name": "停止操作",
+      "name": "次要操作",
       "kind": "button",
-      "refersTo": "agent-action-stop",
-      "description": "现有任务停止操作的视觉状态示例；示例不执行项目写操作。",
-      "html": "<button class=\"ds-agent-action\" data-kind=\"stop\">停止任务</button>",
-      "css": ".ds-agent-action{min-width:126px;min-height:44px;border:1px solid #465152;border-radius:6px;background:#151b1c;color:#d4dad7;cursor:pointer;font-size:.78rem;font-weight:680}\n.ds-agent-action:hover:not(:disabled){border-color:#72807e;background:#1a2223}\n.ds-agent-action[data-kind=\"primary\"]{border-color:#4e88df;background:#245da9;color:#fff}\n.ds-agent-action[data-kind=\"primary\"]:hover:not(:disabled){background:#2e6abb}\n.ds-agent-action[data-kind=\"stop\"]{color:#e1b36c}\n.ds-agent-action:disabled{cursor:not-allowed;color:#68716f;border-color:#2c3435;background:#111617;opacity:.72}\n@media(max-width:700px){.ds-agent-action{width:100%;min-height:44px}}\n:host{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;} button:focus-visible,textarea:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}"
+      "refersTo": "button-secondary",
+      "description": "Scene 工具栏按钮；窄屏真实页面触控高度提升到 44px。",
+      "html": "<button class=\"ds-secondary\">Scene 操作</button>",
+      "css": ".ds-secondary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;min-height:32px;padding:4px 10px;border:1px solid var(--line,#e3e3e3);background:var(--white,#fff);color:var(--ink,#171717);border-radius:6px;cursor:pointer}.ds-secondary:hover:not(:disabled){border-color:var(--blue-deep,#242424);color:var(--blue-deep,#242424)}.ds-secondary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-secondary:disabled{opacity:.5;cursor:not-allowed}"
     },
     {
-      "name": "禁用操作",
-      "kind": "button",
-      "refersTo": "agent-action-disabled",
-      "description": "现有任务停止操作的视觉状态示例；示例不执行项目写操作。",
-      "html": "<button class=\"ds-agent-action\" data-kind=\"primary\" disabled>停止任务</button>",
-      "css": ".ds-agent-action{min-width:126px;min-height:44px;border:1px solid #465152;border-radius:6px;background:#151b1c;color:#d4dad7;cursor:pointer;font-size:.78rem;font-weight:680}\n.ds-agent-action:hover:not(:disabled){border-color:#72807e;background:#1a2223}\n.ds-agent-action[data-kind=\"primary\"]{border-color:#4e88df;background:#245da9;color:#fff}\n.ds-agent-action[data-kind=\"primary\"]:hover:not(:disabled){background:#2e6abb}\n.ds-agent-action[data-kind=\"stop\"]{color:#e1b36c}\n.ds-agent-action:disabled{cursor:not-allowed;color:#68716f;border-color:#2c3435;background:#111617;opacity:.72}\n@media(max-width:700px){.ds-agent-action{width:100%;min-height:44px}}\n:host{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;} button:focus-visible,textarea:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}"
+      "name": "Narration 原位文本框",
+      "kind": "input",
+      "refersTo": "narration-editor",
+      "description": "视觉示例；生产页面通过 input、blur 和组合输入事件管理高度与保存。",
+      "html": "<textarea class=\"ds-editor\" aria-label=\"编辑 Narration\">在每一个认真生活的日常里，总有一些被忽略的细节。</textarea>",
+      "css": ".ds-editor{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;width:100%;min-height:38px;padding:6px;border:1px solid #9a9a9a;background:var(--white,#fff);color:var(--ink,#171717);font-size:14px;line-height:1.65;resize:none}.ds-editor:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}"
     },
     {
-      "name": "工作区导航",
+      "name": "工作区标签",
       "kind": "nav",
       "refersTo": "workspace-tab-selected",
-      "description": "从当前工作台实现提取的静态视觉示例；状态由示例标记展示。",
-      "html": "<nav role=\"tablist\" class=\"ds-tabs\" aria-label=\"工作区\"><button role=\"tab\" class=\"ds-tab\" aria-selected=\"true\">表格工作区</button><button role=\"tab\" class=\"ds-tab\" aria-selected=\"false\">Agent 工作区</button></nav>",
-      "css": ".ds-tabs{display:flex;align-items:stretch;border-bottom:1px solid #2a3031;background:linear-gradient(180deg,#171d1f,#121718)}\n.ds-tab{min-width:180px;min-height:44px;border:0;border-right:1px solid #303637;border-bottom:3px solid transparent;padding:0 28px;background:transparent;color:#959d9a;cursor:pointer;font-size:.96rem;font-weight:650;text-align:left}\n.ds-tab[aria-selected=\"true\"]{color:white;border-bottom-color:var(--blue,#4e88df);background:rgba(78,136,223,.08)}\n@media(max-width:700px){.ds-tab{min-width:0;flex:1;padding:0 8px;font-size:.78rem;text-align:center}}\n:host{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;} button:focus-visible,textarea:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}\n.ds-tabs{min-height:54px}@media(max-width:700px){.ds-tabs{min-height:50px}}"
+      "description": "当前实现仍为独立标签行；示例不宣称单行分组导航已落地。",
+      "html": "<nav class=\"ds-tabs\" aria-label=\"工作区\"><button aria-current=\"page\">表格工作区</button><button>Agent 工作区</button></nav>",
+      "css": ".ds-tabs{display:flex;font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;border-bottom:1px solid var(--line,#e3e3e3)}.ds-tabs button{min-height:44px;padding:0 20px;border:0;border-right:1px solid var(--line,#e3e3e3);background:#fff;color:var(--muted,#626262);font:inherit;font-size:14px;font-weight:650;cursor:pointer}.ds-tabs button[aria-current]{background:#f3f3f3;color:var(--ink,#171717);box-shadow:inset 0 -2px #262626}.ds-tabs button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}"
     },
     {
       "name": "选中 Scene",
       "kind": "custom",
       "refersTo": "scene-row-selected",
-      "description": "从当前工作台实现提取的静态视觉示例；状态由示例标记展示。",
-      "html": "<div class=\"ds-scene-row\" data-selected=\"true\"><span class=\"ds-scene-no\"><strong>01</strong><small>01A</small></span><span class=\"ds-scene-copy\"><span>让品质成为习惯，让信任成为日常。</span></span><span class=\"ds-scene-assets\"><b class=\"ds-cell-label\">ASSET</b><span>scene-01.png</span></span><span class=\"ds-scene-speech\"><b class=\"ds-cell-label\">SPEECH</b><span>已生成 · 1.92 秒</span><button class=\"ds-speech-action\">重新生成</button></span></div>",
-      "css": ".ds-scene-row{position:relative;width:100%;height:var(--row-h,112px);display:grid;grid-template-columns:80px minmax(240px,1fr) 150px 118px;align-items:stretch;padding:0;border:0;border-bottom:1px solid #afb4ae;background:transparent;color:var(--ink,#171b1b);cursor:pointer;text-align:left}\n.ds-scene-row:hover{background:var(--paper-hover,#e4e8df)}\n.ds-scene-row[data-selected=\"true\"]{z-index:1;background:#fafbf5;box-shadow:inset 0 0 0 3px var(--blue,#4e88df)}\n.ds-scene-row[data-selected=\"true\"]:before{content:\"\";position:absolute;z-index:2;left:5px;top:50%;width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;border-left:11px solid var(--blue-deep,#245da9);transform:translateY(-50%)}\n.ds-scene-no,.ds-scene-copy,.ds-scene-assets,.ds-scene-speech{border-right:1px solid #c5c9c2}\n.ds-scene-no{display:grid;align-content:center;justify-items:center;gap:7px;font-family:\"Narracut Display\",sans-serif;font-stretch:75%;font-variation-settings:\"wdth\" 75}\n.ds-scene-no strong{font-size:1.8rem;font-weight:720;line-height:1}\n.ds-scene-no small{position:relative;color:var(--blue-deep,#245da9);font-family:\"Narracut Display\",sans-serif;font-size:.76rem;font-stretch:82%;font-variation-settings:\"wdth\" 82,\"wght\" 700;font-weight:700;line-height:1;letter-spacing:.08em;transform:rotate(-4deg)}\n.ds-scene-row[data-selected=\"true\"] .ds-scene-no small:after{content:\"\";position:absolute;inset:-5px -9px;border:2px solid var(--blue-deep,#245da9);border-radius:48% 52% 45% 55%;transform:rotate(7deg)}\n.ds-scene-copy{min-width:0;display:flex;align-items:center;padding:16px 22px}\n.ds-scene-copy span{display:-webkit-box;overflow:hidden;color:#171b1b;font-size:clamp(.9rem,1.18vw,1.13rem);font-weight:680;line-height:1.65;-webkit-box-orient:vertical;-webkit-line-clamp:2}\n.ds-scene-assets,.ds-scene-speech{display:flex;flex-direction:column;justify-content:center;gap:7px;padding:12px 16px}\n.ds-cell-label{color:#626866;font:700 .62rem/1 ui-monospace,monospace;letter-spacing:.07em;text-transform:uppercase}\n@media(max-width:900px){.ds-scene-header,.ds-scene-row{grid-template-columns:70px minmax(220px,1fr) 120px}\n.ds-scene-speech,.ds-scene-header span:last-child{display:none}}\n@media(max-width:700px){.ds-scene-header,.ds-scene-row{grid-template-columns:56px minmax(190px,1fr) 96px}\n.ds-scene-no strong{font-size:1.35rem}\n.ds-scene-copy{padding:12px}\n.ds-scene-copy span{font-size:.82rem}\n.ds-scene-assets{padding:9px}}\n.ds-scene-row{cursor:default}\n.ds-scene-copy{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}\n.ds-scene-row[data-dragging=\"true\"]{opacity:.48}\nbutton.ds-scene-assets{width:100%;min-width:0;border-top:0;border-bottom:0;border-left:0;background:transparent;color:var(--ink,#171b1b);cursor:pointer;text-align:left}\n.ds-scene-row:hover button.ds-scene-assets{background:rgba(78,136,223,.035)}\nbutton.ds-scene-assets:hover .ds-cell-value{color:var(--blue-deep,#245da9)}\nbutton.ds-scene-assets:disabled{cursor:not-allowed}\n@media(max-width:700px){.ds-scene-row{grid-template-columns:56px minmax(210px,1fr) 96px}\n.ds-scene-copy{padding:8px 10px}}\n.ds-scene-header,.ds-scene-row{grid-template-columns:80px minmax(240px,1fr) 150px 154px}\n.ds-scene-speech{position:relative;padding-right:58px}\n.ds-scene-speech .ds-status-mark{width:9px;height:9px;flex:0 0 auto}\n.ds-speech-action{position:absolute;right:7px;bottom:7px;min-width:44px;min-height:44px;border:1px solid var(--blue-deep,#245da9);border-radius:6px;background:var(--paper,#f1f3eb);color:var(--blue-deep,#245da9);padding:0 7px;cursor:pointer;font-size:.62rem;font-weight:760}\n.ds-speech-action:hover:not(:disabled){border-color:var(--blue-deep,#245da9);background:var(--paper-hover,#e4e8df)}\n.ds-speech-action:disabled{cursor:not-allowed;opacity:.45}\n@media(max-width:900px){.ds-scene-header,.ds-scene-row{grid-template-columns:70px minmax(220px,1fr) 120px 146px}\n.ds-scene-speech,.ds-scene-header span:last-child{display:flex}\n.ds-scene-speech{padding:8px 54px 8px 10px}\n.ds-speech-action{right:5px;bottom:5px}}\n@media(max-width:700px){.ds-scene-header,.ds-scene-row{grid-template-columns:52px minmax(156px,1fr) 138px}\n.ds-scene-assets,.ds-scene-header span:nth-child(3){display:none}\n.ds-scene-speech,.ds-scene-header span:last-child{display:flex}\n.ds-scene-copy{grid-template-columns:minmax(0,1fr);align-content:start;padding:8px 9px 48px}\n.ds-scene-copy .ds-edit-narration{position:absolute;right:9px;bottom:4px;min-height:44px}\n.ds-scene-copy:has(.ds-narration-editor-wrap){padding:8px 9px}\n.ds-scene-copy span{font-size:.78rem}\n.ds-scene-speech{padding-left:8px;padding-right:51px}\n.ds-speech-action{right:4px}}\n:host{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;} button:focus-visible,textarea:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}"
+      "description": "连续表格中的一行；长文本自然增长。",
+      "html": "<div class=\"ds-row\"><span>01</span><span>在每一个认真生活的日常里，总有一些被忽略的细节。</span><span>未绑定 · 添加</span><span>● 已生成 1.7 秒</span></div>",
+      "css": ".ds-row{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 190px;min-height:52px;background:var(--control,#f5f5f5);color:var(--ink,#171717);border-bottom:1px solid var(--line,#e3e3e3);font-size:14px;line-height:1.65}.ds-row span{padding:8px 12px;overflow-wrap:anywhere}.ds-row span:nth-child(n+3){font-size:12px;color:var(--muted,#626262)}"
     },
     {
-      "name": "Video Brief 编辑面",
-      "kind": "input",
-      "refersTo": "brief-editor",
-      "description": "从当前工作台实现提取的静态视觉示例；状态由示例标记展示。",
-      "html": "<section class=\"ds-brief-editor-main\" style=\"height:320px\"><label aria-label=\"Video Brief\"><textarea aria-label=\"Video Brief\"># 视频创作意图\n\n让产品细节成为叙事主线。</textarea></label></section>",
-      "css": ".ds-brief-editor-main{min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto auto;gap:0;padding:22px;background:var(--film,#050707)}\n.ds-brief-editor-main>label{min-height:0}\n.ds-brief-editor-main textarea{width:100%;height:100%;resize:none;border:1px solid var(--preview-label,#7f8a87);border-radius:2px;background-color:var(--paper,#f1f3eb);background-image:linear-gradient(rgba(241,243,235,.94),rgba(241,243,235,.94)),var(--paper-texture,none);color:var(--ink,#171b1b);padding:24px;caret-color:var(--blue-deep,#245da9);font:500 .9rem/1.75 ui-monospace,SFMono-Regular,Consolas,monospace;tab-size:2}\n.ds-brief-editor-main>footer{display:flex;justify-content:space-between;gap:16px;padding:12px 2px 0;color:var(--preview-muted,#909a97);font:600 .63rem/1.4 ui-monospace,monospace}\n@media(max-width:700px){.ds-brief-editor-main{padding:10px}\n.ds-brief-editor-main textarea{padding:16px;font-size:.82rem}\n.ds-brief-editor-main>footer{align-items:flex-end;font-size:.58rem}\n.ds-brief-editor-main>footer span:last-child{text-align:right}}\n:host{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;} button:focus-visible,textarea:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}"
-    },
-    {
-      "name": "候选审阅任务状态",
-      "kind": "card",
-      "refersTo": "agent-panel",
-      "description": "紧凑任务状态先行，当前创作指令与任务身份收进详情；创作和继续使用当前 Codex 对话。",
-      "html": "<section class=\"ds-agent-panel ds-creation-panel\"><header class=\"ds-agent-head\"><h1>候选审阅</h1><p>创作、继续任务或新目标接管，请在当前 Codex 对话中表达。</p></header><div class=\"ds-creation-state\"><i class=\"ds-status-mark\" data-status=\"running\" aria-hidden=\"true\"></i><h2>运行中</h2><p>读取项目</p></div><div class=\"ds-creation-details\"><button class=\"ds-agent-action\">停止任务</button></div><details class=\"ds-creation-details\"><summary>当前创作指令与任务详情</summary><p>让产品细节成为叙事主线。</p><dl><dt>Task ID</dt><dd>示例任务</dd><dt>最后保存阶段</dt><dd>读取项目</dd></dl></details></section>",
-      "css": ".ds-agent-panel{height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;border:1px solid #3d4546;border-radius:9px;background-color:#0d1213;background-image:linear-gradient(rgba(13,18,19,.93),rgba(13,18,19,.93)),var(--film-texture,none);background-size:auto,560px 560px;overflow:hidden;box-shadow:0 18px 54px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.035)}\n.ds-agent-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:24px;padding:28px 30px 24px;border-bottom:1px solid #364041}\n.ds-agent-head h1{max-width:18ch;margin:0;color:#f1f3ee;font-family:\"Narracut Display\",sans-serif;font-size:clamp(1.65rem,3.2vw,2.75rem);font-stretch:75%;font-variation-settings:\"wdth\" 75,\"wght\" 760;font-weight:760;letter-spacing:-.025em;line-height:1}\n.ds-agent-head p{max-width:68ch;margin:13px 0 0;color:#adb6b3;font-size:.82rem;line-height:1.7}\n.ds-status-mark{width:10px;height:10px;border:2px solid #76817e;border-radius:50%}\n.ds-status-mark[data-status=\"running\"]{border-color:var(--blue,#4e88df);background:var(--blue,#4e88df);box-shadow:none}\n.ds-status-mark[data-status=\"succeeded\"],.ds-status-mark[data-status=\"connected\"]{border-color:var(--green,#67c477);background:var(--green,#67c477);box-shadow:none}\n.ds-status-mark[data-status=\"stopped\"],.ds-status-mark[data-status=\"unavailable\"]{border-color:var(--amber,#d89a3d);border-radius:2px}\n.ds-agent-actions{display:flex;align-items:center;gap:10px;padding:16px 30px;border-top:1px solid #364041;background:#0a0f10}\n.ds-agent-action{min-width:126px;min-height:44px;border:1px solid #465152;border-radius:6px;background:#151b1c;color:#d4dad7;cursor:pointer;font-size:.78rem;font-weight:680}\n.ds-agent-action:hover:not(:disabled){border-color:#72807e;background:#1a2223}\n.ds-agent-action[data-kind=\"primary\"]{border-color:#4e88df;background:#245da9;color:#fff}\n.ds-agent-action[data-kind=\"primary\"]:hover:not(:disabled){background:#2e6abb}\n.ds-agent-action[data-kind=\"stop\"]{color:#e1b36c}\n.ds-agent-action:disabled{cursor:not-allowed;color:#68716f;border-color:#2c3435;background:#111617;opacity:.72}\n.ds-agent-head h1{max-width:none;white-space:nowrap}\n@media(max-width:700px){.ds-agent-panel{overflow:auto}\n.ds-agent-head{grid-template-columns:1fr;gap:14px;padding:21px 18px 18px}\n.ds-agent-head h1{font-size:1.65rem}\n.ds-agent-actions{flex-direction:column;align-items:stretch;padding:14px 18px}\n.ds-agent-action{width:100%;min-height:44px}}\n@media(max-width:700px){.ds-agent-panel{height:auto;min-height:100%;grid-template-rows:auto auto auto;overflow:visible}\n.ds-agent-head h1{font-size:clamp(1.3rem,6vw,1.65rem)}}\n.ds-creation-panel .ds-agent-head{ grid-template-columns: 1fr; }\n.ds-creation-panel .ds-agent-head h1{ font-size: 1.35rem; }\n.ds-creation-instruction{ white-space: pre-wrap; overflow-wrap: anywhere; max-width: 72ch; }\n.ds-creation-state{ padding: 20px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }\n.ds-creation-state h2{ font-size: 1.1rem; margin: 0; }\n.ds-creation-state p{ color: #aab3b0; margin: 0; }\n.ds-creation-panel summary{ min-height: 44px; cursor: pointer; padding-block: 12px; }\n.ds-creation-panel .ds-agent-diagnostic{ margin: 0 24px 20px; }\n.ds-creation-panel .ds-agent-diagnostic h3{ font-size: 1rem; margin: 0; }\n.ds-creation-state:has(+ .ds-agent-diagnostic [data-continue-external]) .ds-status-mark{ border-radius:0; background:#e1b36c; }\n@media(max-width:600px){[data-continue-external], .ds-task-notice .ds-agent-action{ width:100%; min-height:44px; }}\n.ds-scene-speech .ds-status-mark{width:9px;height:9px;flex:0 0 auto}\n.ds-brief-conflict-copy .ds-status-mark{margin-top:5px}\n#workspace-agent .ds-agent-panel{min-height:0}\n:host{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;} button:focus-visible,textarea:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}\n.ds-creation-panel{height:auto;min-height:0;box-shadow:none;display:block}.ds-creation-panel .ds-agent-head{padding:16px 24px;gap:6px}.ds-creation-panel .ds-creation-state{padding:12px 24px}.ds-creation-panel .ds-creation-details{padding:0 24px;margin-block:8px}.ds-creation-panel h2{font-size:1rem}.ds-creation-panel p{max-width:75ch;overflow-wrap:anywhere}.ds-creation-details summary{cursor:pointer;min-height:44px}.ds-creation-details dl{display:grid;grid-template-columns:minmax(90px,auto) minmax(0,1fr);gap:12px}.ds-creation-details dd{margin:0;overflow-wrap:anywhere}.ds-creation-panel :focus-visible{outline:2px solid #4e88df;outline-offset:3px;box-shadow:0 0 0 5px rgba(78,136,223,.24)}@media(max-width:700px){.ds-creation-panel .ds-agent-head{padding:14px 16px}.ds-creation-panel .ds-creation-state{padding:12px 16px}.ds-creation-panel .ds-creation-details{padding-inline:16px}}"
-    },
-    {
-      "name": "成片 Preview",
+      "name": "共享反馈",
       "kind": "custom",
-      "description": "一次展示一个版本；对比操作和正在查看版本可见，详细新鲜度证据折叠。示例仅展示待构建状态。",
-      "html": "<section class=\"ds-program-preview\"><header><h2>成片 Preview</h2><div class=\"ds-preview-versions\"><button disabled>对比当前</button><button>构建当前版本</button><button>构建候选</button></div></header><details class=\"ds-preview-evidence\"><summary>版本与输入新鲜度</summary><div class=\"ds-preview-comparison\" aria-label=\"当前与候选状态对照\"><section><button aria-pressed=\"false\">当前修订 · 切换查看</button><span class=\"ds-version-label\">当前修订预览</span><p>尚未构建</p><dl><div><dt>Brief</dt><dd>状态未知</dd></div><div><dt>项目输入</dt><dd>状态未知</dd></div><div><dt>Media Revision</dt><dd>状态未知</dd></div><div><dt>执行环境</dt><dd>状态未知</dd></div></dl><p class=\"ds-version-eligibility\">尚无可播放 Preview</p></section><section><button aria-pressed=\"false\" disabled>候选</button><span class=\"ds-version-label\">候选预览</span><p>尚未构建</p><dl><div><dt>Brief</dt><dd>状态未知</dd></div><div><dt>项目输入</dt><dd>状态未知</dd></div><div><dt>Media Revision</dt><dd>状态未知</dd></div><div><dt>执行环境</dt><dd>状态未知</dd></div></dl><p class=\"ds-version-eligibility\">尚无可播放 Preview</p></section></div></details><p class=\"ds-preview-stale\" role=\"status\">尚无可播放 Preview</p><p role=\"status\">构建 Preview 后查看成片。</p><button disabled>播放</button><details><summary>预览详情</summary><p>不可变执行身份与新鲜度证据</p></details></section>",
-      "css": ".ds-program-preview{background:var(--panel,#0d1213);color:var(--paper,#f1f3eb);padding:16px}.ds-program-preview button,.ds-program-preview summary{min-height:44px}.ds-program-preview button{padding:8px 14px;color:var(--paper,#f1f3eb);background:var(--control,#151b1c);border:1px solid var(--preview-control-line,#4a5556);cursor:pointer}.ds-program-preview header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.ds-program-preview button:disabled{opacity:.5;cursor:default}.ds-program-preview button:hover{border-color:var(--focus-blue,#9dbcf0)}.ds-program-preview button[aria-pressed=true]{border-color:var(--focus-blue,#9dbcf0);background:var(--stage,#111718)}.ds-program-preview :focus-visible{outline:2px solid var(--focus-blue,#9dbcf0);outline-offset:3px}.ds-preview-stale{color:var(--amber,#d89a3d)}.ds-preview-screen{height:min(34vh,360px);min-height:220px;background:var(--film,#050707);margin:16px 0}.ds-program-preview output{display:block;margin:16px 0;color:var(--preview-copy,#aab3b0);font-variant-numeric:tabular-nums}.ds-program-preview summary{display:flex;align-items:center;cursor:pointer;color:var(--muted,#909997)}@media(max-width:700px){.ds-preview-screen{height:32vh;min-height:180px}}.ds-preview-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:20px;border-block:1px solid var(--separator,#364041);padding-block:16px}.ds-preview-comparison section{min-width:0}.ds-preview-comparison button[aria-pressed=true]:disabled{opacity:1;color:var(--paper,#f1f3eb)}.ds-version-label{display:block;margin-top:10px;color:var(--preview-copy,#aab3b0);font-size:.79rem;overflow-wrap:anywhere}.ds-preview-comparison p{font-size:.72rem;line-height:1.6;margin:8px 0;color:var(--preview-copy,#aab3b0)}.ds-preview-comparison dl{margin:14px 0}.ds-preview-comparison dl>div{display:flex;justify-content:space-between;gap:12px;margin-block:8px;font-size:.72rem;line-height:1.5}.ds-preview-comparison dt{color:var(--preview-copy,#aab3b0)}.ds-preview-comparison dd{margin:0;color:var(--paper,#f1f3eb);text-align:right}.ds-preview-comparison .ds-version-eligibility{color:var(--amber,#d89a3d)}@media(max-width:700px){.ds-preview-comparison{grid-template-columns:minmax(0,1fr);gap:16px}.ds-preview-comparison section+section{border-top:1px solid var(--separator,#364041);padding-top:16px}}\n.ds-program-preview header{align-items:flex-start}.ds-program-preview h2{font-size:1.15rem;overflow-wrap:anywhere}.ds-preview-versions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.ds-preview-evidence{margin-top:16px;border-top:1px solid var(--line,#303738)}.ds-program-preview .ds-preview-screen{height:auto;min-height:0;max-height:60vh;width:100%;margin-block:16px}@media(max-width:700px){.ds-preview-versions{gap:8px}.ds-program-preview header{gap:12px}}"
-    },
-    {
-      "name": "候选交付与代表帧证据",
-      "kind": "custom",
-      "description": "当前工作台的版本审阅与证据展示；示例状态不代表实际项目结果。",
-      "html": "<section class=\"ds-delivery-panel\"><header><h2>候选交付</h2><strong data-delivery-state role=\"status\">尚未齐备</strong></header><dl><div><dt>目标</dt><dd>等待 Agent 提交本次目标</dd></div><div><dt>变更摘要</dt><dd>等待 Agent 提交具体变更</dd></div><div><dt>候选身份</dt><dd>尚未绑定候选 Preview</dd></div><div><dt>输入新鲜度</dt><dd>尚未确认</dd></div><div><dt>检查结果</dt><dd>尚未检查候选</dd></div></dl><ul><li>先创建候选并构建候选 Preview，系统将在就绪后准备证据。</li></ul><div class=\"ds-delivery-actions\"><button>查看候选 Preview</button><button>准备候选证据</button><button>查看检查详情</button></div><p data-delivery-progress>基础覆盖等待 Preview 时间线</p><div class=\"ds-delivery-report\"><section><h3>非阻断警告</h3><p>等待 Agent 提交完整警告清单。</p></section><section><h3>Scene 修改建议</h3><p>等待 Agent 提交建议；建议不会直接修改 Scene。</p></section></div><details><summary>展开代表帧证据</summary><p>等待候选 Preview 代表帧。</p></details><details><summary>完整覆盖计划与身份</summary><p>等待完整计划。</p></details><p class=\"ds-delivery-footnote\">代表帧检查不记录用户观看范围，也不自动判定审美质量。接受不代表最终 Render 已完成。</p></section>",
-      "css": ".ds-delivery-panel{margin:16px 24px;padding:24px;background:var(--panel,#0d1213);border-block:1px solid var(--separator,#364041);min-width:0;color:var(--paper,#f1f3eb);font-size:.79rem;line-height:1.75}\n.ds-delivery-panel header{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap}.ds-delivery-panel h2{font-size:1.35rem;margin:0}.ds-delivery-panel h3{font-size:.96rem;margin:0 0 12px}.ds-delivery-panel h4{font-size:.84rem;margin:0 0 16px}.ds-delivery-panel h5{font-size:.79rem;margin:16px 0 12px}\n.ds-delivery-panel p{max-width:75ch;margin:8px 0}.ds-delivery-panel dl{margin:20px 0}.ds-delivery-panel dl>div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:16px;padding:8px 0}.ds-delivery-panel dt{color:var(--preview-copy,#aab3b0)}.ds-delivery-panel dd{margin:0;overflow-wrap:anywhere}.ds-delivery-panel code{display:block;color:var(--preview-copy,#aab3b0);font-size:.72rem;overflow-wrap:anywhere}.ds-delivery-panel pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.72rem}.ds-delivery-panel ul{padding-left:20px;color:var(--asset-warning-copy,#d0b07d)}\n.ds-delivery-panel button{min-height:44px;padding:8px 14px;border:1px solid var(--preview-control-line,#4a5556);background:var(--control,#151b1c);color:var(--paper,#f1f3eb);cursor:pointer;border-radius:6px}.ds-delivery-panel button:hover:not(:disabled){border-color:var(--focus-blue,#9dbcf0)}.ds-delivery-panel button:disabled{opacity:.55;cursor:default}.ds-delivery-panel :focus-visible{outline:2px solid var(--focus-blue,#9dbcf0);outline-offset:3px;box-shadow:none}\n.ds-delivery-actions{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.ds-delivery-report{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:24px 0;padding-block:24px;border-block:1px solid var(--separator,#364041)}.ds-delivery-report section{min-width:0}.ds-delivery-report article+article{margin-top:20px;padding-top:20px;border-top:1px solid var(--separator,#364041)}.ds-delivery-report article button{margin:8px 8px 0 0}\n.ds-delivery-panel [data-delivery-state],.ds-delivery-notice{color:var(--amber,#d89a3d)}.ds-delivery-panel [data-delivery-state][data-state=ready]{color:var(--green,#67c477)}.ds-delivery-panel [data-delivery-progress]{font-variant-numeric:tabular-nums;color:var(--preview-copy,#aab3b0)}.ds-delivery-panel summary{min-height:44px;padding-block:10px;cursor:pointer;color:var(--paper,#f1f3eb)}.ds-delivery-footnote{color:var(--preview-copy,#aab3b0);font-size:.72rem;padding-top:16px}\n.ds-delivery-scene{padding:24px 0;border-top:1px solid var(--separator,#364041)}.ds-delivery-filmstrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.ds-delivery-boundary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ds-delivery-panel figure{margin:0;min-width:0}.ds-delivery-panel figcaption{overflow-wrap:anywhere;font-variant-numeric:tabular-nums}.ds-delivery-panel figcaption small{display:block;color:var(--preview-copy,#aab3b0)}.ds-delivery-panel figure>button{width:100%;margin-top:8px}.ds-delivery-panel [data-enlarge]{display:block;min-height:100px;padding:0;background:var(--film,#050707);overflow:hidden}.ds-delivery-panel [data-enlarge] img{display:block;width:100%;height:140px;object-fit:contain}.ds-delivery-panel [data-enlarge] img[hidden]{display:none}.ds-delivery-panel figure:has(.ds-delivery-enlarged){grid-column:1/-1}.ds-delivery-panel [data-enlarge].ds-delivery-enlarged img{height:auto;min-height:100px}.ds-delivery-panel [data-enlarge] span{display:block;padding:12px}.ds-delivery-panel [data-enlarge] span[hidden]{display:none}.ds-delivery-pages{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-block:16px}.ds-delivery-pages span{color:var(--preview-copy,#aab3b0)}.ds-delivery-panel [data-full-plan] ol{padding-left:24px;overflow-wrap:anywhere}\n@media(max-width:700px){.ds-delivery-panel{margin:10px;padding:16px}.ds-delivery-panel dl>div{grid-template-columns:1fr;gap:2px}.ds-delivery-report{grid-template-columns:1fr}.ds-delivery-filmstrip{grid-template-columns:1fr}.ds-delivery-boundary{gap:8px}.ds-delivery-boundary button{padding-inline:6px;font-size:.72rem}.ds-delivery-panel [data-enlarge] img{height:110px}.ds-delivery-pages{flex-wrap:wrap}}",
-      "refersTo": "delivery-panel"
-    },
-    {
-      "name": "当前对话指引",
-      "kind": "custom",
-      "description": "工作台底部的常驻说明，不提供输入框或发起创作按钮。",
-      "html": "<footer class=\"ds-conversation-footer\">在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。</footer>",
-      "css": ".ds-conversation-footer{padding:12px 20px;border-top:1px solid var(--line,#303738);background:var(--shell,#101516);color:var(--paper,#f1f3eb);font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;font-size:14px;line-height:1.65}@media(max-width:700px){.ds-conversation-footer{padding:10px 12px}}"
+      "refersTo": "shared-feedback",
+      "description": "两个工作区共同显示；示例为保存失败后的恢复操作。",
+      "html": "<section class=\"ds-feedback\" aria-label=\"保存与连接状态\"><span role=\"status\">保存失败 · 本地编辑尚未保存</span><button>重试保存</button><button>返回编辑</button></section>",
+      "css": ".ds-feedback{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 16px;font-size:12px;line-height:1.6;color:var(--muted,#626262);border-bottom:1px solid var(--line,#e3e3e3)}.ds-feedback button{min-height:32px;padding:4px 10px;background:#fff;border:1px solid var(--line,#e3e3e3);border-radius:6px;color:var(--ink,#171717);font:inherit;cursor:pointer}.ds-feedback button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}"
     }
   ],
   "narrative": {
-    "northStar": "暗房接触印样台",
-    "overview": "Narracut 的工作台是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和纸张/胶片纹理构成既有视觉识别。\n\n触感来自材料与结构。Scene 表格以连续纸面承载密集编辑，检查面板使用暗色侧台；Agent 创作指令、候选、检查、交付与最终 Render 沿暗色纵向工作面排列，以标题、分隔线、状态和下一步操作组织信息。底部仅显示当前 Codex 对话的创作指引，不提供输入框或发起创作按钮。Preview 保留画面比例，详细身份和证据收进可展开区域。\n\n本次刷新依据 `plugins/narracut/workbench.html` 的最终 CSS 层叠、`workbench.js` 及 Preview、检查、交付、接受和 Render 模块；桌面与移动端表格已用当前构建截图核对。本文记录已实现的视觉约定，产品规则以 PRODUCT.md 与项目规范为准，不把旧阶段的功能禁用状态固化为设计禁令。",
+    "northStar": "浅色连续 Scene 编辑台",
+    "overview": "白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮服务密集脚本编辑。#109 已迁移视觉基础；Agent 与启动器仍沿现有模块布局，第 2 批候选审阅和第 3 批导航及项目入口重排尚未落地。页面自动化和截图不等于真实 Codex 宿主验收。",
     "keyCharacteristics": [
-      "深色外壳包围暖白接触表，Scene 内容拥有最高亮度。",
-      "Narration、Asset 摘要和 Speech 状态采用稳定列与连续行，编辑入口贴近内容。",
-      "项目检查在窄屏转为抽屉；移动端保留 Narration 与 Speech，Asset 从检查入口管理。",
-      "Agent 以当前创作指令和下一步操作为中心，技术身份折叠，沿用状态台而非聊天气泡。",
-      "候选审阅以版本标记、过期提示、检查结果和代表帧证据建立层级；接受与最终输出各有明确操作区。",
-      "蓝色、绿色与琥珀配合文字、轮廓和形状表达选择、进度与需要处理的状态。",
-      "自托管窄体展示字、中文 UI sans 与等宽标签分别承担身份、内容和机器事实。",
-      "本地内嵌纸张与胶片材料、受减少动态效果偏好控制的灯箱首现动效维持材料感。"
+      "Narration、Asset、Speech 同行，长文本自然展开。",
+      "Narration 原位编辑，blur 保存并保护 IME 输入。",
+      "共享保存与连接反馈在两个工作区均可见。",
+      "所有尺寸使用按需检查抽屉，窄屏保留四列横滚并同步表头。"
     ],
     "rules": [
       {
-        "name": "The Proofing Blue Rule",
-        "body": "校片蓝用于当前工作区、焦点、显式选择、运行状态与主要操作；选中状态还必须拥有线框、位置标记或文字语义。",
+        "name": "内容权威",
+        "body": "表格工作区独占 Scene 内容写入，Agent 仅提出 Scene 修改建议。",
+        "section": "components"
+      },
+      {
+        "name": "状态证据",
+        "body": "颜色配合文字或形状；本地编辑不冒充持久结果，过期 Preview 不冒充最新候选。",
         "section": "colors"
       },
       {
-        "name": "The Amber Boundary Rule",
-        "body": "琥珀只说明胶片边码、只读边界与需要注意的诊断，不把整块面板染成警告色。",
-        "section": "colors"
-      },
-      {
-        "name": "The Lit Content Rule",
-        "body": "最高亮度留给 Scene 内容纸面；暗房中的导航、检查和底部指引 不得与接触表争夺亮度。",
-        "section": "colors"
-      },
-      {
-        "name": "The Status Shape Rule",
-        "body": "任务状态必须同时有文字与形状：蓝色实心圆点是运行，绿色实心圆点是连接或成功，琥珀方形轮廓是停止或不可用。",
-        "section": "colors"
-      },
-      {
-        "name": "The Three Voices Rule",
-        "body": "展示字负责身份与校片，中文 UI sans 负责内容，等宽体负责机器事实；不要用展示字排中文长文，也不要用等宽体承担 Narration。",
-        "section": "typography"
-      },
-      {
-        "name": "The Persistent Workspace Rule",
-        "body": "切换工作区保留 Scene 选择、候选与 Preview 版本，仅暂停隐藏播放器，不停止任务或触碰当前 Codex Composer。",
+        "name": "实现边界",
+        "body": "参考原型只说明方向，后续布局以对应工单为准；截图不证明真实宿主集成已验收。",
         "section": "layout"
-      },
-      {
-        "name": "The One Lightbox Rule",
-        "body": "每个工作区最多有一个背光主面；不要把普通面板、按钮或提示也做成发光玻璃。",
-        "section": "elevation"
-      },
-      {
-        "name": "The Cut Edge Rule",
-        "body": "圆角用于可触控控件和整张材料框，不用于把每条 Scene、每项检查或每段文字包成卡片。",
-        "section": "shapes"
       }
     ],
     "dos": [
-      "**Do** 让 Narration 占据纸面主阅读列，让项目身份、连接文字和当前对话指引 在窄屏继续可达。",
-      "**Do** 用校片线、形状、文字及程序化状态共同表达选择、任务和检查结果。",
-      "**Do** 区分纸面编辑控件与暗面审阅控件，复用已有小圆角和结构描边。",
-      "**Do** 保持 Preview 的完整比例，过期提示和正在查看版本各自可见。",
-      "**Do** 让技术身份、完整证据与历史详情可展开，主面优先显示用户要处理的内容和下一步。",
-      "**Do** 尊重 `prefers-reduced-motion`，将材料动效限制在有界首现反馈。"
+      "保持连续四列表格与按内容增长的行高。",
+      "使用白底、近黑正文、轻边框和深色主按钮。",
+      "保留键盘焦点与可执行的失败恢复入口。",
+      "保持创作在 Codex 当前对话，接受候选与最终 Render 分开表达。"
     ],
     "donts": [
-      "**Don't** 把连续接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。",
-      "**Don't** 用颜色作为选择、连接、有效或不可用的唯一信号。",
-      "**Don't** 把旧阶段的“发送尚未启用”或“只读验证”作为当前创作界面的固定文案。",
-      "**Don't** 用每项独立阴影、大量圆角卡片或聊天气泡替换当前的状态与审阅分区。",
-      "**Don't** 用短暂成功提示遮盖 Preview 的过期状态，或把接受完成表现为最终 Render 完成。",
-      "**Don't** 引入霓虹 AI、玻璃拟态或渐变品牌面，稀释暗房与接触印样的材料逻辑。"
+      "不要恢复暗房材料、纹理、灯箱动画或装饰边码。",
+      "不要在窄屏隐藏 Asset 或 Speech 列。",
+      "不要让常驻检查侧栏占用表格宽度。",
+      "不要把后续候选审阅和单行导航设计写为已落地。"
     ]
   }
 }

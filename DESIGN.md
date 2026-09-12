@@ -1,363 +1,168 @@
 ---
-name: Narracut VNext Workbench
-description: 以暗房接触印样组织 Scene 编辑、Agent 创作、候选审阅与成片输出的工作台。
+name: Narracut
+description: 浅色连续 Scene 编辑台，以脚本内容和可核对状态组织工作。
 colors:
-  darkroom: "#090d0e"
-  shell: "#101516"
-  film: "#050707"
-  stage: "#111718"
-  panel: "#0d1213"
-  control: "#151b1c"
-  line: "#303738"
-  separator: "#364041"
-  paper: "#f1f3eb"
-  paper-hover: "#e4e8df"
-  paper-selected: "#fafbf5"
-  ink: "#171b1b"
-  muted: "#909997"
-  proof-blue: "#4e88df"
-  proof-blue-deep: "#245da9"
-  readonly-amber: "#d89a3d"
-  connected-green: "#67c477"
-  focus-blue: "#9dbcf0"
-  high-contrast-white: "#ffffff"
-  asset-divider: "#343d3e"
-  preview-frame: "#485152"
-  preview-control-line: "#4a5556"
-  blue-control-hover: "#6f8db8"
-  preview-label: "#7f8a87"
-  asset-muted: "#8f9996"
-  preview-muted: "#909a97"
-  asset-path-muted: "#919b98"
-  asset-search-label: "#9aa4a1"
-  preview-copy: "#aab3b0"
-  import-ledger-copy: "#b7c0bd"
-  preview-code: "#c0c8c5"
-  preview-value: "#c8cecb"
-  asset-fact-value: "#c8cfcc"
-  asset-warning-copy: "#d0b07d"
-  asset-capacity-copy: "#d7b57f"
-  asset-control-copy: "#d7ddda"
-  asset-field-copy: "#e1e5e2"
-  project-asset-title: "#e2e6e3"
-  asset-title: "#e3e7e4"
-  preview-title: "#eef1ed"
-  asset-hover-tint: "rgba(78,136,223,.035)"
-  preview-scrim: "rgba(3,5,5,.9)"
+  paper: "#fff"
+  ink: "#171717"
+  muted: "#626262"
+  line: "#e3e3e3"
+  panel: "#fafafa"
+  control: "#f5f5f5"
+  primary: "#242424"
+  tab-selected: "#f3f3f3"
+  tab-indicator: "#262626"
+  focus-blue: "#315e9a"
+  selection: "#dce7f4"
+  green: "#28743a"
+  amber: "#895211"
+  editor-line: "#9a9a9a"
 typography:
-  display:
-    fontFamily: '"Narracut Display", sans-serif'
-    fontSize: "clamp(1.45rem, 2.1vw, 2rem)"
-    fontWeight: 800
-    letterSpacing: "-0.035em"
-    fontVariation: '"wdth" 75, "wght" 800'
-  headline:
-    fontFamily: '"Narracut Display", sans-serif'
-    fontSize: "1.8rem"
-    fontWeight: 720
-    lineHeight: 1
-    fontVariation: '"wdth" 75'
-  title:
-    fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
-    fontSize: "clamp(0.9rem, 1.18vw, 1.13rem)"
-    fontWeight: 680
-    lineHeight: 1.65
   body:
     fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
-    fontSize: "0.79rem"
+    fontSize: "14px"
     fontWeight: 400
-    lineHeight: 1.75
-  label:
-    fontFamily: "ui-monospace, monospace"
-    fontSize: "0.62rem"
-    fontWeight: 700
-    lineHeight: 1
-    letterSpacing: "0.07em"
-  control:
+    lineHeight: 1.65
+  brand:
     fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
-    fontSize: "0.96rem"
-    fontWeight: 650
+    fontSize: "17px"
+    fontWeight: 800
+    letterSpacing: "0"
+  label:
+    fontSize: "12px"
+    fontWeight: 500
+    lineHeight: 1.5
+  scene-number:
+    fontSize: "13px"
+    fontWeight: 500
+    lineHeight: 1.5
+  detail:
+    fontSize: "11px"
 rounded:
-  micro: "2px"
+  flat: "0"
   control: "6px"
-  field: "7px"
-  compact-panel: "8px"
-  frame: "9px"
-  circle: "50%"
 spacing:
-  xs: "8px"
-  sm: "12px"
-  md: "14px"
-  lg: "16px"
-  panel: "20px"
-  copy: "22px"
-  frame: "24px"
+  xs: "4px"
+  sm: "8px"
+  cell: "12px"
+  stage: "16px"
+  tab: "20px"
 components:
-  workspace-tab:
-    backgroundColor: "transparent"
-    textColor: "#959d9a"
-    typography: "{typography.control}"
-    rounded: "0"
-    padding: "0 28px"
-    height: "54px"
-  workspace-tab-selected:
-    backgroundColor: "rgba(78, 136, 223, 0.08)"
-    textColor: "#ffffff"
-    typography: "{typography.control}"
-    rounded: "0"
-    padding: "0 28px"
-    height: "54px"
-  contact-frame:
-    backgroundColor: "{colors.film}"
-    textColor: "{colors.readonly-amber}"
-    rounded: "{rounded.frame}"
-    padding: "0 24px"
-  contact-sheet:
-    backgroundColor: "{colors.paper}"
-    textColor: "{colors.ink}"
-    rounded: "0"
-    padding: "0"
-  scene-row:
-    backgroundColor: "transparent"
-    textColor: "{colors.ink}"
-    typography: "{typography.title}"
-    rounded: "0"
-    padding: "0"
-    height: "112px"
-  scene-row-selected:
-    backgroundColor: "{colors.paper-selected}"
-    textColor: "{colors.ink}"
-    typography: "{typography.title}"
-    rounded: "0"
-    padding: "0"
-    height: "112px"
-  agent-panel:
-    backgroundColor: "{colors.panel}"
-    textColor: "#d5dbd8"
-    rounded: "{rounded.frame}"
-    padding: "0"
-  status-running:
-    backgroundColor: "{colors.proof-blue}"
-    rounded: "{rounded.circle}"
-    size: "10px"
-  status-success:
-    backgroundColor: "{colors.connected-green}"
-    rounded: "{rounded.circle}"
-    size: "10px"
-  status-stopped:
-    backgroundColor: "transparent"
-    textColor: "{colors.readonly-amber}"
-    rounded: "{rounded.micro}"
-    size: "10px"
-  agent-action-primary:
-    backgroundColor: "{colors.proof-blue-deep}"
-    textColor: "#ffffff"
-    rounded: "{rounded.control}"
-  agent-action-stop:
-    backgroundColor: "{colors.control}"
-    textColor: "#e1b36c"
-    rounded: "{rounded.control}"
-  agent-action-disabled:
-    backgroundColor: "#111617"
-    textColor: "#68716f"
-    rounded: "{rounded.control}"
-  delivery-panel:
-    backgroundColor: "{colors.panel}"
+  button-primary:
+    backgroundColor: "{colors.primary}"
     textColor: "{colors.paper}"
-    padding: "24px"
-  brief-editor:
+    rounded: "{rounded.control}"
+    padding: "4px 10px"
+  button-secondary:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
-    rounded: "{rounded.micro}"
-    padding: "24px"
-
+    rounded: "{rounded.control}"
+    padding: "4px 10px"
+  narration-editor:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    padding: "6px"
+    width: "100%"
+  workspace-tab-selected:
+    backgroundColor: "{colors.tab-selected}"
+    textColor: "{colors.ink}"
+    padding: "0 20px"
+  scene-row-selected:
+    backgroundColor: "{colors.control}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.flat}"
+  shared-feedback:
+    textColor: "{colors.muted}"
+    padding: "6px 16px"
 ---
 
-# Design System: Narracut VNext Workbench
+# Design System: Narracut
 
 ## Overview
 
-**Creative North Star: "暗房接触印样台"**
+**视觉方向：浅色连续 Scene 编辑台。** 白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。
 
-Narracut 的工作台是一座数字暗房：深黑框体压低环境噪声，一张背光纸面把有序 Scene 排成可快速扫描的接触印样。项目身份先于工具，Narration 先于缩略图，校片状态先于装饰；蓝色套准线、琥珀边码和纸张/胶片纹理构成既有视觉识别。
+本记录刷新已过时的“暗房接触印样台”体系。#109 已移除表格的暗色框体、纸张与胶片纹理、背光和装饰边码。Agent 工作区、启动器及宿主连接反馈的基础色已迁移到浅色；其具体布局仍沿现有模块。第 2 批候选审阅新布局、第 3 批单行分组导航及项目入口重排均不在本次已落地范围，后续以对应工单为准。
 
-触感来自材料与结构。Scene 表格以连续纸面承载密集编辑，检查面板使用暗色侧台；Agent 创作指令、候选、检查、交付与最终 Render 沿暗色纵向工作面排列，以标题、分隔线、状态和下一步操作组织信息。底部仅显示当前 Codex 对话的创作指引，不提供输入框或发起创作按钮。Preview 保留画面比例，详细身份和证据收进可展开区域。
+依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。当前页面证据为 `.impeccable/review/issue109-{902,960,1200,430}.png`。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。
 
-本次刷新依据 `plugins/narracut/workbench.html` 的最终 CSS 层叠、`workbench.js` 及 Preview、检查、交付、接受和 Render 模块；桌面与移动端表格已用当前构建截图核对。本文记录已实现的视觉约定，产品规则以 PRODUCT.md 与项目规范为准，不把旧阶段的功能禁用状态固化为设计禁令。
-
-**Key Characteristics:**
-
-- 深色外壳包围暖白接触表，Scene 内容拥有最高亮度。
-- Narration、Asset 摘要和 Speech 状态采用稳定列与连续行，编辑入口贴近内容。
-- 项目检查在窄屏转为抽屉；移动端保留 Narration 与 Speech，Asset 从检查入口管理。
-- Agent 以当前创作指令和下一步操作为中心，技术身份折叠，沿用状态台而非聊天气泡。
-- 候选审阅以版本标记、过期提示、检查结果和代表帧证据建立层级；接受与最终输出各有明确操作区。
-- 蓝色、绿色与琥珀配合文字、轮廓和形状表达选择、进度与需要处理的状态。
-- 自托管窄体展示字、中文 UI sans 与等宽标签分别承担身份、内容和机器事实。
-- 本地内嵌纸张与胶片材料、受减少动态效果偏好控制的灯箱首现动效维持材料感。
+- 连续表格优先，避免每个 Scene 独立成卡。
+- 内容按长度展开，选择、编辑与保存反馈可核对。
+- 表格全宽使用可用空间；项目检查按需打开抽屉。
+- 创作入口仍是 Codex 当前对话；Agent 工作区用于任务状态与候选审阅。
 
 ## Colors
 
-调色板在近黑暗房与低彩度纸面之间建立强明度反差，蓝色负责校片选择，琥珀和绿色只承担窄而明确的状态语义。
+主色是深灰 `primary`，用于新增 Scene 等主要操作；正文使用 `ink`，辅助文字使用 `muted`。`paper` 覆盖主工作面，`panel` 用于表头和底部指引等轻微分层，`line` 用于结构分隔。选中 Scene 用 `control`，当前工作区用 `tab-selected` 与底部 `tab-indicator` 同时标记。
 
-### Primary
-
-- **校片蓝** (`proof-blue`): 选中 Scene 的内描边、当前工作区下划线与 Agent 运行状态及可用操作反馈；它是操作反馈，不是大面积品牌填充。
-- **深校片蓝** (`proof-blue-deep`): Scene 边码、选择三角、纸面校片记号，以及创作、接受、Render 等主要操作的实色底。
-
-### Secondary
-
-- **只读琥珀** (`readonly-amber`): 胶片边码、只读标签、诊断代码、停止与不可用状态；稀少使用让边界保持可信。
-- **连接绿** (`connected-green`): 连接正常、控制文件有效、Speech 可用与检查通过等肯定状态。
-
-### Neutral
-
-- **暗房黑** (`darkroom`): 应用最外层画布。
-- **机身黑** (`shell`): 工作台框体与稳定结构面。
-- **胶片黑** (`film`): 接触表外框，让边码与纸面亮度成立。
-- **舞台黑** (`stage`): 主工作区地面与 Agent 结果凭证单元。
-- **状态台黑** (`panel`): 项目检查、空/错误面与 Agent 创作框体。
-- **控件黑** (`control`): 休止态按钮、抽屉控件与锁定器件。
-- **结构线** (`line`): 暗色区域的边界与分隔。
-- **状态分隔** (`separator`): Agent 标题、任务、结果与操作区之间的结构分隔。
-- **背光纸白** (`paper`): Scene 接触表的主阅读面。
-- **纸面悬停** (`paper-hover`): 可激活 Scene 行的指针反馈。
-- **选中纸白** (`paper-selected`): 被校片线框住的当前 Scene。
-- **纸面墨色** (`ink`): Narration、Scene 编号与纸面主要信息。
-- **暗房灰** (`muted`): 未激活标签、次级状态与低优先级元数据。
-- **Asset 信息阶** (`asset-*` / `preview-*`): Asset 面板与预览层的结构线、事实文字、路径和警告使用已提取的低彩度灰阶；这些色阶不进入接触表纸面主内容。
-
-### Named Rules
-
-**The Proofing Blue Rule.** 校片蓝用于当前工作区、焦点、显式选择、运行状态与主要操作；选中状态还必须拥有线框、位置标记或文字语义。
-
-**The Amber Boundary Rule.** 琥珀只说明胶片边码、只读边界与需要注意的诊断，不把整块面板染成警告色。
-
-**The Lit Content Rule.** 最高亮度留给 Scene 内容纸面；暗房中的导航、检查和底部指引 不得与接触表争夺亮度。
-
-**The Status Shape Rule.** 任务状态必须同时有文字与形状：蓝色实心圆点是运行，绿色实心圆点是连接或成功，琥珀方形轮廓是停止或不可用。
+`focus-blue` 保留键盘焦点功能，文本选择使用 `selection`；绿色和琥珀用于成功、连接或需处理的语义，不再承担暗房装饰。颜色不能独自表达状态，继续配合文字、图标或形状。旧模块中的历史变量名和局部色值不自动成为新品牌规范；新增表面使用上述已确认基础。
 
 ## Typography
 
-**Display Font:** Narracut Display（自托管 Ubuntu Sans 可变窄体子集，回退到 sans-serif）
+表格正文使用中文 UI sans 字体栈，14px、400 字重、1.65 行高；表头 12px、500 字重，Scene 序号 13px。状态摘要 12px，细节 11px。正文保持自然中文阅读，不用展示字或等宽体排 Narration。
 
-**Body Font:** Noto Sans SC（回退到 Source Han Sans SC、Microsoft YaHei、sans-serif）
-
-**Label/Mono Font:** ui-monospace（回退到 monospace）
-
-**Character:** 展示字像胶片盒与校片章上的工业窄体，用于品牌、Scene 编号、校片边码、只读标签及部分面板标题。中文 UI sans 承担叙事阅读，等宽体承担 Project ID、路径、表头、时长与机器状态；三者不能互换成装饰。
-
-### Hierarchy
-
-- **Display** (800, responsive clamp, tight tracking): 只用于 Narracut 品牌字样。
-- **Headline** (720, compact line-height): 用于 Scene 大编号及同等级校片标记。
-- **Title** (680, responsive clamp, generous line-height): Scene Narration 主内容，最多两行时仍保持稳定扫描节奏。
-- **Body** (400, compact UI size): 项目检查、说明、空状态与次级正文。
-- **Label** (700, uppercase where Latin, tracked): Scene 表头、Asset/Speech 标签与胶片边码。
-- **Control** (650): 工作区标签及同等级的明确操作文字。
-
-### Named Rules
-
-**The Three Voices Rule.** 展示字负责身份与校片，中文 UI sans 负责内容，等宽体负责机器事实；不要用展示字排中文长文，也不要用等宽体承担 Narration。
+顶部品牌已改为同一 UI 字体栈的 17px 标识。项目机器身份仍可使用现有等宽标签；Agent 与启动器中保留的标题尺度只描述现有模块，不作为新页面的统一展示字要求。
 
 ## Layout
 
-工作台占满视口（`100dvh`），按项目身份、控制权说明、工作区导航、可滚动工作面与底部指引排列。桌面行高为 `68px / auto / 54px / minmax(0,1fr) / auto`；移动端为 `92px / auto / 50px / minmax(0,1fr) / auto`。无控制权说明时省略该行。创作输入使用当前 Codex 对话及其 Composer，工作台不占用输入区域。
+工作台占据宿主提供的 `100dvh` 内容区。当前顶部仍由项目身份栏、可选控制权区域、共享反馈和工作区标签逐层排列，底部保留当前对话指引。普通项目身份栏高 56px，标签层 44px；窄屏身份栏高 92px。不要把已确认原型中的单行导航写成当前实现。
 
-桌面项目检查宽 `320px`，在 `900px` 以下收为 `280px`；`700px` 以下改为右侧抽屉（`min(88vw,360px)`），TTS 子视图为 `min(94vw,390px)`。Project ID 移到身份栏第二行，文件夹图标隐藏，项目名和连接文字保留。
+表格使用单列全宽工作区，桌面内边距 `12px 16px`。Scene 表头与内容共享 `64px minmax(220px,1fr) 150px 190px` 列定义；短内容行最小高度 52px，长 Narration 和编辑框随内容增高，不以两行截断或强制单行挤压。
 
-Scene 行高采用 `112px`。最终桌面列为 `80px / minmax(240px,1fr) / 150px / 154px`；`900px` 以下为 `70px / minmax(220px,1fr) / 120px / 146px`；`700px` 以下隐藏 Asset 列，保留 `52px / minmax(156px,1fr) / 138px` 的编号、Narration 与 Speech。行内编辑和 Speech 动作各自留位。操作轨在 `980px` 以下将次级动作收进菜单。
+在 `max-width:700px` 时，工作面内边距为 8px，列定义为 `48px minmax(220px,1fr) 140px 150px`，最小表格宽度 558px。保留 Scene、Narration、Asset、Speech 四列，通过内容区横向滚动访问右侧列；表头由滚动事件同步位移。430px 截图右侧 Speech 未在初始视口出现，表示可横滚，不表示列被隐藏。窄屏工具栏与 Speech 操作最小触控高度为 44px。
 
-外工作面使用紧凑间距，内容、检查与覆盖层逐级增加留白，常用间距以 frontmatter 的 spacing 为准。Agent 创作采用纵向任务与审阅分区；旧宿主验证分区仍有 `900px` 的双列转单列样式，但不是当前创作任务的布局模板。交付代表帧桌面三列、移动端单列，Scene 边界对照保留两列。
-
-启动页沿用胶片框中的步骤纸面与侧边入口，在 `760px` 以下顺序叠放。Brief 编辑层桌面最大 `1120px × 820px`，窄屏近全屏；修订历史从右侧覆盖，最大宽 `600px`，`680px` 以下全宽。
-
-**The Persistent Workspace Rule.** 切换工作区保留 Scene 选择、候选与 Preview 版本，仅暂停隐藏播放器，不停止任务或触碰当前 Codex Composer。
+项目检查在所有尺寸均按需打开右侧抽屉，宽 `min(90vw,380px)`，不常驻占用表格宽度。Agent 审阅区和启动器继续使用现有模块组织方式，具体后续布局不得从参考原型推断。
 
 ## Elevation & Depth
 
-系统通过灯箱明度、内嵌暗边和少量结构阴影建立深度。胶片框使用重环境阴影压入暗房；纸面使用柔和背光与内阴影模拟光箱玻璃；Agent 创作台与常驻导航、检查栏一样依赖色阶和分隔线，不为任务或结果制造漂浮卡片。项目检查抽屉、独立媒体/Brief 编辑层和修订历史构成明确的覆盖层。
+主工作面以白底、浅灰分层与细分隔线建立层级，表格框、选中 Scene 和主要审阅面板无投影。浮动 Scene 操作菜单保留 `0 8px 24px #00000014`，检查抽屉保留 `-12px 8px 36px #00000014`，仅表达叠加关系。
 
-### Shadow Vocabulary
-
-- **状态台压暗** (`0 18px 54px rgba(0,0,0,.32), inset 0 1px rgba(255,255,255,.035)`): 用于 Agent 整体框体，不逐项套用。
-- **媒体覆盖层** (`0 28px 80px rgba(0,0,0,.7)`): 用于 Asset 预览；Brief 编辑层使用同形阴影，透明度为 `.72`。
-
-- **胶片压暗** (`0 26px 70px rgba(0,0,0,.58), inset 0 1px rgba(255,255,255,.045), inset 0 0 0 5px rgba(0,0,0,.18)`): 只用于整张接触印样框。
-- **纸面背光** (`0 0 34px rgba(241,243,235,.34), inset 0 0 36px rgba(68,76,72,.14)`): 只用于背光接触表。
-- **键盘焦点** (`0 0 0 5px rgba(78,136,223,.24)`): 与 `2px` 可见轮廓共同出现，不能代替轮廓。
-- **移动检查抽屉** (`-18px 0 45px rgba(0,0,0,.48)`): 仅在窄屏项目检查打开时出现。
-
-接触表在允许动效时以 `420ms`、`cubic-bezier(.16,1,.3,1)` 从稍暗状态亮起；`prefers-reduced-motion` 下完全不播放。动画以 `both` 保留结束态；结束背光为 `0 0 22px rgba(241,243,235,.28), inset 0 0 28px rgba(68,76,72,.1)`，与无动画的静态背光不同。系统没有装饰性持续动画。
-
-**The One Lightbox Rule.** 每个工作区最多有一个背光主面；不要把普通面板、按钮或提示也做成发光玻璃。
+键盘焦点使用 2px 可见描边，不依赖发光。Scene 表格已关闭旧灯箱动画及纹理；不要恢复材料首现效果。
 
 ## Shapes
 
-形状语言接近切割纸张与机械框体。Scene 行、标签和大部分结构保持直角；文件夹图标与“停止/不可用”指示使用紧凑 `2px` 圆角，抽屉与 Agent 操作按钮使用 `6px`，整张胶片框和状态面使用 `9px`。运行、连接与成功指示是圆形；选中 Scene 的小边码使用轻微旋转和不规则椭圆圈记，作为人工校片痕迹。
-
-**The Cut Edge Rule.** 圆角用于可触控控件和整张材料框，不用于把每条 Scene、每项检查或每段文字包成卡片。
+连续表格采用平直边界与逐行细线，去除列间强分割、选中三角与印章。常规 Scene 操作按钮使用 6px 圆角，密集行内操作紧邻状态。控件圆角不意味着每条 Scene 或每段审阅内容都需要卡片容器。
 
 ## Components
 
-### Buttons
+### 按钮与工作区导航
 
-操作按钮保持机械式紧凑轮廓。暗面次级按钮使用控件黑、结构描边与小圆角，主操作使用深校片蓝和白字；Agent 停止操作使用琥珀文字。通用 Agent 操作最小高度为 `44px`、最小宽度为 `126px`；这是最小尺寸，不是固定高度。悬停提高边框或背景明度，禁用同时降低明度并改变指针。
+新增 Scene 等主按钮为深底白字，次按钮白底近黑字与轻描边。桌面 Scene 工具按钮最小高度 32px、内边距 `4px 10px`；窄屏提升到 44px。禁用态以透明度及禁用语义表达。工作区标签当前仍独立成行，选中态同时有浅灰背景、深字与底部线；焦点保持可见。
 
-纸面 Scene 工具使用浅底深字；桌面操作轨最小高度 `40px`，移动端增至 `44px`。Speech 动作保持至少 `44px` 的宽高。不同按钮族的禁用透明度与悬停样式按所在表面保留，不强行合并成一套数值。
+### Narration 原位编辑
 
-### Inputs / Fields
+Narration 点击或编辑入口进入原位文本框；文本框以 `scrollHeight` 自动调高，保留换行并允许长词换行。桌面编辑入口在行悬停或键盘焦点时显示，窄屏持续显示。离开文本框触发保存；输入法组合期间推迟保存与渲染，在组合结束后处理最终输入，避免覆盖中文候选。旧的放大编辑入口与帮助条在此布局隐藏。
 
-工作台不提供聊天输入、开始或继续创作、新目标接管表单。创作意图由当前 Codex 对话承载。
+### Scene、Asset 与 Speech
 
-Narration 采用纸面原位编辑。Video Brief 原始 Markdown 使用暖白大编辑面、墨色等宽正文和校片蓝光标；冲突证据桌面并列，移动端以选项切换证据、顺序安排决策按钮。
+每个 Scene 的稳定身份、Narration、Asset 摘要与 Speech 同行。Asset 入口按需打开管理抽屉；Speech 状态、时长与生成／重新生成等操作相邻。状态配合文字与标记；Draft Duration 必须明确是草稿估算，不能冒充完整 Speech 的 Duration。
 
-全局输入和按钮的键盘焦点使用 `2px` 蓝色轮廓、`3px` 偏移及外圈；较新的检查、交付和接受区域使用 focus-blue，部分取消外圈。焦点与选中状态分别表达。
+表格工作区独占 Scene 内容写入。Agent 的 Scene 修改建议不能直接改写 Scene；内容与 Render Program 的表现权威遵循 `CONTEXT.md` 和 ADR-0009。
 
-### Navigation
+### 共享保存与连接反馈
 
-工作区标签是连续直角分区：默认灰字，选中用白字、浅蓝底和底部校片线。移动端标签均分剩余空间，项目检查入口与其同排。侧台通过返回按钮在检查、Asset 和 TTS 间转换；覆盖层提供明确关闭入口。
+共享反馈位于顶部项目区域下方、工作区标签上方，因此在表格与 Agent 工作区均可见。它显示已保存、待保存或失败，以及断线后的只读说明；按状态提供重试保存、返回编辑与重新连接。返回编辑定位最近编辑的 Scene；原 Scene 删除时回到可用位置并说明。不要把本地草稿说成已经持久化。
 
-### Cards / Containers
+### Agent 审阅与当前对话
 
-Scene 使用连续行与列分隔，不逐行浮起。胶片框、Agent 框体和覆盖层采用 frame 圆角；候选、检查、交付与 Render 区域主要靠暗色面、标题和细分隔线建立层级。长路径和身份值允许折行，技术详情使用原生折叠结构。
+Agent 工作区继续沿现有任务状态、Preview、检查、候选交付、接受和最终 Render 模块排列。切换工作区保留选择和版本状态，仅暂停隐藏播放器，不停止任务。底部指引说明在当前 Codex 对话表达创作目标，工作台不提供第二个聊天输入或发起创作入口。
 
-### Scene 接触印样
-
-Narration 为主阅读列，通常限制两行；编号以窄体显示。选择使用内描边（`3px`）、左侧三角和圈记边码；键盘聚焦不代替选择。Asset 用文件名、引用数量和异常标识提供摘要；Speech 用状态形状、文字、实际时长及贴近单元格的动作展示生成状态。
-
-### 创作、Preview 与交付
-
-Agent 工作区依次展示紧凑任务状态、Preview、目标与变更摘要、输入新鲜度与检查、非阻断警告和 Scene 建议，最后整体接受或放弃。当前创作指令全文、任务身份、版本新鲜度、详细检查和代表帧证据可展开；阻断原因始终可见。
-
-首次有候选 Preview 时优先查看候选，通过“对比当前”和“返回候选”比较版本，标题始终标明正在查看的版本。最多两个槽位，同时仅展示、播放一个；切换先暂停原版本。新候选就绪只提示显式切换，不替换正在观看的画面。
-
-建议提供“复制建议值”和表格定位入口，用户手动编辑。目标 Scene 已删除时禁用定位并解释，仍可复制建议。最终 Render 保留独立入口。
-
-### 候选决策与结果核对
-
-接受与放弃分别提供明确入口与后果说明；新目标接管在当前 Codex 对话中表达。接受的内联确认摘要说明任务终结；修订已提交但收尾未完成时显示“候选已接受，任务收尾待完成”，并保留清理入口。
-
-放弃使用全屏暗面确认层，标题和确认按钮都写明“放弃候选并终结任务”，说明删除范围及当前修订保留；初始焦点落在“取消”。
-
-操作回执不明时，状态文字持续说明“正在核对操作结果”，提供显式核对按钮；接受与放弃的其他提交入口互斥禁用，避免用户重复操作。接管后保留正在观看的 Preview，并独立标明旧证据过期；放弃确认成功后清除候选 Preview。新任务启动失败使用“已停止”及失败原因反馈，不把已完成的接管表现为旧任务恢复。
+Preview 保持画面比例，版本与过期状态可辨，技术身份和完整证据按现有折叠区组织。候选由用户整体接受；接受完成不代表最终 Render 已完成。代表帧证据不记录用户观看范围，也不替代审美判断。遵循 ADR-0010 与产品规范，不因视觉迁移改变门禁或历史回退语义。
 
 ## Do's and Don'ts
 
-### Do:
+### Do
 
-- **Do** 让 Narration 占据纸面主阅读列，让项目身份、连接文字和当前对话指引 在窄屏继续可达。
-- **Do** 用校片线、形状、文字及程序化状态共同表达选择、任务和检查结果。
-- **Do** 区分纸面编辑控件与暗面审阅控件，复用已有小圆角和结构描边。
-- **Do** 保持 Preview 的完整比例，过期提示和正在查看版本各自可见。
-- **Do** 让技术身份、完整证据与历史详情可展开，主面优先显示用户要处理的内容和下一步。
-- **Do** 尊重 `prefers-reduced-motion`，将材料动效限制在有界首现反馈。
+- 让 Narration 主导阅读，维持四列连续表格与按内容增长的行高。
+- 同时用文字和视觉标记表达状态，并让键盘焦点与恢复操作可达。
+- 保持两个工作区共享保存反馈，明确本地草稿与持久结果的区别。
+- 新增表面复用白底、近黑字、灰色辅助、轻边框和深色主按钮。
+- 区分当前实现、已确认原型与待实施工单，说明截图和宿主验收的边界。
 
-### Don't:
+### Don't
 
-- **Don't** 把连续接触表改成缩略图优先画廊、多轨时间线或通用 IDE 三栏。
-- **Don't** 用颜色作为选择、连接、有效或不可用的唯一信号。
-- **Don't** 把旧阶段的“发送尚未启用”或“只读验证”作为当前创作界面的固定文案。
-- **Don't** 用每项独立阴影、大量圆角卡片或聊天气泡替换当前的状态与审阅分区。
-- **Don't** 用短暂成功提示遮盖 Preview 的过期状态，或把接受完成表现为最终 Render 完成。
-- **Don't** 引入霓虹 AI、玻璃拟态或渐变品牌面，稀释暗房与接触印样的材料逻辑。
+- 恢复暗房框体、纸张胶片纹理、背光表格或装饰印章。
+- 把窄屏表格改为隐藏 Asset／Speech 列，或用固定行高截断长 Narration。
+- 以常驻检查侧栏挤占 Scene 主编辑区。
+- 把第 2 批候选审阅或第 3 批导航及项目入口方案描述为已经交付。
+- 用短暂成功提示覆盖过期 Preview，或把接受候选等同最终输出完成。

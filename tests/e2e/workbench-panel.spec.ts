@@ -30,6 +30,7 @@ test('双面板同步只读状态，失权保留文字草稿，重新获得控�
     await viewer.getByRole('tab', { name: 'Agent 工作区' }).click();
     await expect(viewer.locator('[data-build-preview="current"]')).toBeDisabled();
     await viewer.getByRole('tab', { name: '表格工作区' }).click();
+    await viewer.getByRole('button', { name: '打开项目检查' }).click();
     await viewer.getByRole('button', { name: /Video Brief/ }).click();
     const brief = viewer.getByRole('textbox', { name: 'Video Brief 原始 Markdown' });
     await expect(brief).toHaveJSProperty('readOnly', true);

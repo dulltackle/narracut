@@ -73,6 +73,7 @@ for (const mode of ['empty', 'brief', 'both', 'conflict']) test(`恢复清单与
     await page.locator('.narration-editor').fill('保留 Scene');
   }
   if (mode !== 'empty') {
+    await page.getByRole('button', { name: '打开项目检查' }).click();
     await page.locator('[data-open-brief]').first().click();
     await page.locator('[data-brief-editor]').fill('保留 Brief LOCAL');
     if (mode === 'conflict') { await expect(page.locator('[data-brief-merge]')).toBeVisible(); await page.locator('[data-brief-merge]').fill('正在合并的 LOCAL'); }

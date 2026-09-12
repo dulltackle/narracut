@@ -89,12 +89,12 @@ window.openai={selectDirectory:options=>pick('directory',options),selectFile:opt
 
 function panelHtml() {
   return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Narracut 工作台</title>
-<style>html,body{margin:0;height:100%;background:#090d0e;color:#f1f3eb;font-family:"Noto Sans SC",sans-serif}iframe{display:block;border:0;width:100%;height:100dvh}#feedback{position:fixed;inset:0;display:grid;place-content:center;padding:24px;background:#0d1213}#feedback[hidden]{display:none}h1{font-size:22px}p{max-width:65ch;line-height:1.75;overflow-wrap:anywhere}button{justify-self:start;min-height:44px;padding:8px 16px;border:1px solid #9dbcf0;border-radius:6px;background:#245da9;color:white;font-size:16px;cursor:pointer}button:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}</style>
+<style>html,body{margin:0;height:100%;background:#fff;color:#171717;font-family:"Noto Sans SC",sans-serif}iframe{display:block;border:0;width:100%;height:100dvh}#feedback{position:fixed;inset:0;display:grid;place-content:center;padding:24px;background:#fff}#feedback[hidden]{display:none}h1{font-size:22px}p{max-width:65ch;line-height:1.75;overflow-wrap:anywhere}button{justify-self:start;min-height:44px;padding:8px 16px;border:1px solid #242424;border-radius:6px;background:#242424;color:white;font-size:16px;cursor:pointer}button:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}</style>
 <iframe title="Narracut 完整工作台" inert aria-hidden="true"></iframe><section id="feedback" role="status"><h1>正在连接工作台</h1><p id="reason">正在同步最新项目与任务状态…</p><button id="retry" hidden>重试显示工作台</button></section>
 <script>
 let frame=document.querySelector('iframe');
 const feedback=document.getElementById('feedback'), reason=document.getElementById('reason'), retry=document.getElementById('retry');
-let timer, generation=0, controller;
+let timer, generation=0, controller, synchronized=false;
 function failed(message){generation++;controller?.abort();clearTimeout(timer);frame.inert=true;frame.setAttribute('aria-hidden','true');feedback.hidden=false;feedback.querySelector('h1').textContent='工作台未能显示';reason.textContent=message+' 任务状态尚未核实，不能据此判断任务已停止。已保存的成果会保留；重试只重新读取工作台。';retry.hidden=false;}
 function post(target,message){target.postMessage(message,location.origin);}
 async function json(path,options,signal){const response=await fetch(path,{...options,signal,cache:'no-store'});const value=await response.json();if(!response.ok)throw new Error(value.error?.message??'本地工作台连接失败');return value;}
@@ -108,18 +108,24 @@ window.addEventListener('message',async event=>{
   else if(m.method==='ui/notifications/initialized'){
    const result=await json('state',{},signal);if(attempt!==generation)return;if(result.isError)throw new Error(result.structuredContent?.error?.message??'项目状态读取失败');post(target,{jsonrpc:'2.0',method:'ui/notifications/tool-result',params:result});
   } else if(m.method==='ui/notifications/workbench-synchronized'){
-   clearTimeout(timer);frame.inert=false;frame.removeAttribute('aria-hidden');feedback.hidden=true;
+   synchronized=true;clearTimeout(timer);frame.inert=false;frame.removeAttribute('aria-hidden');feedback.hidden=true;
   } else if(m.method==='tools/call'){
    const response=await json('rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)},signal);
    if(attempt===generation)post(target,response);
   }
  } catch(error){if(attempt!==generation||signal.aborted)return;if(m.id!==undefined)post(target,{jsonrpc:'2.0',id:m.id,error:{code:-32000,message:error.message}});else failed(error.message);}
 });
-function connect(){
+async function connect(){
  generation++;controller?.abort();controller=new AbortController();
  retry.hidden=true;feedback.hidden=false;feedback.querySelector('h1').textContent='正在连接工作台';reason.textContent='正在同步最新项目与任务状态…';
  clearTimeout(timer);timer=setTimeout(()=>failed('连接超时，请检查本地面板服务是否仍在运行。'),15000);
- // 新浏览上下文隔离旧页面的消息、权限与 Preview；服务和任务继续运行。
+ if(synchronized){
+  const attempt=generation;
+  try{const result=await json('state',{},controller.signal);if(attempt!==generation)return;if(result.isError)throw new Error(result.structuredContent?.error?.message??'项目状态读取失败');post(frame.contentWindow,{jsonrpc:'2.0',method:'ui/notifications/tool-result',params:result});}
+  catch(error){if(attempt===generation)failed(error.message);}
+  return;
+ }
+ // 初次同步尚未完成时可更换空视图；已经同步的页面保留草稿与 Preview。
  const next=document.createElement('iframe');next.title='Narracut 完整工作台';next.inert=true;next.setAttribute('aria-hidden','true');next.src='view';frame.replaceWith(next);frame=next;
 }
 retry.addEventListener('click',connect);connect();
