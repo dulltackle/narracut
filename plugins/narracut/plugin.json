@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "narracut",
+  "version": "0.1.0+codex.20260910081023",
+  "description": "在 Codex 中创建、打开、编辑并检查 Project VNext。",
+  "author": {
+    "name": "Narracut contributors",
+    "url": "https://github.com/dulltackle/narracut"
+  },
+  "homepage": "https://github.com/dulltackle/narracut",
+  "repository": "https://github.com/dulltackle/narracut",
+  "license": "MIT",
+  "keywords": [
+    "video",
+    "scene",
+    "project-inspection",
+    "codex-thread"
+  ]
+}

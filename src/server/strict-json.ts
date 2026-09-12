@@ -7,6 +7,7 @@ export type StrictJsonLimits = {
   maxStringBytes: number;
   maxNumberBytes: number;
   forbidArrays?: boolean;
+  encodedStrings?: Record<string, number>;
 };
 
 export type StrictJsonFailureCode =
@@ -82,6 +83,18 @@ export function parseStrictJson(input: string, limits: StrictJsonLimits): unknow
   };
 
   const stringToken = (path: string, decode: boolean): string | undefined => {
+    const encodedLimit = !decode ? limits.encodedStrings?.[path] : undefined;
+    if (encodedLimit !== undefined) {
+      const start = ++cursor;
+      while (cursor < input.length && input[cursor] !== '"') {
+        if (!/[A-Za-z0-9+/=]/.test(input[cursor]!)) invalid("恢复载荷必须使用未转义的规范 Base64。", path);
+        cursor++;
+        if (cursor - start > encodedLimit) exceeded("encodedBytes", cursor - start, encodedLimit, path);
+      }
+      if (input[cursor] !== '"') invalid("JSON 字符串缺少结束引号。", path);
+      cursor++;
+      return;
+    }
     const start = cursor;
     if (input[cursor] !== '"') invalid("JSON 字符串缺少起始引号。", path);
     cursor += 1;
@@ -149,7 +162,8 @@ export function parseStrictJson(input: string, limits: StrictJsonLimits): unknow
   };
 
   const parseValue = (depth: number, path: string): void => {
-    if (depth > limits.maxDepth) exceeded("depth", depth, limits.maxDepth, path);
+    whitespace();
+    if ((input[cursor] === "{" || input[cursor] === "[") && depth > limits.maxDepth) exceeded("depth", depth, limits.maxDepth, path);
     accountNode(path);
     whitespace();
     const current = input[cursor];

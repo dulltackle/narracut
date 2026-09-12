@@ -4,7 +4,12 @@ import { join } from "node:path";
 
 export default defineConfig({
   testDir: "tests/e2e",
-  testMatch: "public-journey.live.spec.ts",
+  testMatch: [
+    "portable-project.spec.ts",
+    "candidate-review.spec.ts",
+    "workbench-panel.spec.ts",
+    "panel-reconnect.spec.ts",
+  ],
   fullyParallel: false,
   workers: 1,
   reporter: "line",

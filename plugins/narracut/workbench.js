@@ -5,6 +5,8 @@
   const HISTORY_BYTE_LIMIT = 24 * 1024 * 1024;
   const pending = new Map();
   let rpcId = 10;
+  let hostReady = false;
+  let directoryPicking = false;
   let pollTimer = null;
   let pollFailures = 0;
   let saveTimer = null;
@@ -13,9 +15,19 @@
   let activeBriefSavePromise = null;
   let assetPreviewRequest = 0;
   let speechPollTimer = null;
+  let bindings = new AbortController();
+  let composing = false;
+  let renderPending = false;
+  const renderedRegions = new WeakMap();
 
   const state = {
     result: null,
+    candidate: null,
+    candidateBusy: false,
+    candidateAction: null,
+    candidateError: null,
+    candidateConfirm: false,
+    candidateDetails: false,
     project: null,
     baselineRevision: null,
     version: 0,
@@ -43,8 +55,10 @@
     focusTarget: null,
     dragged: null,
     operationMessage: null,
-    hostValidation: null,
-    agentBusy: false,
+    creationTask: null,
+    creationRecovery: null,
+    taskOperation: null,
+    candidateUncertain: false,
     agentError: null,
     speechJobs: {},
     ttsForm: null,
@@ -52,6 +66,7 @@
     ttsClearCredential: false,
     ttsSaving: false,
     ttsError: null,
+    ttsConflict: false,
     ttsBlockedReason: null,
     ttsPendingConfirm: null,
     brief: {
@@ -100,42 +115,268 @@
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
 
+  let recovery = null;
+  let identityCheckBusy = false;
+  function recoveryArgs(action, extra = {}) {
+    return { action, projectDirectory: recovery.project.directory, projectId: recovery.project.projectId, ...extra };
+  }
+  async function recoveryCall(action, extra) {
+    const response = await callHostTool('project_recovery', recoveryArgs(action, extra));
+    const content = response?.structuredContent ?? response;
+    if (response?.isError) throw new Error(content?.error?.message ?? '恢复操作失败，请重试。');
+    return content;
+  }
+  function freezeIdentity(reason) {
+    if (recovery || !state.project) return;
+    const draft = {};
+    if (state.version !== state.savedVersion) draft.dsl = JSON.stringify(state.project);
+    if (state.brief.version !== state.brief.savedVersion || state.brief.conflict) {
+      draft.briefLocal = state.brief.conflict ? state.brief.merge : state.brief.local;
+      draft.briefBase = state.brief.conflict?.base ?? state.brief.base;
+    }
+    recovery = { project: clone(state.result.project), reason, draft, phase: 'sealing', cut: null, target: '', message: '', exported: [], operationId: null };
+    state.autosaveStopped = true;
+    clearTimeout(saveTimer); clearTimeout(briefSaveTimer); clearTimeout(pollTimer); clearTimeout(speechPollTimer);
+    bindings.abort(); composing = false;
+    document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
+    app.inert = true;
+    const dialog = document.createElement('dialog');
+    dialog.id = 'recovery-page'; dialog.setAttribute('aria-labelledby', 'recovery-title');
+    dialog.innerHTML = `<main class="recovery-surface"><header><span class="status-mark" data-status="unavailable" aria-hidden="true"></span><h1 id="recovery-title" tabindex="-1">项目身份已失效，编辑已停止</h1><p data-recovery-reason></p><p class="recovery-path" data-recovery-source></p></header><section aria-label="核对状态"><h2>保存与恢复状态</h2><p data-recovery-status role="status" aria-live="polite"></p><dl class="recovery-list"><div><dt>Scene 与素材引用（DSL）</dt><dd data-recovery-dsl></dd></div><div><dt>Video Brief</dt><dd data-recovery-brief></dd></div></dl></section><section><h2>导出未保存编辑</h2><p>快照只保存未落盘编辑，恢复仍需要匹配的项目持久内容。DSL 内的素材引用不表示包含素材文件。</p><p class="recovery-note">不携带 Render Program、Asset、Speech、离线依赖、Preview、诊断、聊天或未提交 Agent 修改。</p><label class="recovery-target">项目外的新文件路径<input data-recovery-target placeholder="/恢复目录/未保存编辑.narracut-recovery.json" spellcheck="false"></label><div class="recovery-actions"><button class="agent-action" data-recovery-pick>选择导出文件夹…</button><button class="agent-action" data-primary="true" data-recovery-export>导出恢复快照…</button><button class="agent-action" data-recovery-check hidden>核对导出结果</button><button class="agent-action" data-recovery-seal hidden>重新核对保存</button></div><p data-recovery-message role="status" aria-live="polite"></p><ul data-recovery-exports></ul></section><details><summary>项目身份、恢复基线与提交证据</summary><pre data-recovery-details></pre></details><footer><button class="agent-action" data-recovery-leave>返回启动器</button><div data-recovery-leave-confirm hidden><p>尚未成功导出。离开将丢失只保存在内存中的 Scene 或 Brief 改动。</p><div class="recovery-actions"><button class="agent-action" data-recovery-cancel-leave>继续保留并导出</button><button class="agent-action" data-recovery-confirm-leave>确认丢失改动并离开</button></div></div></footer></main>`;
+    document.body.append(dialog);
+    dialog.addEventListener('cancel', event => event.preventDefault());
+    dialog.querySelector('[data-recovery-reason]').textContent = reason;
+    dialog.querySelector('[data-recovery-source]').textContent = recovery.project.directory;
+    dialog.querySelector('[data-recovery-target]').addEventListener('input', event => { recovery.target = event.target.value; });
+    dialog.querySelector('[data-recovery-pick]').addEventListener('click', async () => {
+      const picker = window.openai?.selectDirectory ?? window.openai?.pickDirectory ?? window.openai?.requestDirectoryPicker;
+      try {
+        if (!picker) throw new Error('当前宿主没有目录选择能力。请在上方填写项目外的新文件完整路径。');
+        const directory = directoryPath(await picker.call(window.openai));
+        if (!directory) { recovery.message = '已取消选择；未保存编辑仍然保留。'; updateRecovery(); return; }
+        recovery.target = `${directory.replace(/[\\/]$/, '')}/恢复-${createUuid()}.narracut-recovery.json`;
+        dialog.querySelector('[data-recovery-target]').value = recovery.target;
+        recovery.message = ''; updateRecovery();
+      } catch (error) { recovery.message = error.message; updateRecovery(); }
+    });
+    dialog.querySelector('[data-recovery-export]').addEventListener('click', () => exportRecovery(false));
+    dialog.querySelector('[data-recovery-check]').addEventListener('click', () => exportRecovery(true));
+    dialog.querySelector('[data-recovery-seal]').addEventListener('click', sealRecoveryDraft);
+    dialog.querySelector('[data-recovery-leave]').addEventListener('click', () => {
+      if (!recovery.exported.length && (recovery.cut || Object.keys(recovery.draft).length) && recovery.phase !== 'empty') {
+        dialog.querySelector('[data-recovery-leave-confirm]').hidden = false;
+        dialog.querySelector('[data-recovery-cancel-leave]').focus();
+      } else leaveRecovery();
+    });
+    dialog.querySelector('[data-recovery-confirm-leave]').addEventListener('click', leaveRecovery);
+    dialog.querySelector('[data-recovery-cancel-leave]').addEventListener('click', () => { dialog.querySelector('[data-recovery-leave-confirm]').hidden = true; dialog.querySelector('[data-recovery-leave]').focus(); });
+    updateRecovery(); dialog.showModal(); dialog.querySelector('h1').focus();
+    void sealRecoveryDraft();
+  }
+  function updateRecovery() {
+    const dialog = document.getElementById('recovery-page'); if (!dialog || !recovery) return;
+    const { phase, cut } = recovery;
+    const busy = ['sealing', 'exporting', 'checking'].includes(phase);
+    const ambiguous = cut && Object.values(cut.baseline).some(value => Array.isArray(value) && value.length > 1);
+    dialog.querySelector('[data-recovery-status]').textContent = phase === 'sealing' ? '正在核对已开始的保存' : phase === 'seal-failed' ? '尚未完成核对；内存编辑已冻结并保留' : phase === 'empty' ? '没有需要导出的未保存 Scene 或 Brief 改动' : ambiguous ? '恢复截面已封存；部分提交结果仍待确认，恢复时需要验证两种精确基线。' : '恢复截面已封存；之后的后台结果不会改变此份内容。';
+    dialog.querySelector('[data-recovery-dsl]').textContent = cut?.payload.dsl ? `${count(cut.payload.dsl.bytes)} 字节未保存编辑` : ['sealing', 'seal-failed'].includes(phase) ? '正在核对' : '没有待抢救改动';
+    dialog.querySelector('[data-recovery-brief]').textContent = cut?.payload.briefLocal ? `${count(cut.payload.briefLocal.bytes)} 字节 LOCAL${cut.payload.briefBase ? '；附带必要 BASE 冲突证据' : ''}` : ['sealing', 'seal-failed'].includes(phase) ? '正在核对' : '没有待抢救改动';
+    dialog.querySelector('[data-recovery-export]').disabled = busy || !cut || phase === 'uncertain';
+    dialog.querySelector('[data-recovery-export]').textContent = phase === 'exporting' ? '正在导出…' : recovery.exported.length ? '再导出一份' : '导出恢复快照…';
+    dialog.querySelector('[data-recovery-check]').hidden = !['uncertain', 'checking'].includes(phase);
+    dialog.querySelector('[data-recovery-check]').disabled = busy;
+    dialog.querySelector('[data-recovery-seal]').hidden = phase !== 'seal-failed';
+    for (const selector of ['[data-recovery-target]', '[data-recovery-pick]']) dialog.querySelector(selector).disabled = busy || phase === 'uncertain' || !cut;
+    dialog.querySelector('[data-recovery-leave]').disabled = busy || phase === 'uncertain';
+    dialog.querySelector('[data-recovery-message]').textContent = phase === 'uncertain' || phase === 'checking' ? '正在核对导出结果。核对完成前不会重复提交。' : recovery.message;
+    dialog.querySelector('[data-recovery-exports]').innerHTML = recovery.exported.map(path => `<li>已确认导出：<code>${escapeHtml(path)}</code></li>`).join('');
+    dialog.querySelector('[data-recovery-details]').textContent = JSON.stringify({ projectId: recovery.project.projectId, recoveryCutId: cut?.recoveryCutId, capturedAt: cut?.capturedAt, baseline: cut?.baseline }, null, 2);
+  }
+  async function sealRecoveryDraft() {
+    recovery.phase = 'sealing'; updateRecovery();
+    try {
+      const result = await recoveryCall('seal', { draft: recovery.draft });
+      recovery.cut = result.cut; recovery.phase = result.cut ? 'sealed' : 'empty'; recovery.message = '';
+    } catch (error) { recovery.phase = 'seal-failed'; recovery.message = error.message; }
+    updateRecovery();
+  }
+  async function exportRecovery(check) {
+    if (!check) recovery.operationId = createUuid();
+    recovery.phase = check ? 'checking' : 'exporting'; updateRecovery();
+    try {
+      const response = await callHostTool('project_recovery', recoveryArgs(check ? 'status' : 'export', { target: recovery.target, operationId: recovery.operationId }));
+      const result = response?.structuredContent ?? response;
+      if (result?.status === 'recovery-uncertain') { recovery.phase = 'uncertain'; }
+      else if (response?.isError) { recovery.phase = 'failed'; recovery.message = result.error?.message ?? '导出失败，请更换位置或重试。'; }
+      else if (result?.status !== 'exported' || !result.path) { recovery.phase = 'uncertain'; }
+      else { recovery.phase = 'exported'; recovery.exported.push(result.path); recovery.message = '恢复快照已安全导出。原文件保持不变，再导出时请选择新文件。'; }
+    } catch { recovery.phase = 'uncertain'; }
+    updateRecovery();
+  }
+  async function leaveRecovery() {
+    try {
+      const result = await recoveryCall('leave');
+      document.getElementById('recovery-page').remove(); app.inert = false; recovery = null; accept(result);
+    } catch (error) { recovery.message = error.message; updateRecovery(); }
+  }
+  let retainedDraft = null;
+  let controlNotice = '';
+  let controlEpoch = 0;
+  let controlPollBusy = false;
+  const readButtons = '[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
+  function enforceControl() {
+    if (!state.result?.control || state.result.status !== 'valid') return;
+    const blocked = state.result.writable !== true;
+    app.querySelectorAll('button,input,textarea,select').forEach(element => {
+      const read = element.matches(readButtons + ',[data-seek],[data-volume],[data-frame-input],[data-asset-search]') || element.closest('[data-control-drafts]');
+      if (blocked && !read) {
+        if (element.matches('textarea,input[type="text"]')) { if (!element.readOnly) { element.dataset.controlReadonly = 'true'; element.readOnly = true; } }
+        else if (!element.disabled) { element.dataset.controlDisabled = 'true'; element.disabled = true; }
+      } else if (!blocked) {
+        if (element.dataset.controlDisabled) { delete element.dataset.controlDisabled; element.disabled = false; }
+        if (element.dataset.controlReadonly) { delete element.dataset.controlReadonly; element.readOnly = false; }
+      }
+    });
+    app.querySelectorAll('[draggable="true"]').forEach(element => { if (blocked) element.draggable = false; });
+    const save = app.querySelector('[data-save-control-draft]');
+    if (save && save.disabled !== blocked) save.disabled = blocked;
+  }
+  new MutationObserver(enforceControl).observe(app, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled', 'draggable'] });
+  function retainControlDraft() {
+    controlEpoch++;
+    clearTimeout(saveTimer); clearTimeout(briefSaveTimer);
+    if (!retainedDraft && (state.version !== state.savedVersion || state.brief.version !== state.brief.savedVersion || state.editing)) {
+      const project = clone(state.project);
+      const editor = document.querySelector('[data-narration-editor],[data-expanded-editor]');
+      const scene = project?.scenes.find(scene => scene.id === state.editing);
+      if (editor && scene) scene.narration.text = editor.value;
+      retainedDraft = { scenes: JSON.stringify(project, null, 2), brief: state.brief.local,
+        sceneDirty: state.version !== state.savedVersion || !!state.editing,
+        briefDirty: state.brief.version !== state.brief.savedVersion, open: false, message: '' };
+    }
+    state.autosaveStopped = true;
+  }
+  function controlSceneDrafts() {
+    const project = JSON.parse(retainedDraft.scenes);
+    return project.scenes.map((scene, index) => {
+      const latest = state.result.projectDsl.scenes.find(item => item.id === scene.id);
+      return '<label>Scene ' + pad(index + 1) + ' · 保留的旁白<textarea aria-label="Scene ' + pad(index + 1) + ' 保留的草稿" data-control-scene="' + escapeHtml(scene.id) + '">' + escapeHtml(scene.narration.text) + '</textarea></label><label>Scene ' + pad(index + 1) + ' · 最新旁白<textarea readonly aria-label="Scene ' + pad(index + 1) + ' 最新内容">' + escapeHtml(latest?.narration.text ?? '此 Scene 已被删除') + '</textarea></label>';
+    }).join('');
+  }
+  function controlMarkup() {
+    if (!state.result?.control || !state.project) return '';
+    const control = state.result.control;
+    const message = controlNotice || control.reason || '';
+    return '<section class="project-control" aria-label="项目控制权"><div role="status"><strong>' +
+      (message || control.status === 'transferring' ? '正在转移项目控制权' : state.result.writable ? '当前对话可编辑' : '只读 · 项目由另一对话控制') +
+      '</strong>' + (!state.result.writable ? '<p>如需编辑，请在当前 Codex 对话中输入“接管此项目”。</p>' : '') +
+      (message ? '<p>' + escapeHtml(message) + ' 正在核对操作结果；确认前暂停编辑。</p>' : '') +
+      '</div>' + (retainedDraft ? '<div data-control-drafts><p role="status">编辑已暂停，未保存草稿已保留</p><details ' + (retainedDraft.open ? 'open' : '') + '><summary>核对草稿与最新内容</summary><p>先核对最新内容，再编辑保留的旁白。保存沿用草稿中的 Scene 顺序和素材引用；不会自动补交。</p><div class="control-draft-grid">' + controlSceneDrafts() + '<label>保留的 Brief 草稿<textarea aria-label="保留的 Brief 草稿" data-control-brief>' + escapeHtml(retainedDraft.brief) + '</textarea></label><label>最新 Brief 内容<textarea readonly aria-label="最新 Brief 内容">' + escapeHtml(state.result.videoBrief?.content ?? '') + '</textarea></label></div><div class="control-draft-actions"><button data-copy-control-draft>复制保留草稿</button><button data-save-control-draft ' + (!state.result.writable ? 'disabled' : '') + '>保存核对后的草稿</button></div><p role="status">' + escapeHtml(retainedDraft.message) + '</p></details></div>' : '') + '</section>';
+  }
+  function bindControl() {
+    const region = document.querySelector('[data-control-region]');
+    if (!region) return;
+    region.querySelector('details')?.addEventListener('toggle', event => { if (retainedDraft) retainedDraft.open = event.target.open; }, { signal: bindings.signal });
+    region.querySelectorAll('[data-control-scene]').forEach(editor => editor.addEventListener('input', event => {
+      const project = JSON.parse(retainedDraft.scenes);
+      project.scenes.find(scene => scene.id === editor.dataset.controlScene).narration.text = event.target.value;
+      retainedDraft.scenes = JSON.stringify(project); retainedDraft.sceneDirty = true;
+    }, { signal: bindings.signal }));
+    region.querySelector('[data-control-brief]')?.addEventListener('input', event => { retainedDraft.brief = event.target.value; retainedDraft.briefDirty = true; }, { signal: bindings.signal });
+    region.querySelector('[data-copy-control-draft]')?.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(JSON.parse(retainedDraft.scenes).scenes.map((scene, index) => 'Scene ' + pad(index + 1) + '\n' + scene.narration.text).join('\n\n') + '\n\nVideo Brief\n' + retainedDraft.brief); retainedDraft.message = '草稿已复制。'; }
+      catch { retainedDraft.message = '请在草稿文本框中全选并复制。'; }
+      render();
+    }, { signal: bindings.signal });
+    region.querySelector('[data-save-control-draft]')?.addEventListener('click', async () => {
+      if (!retainedDraft || !state.result.writable) return;
+      try {
+        await activeSavePromise; await activeBriefSavePromise;
+        if (!state.result.writable || !retainedDraft) return;
+        const draft = retainedDraft;
+        const parsed = JSON.parse(draft.scenes);
+        if (draft.sceneDirty) { state.project = parsed; state.version++; state.saveStatus = 'dirty'; }
+        if (draft.briefDirty) { state.brief.local = draft.brief; state.brief.version++; }
+        state.autosaveStopped = false;
+        await saveProject(); await saveVideoBrief();
+        if (state.version === state.savedVersion && state.brief.version === state.brief.savedVersion) retainedDraft = null;
+        else draft.message = '保存尚未完成，请核对错误与最新内容。';
+      } catch (error) { retainedDraft.message = error.message; }
+      render();
+    }, { signal: bindings.signal });
+    const tabs = document.querySelector('.workspace-tabs') ?? document.querySelector('[role="tablist"]');
+    if (tabs) app.style.setProperty('--workbench-tabs-bottom', tabs.getBoundingClientRect().bottom + 'px');
+    enforceControl();
+  }
+  async function refreshControl() {
+    if (recovery || controlPollBusy || !state.project || document.hidden || !state.result?.conversation) return;
+    controlPollBusy = true;
+    const projectId = state.result.project.projectId;
+    try {
+      const response = await callHostTool('get_workbench', {});
+      const content = response?.structuredContent ?? response;
+      if (state.result.project.projectId !== projectId) return;
+      if (response.isError || !content.control) throw new Error(content.error?.message ?? '控制权状态暂不可用');
+      const changed = state.result.writable !== content.writable || controlNotice || JSON.stringify(state.result.control) !== JSON.stringify(content.control);
+      if (!content.writable && state.result.writable) retainControlDraft();
+      controlNotice = '';
+      state.result.control = content.control; state.result.writable = content.writable;
+      if (changed || !content.writable && (content.projectRevision !== state.result.projectRevision || content.videoBrief?.revision !== state.result.videoBrief?.revision || JSON.stringify(content.creationTask) !== JSON.stringify(state.creationTask))) {
+        if (retainedDraft || state.version === state.savedVersion) {
+          state.project = clone(content.projectDsl); state.baselineRevision = content.projectRevision;
+          state.version = state.savedVersion = 0; state.editing = null;
+        }
+        if (retainedDraft || state.brief.version === state.brief.savedVersion) {
+          state.brief.local = content.videoBrief.content; state.brief.base = content.videoBrief.content;
+          state.brief.baselineRevision = content.videoBrief.revision; state.brief.version = state.brief.savedVersion = 0;
+        }
+        state.result = content; state.candidate = content.candidate; state.creationTask = content.creationTask;
+        state.autosaveStopped = !content.writable;
+        render();
+      }
+    } catch (error) {
+      if (state.result.writable) retainControlDraft();
+      state.result.writable = false; controlNotice = error.message; render();
+    } finally { controlPollBusy = false; }
+  }
+  setInterval(() => {
+    if (state.result?.conversation) void refreshControl();
+    else if (!recovery && !identityCheckBusy && state.project && !document.hidden) {
+      identityCheckBusy = true;
+      void callHostTool('project_recovery', { action: 'check', projectDirectory: state.result.project.directory, projectId: state.result.project.projectId }).catch(() => {}).finally(() => { identityCheckBusy = false; });
+    }
+  }, 1500);
+
   function rail(result) {
     const project = result?.project ?? {};
     const connected = result?.connection?.status === "connected";
     return `<header class="project-rail">
       <div class="brand">Narracut</div>
       <div class="folder"><span class="folder-mark" aria-hidden="true"></span><span>${escapeHtml(project.folderName ?? "等待项目")}</span></div>
-      <div class="project-id"><strong>PROJECT ID</strong><span>${escapeHtml(project.projectId ?? "—")}</span></div>
+      <div class="project-id">${result?.conversation ? conversationDetails(result) : `<strong>PROJECT ID</strong><span>${escapeHtml(project.projectId ?? "—")}</span>`}</div>
       <div class="connection"><span class="lamp" data-status="${connected ? "connected" : "loading"}" aria-hidden="true"></span><span>${connected ? "连接正常" : "连接中"}</span></div>
     </header>`;
   }
 
+  function conversationDetails(result) {
+    const conversation = result.conversation;
+    return `<details class="conversation-details"><summary>${conversation.status === 'bound' ? '已关联当前对话 · 查看详情' : '对话归属未确认 · 只读'}</summary><dl><dt>项目路径</dt><dd>${escapeHtml(result.project?.directory ?? '尚未选择项目')}</dd><dt>Project ID</dt><dd>${escapeHtml(result.project?.projectId ?? '—')}</dd><dt>Codex 对话</dt><dd>${escapeHtml(conversation.threadId ?? conversation.reason)}</dd>${result.control?.ownerThreadId && result.control.ownerThreadId !== conversation.threadId ? `<dt>控制项目的对话</dt><dd>${escapeHtml(result.control.ownerThreadId)}</dd>` : ""}</dl></details>`;
+  }
+
   function tabs() {
     return `<nav class="tabs" role="tablist" aria-label="Narracut 工作区">
-      <button class="tab" type="button" role="tab" data-workspace="table" aria-selected="${state.workspace === "table"}">表格工作区</button>
-      <button class="tab" type="button" role="tab" data-workspace="agent" aria-selected="${state.workspace === "agent"}">Agent 工作区</button>
+      <button class="tab" type="button" role="tab" id="workspace-tab-table" aria-controls="workspace-table" data-workspace="table" aria-selected="${state.workspace === "table"}">表格工作区</button>
+      <button class="tab" type="button" role="tab" id="workspace-tab-agent" aria-controls="workspace-agent" data-workspace="agent" aria-selected="${state.workspace === "agent"}">Agent 工作区</button>
       <button class="inspection-toggle" type="button" data-open-inspection aria-expanded="${state.inspectionOpen}">打开项目检查</button>
     </nav>`;
   }
 
-  function composer() {
-    const reason = state.workspace === "agent"
-      ? "完整创作指令将在后续功能中启用"
-      : "Composer 不编辑 Scene，请使用接触表";
-    return `<footer class="composer">
-      <div class="composer-label">Composer</div>
-      <div class="composer-field">
-        <input aria-label="Composer" aria-describedby="composer-disabled-reason" type="text" disabled>
-        <span class="composer-placeholder">Composer 将在后续功能中启用</span>
-        <div class="composer-reason" id="composer-disabled-reason">${reason}</div>
-      </div>
-      <div class="lock" aria-hidden="true"><span class="lock-shape"></span></div>
-    </footer>`;
+  function conversationFooter() {
+    return `<footer class="conversation-footer" data-conversation-footer>${state.result?.conversation?.status === 'unavailable' ? escapeHtml(state.result.conversation.reason) : '在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。'}</footer>`;
   }
 
   function launcherRail() {
-    return `<header class="launch-rail"><div class="brand">Narracut</div><div class="launch-title">项目启动台</div><div class="launch-connection"><span class="lamp" aria-hidden="true"></span><span>连接正常</span></div></header>`;
+    return `<header class="launch-rail"><div class="brand">Narracut</div><div class="launch-title">项目启动台</div><div class="launch-connection">${state.result?.conversation ? conversationDetails(state.result) : '<span class="lamp" aria-hidden="true"></span><span>连接正常</span>'}</div></header>`;
   }
 
   function validProjectName() {
@@ -165,7 +406,9 @@
     return `<div class="launch-error" role="status"><strong>${escapeHtml(error.code ?? "PROJECT_OPERATION_FAILED")}</strong><span>${escapeHtml(error.message ?? "项目操作失败，请核对路径后重试。")}</span>${error.path ? `<div>${escapeHtml(error.path)}</div>` : ""}${residue ? '<button type="button" class="launch-button residue-action" data-confirm-residue>确认清理并从头重试</button>' : ""}</div>`;
   }
 
+  let restoreLauncher = null;
   function launcher() {
+    if (restoreLauncher) return '<div data-restore-root></div>';
     const finalPath = finalProjectPath();
     const verdict = launcherVerdict();
     const busy = state.launcher.busy;
@@ -176,13 +419,13 @@
         <section class="launch-step"><div class="step-index" aria-hidden="true">03</div><div class="step-copy"><h2>核对最终项目路径</h2><code class="final-path" data-final-path title="${escapeHtml(finalPath)}">${escapeHtml(finalPath || "选择位置并填写名称后显示")}</code><p class="path-verdict" data-path-verdict data-valid="${verdict.valid}">${escapeHtml(verdict.copy)}</p>${launcherError()}</div></section>
         <section class="launch-step"><div class="step-index" aria-hidden="true">04</div><div class="step-copy"><h2>将创建</h2><div class="create-grid"><ul class="creation-list"><li><span class="file-glyph" aria-hidden="true"></span><span>narracut.json · 严格项目清单</span></li><li><span class="file-glyph" aria-hidden="true"></span><span>project.json · 空 Project DSL</span></li><li><span class="file-glyph" aria-hidden="true"></span><span>零字节 video.md</span></li><li><span class="file-glyph" aria-hidden="true"></span><span>starter 当前 Render Program 修订</span></li><li><span class="file-glyph" aria-hidden="true"></span><span>pnpm-lock.yaml · 精确依赖</span></li></ul><button class="create-action" type="button" data-create-project ${!verdict.valid || busy ? "disabled" : ""}>${busy ? "正在原子创建…" : "原子创建并打开"}</button></div></div></section>
       </div></section>
-      <aside class="launch-side" aria-label="其他入口"><h2>其他入口</h2><div class="side-actions"><section class="side-entry"><span class="side-folder" aria-hidden="true"></span><div><h3>打开项目</h3><p>严格校验已有 Project VNext</p></div><button class="side-button" type="button" data-open-project ${busy ? "disabled" : ""}>选择项目文件夹</button></section><section class="side-entry" data-disabled="true"><span class="side-folder" aria-hidden="true"></span><div><h3>从恢复快照创建</h3><p>此入口将在恢复流程可用后启用</p></div><button class="side-button" type="button" disabled>从恢复快照创建</button></section></div></aside>
+      <aside class="launch-side" aria-label="其他入口"><h2>其他入口</h2><div class="side-actions"><section class="side-entry"><span class="side-folder" aria-hidden="true"></span><div><h3>打开项目</h3><p>严格校验已有 Project VNext</p></div><button class="side-button" type="button" data-open-project ${busy ? "disabled" : ""}>选择项目文件夹</button></section><section class="side-entry"><span class="side-folder" aria-hidden="true"></span><div><h3>从恢复快照创建</h3><p>核对未保存编辑，恢复到新文件夹</p></div><button class="side-button" type="button" data-open-restore>从恢复快照创建</button></section></div></aside>
     </main>`;
   }
 
   function launcherFooter() {
     const busy = state.launcher.busy;
-    return `<footer class="launch-footer"><strong>本地文件系统</strong><span class="footer-rule" aria-hidden="true"></span><span>${busy ? `<span class="launch-busy">${state.launcher.stage === "opening" ? "正在严格校验并取得租约" : "正在写入、复核并原子发布"}</span>` : "准备就绪 · 创建过程不联网、不安装依赖"}</span><span class="footer-status" aria-hidden="true"></span></footer>`;
+    return `<footer class="launch-footer"><strong>本地文件系统</strong><span class="footer-rule" aria-hidden="true"></span><span>${busy ? `<span class="launch-busy">${state.launcher.stage === "opening" ? "正在严格校验并取得租约" : "正在写入、复核并原子发布"}</span>` : (restoreLauncher ? "恢复流程 · 最后确认后才写入新目标" : "准备就绪 · 创建过程不联网、不安装依赖")}</span><span class="footer-status" aria-hidden="true"></span></footer>`;
   }
 
   function checks(result) {
@@ -281,9 +524,9 @@
     const speechReady = speech?.status === "available";
     return `<aside class="inspection" aria-label="项目检查" data-open="${state.inspectionOpen}">
       <button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button>
-      <h2>项目检查</h2><div class="rule"></div><div class="checks">${checks(result)}</div>
+      <h2>项目检查</h2>${result.copyReceipt ? `<section class="copy-result" role="status"><strong>独立副本已打开</strong><p>${escapeHtml(result.project.folderName)}<br>${escapeHtml(result.project.directory)}</p><p>项目身份独立，候选保持停止；明确继续后才运行。</p>${result.copyReceipt.warning ? `<p>${escapeHtml(result.copyReceipt.warning.message)}<br>${escapeHtml(result.copyReceipt.warning.path)}</p>` : ""}</section>` : ""}<div class="rule"></div><div class="checks">${checks(result)}</div>
       ${scene ? `<section class="selected"><div class="rule"></div><h3>Scene ${pad(currentScenes().indexOf(scene) + 1)}</h3><p class="selected-copy" data-testid="scene-narration-detail">${escapeHtml(scene.narration.text)}</p><dl class="facts"><div class="fact"><dt>Scene ID</dt><dd>${escapeHtml(scene.id)}</dd></div><div class="fact"><dt>Asset</dt><dd>${scene.assetIds.length}</dd></div><div class="fact"><dt>Speech</dt><dd>${speechReady ? `已生成 · ${seconds(speech.durationMs)}` : "Draft Duration"}</dd></div>${time ? `<div class="fact"><dt>Time Window</dt><dd>帧 ${time.startFrame}–${time.startFrame + time.durationInFrames}（不含 ${time.startFrame + time.durationInFrames}）</dd></div>` : ""}</dl><p class="render-readiness" data-ready="${speechReady}">${speechReady ? "可用于最终 Render" : "仅供草稿 Preview · 阻断最终 Render"}</p></section>` : ""}
-      <div class="inspection-actions"><button class="inspection-action brief-entry" type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}" ${writable ? "" : "disabled"}><span class="brief-entry-copy"><strong>Video Brief</strong><small>原始 Markdown · video.md</small></span><span data-brief-entry-state>${briefEntryStatusLabel()}</span></button>${writable ? `<button class="inspection-action" type="button" data-open-tts>TTS 配置 <span>${result.tts?.status === "configured" ? "已配置" : "待配置"}</span></button><button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
+      <div class="inspection-actions">${writable ? `<button class="inspection-action" type="button" data-copy-project>复制项目…</button>` : ""}<button class="inspection-action brief-entry" type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}"><span class="brief-entry-copy"><strong>Video Brief</strong><small>原始 Markdown · video.md</small></span><span data-brief-entry-state>${briefEntryStatusLabel()}</span></button>${writable ? `<button class="inspection-action" type="button" data-open-tts>TTS 配置 <span>${result.tts?.status === "configured" ? "已配置" : "待配置"}</span></button><button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
       <section class="readonly"><strong data-writable="${writable}">${writable ? "内容写入边界" : "只读"}</strong><p>${writable ? "表格工作区可以修改 Scene、Narration 与 Asset 引用；预览只检查 Asset 本体，不改变 Scene 或 Player。" : "当前项目只提供检查。Scene、Narration、Asset 和 Speech 不会在这里被修改。"}</p></section>
     </aside>`;
   }
@@ -315,6 +558,7 @@
         <div class="credential-state"><span class="status-mark" data-status="${credential.status === "available" && !state.ttsClearCredential ? "connected" : "unavailable"}" aria-hidden="true"></span><span>${credential.status === "available" && !state.ttsClearCredential ? `API Key 已就绪 · ${escapeHtml(credential.masked ?? "已隐藏")}` : "API Key 缺失"}</span>${credential.status === "available" && !state.ttsClearCredential ? '<button type="button" data-clear-tts-key>清除会话凭据</button>' : ""}</div>
         <p class="session-warning">当前宿主未提供安全凭据库。API Key 只保留在本次应用会话，不写入项目、配置或日志。</p>
         ${state.ttsError ? `<div class="tts-error" role="alert">${escapeHtml(state.ttsError)}</div>` : ""}
+        ${state.ttsConflict ? `<button type="button" data-refresh-tts ${state.ttsSaving ? "disabled" : ""}>读取最新项目并保留 TTS 输入</button>` : ""}
         ${pending ? `<div class="tts-confirm" role="alertdialog" aria-label="确认更改 TTS 输出配置"><strong>将使 ${pending.affectedSpeechCount} 条 Speech 失效</strong><p>保存后会原子移除不再匹配的 Speech 记录；Scene、Narration 与 Asset 引用保持不变。</p><div><button type="button" data-confirm-tts>确认保存</button><button type="button" data-cancel-tts-confirm>取消</button></div></div>` : `<button class="tts-save" type="submit" ${state.ttsSaving ? "disabled" : ""}>${state.ttsSaving ? "正在保存…" : "保存 TTS 配置"}</button>`}
       </form>
     </aside>`;
@@ -393,6 +637,11 @@
   }
 
   function inspector(result) {
+    return inspectorContent(result).replace('<div class="rule"></div>', `<div class="rule"></div><p class="candidate-summary">候选：<span data-candidate-summary>${candidateLabel()}</span></p>`);
+  }
+
+  function inspectorContent(result) {
+    if (state.workspace === "agent") return projectInspector({ ...result, writable: false });
     if (state.inspectorMode === "tts") return ttsInspector(result);
     if (state.inspectorMode === "scene-assets") return sceneAssetInspector(result);
     if (state.inspectorMode === "asset-picker") return assetPickerInspector(result, false);
@@ -479,7 +728,7 @@
     return `<div class="scene-row" role="group" draggable="false" data-scene-row data-scene-id="${escapeHtml(scene.id)}" data-selected="${selected}" aria-label="Scene ${pad(index + 1)} 行">
       <span class="scene-no">${editable ? `<button class="drag-handle" type="button" draggable="${!state.assetBusy}" aria-label="拖动第 ${index + 1} 行" ${state.assetBusy ? "disabled" : ""}><span aria-hidden="true"></span></button>` : ""}<button class="scene-select" type="button" aria-label="Scene ${pad(index + 1)}：${escapeHtml(scene.narration.text)}" aria-pressed="${selected}"><strong>${pad(index + 1)}</strong><small>${pad(index + 1)}A</small></button></span>
       <span class="scene-copy">${editable && editing ? `<span class="narration-editor-wrap"><textarea class="narration-editor" aria-label="Scene ${pad(index + 1)} Narration" data-narration-editor ${state.assetBusy ? "disabled" : ""}>${escapeHtml(scene.narration.text)}</textarea><button class="expand-editor" type="button" data-expand ${state.assetBusy ? "disabled" : ""}>展开编辑</button></span><small class="narration-help">修改 Narration 会立即移除原 Speech</small>` : `<span class="narration-view">${escapeHtml(scene.narration.text || "空 Narration")}</span>${editable ? `<button class="edit-narration" type="button" data-edit-narration ${state.assetBusy ? "disabled" : ""}>编辑 Narration</button>` : ""}`}</span>
-      ${editable ? `<button class="scene-assets" type="button" data-open-scene-assets aria-label="第 ${pad(index + 1)} 个 Scene 的 Asset：${escapeHtml(summary.text)}"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "管理引用" : `${assets.length} / 256`}</span></button>` : `<span class="scene-assets"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "未绑定文件" : `${assets.length} / 256`}</span></span>`}
+      ${(editable || state.result?.control) ? `<button class="scene-assets" type="button" data-open-scene-assets aria-label="第 ${pad(index + 1)} 个 Scene 的 Asset：${escapeHtml(summary.text)}"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "管理引用" : `${assets.length} / 256`}</span></button>` : `<span class="scene-assets"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "未绑定文件" : `${assets.length} / 256`}</span></span>`}
       <div class="scene-speech"><span class="cell-label">Speech</span><span class="cell-value ${speech.mark === "connected" ? "ready" : "missing"}"><span class="status-mark" data-status="${speech.mark}" aria-hidden="true"></span>${escapeHtml(speech.label)}</span><span class="cell-detail" title="${escapeHtml(speech.detail)}">${escapeHtml(speech.detail)}</span>${editable ? speechAction : ""}</div>
     </div>`;
   }
@@ -511,56 +760,106 @@
     return `<main class="stage"><section class="contact-frame" data-editable="true" aria-label="Scene 可编辑接触印样">
       <div class="film-edge"><span>NCUT · ${escapeHtml(result.project.projectId.slice(0, 13))}</span><span>EDITING BENCH</span><span>${count(scenes.length)} SCENES</span></div>
       ${toolbar()}
+      <div class="task-notice" data-task-notice>${taskNotice()}</div>
       ${scenes.length === 0 ? empty : `<div class="contact-sheet"><div class="scene-header"><span>Scene</span><span>Narration</span><span>Asset</span><span>Speech</span></div><div class="scene-scroll" tabindex="0" aria-label="Scene 列表"><div class="scene-spacer" style="height:${scenes.length * ROW_HEIGHT}px"><div class="scene-window" style="transform:translateY(${start * ROW_HEIGHT}px)">${rows}</div></div></div></div>`}
       <div class="film-edge"><span>SCENE WRITE BOUNDARY</span><span>${count(scenes.length)} SCENES</span><span>NCUT 01</span></div>
       ${state.toast ? `<div class="undo-toast" role="status"><span>${escapeHtml(state.toast)}</span><button type="button" data-undo-delete>撤销删除</button></div>` : ""}
     </section>${expandedEditor()}</main>`;
   }
 
-  function statusCopy(validation) {
-    if (!validation) return { label: "未开始", mark: "idle", detail: "等待固定宿主验证任务" };
-    if (validation.status === "running") return { label: "运行中", mark: "running", detail: "正在等待 Codex 返回结构化结果" };
-    if (validation.status === "succeeded") return { label: "验证成功", mark: "succeeded", detail: "临时任务已终结" };
-    const reasons = {
-      USER_STOPPED: "用户已停止，可明确继续",
-      CODEX_THREAD_UNAVAILABLE: "原线程已丢失，继续时自动替换",
-      CODEX_INTERRUPTED: "Codex Turn 已中断，可重新继续",
-      CODEX_UNAVAILABLE: "Codex 宿主不可用，可稍后重试",
-    };
-    return { label: "已停止", mark: "stopped", detail: reasons[validation.reason] ?? "任务已安全停止" };
+  // 沿用暗房工作台：状态后呈现必要待办；所有内容写入由用户明确决定。
+  let taskActionBusy = false, seenBriefChange = null;
+  function suggestionMarkup(items, required) {
+    return items.filter(item => !!item.required === required).map(item => {
+      const index = state.project?.scenes?.findIndex(scene => scene.id === item.sceneId) ?? -1;
+      return `<article class="scene-todo"><header><h3>${index < 0 ? 'Scene 已删除' : `Scene ${pad(index + 1)}`} · ${escapeHtml(item.action)}</h3><span>${required ? item.satisfied ? '必要条件已满足' : '完成目标所必需' : '可选优化'}</span></header><code>${escapeHtml(item.sceneId)}</code><p>当前观察：${escapeHtml(item.observation)}</p><details><summary>建议值与理由</summary><p class="creation-instruction">${escapeHtml(item.content)}</p><p>理由：${escapeHtml(item.reason)}</p></details>${required ? `<p>继续条件：${escapeHtml(item.condition?.description ?? '等待用户判断')}${index < 0 ? '。目标已删除，继续后重新判断，不会定位其他 Scene。' : ''}</p>` : ''}<div class="todo-actions"><button class="agent-action" data-todo-scene="${escapeHtml(item.sceneId)}" data-todo-field="${escapeHtml(item.condition?.field ?? 'narration')}" ${index < 0 ? 'disabled' : ''}>定位 Scene</button><button class="agent-action" data-todo-copy="${state.creationTask.suggestions.indexOf(item)}">复制建议值</button></div></article>`;
+    }).join('');
   }
+  function locateSuggestion(id, field = 'narration') {
+    if (!state.project?.scenes.some(scene => scene.id === id)) { announce('目标 Scene 已删除，未定位其他 Scene。'); return; }
+    state.selected = id;
+    const index = state.project.scenes.findIndex(scene => scene.id === id);
+    state.start = Math.max(0, index - 3);
+    if (field === 'asset') { state.inspectorMode = 'scene-assets'; state.inspectionOpen = true; state.focusTarget = '[data-import-assets]'; }
+    else { state.editing = id; state.focusTarget = '[data-narration-editor]'; }
+    switchWorkspace('table'); render();
+    requestAnimationFrame(() => { const scroll = document.querySelector('.scene-scroll'); if (scroll) scroll.scrollTop = index * ROW_HEIGHT; });
+  }
+  async function respondTask(action) {
+    if (action !== 'stop' || taskActionBusy || !state.result?.writable || state.creationTask?.transferred) return;
+    const project = state.result.project;
+    taskActionBusy = true; state.taskOperation = 'stopping'; updateTaskRegion();
+    try {
+      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action });
+      if (state.result.project !== project) return;
+      if (response.isError || !response.structuredContent?.creationTask) throw new Error(response.structuredContent?.error?.message ?? '停止回执不完整，请重新核对');
+      state.taskOperation = null; applyCreation(response.structuredContent.creationTask);
+    } catch (error) { if (state.result.project === project) { state.taskOperation = 'stop-uncertain'; state.agentError = error.message; schedulePoll(); } }
+    finally { taskActionBusy = false; updateTaskRegion(); bindings.abort(); bindings = new AbortController(); bind(); }
+  }
+  function taskControls(task) {
+    if (!task || task.transferred || task.status === 'terminated' || state.creationRecovery) return '';
+    const operation = state.taskOperation ?? task.operation;
+    if (operation === 'stopping') return '<p class="creation-details" role="status">正在停止…</p>';
+    if (operation === 'stop-uncertain') return '<div class="creation-details"><p role="status">停止结果待核对</p><button class="agent-action" data-task-action="stop">重新核对停止结果</button></div>';
+    return ['running', 'waiting'].includes(task.status) ? '<div class="creation-details"><button class="agent-action" data-task-action="stop">停止任务</button></div>' : '';
+  }
+  function updateRecoveryRegion() {
+    const region = document.querySelector('[data-task-recovery]');
+    if (!region) return;
+    region.hidden = !state.creationRecovery;
+    if (state.creationRecovery) updateRegion(region, '<div class="creation-details"><h2>原任务无法恢复</h2><p>候选已保留。请在当前 Codex 对话中表达新目标，或在下方明确放弃候选。</p></div>');
+  }
+  const creationStages = { read: "读取项目", modify: "修改候选", check: "运行检查", preview: "构建 Preview", frames: "检查代表帧", deliver: "准备交付" };
+  const creationStopCopy = {
+    USER_STOPPED: ['你已停止任务'], APP_RESTARTED: ['应用已重启'], CODEX_USAGE_LIMIT: ['Codex 额度受限'],
+    CODEX_AUTH_REQUIRED: ['Codex 需要认证'], CODEX_UNAVAILABLE: ['Codex 服务不可用'],
+    CODEX_THREAD_UNAVAILABLE: ['原线程不可用'], CODEX_INTERRUPTED: ['Codex 已中断'],
+    NO_PROGRESS: ['连续多轮没有新的持久成果'],
+  };
 
   function agent(result) {
-    const validation = state.hostValidation;
-    const status = statusCopy(validation);
-    const connected = validation?.connection?.status === "connected";
-    const replaced = validation?.connection?.replaced === true;
-    const succeeded = validation?.status === "succeeded";
-    const running = validation?.status === "running";
-    const stopped = validation?.status === "stopped";
-    const taskId = validation?.taskId ?? "—";
-    const threadId = validation?.connection?.threadId ?? "—";
-    const scene = selectedScene();
-    const sceneIndex = scene ? currentScenes().indexOf(scene) + 1 : 0;
-    const diagnostic = validation?.diagnostic ?? (state.agentError ? { code: "HOST_TOOL_ERROR", message: state.agentError } : null);
-    const summary = validation?.result?.summary;
-    const briefReviewPending = result.currentRenderProgram?.briefReviewPending;
-    const briefReviewState = briefReviewPending === undefined
-      ? { mark: "idle", label: "Brief 关系未检查", detail: "打开可写项目后校验当前 Render Program 的 Brief 指纹" }
-      : briefReviewPending
-        ? { mark: "unavailable", label: "Brief 待复核", detail: "当前 Render Program 与既有 Preview 保持不变" }
-        : { mark: "connected", label: "已对应当前 Brief", detail: "当前 Render Program 已绑定这份 Brief 指纹" };
-    return `<main class="stage"><section class="agent-panel" aria-labelledby="agent-validation-title">
-      <header class="agent-head"><div><h1 id="agent-validation-title">Codex 创作线程验证</h1><p>运行一次固定、只读的宿主任务，核对专用线程的创建、状态回传与驱动权边界。验证结果不是候选 Render Program，也不会修改项目内容。</p></div><div class="protocol-tag">APP SERVER · READ ONLY</div></header>
-      <div class="agent-main"><section class="task-board" aria-label="临时任务状态"><h2 class="board-title"><span>临时任务状态</span><span>ONE TASK · ONE DRIVER</span></h2><dl class="status-ledger">
-        <div class="status-line"><span class="status-mark" data-status="${status.mark}" aria-hidden="true"></span><dt>任务状态</dt><dd><span>${status.label}</span><span class="replacement-note">${escapeHtml(status.detail)}</span></dd></div>
-        <div class="status-line"><span class="status-mark" data-status="${connected ? "connected" : validation ? "unavailable" : "idle"}" aria-hidden="true"></span><dt>线程连接</dt><dd><span>${connected ? "Codex 创作线程已连接" : validation ? "Codex 创作线程不可用" : "等待开始"}</span>${replaced ? '<span class="replacement-note">替代线程已接管</span>' : ""}</dd></div>
-        <div class="status-line" data-brief-review="${briefReviewPending === true}"><span class="status-mark" data-status="${briefReviewState.mark}" aria-hidden="true"></span><dt>Video Brief</dt><dd><span>${briefReviewState.label}</span><span class="replacement-note">${briefReviewState.detail}</span></dd></div>
-        <div class="status-line"><span class="status-mark" data-status="idle" aria-hidden="true"></span><dt>当前 Scene</dt><dd>${scene ? `Scene ${pad(sceneIndex)} 保持选中` : "当前项目没有 Scene"}</dd></div>
-        <div class="status-line"><span class="status-mark" data-status="idle" aria-hidden="true"></span><dt>Task ID</dt><dd>${escapeHtml(taskId)}</dd></div><div class="status-line"><span class="status-mark" data-status="idle" aria-hidden="true"></span><dt>Thread</dt><dd>${escapeHtml(threadId)}</dd></div>
-      </dl></section><section class="result-board" aria-label="验证结果"><h2 class="board-title"><span>验证结果</span><span>BOUNDED RESULT</span></h2><div class="result-field" data-status="${succeeded ? "succeeded" : status.mark}"><h2>${succeeded ? "验证成功" : running ? "正在验证" : stopped ? "验证已停止" : "等待验证"}</h2><p>${succeeded ? escapeHtml(summary) : running ? "结果只有通过任务身份、当前驱动身份和项目身份校验后才会进入这里。" : stopped ? "已保留最小任务检查点；继续时优先恢复原线程，失效则自动创建替代线程。" : "开始后，Narracut 将自动创建专用 Codex 创作线程；无需选择 Thread 或输入 Thread ID。"}</p>${succeeded ? '<div class="proof-list"><div class="proof-item">任务与当前驱动身份已校验</div><div class="proof-item">项目内容未修改</div></div>' : ""}</div>${diagnostic ? `<div class="agent-diagnostic" role="status"><strong>${escapeHtml(diagnostic.code)}</strong>${escapeHtml(diagnostic.message)}</div>` : ""}</section></div>
-      <footer class="agent-actions" aria-label="宿主验证操作"><button class="agent-action" data-agent-action="start" data-kind="primary" type="button" ${state.agentBusy || running || stopped ? "disabled" : ""}>开始验证</button><button class="agent-action" data-agent-action="stop" data-kind="stop" type="button" ${state.agentBusy || !running ? "disabled" : ""}>停止</button><button class="agent-action" data-agent-action="continue" data-kind="primary" type="button" ${state.agentBusy || !stopped ? "disabled" : ""}>继续</button><div class="agent-action-note">不保存对话副本、推理、工具日志或未提交修改</div></footer>
+    const task = state.creationTask;
+    const label = task?.transferred ? "任务已转移到另一线程" : [state.taskOperation, task?.operation].some(value => ["connection-uncertain", "transfer-uncertain"].includes(value)) ? "线程连接结果待核对" : state.taskOperation === "stopping" || task?.operation === "stopping" ? "正在停止…" : state.taskOperation === "stop-uncertain" || task?.operation === "stop-uncertain" ? "停止结果待核对" : state.taskOperation === "reconciling" || task?.operation === "reconciling" ? "正在核对恢复条件…" : state.creationRecovery ? "原任务无法恢复" : !task ? "尚无任务" : { running: "运行中", waiting: "等待用户", stopped: "已停止", terminated: "已终结" }[task.status];
+    const reason = task?.transferred ? null : creationStopCopy[task?.reason]?.[0] ?? { USER_STOPPED: "你已停止任务", CODEX_INTERRUPTED: "Codex 已中断", CODEX_THREAD_UNAVAILABLE: "原线程不可用", CODEX_UNAVAILABLE: "Codex 暂不可用", NO_PROGRESS: "连续多轮没有新的持久成果", EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED: "候选已被外部修改", CANDIDATE_READY: "候选已就绪", CANDIDATE_ACCEPTED: "候选已接受", CANDIDATE_ABANDONED: "候选已放弃", TASK_SUPERSEDED: "已被新目标取代", APP_RESTARTED: "应用已重启" }[task?.reason];
+    return `<main class="stage"><section class="agent-panel creation-panel" aria-labelledby="creation-task-title">
+      <header class="agent-head"><h1 id="creation-task-title" tabindex="-1">候选审阅</h1><p>创作、继续任务或新目标接管，请在当前 Codex 对话中表达。</p></header>
+      <div class="creation-state"><span class="status-mark" data-status="${task?.status === 'running' ? 'running' : task ? 'stopped' : 'idle'}" aria-hidden="true"></span><h2>${label}${reason ? ` · ${reason}` : ''}</h2>${task?.status === 'running' ? `<p>${creationStages[task.stage] ?? '读取项目'}</p>` : ''}</div>
+      ${task?.status === 'running' ? '<p class="creation-details">关闭面板后，任务仍会继续。需保持应用与 Codex 任务运行。</p>' : ''}
+      ${task?.pending ? `<p class="creation-details">${escapeHtml(task.pending)}</p>` : ''}
+      ${state.agentError ? `<p class="agent-diagnostic" role="alert">${escapeHtml(state.agentError)}</p>` : ''}
+      ${taskControls(task)}
+      ${task ? `<details class="creation-details"><summary>当前创作指令与任务详情</summary><p class="creation-instruction">${escapeHtml(task.instruction)}</p><dl><dt>Task ID</dt><dd>${escapeHtml(task.taskId)}</dd><dt>最后保存阶段</dt><dd>${creationStages[task.lastSafeStage] ?? '尚无'}</dd></dl>${task.divergence ? `<h3>与 Video Brief 的分歧</h3><p>${escapeHtml(task.divergence)}</p>` : ''}${task.status === 'stopped' ? '<p>候选与有效检查点已保留。请在当前 Codex 对话中明确继续。</p>' : ''}</details>` : '<p class="creation-details">尚无候选任务。请在当前 Codex 对话中描述创作目标。</p>'}
     </section></main>`;
+  }
+
+  function taskNotice() {
+    const task = state.creationTask;
+    return task ? `<span>${task.transferred ? '任务已转移到另一线程' : state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${creationStopCopy[task.reason]?.[0] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${["running","waiting"].includes(task.status) && !task.transferred && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || task.operation === "stopping" ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
+  }
+  function updateTaskRegion() {
+    updateRecoveryRegion();
+    const briefReview = document.querySelector('[data-brief-review-state]');
+    const pending = state.result?.currentRenderProgram?.briefReviewPending;
+    if (briefReview) { briefReview.hidden = pending === false; updateRegion(briefReview, pending === false ? '' : `<strong>${pending ? 'Brief 待复核' : 'Brief 关系未检查'}</strong><p>当前 Render Program 与既有 Preview 保持不变</p>`); }
+    const notice = document.querySelector('[data-task-notice]');
+    if (notice) updateRegion(notice, taskNotice());
+    const region = document.querySelector('[data-agent-content]');
+    if (!region) return;
+    const focused = region.contains(document.activeElement) ? document.activeElement : null;
+    const details = [...region.querySelectorAll('details')].map(node => node.open);
+    const summaries = [...region.querySelectorAll('summary')];
+    const focusIndex = summaries.indexOf(focused);
+    const focusId = focused?.id;
+    const focusAction = focused?.dataset.taskAction;
+    updateRegion(region, agent(state.result));
+    const optional = document.querySelector("[data-optional-suggestions]");
+    if (optional) updateRegion(optional, suggestionMarkup(state.creationTask?.suggestions ?? [], true) + suggestionMarkup(state.creationTask?.suggestions ?? [], false));
+    [...region.querySelectorAll('details')].forEach((node, index) => { node.open = details[index] ?? false; });
+    if (focused && !focused.isConnected) {
+      const next = focusId ? document.getElementById(focusId) ?? region.querySelector('[data-task-action]') ?? document.getElementById('creation-task-title') : focusAction ? region.querySelector(`[data-task-action="${focusAction}"]`) ?? document.getElementById('task-operation-status') ?? region.querySelector('[data-task-action]') ?? document.getElementById('creation-task-title') : region.querySelectorAll('summary')[focusIndex];
+      next?.focus({ preventScroll: true });
+    }
   }
 
   function formatBytes(bytes) {
@@ -612,12 +911,141 @@
     return `<div class="brief-layer" role="dialog" aria-modal="true" aria-label="编辑 Video Brief" aria-labelledby="brief-editor-title"><section class="brief-sheet">${header}<main class="brief-editor-main"><label><span class="sr-only">Video Brief 原始 Markdown</span><textarea data-brief-editor aria-label="Video Brief 原始 Markdown" spellcheck="true" maxlength="2097152">${escapeHtml(normalizeBriefEditorText(brief.local))}</textarea></label><footer><span>${formatBytes(byteCount)} / 2 MiB</span><span>保存完整原始字节 · 不自动格式化</span></footer>${brief.error ? `<div class="brief-error" role="alert">${escapeHtml(brief.error.message)}${brief.status === "failed" ? '<button type="button" data-retry-brief>重试保存</button>' : ""}</div>` : ""}${brief.exportMessage ? `<div class="brief-export-message" role="status">${escapeHtml(brief.exportMessage)}</div>` : ""}</main></section></div>`;
   }
 
+  function candidateLabel() {
+    if (state.candidateBusy) return { read: "正在检查完整性", create: "正在创建", discard: "正在放弃" }[state.candidateAction] ?? "正在保存";
+    return { absent: "尚无候选", saved: "已保存 · 尚未接受", "external-change": "外部变化 · 需要重新检查", "integrity-failed": "完整性失败 · 现场已保留" }[state.candidate?.status] ?? "候选状态尚未读取";
+  }
+
+  function candidatePanel() {
+    const candidate = state.candidate;
+    const absent = candidate?.status === "absent";
+    const disabled = state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation || state.autosaveStopped || !state.result?.writable;
+    return `<section class="candidate-panel" aria-labelledby="candidate-title"><header><h2 id="candidate-title">候选 Render Program</h2><span class="candidate-save" role="status"><span class="status-mark" data-status="${candidate?.status === "saved" ? "succeeded" : "unavailable"}" aria-hidden="true"></span>${candidateLabel()}</span></header>
+      <p>${absent ? "尚无候选，请在当前 Codex 对话中表达创作目标。" : "Agent、人工与受控工具共享这个候选。停止活动或切换工作区都会保留它。"}</p>
+      <dl><div><dt>检查</dt><dd>检查批次与操作条件见下方；构建与播放见上方成片 Preview</dd></div><div><dt>恢复检查点</dt><dd>${candidate?.checkpoint ? "上一份完整候选已保留" : "尚无恢复检查点"}</dd></div></dl>
+      ${state.candidateError || candidate?.error ? `<p class="candidate-error" role="alert">${escapeHtml((state.candidateError ?? candidate.error).message)}</p>` : ""}
+      ${state.candidateUncertain ? '<p role="status">正在核对操作结果；核对前不会重复提交。</p><button class="agent-action" data-candidate-action="read">核对操作结果</button>' : ''}<div class="candidate-actions"><button type="button" class="agent-action" data-candidate-action="read" ${disabled ? "disabled" : ""}>重新检查完整性</button>${candidate && !absent ? `<button type="button" class="agent-action" data-candidate-discard ${disabled ? "disabled" : ""}>放弃候选</button>` : ""}</div>
+      <details ${state.candidateDetails ? "open" : ""} data-candidate-details><summary>身份与完整性详情</summary><dl><div><dt>来源修订</dt><dd>${escapeHtml(candidate?.sourceRevision ?? "尚未读取")}</dd></div>${[ ["候选", candidate?.candidate], ["恢复检查点", candidate?.checkpoint] ].map(([label, ref]) => ref ? `<div><dt>${label}路径</dt><dd><code>${escapeHtml(ref.path)}</code></dd></div><div><dt>${label}完整树身份</dt><dd><code>${escapeHtml(ref.identity)}</code></dd></div>` : "").join("")}</dl><p>完整性检查核对目录、普通文件和完整树字节；不表示源码、类型或构建检查通过。恢复替换与损坏导出尚未接入。</p></details>
+      ${state.candidateConfirm ? `<div class="candidate-confirm" role="alertdialog" aria-modal="true" aria-labelledby="candidate-discard-title" aria-describedby="candidate-discard-help"><h3 id="candidate-discard-title">放弃候选并终结任务？</h3><p id="candidate-discard-help">候选、候选恢复检查点和 Agent 任务检查点将一起删除，并终结旧任务。当前修订保留，操作不可撤销。</p><div class="candidate-actions"><button type="button" class="agent-action" data-candidate-cancel>取消</button><button type="button" class="agent-action" data-candidate-action="discard">放弃候选并终结任务</button></div></div>` : ""}</section>`;
+  }
+
+  function updateCandidate() {
+    if (composing) return;
+    const region = document.querySelector("[data-candidate-region]");
+    const active = region?.contains(document.activeElement) ? document.activeElement : null;
+    const focusSelector = active?.matches("[data-candidate-discard]") ? "[data-candidate-discard]"
+      : active?.matches("[data-candidate-cancel]") ? "[data-candidate-cancel]"
+      : active?.matches("summary") ? "[data-candidate-details] summary"
+      : active?.dataset.candidateAction ? `[data-candidate-action="${active.dataset.candidateAction}"]` : null;
+    updateRegion(region, candidatePanel());
+    document.querySelectorAll("[data-candidate-summary]").forEach(node => { node.textContent = candidateLabel(); });
+    if (focusSelector) region?.querySelector(focusSelector)?.focus({ preventScroll: true });
+  }
+
+  async function candidateOperation(action, quiet = false) {
+    if (state.candidateBusy || (action !== 'read' && (state.candidateUncertain || acceptanceWorkbench.blocked())) || !state.result?.writable || state.autosaveStopped || (quiet && state.candidateConfirm)) return;
+    const project = state.result.project;
+    state.candidateBusy = true;
+    state.candidateAction = action;
+    if (!quiet) { state.candidateError = null; updateCandidate(); }
+    try {
+      const response = await callHostTool("manage_project_candidate", { projectDirectory: project.directory, projectId: project.projectId, action, ...(action === "discard" ? { baseline: state.candidate?.baseline, confirmed: true } : {}) });
+      if (state.result?.project !== project) return;
+      const content = response?.structuredContent;
+      if (content?.candidate) {
+        state.candidate = content.candidate; state.candidateError = null;
+        if (action === 'discard' || state.candidateUncertain) {
+          state.candidateUncertain = false;
+          if (content.candidate.status === 'absent') {
+            previewWorkbench.discarded(); await deliveryWorkbench.refresh().catch(() => {});
+            const taskResult = await callHostTool('get_creation_task', { projectDirectory: project.directory, projectId: project.projectId }).catch(() => null);
+            if (taskResult?.structuredContent && 'creationTask' in taskResult.structuredContent) applyCreation(taskResult.structuredContent.creationTask);
+          } else state.candidateError = { message: '候选仍存在；请重新核对后明确放弃。' };
+        }
+      }
+      else if (content?.error) {
+        state.candidateError = content.error;
+        if (action === 'discard' && content.error.code === 'CANDIDATE_SAVE_FAILED') state.candidateUncertain = true;
+        if (content.error.code === "PROJECT_IDENTITY_LOST") state.autosaveStopped = true;
+      } else if (!quiet) { state.candidateUncertain ||= action === 'discard'; state.candidateError = { message: '正在核对操作结果，请点击核对操作结果。' }; }
+    } catch (error) {
+      if (state.result?.project === project && !quiet) { state.candidateUncertain ||= action === 'discard'; state.candidateError = { message: state.candidateUncertain ? '正在核对操作结果，请点击核对操作结果。' : error.message }; }
+    } finally {
+      if (state.result?.project === project) {
+        state.candidateBusy = false;
+        if (action === "discard") state.candidateConfirm = false;
+        updateCandidate();
+        if (action === "discard") document.querySelector("[data-candidate-action]")?.focus();
+      }
+    }
+  }
+
+  // 事件委托使后台状态刷新不重绑 Composer、Scene 或候选控件。
+  app.addEventListener("click", event => {
+    const action = event.target.closest("[data-candidate-action]");
+    if (action && !action.disabled) candidateOperation(action.dataset.candidateAction);
+    if (event.target.closest("[data-candidate-discard]")) {
+      state.candidateConfirm = true; updateCandidate();
+      document.querySelector("[data-candidate-cancel]")?.focus();
+    }
+    if (event.target.closest("[data-candidate-cancel]")) {
+      state.candidateConfirm = false; updateCandidate();
+      document.querySelector("[data-candidate-discard]")?.focus();
+    }
+  });
+  app.addEventListener("toggle", event => {
+    if (event.target.matches?.("[data-candidate-details]")) state.candidateDetails = event.target.open;
+  }, true);
+  app.addEventListener("keydown", event => {
+    if (!state.candidateConfirm) return;
+    if (event.key === "Escape") { event.preventDefault(); document.querySelector("[data-candidate-cancel]")?.click(); }
+    if (event.key === "Tab") {
+      const buttons = [...document.querySelectorAll(".candidate-confirm button")];
+      event.preventDefault();
+      buttons[(buttons.indexOf(document.activeElement) + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
+    }
+  });
+  setInterval(() => { if (!document.hidden && state.candidate) candidateOperation("read", true); }, 4000);
+
+  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project ? { ...state.result.project, writable: state.result.writable } : undefined, instanceId => deliveryWorkbench.candidateReady(instanceId), () => !!state.result?.conversation);
+  const deliveryWorkbench = createDeliveryWorkbench((action, args) => callHostTool(action === "displayed" ? "project_delivery_display" : "project_delivery", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, ...(action === "displayed" ? {} : { action }), ...args }), () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate, scenes: currentScenes() } : undefined, previewWorkbench, id => locateSuggestion(id));
+  const finalRenderWorkbench = createRenderWorkbench(
+    (action, args) => callHostTool('project_render', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
+    () => state.result?.project,
+    () => state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict && state.result?.writable !== false,
+    previewWorkbench, location => {
+      const sceneId = location?.sceneId ?? state.result?.scenes.find(scene => scene.assets?.some(asset => asset.path === location?.path))?.id;
+      if (sceneId) state.selected = sceneId;
+      switchWorkspace('table'); render();
+    }, createUuid,
+  );
+  const acceptanceWorkbench = createAcceptanceWorkbench(
+    (action, args) => callHostTool('project_acceptance', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
+    () => state.result?.project,
+    () => state.result?.writable === true && !state.candidateUncertain && !(state.candidateBusy && state.candidateAction !== 'read') && state.creationTask?.status !== 'running' && !state.creationTask?.operation && state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict,
+    deliveryWorkbench, previewWorkbench,
+    async (result) => {
+      if (result?.status === 'accepted' && result.revision.valid !== false && result.revision.current !== false) {
+        state.result.currentRenderProgram = { briefRevision: result.revision.briefFingerprint, briefReviewPending: result.revision.briefFingerprint !== state.brief.baselineRevision, previewPreserved: true };
+      }
+      if (result && 'creationTask' in result) applyCreation(result.creationTask);
+      await candidateOperation('read'); await deliveryWorkbench.refresh(); render();
+    }
+  );
+  const checksWorkbench = createChecksWorkbench((action, args) => callHostTool("project_checks", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project, location => {
+    if (location.kind === "scene" && state.result?.scenes.some(scene => scene.id === location.sceneId)) { state.selected = location.sceneId; previewWorkbench.selectScene(location.sceneId); render(); }
+    if (location.kind === "frame") previewWorkbench.navigateFrame(location);
+  });
+
   function valid(result) {
-    return `<div class="workspace">${state.workspace === "table" ? table(result) : agent(result)}${inspector(result)}</div>${assetPreviewLayer()}${briefEditorLayer()}`;
+    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="agent-panel" data-task-recovery hidden></section><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><section class="delivery-panel" data-program-delivery aria-label="候选交付"></section><section class="delivery-panel" data-brief-review-state hidden></section><section class="creation-optional" data-optional-suggestions></section><details class="checks-details"><summary>详细检查与操作状态</summary><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section></details><section class="delivery-panel" data-program-acceptance aria-label="接受候选"></section><div data-candidate-region></div><section class="preview-context" data-final-render aria-label="最终 Render"></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
   }
 
   function invalid(result) {
     const error = result.error ?? {};
+    if (error.code === 'HOST_INITIALIZATION_FAILED') {
+      return `<main class="stage"><section class="state-panel"><div class="state-copy"><h1>工作台连接失败</h1><p>${escapeHtml(error.message)}</p><p>请重新打开 Narracut 项目启动器。</p><div class="state-code">HOST_INITIALIZATION_FAILED</div></div></section></main>`;
+    }
     const diagnostics = error.diagnostics ?? [];
     return `<div class="workspace"><main class="stage"><section class="state-panel"><div class="state-copy"><h1>项目无法打开</h1><p>${escapeHtml(error.message ?? "项目检查失败，请核对目录与内容后重试。")}</p><div class="state-code">${escapeHtml(error.code ?? "PROJECT_INSPECTION_FAILED")}</div><ul class="diagnostics">${diagnostics.map((item) => `<li><strong>${escapeHtml(item.component)}</strong><br><span>${escapeHtml(item.message)}</span></li>`).join("")}</ul></div></section></main><aside class="inspection" aria-label="项目检查" data-open="${state.inspectionOpen}"><button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button><h2>项目检查</h2><div class="rule"></div><section class="readonly"><strong>只读检查失败</strong><p>错误已同时返回给模型与工作台；Narracut 未修改该目录。</p></section></aside></div>`;
   }
@@ -626,14 +1054,85 @@
     return `<div class="workspace"><main class="stage"><section class="state-panel"><div class="loading" aria-label="正在连接 Narracut"><i></i><i></i><i></i></div></section></main><aside class="inspection" aria-label="项目检查"><h2>项目检查</h2><div class="rule"></div><p>等待工具结果…</p></aside></div>`;
   }
 
+  // 外壳、草稿与 Preview 宿主始终留在原 DOM 位置；状态刷新只更新相关区域。
+  function updateRegion(element, html) {
+    if (!element || renderedRegions.get(element) === html) return;
+    element.innerHTML = html;
+    renderedRegions.set(element, html);
+  }
+
+  function updateWorkspaceVisibility() {
+    document.querySelectorAll("[data-workspace]").forEach((tab) => {
+      const selected = state.workspace === tab.dataset.workspace;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    });
+    for (const name of ["table", "agent"]) {
+      const panel = document.getElementById(`workspace-${name}`);
+      if (panel) panel.hidden = name !== state.workspace;
+    }
+  }
+
+  function switchWorkspace(workspace) {
+    if (state.workspace === workspace) return;
+    state.workspace = workspace;
+    updateWorkspaceVisibility();
+    previewWorkbench.pauseHidden();
+    // 不调用任务、保存或 Scene 写入口，也不由 Scene 选择驱动播放位置。
+    updateTaskRegion();
+    updateRegion(document.querySelector("[data-inspector-region]"), inspector(state.result));
+    bindings.abort();
+    bindings = new AbortController();
+    bind();
+    document.querySelector(`[data-workspace="${workspace}"]`)?.focus();
+  }
+
   function render() {
+    if (recovery) return;
+    if (composing) {
+      renderPending = true;
+      return;
+    }
+    renderPending = false;
     const result = state.result;
     const launcherMode = result?.status === "launcher";
     app.className = `app-shell${launcherMode ? " launcher-shell" : state.project ? " editing-shell" : ""}`;
-    app.innerHTML = launcherMode
-      ? `${launcherRail()}${launcher()}${launcherFooter()}`
-      : `${rail(result)}${tabs()}${result === null ? loading() : result.status === "valid" ? valid(result) : invalid(result)}${composer()}`;
+    app.classList.toggle('conversation-shell', !launcherMode);
+    bindings.abort();
+    bindings = new AbortController();
+    if (launcherMode) {
+      app.innerHTML = `${launcherRail()}${launcher()}${launcherFooter()}`;
+    } else {
+      if (!document.querySelector('[data-conversation-footer]')) {
+        app.innerHTML = `<div data-rail-region></div><div data-control-region></div><div data-tabs-region></div><div data-workspace-region></div>${conversationFooter()}`;
+      }
+      updateRegion(document.querySelector("[data-rail-region]"), rail(result));
+      updateRegion(document.querySelector("[data-control-region]"), controlMarkup());
+      updateRegion(document.querySelector("[data-tabs-region]"), tabs());
+      const region = document.querySelector("[data-workspace-region]");
+      updateRegion(region, result === null ? loading() : result.status === "valid" ? valid(result) : invalid(result));
+      if (result?.status === "valid") {
+        updateRegion(document.getElementById("workspace-table"), table(result));
+        updateTaskRegion();
+        updateCandidate();
+        previewWorkbench.mount(document.querySelector("[data-program-preview]"));
+        deliveryWorkbench.mount(document.querySelector("[data-program-delivery]"));
+        acceptanceWorkbench.mount(document.querySelector("[data-program-acceptance]"));
+        finalRenderWorkbench.mount(document.querySelector("[data-final-render]"));
+        checksWorkbench.mount(document.querySelector("[data-program-checks]"));
+        updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
+        updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}`);
+      }
+      updateWorkspaceVisibility();
+    }
     bind();
+    if (launcherMode && result.conversation?.status === 'unavailable') {
+      app.querySelectorAll('button,input').forEach(control => { control.disabled = true; });
+      const footer = app.querySelector('.launch-footer');
+      footer.textContent = result.conversation.reason;
+      footer.setAttribute('role', 'status');
+    }
+
     if (state.focusTarget) {
       const target = state.focusTarget;
       state.focusTarget = null;
@@ -642,6 +1141,13 @@
       else requestAnimationFrame(() => document.querySelector(target)?.focus());
     }
   }
+
+  app.addEventListener("compositionstart", () => { composing = true; });
+  app.addEventListener("compositionend", () => {
+    composing = false;
+    // 最后一条 input 先提交，避免用上一次草稿替换中文候选。
+    queueMicrotask(() => { if (renderPending) render(); });
+  });
 
   function announce(message) {
     const announcer = document.getElementById("launcher-status-announcer");
@@ -805,7 +1311,7 @@
   function saveProject() {
     clearTimeout(saveTimer);
     if (activeSavePromise) return activeSavePromise;
-    if (state.autosaveStopped || !state.project || state.version === state.savedVersion) return Promise.resolve();
+    if (state.result?.writable === false || state.autosaveStopped || !state.project || state.version === state.savedVersion) return Promise.resolve();
     activeSavePromise = performProjectSave();
     return activeSavePromise;
   }
@@ -961,7 +1467,7 @@
     clearTimeout(briefSaveTimer);
     if (activeBriefSavePromise) return activeBriefSavePromise;
     const brief = state.brief;
-    if (brief.conflict || brief.version === brief.savedVersion) return Promise.resolve();
+    if (state.result?.writable === false || brief.conflict || brief.version === brief.savedVersion) return Promise.resolve();
     activeBriefSavePromise = performVideoBriefSave();
     return activeBriefSavePromise;
   }
@@ -1385,6 +1891,40 @@
     state.result = { ...state.result, ...content, status: "valid", projectDsl: state.project };
   }
 
+  async function refreshTtsProject() {
+    if (state.ttsSaving || !state.result?.writable) return;
+    if (state.version !== state.savedVersion || state.editing) {
+      state.ttsError = "存在未保存的 Scene 编辑，请先保留或解决编辑冲突。";
+      render();
+      return;
+    }
+    const projectId = state.result.project.projectId;
+    const version = state.version;
+    state.ttsSaving = true;
+    render();
+    try {
+      const response = await callHostTool("get_workbench", {});
+      const content = response?.structuredContent ?? response;
+      if (response?.isError || !content?.writable || !content.projectDsl ||
+          content.project?.projectId !== projectId || state.result.project.projectId !== projectId ||
+          !state.result.writable || state.version !== version || state.editing) {
+        throw new Error("项目状态或编辑已变化，无法安全读取最新基线；请先核对项目。" );
+      }
+      applyWorkspaceContent(content);
+      state.undo = []; state.redo = [];
+      state.candidate = content.candidate;
+      state.creationTask = content.creationTask;
+      state.ttsPendingConfirm = null;
+      state.ttsConflict = false;
+      state.ttsError = "已读取最新项目，请核对 Scene 内容后再次保存 TTS 配置。";
+    } catch (error) {
+      state.ttsError = error?.message ?? "读取最新项目失败，请重试。";
+    } finally {
+      state.ttsSaving = false;
+      render();
+    }
+  }
+
   async function saveTtsSettings(confirmed = false) {
     if (state.ttsSaving || !state.ttsForm || !state.result?.project) return;
     const oldConfig = state.result.tts?.status === "configured" ? state.result.tts.config : null;
@@ -1428,10 +1968,12 @@
         announce(`TTS 配置变更需要确认，将移除 ${content.affectedSpeechCount} 条 Speech。`);
         return;
       }
+      if (content?.status === "save-conflict") state.ttsConflict = true;
       if (response?.isError || ["tts-save-failed", "save-conflict", "identity-lost"].includes(content?.status)) {
         throw new Error(content?.error?.message ?? "TTS 配置保存失败。");
       }
       applyWorkspaceContent(content);
+      state.ttsConflict = false;
       initializeTtsForm(content.tts);
       state.ttsApiKey = "";
       state.ttsClearCredential = false;
@@ -1715,60 +2257,64 @@
       row.addEventListener("click", (event) => {
         if (event.target.closest("button,textarea,input")) return;
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         state.toast = null;
         render();
-      });
+      }, { signal: bindings.signal });
       row.querySelector(".scene-select")?.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         state.toast = null;
         render();
-      });
+      }, { signal: bindings.signal });
       row.querySelector("[data-edit-narration]")?.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         state.editing = row.dataset.sceneId;
         state.editGroupOpen = false;
         state.focusTarget = "[data-narration-editor]";
         render();
-      });
+      }, { signal: bindings.signal });
       row.querySelector("[data-open-scene-assets]")?.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         state.inspectorMode = "scene-assets";
         state.inspectionOpen = true;
         state.assetSearch = "";
         render();
-      });
-      row.querySelector("[data-speech-action]")?.addEventListener("click", () => startSpeech(row.dataset.sceneId));
-      row.querySelector("[data-cancel-speech]")?.addEventListener("click", () => cancelSpeech(row.dataset.sceneId));
+      }, { signal: bindings.signal });
+      row.querySelector("[data-speech-action]")?.addEventListener("click", () => startSpeech(row.dataset.sceneId), { signal: bindings.signal });
+      row.querySelector("[data-cancel-speech]")?.addEventListener("click", () => cancelSpeech(row.dataset.sceneId), { signal: bindings.signal });
       const editor = row.querySelector("[data-narration-editor]");
-      editor?.addEventListener("input", () => updateNarration(row.dataset.sceneId, editor.value, editor));
+      editor?.addEventListener("input", () => updateNarration(row.dataset.sceneId, editor.value, editor), { signal: bindings.signal });
       editor?.addEventListener("blur", (event) => {
         if (event.relatedTarget?.matches?.("[data-expand]")) return;
         state.editGroupOpen = false;
         saveProject();
-      });
+      }, { signal: bindings.signal });
       row.querySelector("[data-expand]")?.addEventListener("click", () => {
         state.expanded = row.dataset.sceneId;
         state.focusTarget = "[data-expanded-editor]";
         render();
-      });
+      }, { signal: bindings.signal });
       const handle = row.querySelector(".drag-handle");
       handle?.addEventListener("dragstart", (event) => {
         state.dragged = row.dataset.sceneId;
         row.dataset.dragging = "true";
         event.dataTransfer.effectAllowed = "move";
-      });
+      }, { signal: bindings.signal });
       handle?.addEventListener("dragend", () => {
         state.dragged = null;
         delete row.dataset.dragging;
-      });
-      row.addEventListener("dragover", (event) => event.preventDefault());
+      }, { signal: bindings.signal });
+      row.addEventListener("dragover", (event) => event.preventDefault(), { signal: bindings.signal });
       row.addEventListener("drop", (event) => {
         event.preventDefault();
         if (!state.dragged) return;
         state.selected = state.dragged;
         moveScene(currentScenes().findIndex((scene) => scene.id === row.dataset.sceneId));
         state.dragged = null;
-      });
+      }, { signal: bindings.signal });
     });
   }
 
@@ -1781,36 +2327,36 @@
         render();
         requestAnimationFrame(() => { document.querySelector(".scene-scroll").scrollTop = scrollTop; });
       }
-    }, { passive: true });
+    }, { signal: bindings.signal, passive: true });
   }
 
   function bindTable() {
-    document.querySelectorAll("[data-add],[data-add-first]").forEach((button) => button.addEventListener("click", addScene));
-    document.querySelectorAll("[data-copy]").forEach((button) => button.addEventListener("click", copyScene));
-    document.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", deleteScene));
-    document.querySelectorAll("[data-move-up]").forEach((button) => button.addEventListener("click", () => moveScene(currentScenes().findIndex((scene) => scene.id === state.selected) - 1)));
-    document.querySelectorAll("[data-move-down]").forEach((button) => button.addEventListener("click", () => moveScene(currentScenes().findIndex((scene) => scene.id === state.selected) + 1)));
+    document.querySelectorAll("[data-add],[data-add-first]").forEach((button) => button.addEventListener("click", addScene, { signal: bindings.signal }));
+    document.querySelectorAll("[data-copy]").forEach((button) => button.addEventListener("click", copyScene, { signal: bindings.signal }));
+    document.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", deleteScene, { signal: bindings.signal }));
+    document.querySelectorAll("[data-move-up]").forEach((button) => button.addEventListener("click", () => moveScene(currentScenes().findIndex((scene) => scene.id === state.selected) - 1), { signal: bindings.signal }));
+    document.querySelectorAll("[data-move-down]").forEach((button) => button.addEventListener("click", () => moveScene(currentScenes().findIndex((scene) => scene.id === state.selected) + 1), { signal: bindings.signal }));
     document.querySelectorAll("[data-move]").forEach((button) => button.addEventListener("click", () => {
       const input = button.previousElementSibling;
       moveScene(Number(input.value) - 1);
-    }));
-    document.querySelector("[data-undo]")?.addEventListener("click", undo);
-    document.querySelector("[data-redo]")?.addEventListener("click", redo);
-    document.querySelector("[data-undo-delete]")?.addEventListener("click", undo);
+    }, { signal: bindings.signal }));
+    document.querySelector("[data-undo]")?.addEventListener("click", undo, { signal: bindings.signal });
+    document.querySelector("[data-redo]")?.addEventListener("click", redo, { signal: bindings.signal });
+    document.querySelector("[data-undo-delete]")?.addEventListener("click", undo, { signal: bindings.signal });
     document.querySelector("[data-retry]")?.addEventListener("click", () => {
       state.saveStatus = "dirty";
       state.saveError = null;
       render();
       saveProject();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-close-expanded]")?.addEventListener("click", () => {
       state.expanded = null;
       state.editGroupOpen = false;
       render();
       saveProject();
-    });
+    }, { signal: bindings.signal });
     const expanded = document.querySelector("[data-expanded-editor]");
-    expanded?.addEventListener("input", () => updateNarration(state.expanded, expanded.value, expanded));
+    expanded?.addEventListener("input", () => updateNarration(state.expanded, expanded.value, expanded), { signal: bindings.signal });
     bindSceneScroll();
     bindSceneRows();
   }
@@ -1820,90 +2366,92 @@
       state.inspectionOpen = false;
       document.querySelector(".inspection")?.setAttribute("data-open", "false");
       document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "false");
-    });
+      document.querySelector("[data-open-inspection]")?.focus();
+    }, { signal: bindings.signal });
     document.querySelectorAll("[data-project-inspection]").forEach((button) => button.addEventListener("click", () => {
       state.inspectorMode = "project";
       state.assetSearch = "";
       state.ttsBlockedReason = null;
       state.ttsPendingConfirm = null;
       render();
-    }));
+    }, { signal: bindings.signal }));
     document.querySelector("[data-open-brief]")?.addEventListener("click", () => {
       state.brief.open = true;
       state.brief.error = null;
       state.focusTarget = state.brief.conflict ? "[data-brief-merge]" : "[data-brief-editor]";
       render();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-open-tts]")?.addEventListener("click", () => {
       state.inspectorMode = "tts";
       state.inspectionOpen = true;
       state.ttsBlockedReason = null;
       initializeTtsForm();
       render();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-manage-project-assets]")?.addEventListener("click", () => {
       state.inspectorMode = "project-assets";
       state.assetSearch = "";
       state.inspectionOpen = true;
       render();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-add-existing]")?.addEventListener("click", () => {
       state.inspectorMode = "asset-picker";
       state.assetSearch = "";
       render();
       document.querySelector("[aria-label='搜索项目 Asset']")?.focus();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-scene-assets]")?.addEventListener("click", () => {
       state.inspectorMode = "scene-assets";
       state.assetSearch = "";
       render();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[aria-label='搜索项目 Asset']")?.addEventListener("input", (event) => {
       state.assetSearch = event.currentTarget.value;
       render();
       const input = document.querySelector("[aria-label='搜索项目 Asset']");
       input?.focus();
       input?.setSelectionRange(state.assetSearch.length, state.assetSearch.length);
-    });
-    document.querySelectorAll("[data-import-assets]").forEach((button) => button.addEventListener("click", () => importAssets(button.dataset.targetScene)));
-    document.querySelectorAll("[data-add-asset]").forEach((button) => button.addEventListener("click", () => addExistingAsset(button.dataset.addAsset)));
-    document.querySelectorAll("[data-preview-asset]").forEach((button) => button.addEventListener("click", () => openAssetPreview(button.dataset.previewAsset)));
+    }, { signal: bindings.signal });
+    document.querySelectorAll("[data-import-assets]").forEach((button) => button.addEventListener("click", () => importAssets(button.dataset.targetScene), { signal: bindings.signal }));
+    document.querySelectorAll("[data-add-asset]").forEach((button) => button.addEventListener("click", () => addExistingAsset(button.dataset.addAsset), { signal: bindings.signal }));
+    document.querySelectorAll("[data-preview-asset]").forEach((button) => button.addEventListener("click", () => openAssetPreview(button.dataset.previewAsset), { signal: bindings.signal }));
     document.querySelectorAll("[data-move-asset]").forEach((button) => button.addEventListener("click", () => {
       const scene = selectedScene();
       const index = scene?.assetIds.indexOf(button.dataset.moveAsset) ?? -1;
       moveAssetReference(button.dataset.moveAsset, index + (button.dataset.direction === "up" ? -1 : 1));
-    }));
+    }, { signal: bindings.signal }));
     document.querySelectorAll("[data-apply-asset-position]").forEach((button) => button.addEventListener("click", () => {
       const input = document.querySelector(`[data-asset-position="${CSS.escape(button.dataset.applyAssetPosition)}"]`);
       moveAssetReference(button.dataset.applyAssetPosition, Number(input?.value) - 1);
-    }));
-    document.querySelectorAll("[data-unlink-asset]").forEach((button) => button.addEventListener("click", () => unlinkAssetReference(button.dataset.unlinkAsset)));
+    }, { signal: bindings.signal }));
+    document.querySelectorAll("[data-unlink-asset]").forEach((button) => button.addEventListener("click", () => unlinkAssetReference(button.dataset.unlinkAsset), { signal: bindings.signal }));
     document.querySelectorAll("[data-tts-field]").forEach((field) => field.addEventListener("input", () => {
       const key = field.dataset.ttsField;
       state.ttsForm[key] = field.type === "number" ? Number(field.value) : field.value;
       state.ttsPendingConfirm = null;
-    }));
+    }, { signal: bindings.signal }));
     document.querySelector("[data-tts-api-key]")?.addEventListener("input", (event) => {
       state.ttsApiKey = event.currentTarget.value;
       state.ttsClearCredential = false;
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-clear-tts-key]")?.addEventListener("click", () => {
       state.ttsClearCredential = true;
       state.ttsApiKey = "";
       render();
       document.querySelector("[data-tts-api-key]")?.focus();
-    });
+    }, { signal: bindings.signal });
     document.querySelector("[data-tts-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       if (!event.currentTarget.reportValidity()) return;
       saveTtsSettings(false);
-    });
-    document.querySelector("[data-confirm-tts]")?.addEventListener("click", () => saveTtsSettings(true));
+    }, { signal: bindings.signal });
+    document.querySelector("[data-refresh-tts]")?.addEventListener("click", refreshTtsProject, { signal: bindings.signal });
+    document.querySelector("[data-confirm-tts]")?.addEventListener("click", () => saveTtsSettings(true), { signal: bindings.signal });
     document.querySelector("[data-cancel-tts-confirm]")?.addEventListener("click", () => {
       state.ttsPendingConfirm = null;
       render();
       document.querySelector(".tts-save")?.focus();
-    });
+    }, { signal: bindings.signal });
   }
 
   function bindBriefEditor() {
@@ -1914,52 +2462,188 @@
       state.focusTarget = "[data-open-brief]";
       saveVideoBrief();
       render();
-    });
-    document.querySelector("[data-brief-undo]")?.addEventListener("click", () => moveBriefHistory(state.brief.undo, state.brief.redo));
-    document.querySelector("[data-brief-redo]")?.addEventListener("click", () => moveBriefHistory(state.brief.redo, state.brief.undo));
+    }, { signal: bindings.signal });
+    document.querySelector("[data-brief-undo]")?.addEventListener("click", () => moveBriefHistory(state.brief.undo, state.brief.redo), { signal: bindings.signal });
+    document.querySelector("[data-brief-redo]")?.addEventListener("click", () => moveBriefHistory(state.brief.redo, state.brief.undo), { signal: bindings.signal });
     document.querySelector("[data-retry-brief]")?.addEventListener("click", () => {
       state.brief.status = "dirty";
       state.brief.error = null;
       saveVideoBrief();
       updateBriefIndicator();
-    });
+    }, { signal: bindings.signal });
     const editor = document.querySelector("[data-brief-editor]");
-    editor?.addEventListener("input", () => updateBrief(editor.value));
+    editor?.addEventListener("input", () => updateBrief(editor.value), { signal: bindings.signal });
     editor?.addEventListener("blur", (event) => {
       if (event.relatedTarget?.matches?.("[data-brief-undo],[data-brief-redo]")) return;
       state.brief.editGroupOpen = false;
       saveVideoBrief();
-    });
+    }, { signal: bindings.signal });
     document.querySelectorAll("[data-brief-conflict-tab]").forEach((button) => button.addEventListener("click", () => {
       state.brief.conflictTab = button.dataset.briefConflictTab;
       state.focusTarget = `[data-brief-conflict-tab="${button.dataset.briefConflictTab}"]`;
       render();
-    }));
+    }, { signal: bindings.signal }));
     document.querySelector("[data-brief-merge]")?.addEventListener("input", (event) => {
       state.brief.merge = reconcileBriefEditorText(state.brief.merge, event.currentTarget.value);
+    }, { signal: bindings.signal });
+    document.querySelector("[data-submit-brief-merge]")?.addEventListener("click", submitBriefMerge, { signal: bindings.signal });
+    document.querySelector("[data-discard-brief-local]")?.addEventListener("click", discardBriefLocal, { signal: bindings.signal });
+    document.querySelector("[data-export-brief-local]")?.addEventListener("click", exportBriefLocal, { signal: bindings.signal });
+  }
+
+  let projectCopy = null;
+  let identityConflict = null;
+  const copyPhases = { preparing: '正在保存 Scene 与 Video Brief', stopping: '正在安全停止 Agent，保留候选', waiting: '正在等待 Render、Speech 与目录写任务结束', closing: '正在关闭来源工作区', copying: '正在复制完整持久内容', validating: '正在校验副本与来源一致性', publishing: '正在完成原子发布', opening: '副本已创建，正在打开', reconciling: '连接中断，正在等待核对复制结果；来源编辑保持锁定' };
+  function copyTarget() { return projectCopy?.parent ? `${projectCopy.parent.replace(/[\\/]$/, '')}/${projectCopy.name}` : ''; }
+  function copyDialog() {
+    let dialog = document.getElementById('project-copy-dialog');
+    if (!dialog) { dialog = document.createElement('dialog'); dialog.id = 'project-copy-dialog'; dialog.className = 'project-copy-dialog'; document.body.append(dialog); }
+    const c = projectCopy, busy = c.busy, published = c.status === 'created-not-opened';
+    const rendering = JSON.stringify(c);
+    if (dialog.dataset.rendering === rendering) return;
+    dialog.dataset.rendering = rendering;
+    const detailsOpen = dialog.querySelector('details')?.open;
+    const previousFocus = dialog.contains(document.activeElement) ? [...document.activeElement.attributes].find(attribute => attribute.name.startsWith('data-copy-'))?.name : null;
+    const scrollTop = dialog.scrollTop;
+    const target = copyTarget();
+    const validName = c.name.trim() && !/[\\/\x00-\x1f]/.test(c.name) && !['.', '..'].includes(c.name);
+    dialog.setAttribute('aria-labelledby', 'project-copy-title');
+    dialog.innerHTML = `<header><h1 id="project-copy-title">复制项目</h1><p>保留当前成果，开启独立的创作方向。</p></header>
+      <dl><dt>来源项目 · ${escapeHtml(c.source.folderName)}</dt><dd>${escapeHtml(c.source.directory)}</dd></dl>
+      <div class="copy-target-fields"><button class="agent-action" type="button" data-copy-parent ${busy || published ? 'disabled' : ''}>选择父目录</button><label>新文件夹名<input data-copy-name value="${escapeHtml(c.name)}" ${busy || published ? 'disabled' : ''} autocomplete="off"></label></div>
+      <dl><dt>副本完整路径</dt><dd data-copy-path>${escapeHtml(target || '请选择父目录')}</dd></dl>
+      <p>保留 Scene、Asset、Speech、Video Brief、已保留的修订历史、离线依赖、候选及恢复检查点。</p><p>保留候选，来源工作区将关闭。</p>
+      <p class="copy-progress" role="status" aria-live="polite">${escapeHtml(published ? '副本已创建，打开失败' : busy ? copyPhases[c.phase] ?? '正在核对复制结果' : c.status === 'cancelled' ? '复制已取消，临时目录已清理；已停止的 Agent 不会自动恢复。' : '副本使用新项目身份，任务保持停止，明确继续后才运行。')}</p>
+      ${c.error ? `<div class="copy-error" role="alert"><p>${escapeHtml(c.error.message)}</p><p>${escapeHtml(c.error.path ?? '')}</p></div>` : ''}
+      <details><summary>复制详情</summary><p>副本生成新 Project ID 与任务 ID，清除 Codex 线程指针；旧 Preview 和检查证据需要重新生成。系统临时文件与可重建派生产物不会复制。已有目录即使为空也不能使用。</p></details>
+      <footer>${c.phase === "reconciling" ? '<button class="agent-action" data-copy-check>核对复制结果</button>' : ""}${busy ? `<button class="agent-action" data-copy-cancel ${['publishing', 'opening'].includes(c.phase) || !c.operationId ? 'disabled' : ''}>${c.phase === 'publishing' ? '正在完成' : '取消复制'}</button>` : published ? '<button class="agent-action" data-copy-open>重试打开</button>' : `<button class="agent-action" data-copy-submit ${!target || !validName ? 'disabled' : ''}>${c.error?.code === 'PROJECT_TEMPORARY_RESIDUE' ? '确认清理并从头重试' : state.creationTask?.status === 'running' ? '停止任务并复制' : '复制并打开副本'}</button>${c.sourceClosed ? '<button class="agent-action" data-copy-source>重新打开来源</button>' : '<button class="agent-action" data-copy-close>取消</button>'}${c.error && !c.sourceClosed ? '<button class="agent-action" data-copy-fix>解决 Brief 冲突或重试保存</button>' : ''}`}</footer>`;
+    if (detailsOpen) dialog.querySelector('details').open = true;
+    if (previousFocus) dialog.querySelector(`[${previousFocus}]:not(:disabled)`)?.focus({ preventScroll: true });
+    dialog.scrollTop = scrollTop;
+    dialog.oncancel = event => { event.preventDefault(); if (!c.busy && !c.sourceClosed) closeCopyDialog(); };
+    dialog.onkeydown = event => { event.stopPropagation(); };
+    dialog.querySelector('[data-copy-name]')?.addEventListener('input', event => {
+      c.name = event.target.value;
+      dialog.querySelector('[data-copy-path]').textContent = copyTarget() || '请选择父目录';
+      dialog.querySelector('[data-copy-submit]').disabled = !c.parent || !c.name.trim() || /[\\/\x00-\x1f]/.test(c.name) || ['.', '..'].includes(c.name);
     });
-    document.querySelector("[data-submit-brief-merge]")?.addEventListener("click", submitBriefMerge);
-    document.querySelector("[data-discard-brief-local]")?.addEventListener("click", discardBriefLocal);
-    document.querySelector("[data-export-brief-local]")?.addEventListener("click", exportBriefLocal);
+    dialog.querySelector('[data-copy-parent]')?.addEventListener('click', async () => {
+      const path = await chooseDirectory('create-parent', '[data-copy-parent]');
+      if (path) c.parent = path;
+      else if (state.launcher.error) c.error = state.launcher.error;
+      copyDialog(); dialog.querySelector('[data-copy-name]')?.focus();
+    });
+    dialog.querySelector('[data-copy-submit]')?.addEventListener('click', startProjectCopy);
+    dialog.querySelector('[data-copy-check]')?.addEventListener('click', async () => { try { await followProjectCopy(c, await callHostTool('copy_project', { action: 'status', operationId: c.operationId })); } catch (error) { c.error = { message: error.message }; copyDialog(); } });
+    dialog.querySelector('[data-copy-cancel]')?.addEventListener('click', async () => { await callHostTool('copy_project', { action: 'cancel', operationId: c.operationId }); });
+    dialog.querySelector('[data-copy-close]')?.addEventListener('click', closeCopyDialog);
+    dialog.querySelector('[data-copy-source]')?.addEventListener('click', () => reopenCopy(c.source.directory));
+    dialog.querySelector('[data-copy-open]')?.addEventListener('click', () => reopenCopy(c.targetDirectory));
+    dialog.querySelector('[data-copy-fix]')?.addEventListener('click', () => { closeCopyDialog(); if (state.brief.conflict) { state.brief.open = true; render(); } else { state.autosaveStopped = false; void saveProject(); void saveVideoBrief(); } });
+    if (!dialog.open) { dialog.showModal(); dialog.querySelector('[data-copy-close], [data-copy-parent]')?.focus(); }
+  }
+  function closeCopyDialog() { document.getElementById('project-copy-dialog')?.remove(); projectCopy = null; document.querySelector('[data-copy-project]')?.focus(); schedulePoll(); }
+  async function reopenCopy(path) {
+    try {
+      const response = await callHostTool('open_project', { projectDirectory: path });
+      if (response.isError || response.structuredContent?.status !== 'valid') throw new Error(response.structuredContent?.error?.message ?? '无法打开项目');
+      closeCopyDialog(); accept(response.structuredContent);
+    } catch (error) { projectCopy.error = { message: error.message, path }; copyDialog(); }
+  }
+  async function startProjectCopy() {
+    const c = projectCopy;
+    if (!c || c.busy) return;
+    const confirmed = c.error?.code === 'PROJECT_TEMPORARY_RESIDUE';
+    c.operationId = null; c.busy = true; c.phase = 'preparing'; c.error = null; clearTimeout(pollTimer); clearTimeout(briefSaveTimer); copyDialog();
+    try {
+      if (!c.sourceClosed) {
+        if (!await flushProjectBeforeAssetImport()) throw new Error('Scene 保存失败，请重试保存后再次确认复制。');
+        await saveVideoBrief();
+        if (state.brief.conflict || state.brief.version !== state.brief.savedVersion) throw new Error('Video Brief 尚未保存，请解决 Brief 冲突或重试保存后再次确认。');
+      } else {
+        const reopened = await callHostTool('open_project', { projectDirectory: c.source.directory });
+        if (reopened.isError || reopened.structuredContent?.status !== 'valid') throw new Error(reopened.structuredContent?.error?.message ?? '无法重新打开来源');
+        accept(reopened.structuredContent, false, true);
+        clearTimeout(pollTimer);
+        c.sourceClosed = false;
+      }
+      c.operationId = createUuid();
+      let response = await callHostTool('copy_project', { action: 'start', operationId: c.operationId, projectDirectory: c.source.directory, projectId: c.source.projectId, targetDirectory: copyTarget(), confirmTemporaryCleanup: confirmed });
+      if (response.isError) { c.operationId = null; throw new Error(response.structuredContent?.error?.message ?? '无法开始复制'); }
+      await followProjectCopy(c, response);
+    } catch (error) { c.busy = !!c.operationId; if (c.busy) c.phase = 'reconciling'; c.error = { message: error.message }; copyDialog(); }
+  }
+  async function followProjectCopy(c, response) {
+      for (;;) {
+        if (response.isError) throw new Error(response.structuredContent?.error?.message ?? '复制操作失败');
+        const result = response.structuredContent;
+        Object.assign(c, result);
+        c.busy = result.status === 'running'; copyDialog();
+        if (!c.busy) {
+          if (result.status === 'opened') { const workspace = result.workspace; closeCopyDialog(); accept({ ...workspace, copyReceipt: { warning: result.cleanupWarning } }); state.inspectionOpen = true; render(); announce(`副本 ${workspace.project.folderName} 已打开：${workspace.project.directory}。项目身份独立，任务保持停止。${result.cleanupWarning ? ` ${result.cleanupWarning.message}（${result.cleanupWarning.path}）` : ""}`); }
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 350));
+        response = await callHostTool('copy_project', { action: 'status', operationId: c.operationId });
+      }
+  }
+
+  function showIdentityConflict(conflict) {
+    identityConflict = conflict;
+    let dialog = document.getElementById('project-identity-dialog');
+    if (!dialog) { dialog = document.createElement('dialog'); dialog.id = 'project-identity-dialog'; dialog.className = 'project-copy-dialog'; document.body.append(dialog); }
+    dialog.setAttribute('aria-labelledby', 'identity-title');
+    dialog.innerHTML = `<h1 id="identity-title">两个路径具有相同 Project ID</h1><p>手工复制保留原身份，请明确选择本次要使用的项目。</p><dl><dt>当前工作区路径</dt><dd>${escapeHtml(conflict.currentDirectory)}</dd><dt>所选路径</dt><dd>${escapeHtml(conflict.selectedDirectory)}</dd></dl><div class="identity-actions"><button class="agent-action" data-identity="current">返回当前工作区</button><button class="agent-action" data-identity="selected">关闭当前工作区后打开所选路径</button><button class="agent-action" data-identity="convert">将所选副本转换为独立项目（生成新 ID）</button><button class="agent-action" data-identity="cancel">取消本次打开</button></div><p data-identity-feedback role="status"></p>`;
+    dialog.querySelectorAll('[data-identity]').forEach(button => button.addEventListener('click', async () => {
+      const choice = button.dataset.identity;
+      if (choice === 'convert' && !button.dataset.confirmed) { button.dataset.confirmed = 'true'; button.textContent = '确认转换所选路径并生成新 ID'; dialog.querySelector('[data-identity-feedback]').textContent = `将改变 ${conflict.selectedDirectory} 的项目与任务身份，清除线程指针并保持停止。`; return; }
+      dialog.querySelectorAll('button').forEach(item => { item.disabled = true; });
+      try {
+        const response = await callHostTool('open_project', { projectDirectory: conflict.selectedDirectory, identityChoice: choice });
+        if (response.isError) throw new Error(response.structuredContent?.error?.message ?? '打开失败');
+        if (response.structuredContent?.status === 'identity-conflict') { showIdentityConflict(response.structuredContent); return; }
+        dialog.remove(); identityConflict = null; state.launcher.busy = false;
+        if (response.structuredContent?.status === 'valid') accept(response.structuredContent); else render();
+      } catch (error) { dialog.querySelector('[data-identity-feedback]').textContent = error.message; dialog.querySelectorAll('button').forEach(item => { item.disabled = false; }); }
+    }));
+    dialog.oncancel = event => { event.preventDefault(); dialog.querySelector('[data-identity="cancel"]').click(); };
+    if (!dialog.open) dialog.showModal();
+    dialog.onkeydown = event => event.stopPropagation();
+    dialog.querySelector('[data-identity="cancel"]').focus();
   }
 
   function bind() {
+    bindControl();
+    document.querySelector("[data-copy-project]")?.addEventListener("click", () => { projectCopy = { source: { ...state.result.project }, parent: "", name: `${state.result.project.folderName}-副本`, busy: false }; copyDialog(); }, { signal: bindings.signal });
     if (state.result?.status === "launcher") {
       bindLauncher();
       return;
     }
     document.querySelectorAll("[data-workspace]").forEach((tab) => tab.addEventListener("click", () => {
-      state.workspace = tab.dataset.workspace;
-      state.editGroupOpen = false;
-      render();
-    }));
+      if (state.result?.status === "valid") switchWorkspace(tab.dataset.workspace);
+    }, { signal: bindings.signal }));
+    document.querySelectorAll('[data-view-task]').forEach(button => button.addEventListener('click', () => switchWorkspace('agent'), { signal: bindings.signal }));
+    document.querySelectorAll('[data-todo-scene]').forEach(button => button.addEventListener('click', () => locateSuggestion(button.dataset.todoScene, button.dataset.todoField), { signal: bindings.signal }));
+    document.querySelectorAll('[data-todo-copy]').forEach(button => button.addEventListener('click', async () => {
+      const item = state.creationTask?.suggestions[Number(button.dataset.todoCopy)];
+      try { await navigator.clipboard.writeText(item.content); announce('完整建议值已复制。'); } catch { announce('复制失败，请展开建议值并手工复制。'); }
+    }, { signal: bindings.signal }));
+    document.querySelectorAll('[data-task-action]').forEach(button => button.addEventListener('click', () => respondTask(button.dataset.taskAction), { signal: bindings.signal }));
+    document.querySelectorAll("[data-scene-suggestion]").forEach(button => button.addEventListener("click", () => switchWorkspace("table"), { signal: bindings.signal }));
+    document.querySelectorAll("[data-workspace]").forEach((tab) => tab.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const target = event.key === "Home" ? "table" : event.key === "End" ? "agent" : tab.dataset.workspace === "table" ? "agent" : "table";
+      document.querySelector(`[data-workspace="${target}"]`)?.focus();
+    }, { signal: bindings.signal }));
     document.querySelector("[data-open-inspection]")?.addEventListener("click", () => {
       state.inspectionOpen = true;
       document.querySelector(".inspection")?.setAttribute("data-open", "true");
       document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "true");
-    });
-    document.querySelectorAll("[data-agent-action]").forEach((button) => button.addEventListener("click", () => runAgentAction(button.dataset.agentAction)));
-    document.querySelector("[data-close-preview]")?.addEventListener("click", closeAssetPreview);
+      document.querySelector(".inspection [data-close-inspection]")?.focus();
+    }, { signal: bindings.signal });
+    document.querySelector('[data-show-delivery]')?.addEventListener('click', () => { const region = document.querySelector('[data-program-delivery]'); region?.scrollIntoView({ block: 'start' }); const title = region?.querySelector('h2'); title?.setAttribute('tabindex', '-1'); title?.focus({ preventScroll: true }); }, { signal: bindings.signal });
+    document.querySelector("[data-close-preview]")?.addEventListener("click", closeAssetPreview, { signal: bindings.signal });
     document.onkeydown = (event) => {
       trapAssetPreviewFocus(event);
       trapBriefFocus(event);
@@ -1977,31 +2661,47 @@
     };
     bindInspector();
     bindBriefEditor();
-    if (state.workspace === "table" && state.result?.status === "valid" && state.result.writable) bindTable();
+    if (state.result?.status === "valid" && state.result.writable) bindTable();
     if (state.result?.status === "valid" && !state.result.writable) {
+      document.querySelectorAll('[data-open-scene-assets]').forEach(button => button.addEventListener('click', event => {
+        event.stopPropagation(); state.selected = button.closest('[data-scene-id]').dataset.sceneId;
+        state.inspectorMode = 'scene-assets'; state.inspectionOpen = true; render();
+      }, { signal: bindings.signal }));
       document.querySelectorAll("[data-scene-id]").forEach((row) => row.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
+        previewWorkbench.selectScene(state.selected);
         render();
-      }));
+      }, { signal: bindings.signal }));
       bindSceneScroll();
     }
   }
 
-  function request(method, params) {
+  function request(method, params, timeout = 15_000) {
     const id = rpcId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!pending.delete(id)) return;
         reject(new Error("宿主请求超时，请重试。"));
-      }, 15_000);
+      }, timeout);
       pending.set(id, { resolve, reject, timer });
       window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
     });
   }
 
   async function callHostTool(name, args) {
-    if (typeof window.openai?.callTool === "function") return window.openai.callTool(name, args);
-    return request("tools/call", { name, arguments: args });
+    if (recovery && name !== 'project_recovery') throw new Error('项目身份已失效，编辑已停止。');
+    const requestEpoch = controlEpoch;
+    const response = typeof window.openai?.callTool === 'function'
+      ? await window.openai.callTool(name, args) : await request('tools/call', { name, arguments: args });
+    const content = response?.structuredContent ?? response;
+    if (requestEpoch !== controlEpoch && ['save_project_scenes', 'save_project_video_brief', 'import_project_asset', 'save_project_tts_settings'].includes(name)) throw new Error('写入回执属于失权前的请求；草稿仍保留，请核对最新内容。');
+    if (content?.status === 'identity-lost' || content?.error?.code === 'PROJECT_IDENTITY_LOST') freezeIdentity(content.error?.message ?? '项目目录、清单或租约已变化。');
+    if (recovery && name !== 'project_recovery') throw new Error('项目身份已失效；迟到的结果不会改变恢复截面。');
+    if (content?.error?.code === 'PROJECT_CONTROL_REQUIRED' && state.result?.writable) {
+      retainControlDraft(); state.result.writable = false; controlNotice = content.error.message;
+      render(); void refreshControl();
+    }
+    return response;
   }
 
   function directoryPath(value) {
@@ -2014,16 +2714,26 @@
   }
 
   async function chooseDirectory(purpose, trigger) {
+    if (directoryPicking) return null;
     const api = window.openai;
     const picker = api?.selectDirectory ?? api?.pickDirectory ?? api?.requestDirectoryPicker;
-    if (typeof picker !== "function") {
+    if (typeof picker !== "function" && !hostReady) {
       state.launcher.error = { code: "HOST_DIRECTORY_PICKER_UNAVAILABLE", message: "当前插件宿主没有提供系统文件夹选择能力；Narracut 不会退化为网页文件浏览器。" };
       render();
       document.querySelector(trigger)?.focus();
       return null;
     }
+    directoryPicking = true;
+    document.querySelector(trigger)?.setAttribute('disabled', '');
     try {
-      const selected = await picker.call(api, { purpose, title: purpose === "create-parent" ? "选择新项目的父目录" : "选择要打开的 Project VNext", canCreateDirectories: true });
+      let selected;
+      if (typeof picker === 'function') {
+        selected = await picker.call(api, { purpose, title: purpose === "create-parent" ? "选择新项目的父目录" : "选择要打开的 Project VNext", canCreateDirectories: true });
+      } else {
+        const response = await request('tools/call', { name: 'select_project_directory', arguments: { purpose } }, 330_000);
+        if (response?.isError || response?.structuredContent?.error) throw new Error(response?.structuredContent?.error?.message ?? '系统文件夹窗口无法打开。');
+        selected = response?.structuredContent;
+      }
       const path = directoryPath(selected);
       if (path === null) document.querySelector(trigger)?.focus();
       return path;
@@ -2032,6 +2742,10 @@
       render();
       document.querySelector(trigger)?.focus();
       return null;
+    } finally {
+      directoryPicking = false;
+      document.querySelector(trigger)?.removeAttribute('disabled');
+      document.querySelector(trigger)?.focus();
     }
   }
 
@@ -2044,12 +2758,25 @@
     document.querySelector(".name-field")?.focus();
   }
 
-  function lifecycleFailure(response, fallback, trigger) {
+  function lifecycleFailure(response, fallback, trigger, projectPath) {
     const error = response?.structuredContent?.error ?? { code: "PROJECT_OPERATION_FAILED", message: fallback };
     state.launcher.busy = false;
     state.launcher.stage = "ready";
     state.launcher.error = error;
     render();
+    if (trigger === "[data-open-project]") {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'project-copy-dialog';
+      dialog.setAttribute('aria-labelledby', 'project-open-error-title');
+      dialog.setAttribute('aria-describedby', 'project-open-error-reason');
+      dialog.innerHTML = `<h1 id="project-open-error-title">无法打开项目</h1><p id="project-open-error-reason" class="copy-error">${escapeHtml(error.message ?? fallback)}</p><dl><dt>所选目录</dt><dd>${escapeHtml(projectPath ?? error.path ?? '')}</dd><dt>错误代码</dt><dd>${escapeHtml(error.code ?? 'PROJECT_OPEN_FAILED')}</dd></dl><footer><button class="agent-action" data-primary="true" data-open-again>重新选择文件夹</button><button class="agent-action" data-dismiss>关闭</button></footer>`;
+      dialog.addEventListener('close', () => { dialog.remove(); document.querySelector(trigger)?.focus(); }, { once: true });
+      dialog.querySelector('[data-dismiss]').addEventListener('click', () => dialog.close());
+      dialog.querySelector('[data-open-again]').addEventListener('click', () => { dialog.close(); openFromLauncher(); });
+      document.body.append(dialog);
+      dialog.showModal();
+      return;
+    }
     announce(`${error.code}。${error.message}`);
     requestAnimationFrame(() => document.querySelector(error.code === "PROJECT_TEMPORARY_RESIDUE" ? "[data-confirm-residue]" : trigger)?.focus());
   }
@@ -2079,80 +2806,88 @@
     render();
     try {
       const response = await callHostTool("open_project", { projectDirectory: path });
-      if (response?.isError || response?.structuredContent?.status === "invalid") return lifecycleFailure(response, "项目无法打开，请核对目录后重试。", "[data-open-project]");
+      if (response?.isError || response?.structuredContent?.status === "invalid") return lifecycleFailure(response, "项目无法打开，请核对目录后重试。", "[data-open-project]", path);
+      if (response.structuredContent?.status === "identity-conflict") { showIdentityConflict(response.structuredContent); return; }
       accept(response.structuredContent, response.structuredContent?.project?.sceneCount === 0);
     } catch (error) {
-      lifecycleFailure({ structuredContent: { error: { code: "PROJECT_OPEN_FAILED", message: error?.message ?? "项目无法打开，请重试。" } } }, "项目无法打开，请重试。", "[data-open-project]");
+      lifecycleFailure({ structuredContent: { error: { code: "PROJECT_OPEN_FAILED", message: error?.message ?? "项目无法打开，请重试。" } } }, "项目无法打开，请重试。", "[data-open-project]", path);
     }
   }
 
   function bindLauncher() {
-    document.querySelector("[data-pick-parent]")?.addEventListener("click", pickParent);
-    document.querySelector("[data-open-project]")?.addEventListener("click", openFromLauncher);
-    document.querySelector("[data-create-project]")?.addEventListener("click", () => createFromLauncher(false));
-    document.querySelector("[data-confirm-residue]")?.addEventListener("click", () => createFromLauncher(true));
+    if (restoreLauncher) { restoreLauncher.mount(document.querySelector('[data-restore-root]')); return; }
+    document.querySelector('[data-open-restore]')?.addEventListener('click', () => {
+      restoreLauncher = window.NarracutRestore({ callTool: callHostTool, exit: () => { restoreLauncher = null; render(); document.querySelector('[data-open-restore]')?.focus(); }, openProject: async path => {
+        const response = await callHostTool('open_project', { projectDirectory: path });
+        if (response?.isError || response.structuredContent?.status !== 'valid') throw new Error(response.structuredContent?.error?.message ?? '打开未完成；恢复项目仍保留在已发布路径。');
+        restoreLauncher = null; accept(response.structuredContent, response.structuredContent?.project?.sceneCount === 0);
+      } });
+      render();
+    }, { signal: bindings.signal });
+    document.querySelector("[data-pick-parent]")?.addEventListener("click", pickParent, { signal: bindings.signal });
+    document.querySelector("[data-open-project]")?.addEventListener("click", openFromLauncher, { signal: bindings.signal });
+    document.querySelector("[data-create-project]")?.addEventListener("click", () => createFromLauncher(false), { signal: bindings.signal });
+    document.querySelector("[data-confirm-residue]")?.addEventListener("click", () => createFromLauncher(true), { signal: bindings.signal });
     document.querySelector(".name-field")?.addEventListener("input", (event) => {
       state.launcher.projectName = event.currentTarget.value;
       state.launcher.error = null;
-      render();
-      document.querySelector(".name-field")?.focus();
-      document.querySelector(".name-field")?.setSelectionRange(state.launcher.projectName.length, state.launcher.projectName.length);
-    });
+      // 保留输入节点，避免打断输入法组合输入、选区和滚动位置。
+      const finalPath = finalProjectPath();
+      const verdict = launcherVerdict();
+      const path = document.querySelector('[data-final-path]');
+      path.textContent = finalPath || "选择位置并填写名称后显示";
+      path.title = finalPath;
+      const hint = document.querySelector('[data-path-verdict]');
+      hint.textContent = verdict.copy;
+      hint.dataset.valid = String(verdict.valid);
+      document.querySelector('[data-create-project]').disabled = !verdict.valid || state.launcher.busy;
+      document.querySelector('.launch-error')?.remove();
+    }, { signal: bindings.signal });
   }
 
-  function schedulePoll(delay = 250) {
+  function schedulePoll(delay = 500) {
+    if (recovery) return;
     clearTimeout(pollTimer);
-    if (state.hostValidation?.status !== "running") return;
+    if (!state.creationRecovery && (!state.creationTask || state.creationTask.status === 'terminated')) return;
+    const project = state.result.project;
     pollTimer = setTimeout(async () => {
       try {
-        const response = await request("tools/call", { name: "get_agent_host_validation", arguments: { taskId: state.hostValidation.taskId } });
-        pollFailures = 0;
-        applyHostValidation(response?.structuredContent?.hostValidation);
-      } catch (error) {
-        const message = error?.message ?? "无法读取宿主验证状态";
-        if (state.agentError !== message) {
-          state.agentError = message;
-          render();
-        }
-        pollFailures = Math.min(pollFailures + 1, 4);
-        schedulePoll(Math.min(4000, 250 * (2 ** pollFailures)));
-      }
-    }, delay);
+        const response = await callHostTool('get_creation_task', { projectDirectory: project.directory, projectId: project.projectId });
+        if (state.result.project !== project) return;
+        if (response?.isError) throw new Error(response.structuredContent?.error?.message ?? '无法读取任务');
+        if (response.structuredContent?.candidate) { state.candidate = response.structuredContent.candidate; updateCandidate(); }
+        state.creationRecovery = response.structuredContent?.creationRecovery ?? null;
+        if (response.structuredContent?.creationTask && !response.structuredContent.creationTask.operation) state.taskOperation = null;
+        applyCreation(response.structuredContent?.creationTask);
+      } catch (error) { if (state.result?.project !== project) return; state.agentError = error.message; updateTaskRegion();  schedulePoll(2000); }
+    }, state.creationTask?.status === 'running' ? delay : Math.max(delay, 2000));
   }
-
-  function applyHostValidation(validation) {
-    if (!validation) return;
-    const changed = JSON.stringify(state.hostValidation) !== JSON.stringify(validation) || state.agentBusy || state.agentError !== null;
-    state.hostValidation = validation;
-    state.agentBusy = false;
+  function applyCreation(task) {
+    const changed = JSON.stringify(state.creationTask) !== JSON.stringify(task) || state.agentError !== null;
     state.agentError = null;
-    pollFailures = 0;
-    if (changed) {
-      render();
-      const status = statusCopy(validation);
-      document.getElementById("agent-status-announcer").textContent = `${status.label}。${status.detail}`;
+    const previousStatus = state.creationTask?.status, previousReason = state.creationTask?.reason;
+    const change = task?.briefChange, brief = state.brief;
+    if (change && change.id !== seenBriefChange && !brief.saveInFlight && !brief.conflict && brief.version === brief.savedVersion) {
+      if (brief.local === change.base || brief.local === change.content) {
+        pushBriefHistory(brief.undo, change.base); brief.redo = []; brief.editGroupOpen = false;
+        brief.base = change.content; brief.local = change.content; brief.baselineRevision = change.revision;
+        brief.version++; brief.savedVersion = brief.version; brief.status = 'saved';
+        state.result.videoBrief = { content: change.content, revision: change.revision, state: 'saved' };
+        if (state.result.currentRenderProgram) state.result.currentRenderProgram.briefReviewPending = state.result.currentRenderProgram.briefRevision !== change.revision;
+        updateBriefIndicator();
+        seenBriefChange = change.id;
+      } else { state.agentError = 'Brief 保存回执与本地内容不同，请在 Brief 编辑器处理本地内容后继续。'; }
     }
+    state.creationTask = task;
+    updateRecoveryRegion();
+    if (!changed) { schedulePoll(); return; }
+    updateTaskRegion();
+    if (task?.preview) previewWorkbench.receive(task.preview);
+    if (task?.deliveryId) void deliveryWorkbench.refresh();
+    bindings.abort(); bindings = new AbortController(); bind();
+    if (previousStatus !== task?.status || previousReason !== task?.reason) document.getElementById('agent-status-announcer').textContent = task ? `${{running:'运行中',waiting:'等待用户',stopped:'已停止',terminated:'已终结'}[task.status]}。${task.pending ?? creationStages[task.stage]}` : '尚无任务';
     schedulePoll();
   }
-
-  async function runAgentAction(action) {
-    if (state.agentBusy || !state.result?.project) return;
-    const names = { start: "start_agent_host_validation", stop: "stop_agent_host_validation", continue: "continue_agent_host_validation" };
-    const args = action === "start" ? { projectDirectory: state.result.project.directory } : { taskId: state.hostValidation?.taskId };
-    state.agentBusy = true;
-    state.agentError = null;
-    render();
-    try {
-      const response = await request("tools/call", { name: names[action], arguments: args });
-      if (response?.isError) throw new Error(response.structuredContent?.error?.message ?? "宿主验证操作失败");
-      applyHostValidation(response?.structuredContent?.hostValidation);
-    } catch (error) {
-      state.agentBusy = false;
-      state.agentError = error?.message ?? "宿主验证操作失败";
-      render();
-    }
-  }
-
   function deriveReadonlyProject(result) {
     return {
       assets: [...new Map((result.scenes ?? []).flatMap((scene) => scene.assets ?? []).map((asset) => [asset.id, asset])).values()],
@@ -2164,13 +2899,22 @@
     };
   }
 
-  function accept(result, focusEmpty = false) {
+  function accept(result, focusEmpty = false, fromCopy = false) {
+    if (recovery) return;
+    if (result?.status === 'identity-conflict') { showIdentityConflict(result); return; }
+    if (result?.status === 'open-cancelled') return;
+    if (projectCopy?.busy && !fromCopy) return;
     assetPreviewRequest += 1;
     clearTimeout(briefSaveTimer);
     activeBriefSavePromise = null;
     const previousProjectId = state.result?.project?.projectId;
     state.result = result;
+    state.candidate = result?.candidate ?? null;
+    state.candidateBusy = false;
+    state.candidateError = null;
+    state.candidateConfirm = false;
     state.start = 0;
+    seenBriefChange = null;
     state.inspectionOpen = false;
     state.inspectorMode = "project";
     state.assetSearch = "";
@@ -2186,7 +2930,8 @@
     state.savedVersion = 0;
     state.saveStatus = "saved";
     state.saveError = null;
-    state.autosaveStopped = false;
+    state.autosaveStopped = result?.writable === false;
+    retainedDraft = null; controlNotice = "";
     state.saveInFlight = false;
     state.undo = [];
     state.redo = [];
@@ -2198,6 +2943,7 @@
     state.ttsClearCredential = false;
     state.ttsSaving = false;
     state.ttsError = null;
+    state.ttsConflict = false;
     state.ttsBlockedReason = null;
     state.ttsPendingConfirm = null;
     const incomingBrief = result?.videoBrief ?? {
@@ -2230,12 +2976,14 @@
     state.selected = result?.status === "valid" ? state.project?.scenes?.[0]?.id ?? null : null;
     state.focusTarget = focusEmpty ? "[data-empty-title]" : null;
     if (previousProjectId !== result?.project?.projectId) {
-      state.hostValidation = null;
-      state.agentError = null;
+      state.creationTask = result?.creationTask ?? null;
+      state.creationRecovery = result?.creationRecovery ?? null; state.taskOperation = null; state.candidateUncertain = false;
+      state.agentError = result?.creationError ?? null;
       clearTimeout(pollTimer);
       clearTimeout(speechPollTimer);
     }
     render();
+    schedulePoll();
   }
 
   window.addEventListener("message", (event) => {
@@ -2253,11 +3001,34 @@
     }
     if (message.method === "ui/notifications/tool-result") {
       const content = message.params?.structuredContent;
-      if (content?.hostValidation) applyHostValidation(content.hostValidation);
+      if (content?.status === 'identity-lost' || content?.error?.code === 'PROJECT_IDENTITY_LOST') freezeIdentity(content.error?.message ?? '项目身份已变化。');
+      if (recovery) return;
+      if (content?.status === "candidate-state") { state.candidate = content.candidate; state.candidateError = null; updateCandidate(); }
+      else if (content?.status === "candidate-failed" || (content?.status === "identity-lost" && content?.error)) {
+        state.candidateError = content.error;
+        if (content.status === "identity-lost") state.autosaveStopped = true;
+        updateCandidate();
+      }
+      else if (content?.status !== 'valid' && content && ('creationTask' in content || 'creationRecovery' in content)) { if ('creationRecovery' in content) state.creationRecovery = content.creationRecovery; applyCreation(content.creationTask); }
       else accept(content, content?.operation === "created" && content?.project?.sceneCount === 0);
+      window.parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/workbench-synchronized', params: {} }, '*');
     }
   }, { passive: true });
 
   render();
-  window.parent.postMessage({ jsonrpc: "2.0", id: 1, method: "ui/initialize", params: { appInfo: { name: "narracut-workbench", version: "0.1.0" }, capabilities: {}, protocolVersion: "2025-06-18" } }, "*");
+  // 宿主收到视图就绪通知后才交付工具结果；初始化必须走请求应答通道。
+  request('ui/initialize', {
+    appInfo: { name: 'narracut-workbench', version: '0.1.0' },
+    appCapabilities: {},
+    protocolVersion: '2026-01-26',
+  }).then(result => {
+    if (result?.protocolVersion !== '2026-01-26') throw new Error('宿主返回了不支持的 MCP Apps 协议版本。');
+    hostReady = true;
+    window.parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} }, '*');
+  }).catch(error => {
+    if (state.result !== null) return;
+    accept({ status: 'invalid', connection: { status: 'disconnected', readOnly: true }, error: {
+      code: 'HOST_INITIALIZATION_FAILED', message: error.message,
+    } });
+  });
 })();

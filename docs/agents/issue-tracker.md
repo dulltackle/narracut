@@ -43,7 +43,3 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
-
-## 迁移记录
-
-`.scratch/video-script-v1/` 下原本用本地 Markdown（wayfinder 约定）记录的 9 张技术规格调研票，已于 2026-08-06 迁移为 GitHub Issues #6–#14（映射关系见各 issue 正文末尾的"迁移自"脚注）。`.scratch/video-script-v1/` 目录本身保留作为历史记录，不再是当前的 issue tracker；`map.md` 里的"已定约束"表仍然有效，可作为项目上下文参考，但后续新票一律走 GitHub Issues。

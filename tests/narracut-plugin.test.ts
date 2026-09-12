@@ -113,15 +113,23 @@ describe("Narracut Codex 插件", () => {
       resolve("plugins/narracut/.codex-plugin/plugin.json"),
       "utf8",
     )) as Record<string, unknown>;
-    const mcp = JSON.parse(await readFile(resolve("plugins/narracut/.mcp.json"), "utf8")) as {
+    const mcp = JSON.parse(await readFile(resolve("plugins/narracut/mcp.json"), "utf8")) as {
+      $schema: string;
       mcpServers: Record<string, Record<string, unknown>>;
     };
+    const portable = JSON.parse(await readFile(resolve("plugins/narracut/plugin.json"), "utf8"));
 
     expect(manifest).toMatchObject({
       name: "narracut",
-      mcpServers: "./.mcp.json",
     });
+    expect(portable).toMatchObject({
+      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      name: manifest.name,
+      version: manifest.version,
+    });
+    expect(mcp.$schema).toBe("https://agent-plugins.org/schemas/1.0.0/mcp.schema.json");
     expect(mcp.mcpServers.narracut).toEqual({
+      type: "stdio",
       command: "node",
       args: ["${PLUGIN_ROOT}/server.mjs"],
     });
@@ -187,7 +195,7 @@ describe("Narracut Codex 插件", () => {
     expect(result.content[0]?.text).toContain("product-demo");
   });
 
-  it("提供无项目启动器，并让 create/open 复用严格创建与独占租约语义", async () => {
+  it("提供无项目启动器，严格创建项目并在工作台间交接独占租约", async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), "narracut-plugin-launcher-"));
     const projectDirectory = join(parentDirectory, "new-project");
     const pluginRequest = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
@@ -241,12 +249,10 @@ describe("Narracut Codex 插件", () => {
       method: "tools/call",
       params: { name: "open_project", arguments: { projectDirectory } },
     }) as { isError: boolean; structuredContent: Record<string, unknown> };
-    expect(occupied).toMatchObject({
-      isError: true,
-      structuredContent: {
-        status: "invalid",
-        error: { code: "PROJECT_IN_USE", path: projectDirectory },
-      },
+    expect(occupied.isError).not.toBe(true);
+    expect(occupied.structuredContent).toMatchObject({
+      status: "valid", operation: "opened", writable: true,
+      project: { directory: projectDirectory, sceneCount: 0 },
     });
 
     await pluginRequest.dispose();
@@ -946,4 +952,59 @@ describe("Narracut Codex 插件", () => {
     ]);
     expect(after).toEqual(before);
   });
+});
+
+it('停止宿主活动保留唯一候选及检查点，仍读取同一完整树身份', async () => {
+  const projectDirectory = join(await mkdtemp(join(tmpdir(), 'candidate-stop-')), 'project');
+  const request = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+  let id = 900;
+  const call = (name: string, args: Record<string, unknown>) => request({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } }) as Promise<any>;
+  try {
+    const created = await call('create_project', { projectDirectory });
+    const projectId = created.structuredContent.project.projectId;
+    const args = { projectDirectory, projectId };
+    const first = await call('manage_project_candidate', { ...args, action: 'create' });
+    const saved = await call('manage_project_candidate', { ...args, action: 'apply', baseline: first.structuredContent.candidate.baseline, changes: [{ path: 'resources/stop.txt', content: '停止后保留' }] });
+    const started = await call('start_agent_host_validation', { projectDirectory });
+    const stopped = await call('stop_agent_host_validation', { taskId: started.structuredContent.hostValidation.taskId });
+    expect(stopped.structuredContent.hostValidation.status).toBe('stopped');
+    expect((await call('manage_project_candidate', { ...args, action: 'read' })).structuredContent.candidate).toEqual(saved.structuredContent.candidate);
+    expect(saved.structuredContent.candidate.checkpoint).not.toBeNull();
+  } finally { await request.dispose(); }
+});
+
+it('唯一依赖协调工具拒绝非法来源，并且普通候选工具不能借 action 改依赖', async () => {
+  const projectDirectory = join(await mkdtemp(join(tmpdir(), 'dependency-tool-')), 'project');
+  const request = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+  let id = 1000;
+  const call = (name: string, args: Record<string, unknown>) => request({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } }) as Promise<any>;
+  try {
+    const created = await call('create_project', { projectDirectory });
+    const args = { projectDirectory, projectId: created.structuredContent.project.projectId };
+    const first = await call('manage_project_candidate', { ...args, action: 'create' });
+    const input = { ...args, baseline: first.structuredContent.candidate.baseline, dependencies: { example: '^1.0.0' }, packages: [] };
+    const result = await call('coordinate_project_dependencies', input);
+    expect(result.structuredContent.error.code).toBe('DEPENDENCY_SOURCE_UNSUPPORTED');
+    expect((await call('manage_project_candidate', { ...input, action: 'dependencies' })).isError).toBe(true);
+    expect((await call('manage_project_candidate', { ...args, action: 'read' })).structuredContent.candidate).toEqual(first.structuredContent.candidate);
+  } finally { await request.dispose(); }
+});
+
+it('最终 Render 工具仅供工作台，拒绝未接受状态并可核对未启动请求', async () => {
+  const projectDirectory = join(await mkdtemp(join(tmpdir(), 'render-tool-')), 'project');
+  const request = createNarracutRequestHandler({ codexHost: new PluginTestHost() });
+  let id = 1100;
+  const call = (name: string, args: Record<string, unknown>) => request({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } }) as Promise<any>;
+  try {
+    const listed = await request({ jsonrpc: '2.0', id: id++, method: 'tools/list' }) as any;
+    expect(listed.tools).toContainEqual(expect.objectContaining({ name: 'project_render', _meta: { ui: { visibility: ['app'] } } }));
+    const created = await call('create_project', { projectDirectory });
+    const args = { projectDirectory, projectId: created.structuredContent.project.projectId };
+    const state = await call('project_render', { ...args, action: 'status' });
+    expect(state.structuredContent.source).toMatchObject({ accepted: false, ready: false });
+    const requestId = '10000000-0000-4000-8000-000000000081';
+    const started = await call('project_render', { ...args, action: 'start', requestId, key: state.structuredContent.source.key, outputPath: join(projectDirectory, 'renders/result.mp4') });
+    expect(started.structuredContent.error.code).toBe('RENDER_NOT_READY');
+    expect((await call('project_render', { ...args, action: 'result', requestId })).structuredContent.status).toBe('not-started');
+  } finally { await request.dispose(); }
 });

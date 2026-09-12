@@ -9,12 +9,13 @@ Narracut 需要让 Scene 内容保持稳定权威，同时让 Agent 用项目级
 Project VNext 采用一次破坏性架构切换：
 
 - Codex 插件承载共享表格工作区与 Agent 工作区；
+- 完整工作台位于当前 Codex 对话右侧，创作使用当前对话，Agent 工作区仅负责候选审阅；避免工作台再维护一套聊天入口，面板失败时不自动转往外部浏览器；
 - 严格项目清单、最小 Project DSL 和自由 Video Brief 共同构成内容侧持久边界；
 - Render Program、候选、不可变修订和验收记录构成表现侧持久边界；
 - Narracut Runtime 独占 Composition、Scene 时间与 Speech，隔离执行不可信项目代码；
 - 项目生命周期以身份、写入租约、原子提交和项目外恢复快照失败关闭。
 
-四个稳定边界分别由 [ADR-0009](./0009-separate-scene-content-and-render-program-authority.md)、[ADR-0010](./0010-use-one-candidate-and-immutable-render-program-revisions.md)、[ADR-0011](./0011-run-preview-and-render-from-one-isolated-bundle.md) 与 [ADR-0012](./0012-use-strict-identity-atomic-lifecycle-and-external-recovery.md) 记录。
+四个稳定边界分别由 [ADR-0009](0009-separate-scene-content-and-render-program-authority.md)、[ADR-0010](0010-use-one-candidate-and-immutable-render-program-revisions.md)、[ADR-0011](0011-run-preview-and-render-from-one-isolated-bundle.md) 与 [ADR-0012](0012-use-strict-identity-atomic-lifecycle-and-external-recovery.md) 记录。
 
 格式、接口、状态机、门禁、错误语义、资源限制和测试 seam 全部集中在 Project VNext 规范。领域上下文只定义词义，ADR 只解释为什么。
 
@@ -27,7 +28,7 @@ Project VNext 采用一次破坏性架构切换：
 
 ## Consequences
 
-- [`project-v1.md`](../spec/project-v1.md)、[`project-v2.md`](../spec/project-v2.md)、[`project-v3.md`](../spec/project-v3.md) 与文字 Preset 规格全部降为 Legacy。
+- V1–V3 与文字 Preset 规格全部降为 Legacy；原文仅保留于 [Git 历史](../README.md#历史追溯)。
 - 旧 ADR 覆盖关系固定如下：
 
   | 旧 ADR | VNext 状态 | 直接替代者 |
@@ -39,5 +40,5 @@ Project VNext 采用一次破坏性架构切换：
   | ADR-0005 | 整体替代 | ADR-0009 |
   | ADR-0006 | 整体替代 | ADR-0009 |
   | ADR-0007 | 整体替代 | ADR-0008 |
-- 现有代码仍是 Legacy 实现；文档状态不暗示 VNext 已实现，也不授权任何兼容或迁移路径。
-- 后续实现必须以公开工作台/CLI 到持久项目与最终 Render 的边界作为主要验收 seam。
+- VNext 已替代 Legacy 生产入口；实现与验收范围见[公开流程验证](../README.md#公开流程验证)和[当前对话完整流程验收](../current-conversation-acceptance.md)。此决策不提供兼容或迁移路径。
+- 实现与后续变更必须以公开工作台/CLI 到持久项目与最终 Render 的边界作为主要验收 seam。

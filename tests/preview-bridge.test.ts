@@ -1,0 +1,81 @@
+import { expect, test } from 'vitest';
+import { chromium } from '@playwright/test';
+import { createServer } from 'node:http';
+import { fixture } from './helpers/program-fixture';
+import { buildProgramBundle } from '../src/server/program-bundle';
+import { PreviewOrigin, previewDigest } from '../src/server/preview-origin';
+
+test('真实胶囊 Bundle 跨 origin INIT、逐帧与 seek 提交、版本拒绝及只读隔离', async () => {
+  const request = await fixture();
+  request.input = { ...request.input, output: { ...request.input.output, fps: 60 }, durationInFrames: 180,
+    scenes: [{ ...request.input.scenes[0], time: { startFrame: 0, durationInFrames: 180, source: 'draft' } }] };
+  request.program.set('program.json', Buffer.from(JSON.stringify({ apiVersion: 1, output: request.input.output })));
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6XcAAAAASUVORK5CYII=', 'base64');
+  const src = `media/${previewDigest(png).slice(7)}`;
+  const media = new Map([[src, png]]);
+  request.input = { ...request.input, assets: [{ id: 'image', path: 'assets/probe.png', availability: 'available', src }], scenes: request.input.scenes.map(scene => ({ ...scene, assetIds: ['image'] })) };
+  request.program.set('src/RenderProgram.tsx', Buffer.from(request.program.get('src/RenderProgram.tsx')!.toString().replace('useCurrentFrame, useVideoConfig', 'Img, useCurrentFrame, useVideoConfig').replace('<div>{input.videoBrief}', '<div><Img src={input.assets[0].availability === "available" ? input.assets[0].src : ""} />{input.videoBrief}')));
+  const bundle = await buildProgramBundle(request);
+  const host = createServer((_req, res) => res.end('<!doctype html><body>宿主</body>'));
+  await new Promise<void>(resolve => host.listen(0, '127.0.0.1', resolve));
+  const parentOrigin = `http://127.0.0.1:${(host.address() as any).port}`;
+  const service = new PreviewOrigin();
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const descriptor = await service.publish({ ...request, bundle, media, parentOrigin, target: 'candidate', baseline: 'test', label: '候选', key: 'a'.repeat(48) });
+    const mediaUrl = new URL(src, descriptor.url);
+    const partial = await fetch(mediaUrl, { headers: { Range: 'bytes=1-999999' } });
+    expect(partial.status).toBe(206);
+    expect(partial.headers.get('content-range')).toBe(`bytes 1-${png.length - 1}/${png.length}`);
+    expect(Buffer.from(await partial.arrayBuffer())).toEqual(png.subarray(1));
+    const head = await fetch(mediaUrl, { method: 'HEAD', headers: { Range: 'bytes=0-1' } });
+    expect(head.status).toBe(206); expect(head.headers.get('content-length')).toBe('2');
+    expect((await head.arrayBuffer()).byteLength).toBe(0);
+    expect((await fetch(mediaUrl, { headers: { Range: `bytes=${png.length}-` } })).status).toBe(416);
+    const page = await browser.newPage(); await page.goto(parentOrigin);
+    const mount = async (binding: typeof descriptor) => page.evaluate(d => {
+      const win = window as any; win.events = []; win.d = d;
+      const iframe = document.createElement('iframe'); iframe.sandbox = 'allow-scripts allow-same-origin';
+      window.addEventListener('message', event => {
+        if (event.origin === d.origin && event.source === iframe.contentWindow) win.events.push(event.data);
+        if (event.data.type === 'BOOT') iframe.contentWindow!.postMessage({ ...d, type: 'INIT' }, d.origin);
+      });
+      iframe.src = d.url; document.body.append(iframe);
+      win.send = (extra: object) => iframe.contentWindow!.postMessage({ version: 1, instanceId: d.instanceId, token: d.token, ...extra }, d.origin);
+    }, binding);
+    await mount(descriptor);
+    await expect.poll(() => page.evaluate(() => (window as any).events.some((m: any) => m.type === 'READY'))).toBe(true);
+    await expect.poll(() => page.frameLocator('iframe').locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
+    await page.evaluate(() => (window as any).send({ type: 'SEEK', frame: 17, requestId: 'seek-17' }));
+    await expect.poll(() => page.evaluate(() => (window as any).events.find((m: any) => m.type === 'FRAME' && m.requestId === 'seek-17')?.frame)).toBe(17);
+    await expect.poll(() => page.frameLocator('iframe').locator('#root').textContent()).toContain('34');
+    await page.evaluate(() => (window as any).send({ type: 'SEEK', frame: 17, requestId: 'repeat-17' }));
+    await expect.poll(() => page.evaluate(() => (window as any).events.some((m: any) => m.requestId === 'repeat-17'))).toBe(true);
+    await page.evaluate(() => (window as any).send({ type: 'SEEK', frame: 4, requestId: 'forged', token: 'wrong' }));
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => (window as any).events.some((m: any) => m.requestId === 'forged'))).toBe(false);
+    await page.evaluate(() => (window as any).send({ type: 'VOLUME', volume: 0.25 }));
+    await expect.poll(() => page.evaluate(() => (window as any).events.filter((m: any) => m.type === 'VOLUME').at(-1)?.volume)).toBe(0.25);
+    await page.evaluate(() => (window as any).send({ type: 'MUTE', muted: true }));
+    await expect.poll(() => page.evaluate(() => (window as any).events.filter((m: any) => m.type === 'MUTE').at(-1)?.muted)).toBe(true);
+    await page.evaluate(() => (window as any).send({ type: 'PLAY' }));
+    await expect.poll(() => page.evaluate(() => (window as any).events.some((m: any) => m.type === 'PLAYING'))).toBe(true);
+    await expect.poll(() => page.evaluate(() => (window as any).events.filter((m: any) => m.type === 'FRAME' && m.frame > 17).length)).toBeGreaterThan(3);
+    await page.evaluate(() => (window as any).send({ type: 'PAUSE' }));
+    await expect.poll(() => page.evaluate(() => (window as any).events.some((m: any) => m.type === 'PAUSED'))).toBe(true);
+    expect(await page.evaluate(() => { try { return !!document.querySelector('iframe')!.contentDocument?.body; } catch { return false; } })).toBe(false);
+    const frame = page.frames().find(frame => frame.url() === descriptor.url)!;
+    expect(await frame.evaluate(async () => { try { await fetch('/api/project', { method: 'POST' }); return true; } catch { return false; } })).toBe(false);
+    expect(await frame.evaluate(() => typeof (window as any).__narracutBind)).toBe('undefined');
+    await page.evaluate(() => (window as any).send({ type: 'SEEK', frame: 2, requestId: 'bad-version', version: 2 }));
+    await expect.poll(() => page.evaluate(() => (window as any).events.find((m: any) => m.type === 'ERROR')?.code)).toBe('BRIDGE_VERSION_UNSUPPORTED');
+    await expect.poll(() => page.frameLocator('iframe').locator('#root').textContent()).toBe('');
+    const second = await service.publish({ ...request, bundle, media, parentOrigin, target: 'candidate', baseline: 'test', label: '另一实例', key: 'e'.repeat(48) });
+    expect(second.instanceId).not.toBe(descriptor.instanceId); expect(second.token).not.toBe(descriptor.token);
+    await page.goto(parentOrigin); await mount(second);
+    await expect.poll(() => page.evaluate(() => (window as any).events.some((m: any) => m.type === 'READY'))).toBe(true);
+    await page.evaluate(() => (window as any).send({ type: 'INIT', identity: (window as any).d.identity }));
+    await expect.poll(() => page.evaluate(() => (window as any).events.find((m: any) => m.type === 'ERROR')?.code)).toBe('BRIDGE_ALREADY_BOUND');
+    await expect(service.publish({ ...request, input: { ...request.input, videoBrief: 'changed' }, bundle, media, parentOrigin, target: 'candidate', baseline: 'test', label: '候选', key: 'b'.repeat(48) })).rejects.toThrow('绑定不一致');
+  } finally { await browser.close(); await service.close(); host.closeAllConnections(); await new Promise<void>(resolve => host.close(() => resolve())); }
+}, 120_000);

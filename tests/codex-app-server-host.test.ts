@@ -75,3 +75,47 @@ describe("Codex App Server 宿主适配器", () => {
     await host.dispose();
   });
 });
+
+it.each([
+  ['usageLimitExceeded', 'CODEX_USAGE_LIMIT'],
+  ['unauthorized', 'CODEX_AUTH_REQUIRED'],
+  ['serverOverloaded', 'CODEX_UNAVAILABLE'],
+])('宿主保留结构化错误 %s，恢复失败不会误报线程丢失', async (codexErrorInfo, reason) => {
+  const directory = await mkdtemp(join(tmpdir(), 'narracut-host-error-'));
+  const script = join(directory, 'server.mjs');
+  await writeFile(script, `import { createInterface } from 'node:readline';
+createInterface({ input: process.stdin }).on('line', line => {
+  const m = JSON.parse(line); if (!m.id) return;
+  process.stdout.write(JSON.stringify(m.method === 'thread/resume' ? { id:m.id,error:{code:-32000,message:'服务拒绝',data:{codexErrorInfo:${JSON.stringify(codexErrorInfo)}}}} : {id:m.id,result:{}})+'\\n');
+});
+setInterval(() => {}, 1000);`);
+  const host = new CodexAppServerHost({ command: 'node', commandArgs: [script] });
+  try { await expect(host.resumeThread({ threadId: 'original', projectDirectory: directory })).rejects.toMatchObject({ code: reason }); }
+  finally { await host.dispose(); }
+});
+
+it('工具批准等待宿主确认回执，再恢复匹配的 Turn', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'narracut-host-approval-')), script = join(directory, 'server.mjs');
+  await writeFile(script, `import {createInterface} from 'node:readline';
+const send = m => process.stdout.write(JSON.stringify(m)+'\\n');
+createInterface({input:process.stdin}).on('line', line => {
+ const m=JSON.parse(line);
+ if(m.id===90 && m.result) { send({method:'serverRequest/resolved',params:{threadId:'thread',requestId:90}}); return; }
+ if(!m.id) return;
+ if(m.method==='initialize') send({id:m.id,result:{}});
+ if(m.method==='thread/start') send({id:m.id,result:{thread:{id:'thread'}}});
+ if(m.method==='turn/start') {send({id:m.id,result:{turn:{id:'turn'}}});send({id:90,method:'item/commandExecution/requestApproval',params:{threadId:'thread',turnId:'turn',command:'读取候选源码'}});}
+}); setInterval(()=>{},1000);`);
+  const host = new CodexAppServerHost({ command: 'node', commandArgs: [script] });
+  const events: any[] = []; host.subscribe(event => events.push(event));
+  try {
+    await host.createThread({ projectDirectory: directory, purpose: 'creation' });
+    await host.startTurn({ threadId: 'thread', projectDirectory: directory, prompt: '读取', verificationToken: 'token', outputSchema: {} });
+    await expect.poll(() => events[0]?.type).toBe('approval-required');
+    expect(events).toHaveLength(1);
+    await host.resolveApproval(events[0].approvalId, true);
+    await expect.poll(() => events[1]?.type).toBe('approval-resolved');
+    expect(events[1]).toMatchObject({ approved: true, approvalId: events[0].approvalId, threadId: 'thread', turnId: 'turn' });
+    await expect(host.resolveApproval(events[0].approvalId, true)).rejects.toThrow('工具审批已过期');
+  } finally { await host.dispose(); }
+});

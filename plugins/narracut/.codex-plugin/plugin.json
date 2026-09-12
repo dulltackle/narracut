@@ -1,7 +1,7 @@
 {
   "name": "narracut",
-  "version": "0.1.0",
-  "description": "在 Codex 中创建、打开、编辑并检查 Project VNext。",
+  "version": "0.1.0+codex.20260910081023",
+  "description": "\u5728 Codex \u4e2d\u521b\u5efa\u3001\u6253\u5f00\u3001\u7f16\u8f91\u5e76\u68c0\u67e5 Project VNext\u3002",
   "author": {
     "name": "Narracut contributors",
     "url": "https://github.com/dulltackle/narracut"
@@ -9,23 +9,28 @@
   "homepage": "https://github.com/dulltackle/narracut",
   "repository": "https://github.com/dulltackle/narracut",
   "license": "MIT",
-  "keywords": ["video", "scene", "project-inspection", "codex-thread"],
+  "keywords": [
+    "video",
+    "scene",
+    "project-inspection",
+    "codex-thread"
+  ],
   "interface": {
     "displayName": "Narracut",
-    "shortDescription": "创建、打开并编辑 Narracut Scene。",
-    "longDescription": "通过本地启动器原子创建或严格打开 Narracut Project VNext，在表格工作区编辑并自动保存 Scene；Agent 工作区可运行固定、只读的 Codex 创作线程宿主验证。",
+    "shortDescription": "\u521b\u5efa\u3001\u6253\u5f00\u5e76\u7f16\u8f91 Narracut Scene\u3002",
+    "longDescription": "\u901a\u8fc7\u672c\u5730\u542f\u52a8\u5668\u539f\u5b50\u521b\u5efa\u6216\u4e25\u683c\u6253\u5f00 Narracut Project VNext\uff0c\u5728\u8868\u683c\u5de5\u4f5c\u533a\u7f16\u8f91\u5e76\u81ea\u52a8\u4fdd\u5b58 Scene\uff1bAgent \u5de5\u4f5c\u533a\u53ef\u8fd0\u884c\u56fa\u5b9a\u3001\u53ea\u8bfb\u7684 Codex \u521b\u4f5c\u7ebf\u7a0b\u5bbf\u4e3b\u9a8c\u8bc1\u3002",
     "developerName": "Narracut contributors",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Read", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
     "defaultPrompt": [
-      "打开 Narracut 项目启动器。",
-      "创建一个空的 Narracut Project VNext。",
-      "检查这个 Narracut 项目并打开工作台。",
-      "在 Narracut 表格工作区编辑 Scene。",
-      "确认 Narracut 插件连接是否正常。",
-      "运行一次 Codex 创作线程宿主验证。"
+      "\u6253\u5f00 Narracut \u9879\u76ee\u542f\u52a8\u5668\u3002",
+      "\u521b\u5efa\u4e00\u4e2a\u7a7a\u7684 Narracut Project VNext\u3002",
+      "\u68c0\u67e5\u8fd9\u4e2a Narracut \u9879\u76ee\u5e76\u6253\u5f00\u5de5\u4f5c\u53f0\u3002"
     ],
     "brandColor": "#3F78C5"
-  },
-  "mcpServers": "./.mcp.json"
+  }
 }

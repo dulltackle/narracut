@@ -86,7 +86,12 @@ async function installAppToolBridge(
   page: Page,
   handler: (name: string, args: Record<string, any>) => unknown,
 ): Promise<void> {
-  await page.exposeFunction("handleNarracutAppTool", handler);
+  await page.exposeFunction("handleNarracutAppTool", (name: string, args: Record<string, any>) => {
+    // 只读后台查询不计入本文件被测的编辑操作。
+    if (name === 'project_acceptance' && args.action === 'history') return { structuredContent: { revisions: [] } };
+    if (name === 'project_render' && args.action === 'status') return { structuredContent: { source: { revisionId: 'current', summary: '当前修订', accepted: false, ready: false, issues: [] }, jobs: [] } };
+    return handler(name, args);
+  });
   await page.evaluate(() => {
     (window as unknown as { openai: unknown }).openai = {
       callTool: (name: string, args: Record<string, unknown>) =>
@@ -447,7 +452,9 @@ test("启动器在窄面板纵向排列，并在宿主没有目录选择能力�
     return { ticketBottom: ticket.bottom, benchTop: bench.top };
   });
   expect(positions.benchTop).toBeGreaterThanOrEqual(positions.ticketBottom - 1);
-  await expect(page.getByRole("button", { name: "从恢复快照创建" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "从恢复快照创建" })).toBeEnabled();
+  await page.getByRole("button", { name: "从恢复快照创建" }).click();
+  await expect(page.getByRole("heading", { name: "选择恢复材料" })).toBeFocused();
 });
 
 test("启动器创建失败后保留输入并把焦点交还主操作", async ({ page }) => {
@@ -497,12 +504,8 @@ test("有效项目首屏显示连接、身份、双工作区、Scene 与检查�
   await expect(page.getByText("项目清单", { exact: true })).toBeVisible();
   await expect(page.getByText("Project DSL", { exact: true })).toBeVisible();
   await expect(page.getByText("video.md", { exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toBeDisabled();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toHaveAttribute(
-    "aria-describedby",
-    "composer-disabled-reason",
-  );
-  await expect(page.getByText("Composer 将在后续功能中启用", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Composer" })).toHaveCount(0);
+  await expect(page.locator('[data-conversation-footer]')).toContainText('当前 Codex 对话');
 });
 
 test("只读检查的非空项目不显示无响应的 Scene 写控件", async ({ page }) => {
@@ -531,8 +534,8 @@ test("键盘焦点不改变 Scene，显式激活后切换工作区仍保留选�
 
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
   await expect(page.getByRole("tab", { name: "Agent 工作区" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByText("Scene 02 保持选中", { exact: true })).toBeVisible();
-  await expect(page.getByText("Composer 将在后续功能中启用", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "候选审阅" })).toBeVisible();
+  await expect(page.getByText("在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。", { exact: true })).toBeVisible();
 });
 
 test("零 Scene 与无效项目都有明确、非纯颜色状态", async ({ page }) => {
@@ -585,7 +588,7 @@ test("客户端在调用保存工具前拒绝 Speech 与 Narration 摘要不一�
   await expect.poll(() => calls).toBe(0);
 });
 
-test("窄面板把项目检查收进可操作抽屉，Composer 仍可见", async ({ page }) => {
+test("窄面板把项目检查收进可操作抽屉，当前对话指引仍可见", async ({ page }) => {
   await page.setViewportSize({ width: 430, height: 860 });
   await loadWorkbench(page);
   await sendResult(page, validResult());
@@ -602,7 +605,10 @@ test("窄面板把项目检查收进可操作抽屉，Composer 仍可见", async
   await expect(inspectionToggle).toBeVisible();
   await inspectionToggle.click();
   await expect(page.getByRole("complementary", { name: "项目检查" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toBeInViewport();
+  await expect(page.getByRole("button", { name: "关闭项目检查" })).toBeFocused();
+  await expect(page.locator("[data-conversation-footer]")).toBeInViewport();
+  await page.getByRole("button", { name: "关闭项目检查" }).click();
+  await expect(inspectionToggle).toBeFocused();
 });
 
 test("Scene Speech 单元格引导项目 TTS 配置、生成状态与半开时间窗", async ({ page }) => {
@@ -825,7 +831,7 @@ test("编辑、复制、移动、删除与 Undo/Redo 保持 Scene 身份和保�
   await page.getByRole("button", { name: "Redo" }).click();
   await expect(page.locator(`[data-scene-id="${secondId}"] .narration-view`)).toHaveText("改写完成");
 
-  await page.getByRole("button", { name: "复制" }).click();
+  await page.getByRole("button", { name: "复制", exact: true }).click();
   const selected = page.locator('[data-scene-row][data-selected="true"]');
   await expect(selected).toContainText("改写完成");
   const copiedId = await selected.getAttribute("data-scene-id");
@@ -848,7 +854,9 @@ test("保存失败可显式重试，工作区切换保留编辑与历史；冲�
   const initial = validResult(1);
   let mode: "fail" | "success" | "conflict" = "fail";
   let calls = 0;
-  await installAppToolBridge(page, (_name, args) => {
+  await installAppToolBridge(page, (name, args) => {
+    // 后台只读轮询不属于保存重试。
+    if (name !== "save_project_scenes") return { structuredContent: {} };
     calls += 1;
     if (mode === "fail") {
       return {
@@ -1260,184 +1268,6 @@ test("Asset 容量、有界列表、文件不可用与悬空 ID 都有明确非�
   await expect(page.getByText("仅显示前 100 项，请缩小搜索范围。", { exact: true })).toBeVisible();
 });
 
-test("Agent 工作区运行固定宿主验证并展示经过身份校验的有界结果", async ({ page }) => {
-  await loadWorkbench(page);
-  await sendResult(page, validResult());
-  let statusReads = 0;
-  await installHostToolBridge(page, (name, args) => {
-    if (name === "start_agent_host_validation") {
-      expect(args).toEqual({ projectDirectory: "/work/projects/product-demo" });
-      return {
-        taskId: "task-64",
-        status: "running",
-        reason: null,
-        connection: { status: "connected", threadId: "thread-specialized", replaced: false },
-        result: null,
-        diagnostic: null,
-        availableActions: ["stop"],
-        projectModified: false,
-      };
-    }
-    if (name === "get_agent_host_validation") {
-      statusReads += 1;
-      if (statusReads === 1) throw new Error("临时状态读取失败");
-      return {
-        taskId: "task-64",
-        status: "succeeded",
-        reason: null,
-        connection: { status: "connected", threadId: "thread-specialized", replaced: false },
-        result: {
-          projectId: "10000000-0000-4000-8000-000000000001",
-          sceneCount: 5,
-          summary: "Codex 已在只读边界内核对 Project VNext 身份。",
-          verification: { taskId: "task-64", driverId: "driver-current" },
-        },
-        diagnostic: null,
-        availableActions: [],
-        projectModified: false,
-      };
-    }
-    throw new Error(`意外工具：${name}`);
-  });
-
-  await page.getByRole("tab", { name: "Agent 工作区" }).click();
-  await expect(page.getByRole("heading", { name: "Codex 创作线程验证" })).toBeVisible();
-  await expect(page.getByText("未开始", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "开始验证" }).click();
-
-  await expect(page.getByRole("heading", { name: "验证成功", exact: true })).toBeVisible();
-  expect(statusReads).toBeGreaterThan(0);
-  await expect(page.getByText("task-64", { exact: true })).toBeVisible();
-  await expect(page.getByText("Codex 创作线程已连接", { exact: true })).toBeVisible();
-  await expect(page.getByText("Codex 已在只读边界内核对 Project VNext 身份。", { exact: true })).toBeVisible();
-  await expect(page.getByText("任务与当前驱动身份已校验", { exact: true })).toBeVisible();
-  await expect(page.getByText("项目内容未修改", { exact: true })).toBeVisible();
-  await expect(page.locator("[data-chat-message]")).toHaveCount(0);
-  await expect(page.getByText("不保存对话副本、推理、工具日志或未提交修改", { exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Composer" })).toBeDisabled();
-  await expect(page.getByText("完整创作指令将在后续功能中启用", { exact: true })).toBeVisible();
-});
-
-test("Agent 验证可停止、继续，并在窄面板纵向排列状态与操作", async ({ page }) => {
-  await page.setViewportSize({ width: 430, height: 860 });
-  await loadWorkbench(page);
-  await sendResult(page, validResult());
-  await installHostToolBridge(page, (name) => {
-    if (name === "start_agent_host_validation") {
-      return {
-        taskId: "task-mobile",
-        status: "running",
-        reason: null,
-        connection: { status: "connected", threadId: "thread-1", replaced: false },
-        result: null,
-        diagnostic: null,
-        availableActions: ["stop"],
-        projectModified: false,
-      };
-    }
-    if (name === "stop_agent_host_validation") {
-      return {
-        taskId: "task-mobile",
-        status: "stopped",
-        reason: "USER_STOPPED",
-        connection: { status: "connected", threadId: "thread-1", replaced: false },
-        result: null,
-        diagnostic: null,
-        availableActions: ["continue"],
-        projectModified: false,
-      };
-    }
-    if (name === "continue_agent_host_validation") {
-      return {
-        taskId: "task-mobile",
-        status: "running",
-        reason: null,
-        connection: { status: "connected", threadId: "thread-2", replaced: true },
-        result: null,
-        diagnostic: null,
-        availableActions: ["stop"],
-        projectModified: false,
-      };
-    }
-    if (name === "get_agent_host_validation") {
-      return {
-        taskId: "task-mobile",
-        status: "running",
-        reason: null,
-        connection: { status: "connected", threadId: "thread-2", replaced: true },
-        result: null,
-        diagnostic: null,
-        availableActions: ["stop"],
-        projectModified: false,
-      };
-    }
-    throw new Error(`意外工具：${name}`);
-  });
-
-  await page.getByRole("tab", { name: "Agent 工作区" }).click();
-  await page.getByRole("button", { name: "开始验证" }).click();
-  await page.getByRole("button", { name: "停止" }).click();
-  await expect(page.getByText("已停止", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "继续" })).toBeEnabled();
-  await page.getByRole("button", { name: "继续" }).click();
-  await expect(page.getByText("替代线程已接管", { exact: true })).toBeVisible();
-
-  const agentColumns = await page.locator(".agent-main").evaluate((element) =>
-    getComputedStyle(element).gridTemplateColumns
-  );
-  expect(agentColumns.split(" ")).toHaveLength(1);
-  await expect(page.locator(".task-board")).toHaveCSS("border-right-width", "0px");
-  const verticalOrder = await page.locator(".agent-panel").evaluate((panel) => {
-    const task = panel.querySelector<HTMLElement>(".task-board")!;
-    const result = panel.querySelector<HTMLElement>(".result-board")!;
-    const actions = panel.querySelector<HTMLElement>(".agent-actions")!;
-    return [task, result, actions].map((element) => {
-      const bounds = element.getBoundingClientRect();
-      return { top: bounds.top, bottom: bounds.bottom };
-    });
-  });
-  expect(verticalOrder[1]!.top).toBeGreaterThanOrEqual(verticalOrder[0]!.bottom - 1);
-  expect(verticalOrder[2]!.top).toBeGreaterThanOrEqual(verticalOrder[1]!.bottom - 1);
-  const actionDirection = await page.locator(".agent-actions").evaluate((element) =>
-    getComputedStyle(element).flexDirection
-  );
-  expect(actionDirection).toBe("column");
-  const stopButton = page.getByRole("button", { name: "停止" });
-  await stopButton.scrollIntoViewIfNeeded();
-  await expect(stopButton).toBeInViewport();
-  await stopButton.focus();
-  const scrollTop = await page.locator(".stage").evaluate((element) => element.scrollTop);
-  await page.waitForTimeout(650);
-  await expect(stopButton).toBeFocused();
-  await expect.poll(() => page.locator(".stage").evaluate((element) => element.scrollTop)).toBe(scrollTop);
-});
-
-test("线程丢失态保留恢复指针但显示不可用语义", async ({ page }) => {
-  await loadWorkbench(page);
-  await sendResult(page, validResult());
-  await page.getByRole("tab", { name: "Agent 工作区" }).click();
-  await sendResult(page, {
-    hostValidation: {
-      taskId: "task-lost",
-      status: "stopped",
-      reason: "CODEX_THREAD_UNAVAILABLE",
-      connection: { status: "unavailable", threadId: "thread-lost", replaced: false },
-      result: null,
-      diagnostic: {
-        code: "CODEX_THREAD_UNAVAILABLE",
-        message: "Codex 创作线程不可用；继续时将自动创建替代线程。",
-      },
-      availableActions: ["continue"],
-      projectModified: false,
-    },
-  });
-
-  await expect(page.getByText("Codex 创作线程不可用", { exact: true })).toBeVisible();
-  await expect(page.locator('.status-mark[data-status="unavailable"]')).toHaveCSS("border-radius", "2px");
-  await expect(page.getByText("thread-lost", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "继续" })).toBeEnabled();
-});
-
 test("Agent 标题在支持的窄屏与桌面宽度不产生孤字换行或溢出", async ({ page }) => {
   await loadWorkbench(page);
   await sendResult(page, validResult());
@@ -1445,9 +1275,297 @@ test("Agent 标题在支持的窄屏与桌面宽度不产生孤字换行或溢�
 
   for (const width of [320, 430, 1440]) {
     await page.setViewportSize({ width, height: 860 });
-    const titleFits = await page.getByRole("heading", { name: "Codex 创作线程验证" }).evaluate(
+    const titleFits = await page.getByRole("heading", { name: "候选审阅" }).evaluate(
       (element) => element.scrollWidth <= element.clientWidth,
     );
     expect(titleFits).toBe(true);
   }
+});
+
+test("工作区标签支持手动键盘激活，零 Scene 在窄屏可用", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await loadWorkbench(page);
+  await sendResult(page, validResult(0));
+  const table = page.getByRole("tab", { name: "表格工作区" });
+  const agent = page.getByRole("tab", { name: "Agent 工作区" });
+  await table.focus();
+  await table.press("ArrowRight");
+  await expect(agent).toBeFocused();
+  await expect(table).toHaveAttribute("aria-selected", "true");
+  await agent.press("Enter");
+  await expect(page.getByRole("tabpanel", { name: "Agent 工作区" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "尚无任务" })).toBeVisible();
+  await expect(page.getByText("尚无预览 · 构建当前版本或候选后检查成片", { exact: true })).toBeVisible();
+  await page.getByRole("heading", { name: "候选审阅" }).scrollIntoViewIfNeeded();
+  expect(await page.locator("#workspace-agent .stage").evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true);
+  await table.click();
+  await expect(page.getByRole('textbox', { name: 'Composer' })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+for (const width of [1440, 390]) {
+  test(`候选真实持久化、工作区连续性与安全放弃 ${width}`, async ({ page }) => {
+    const { mkdtemp, mkdir, readFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { createNarracutRequestHandler } = await import('../../plugins/narracut/src/server');
+    const handler = createNarracutRequestHandler();
+    let id = 500;
+    const tool = (name: string, args: Record<string, any>) => handler({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } }) as Promise<any>;
+    const directory = join(await mkdtemp(join(tmpdir(), 'candidate-ui-')), 'project');
+    const created = await tool('create_project', { projectDirectory: directory });
+    await page.setViewportSize({ width, height: 1000 });
+    await loadWorkbench(page);
+    await installAppToolBridge(page, tool);
+    await sendResult(page, created.structuredContent);
+    await page.locator('[data-workspace="agent"]').click();
+    await tool('manage_project_candidate', { projectDirectory: directory, projectId: created.structuredContent.project.projectId, action: 'create' });
+    await sendResult(page, (await tool('get_workbench', {})).structuredContent);
+    await expect(page.locator('.candidate-save')).toContainText('已保存');
+    const args = { projectDirectory: directory, projectId: created.structuredContent.project.projectId };
+    const first = (await tool('manage_project_candidate', { ...args, action: 'read' })).structuredContent.candidate;
+    const saved = await tool('manage_project_candidate', { ...args, action: 'apply', baseline: first.baseline, changes: [{ path: 'resources/说明.txt', content: '第二批原子保存' }] });
+    expect(saved.isError).not.toBe(true);
+    await page.getByRole('button', { name: '重新检查完整性' }).click();
+    await expect(page.locator('.candidate-panel')).toContainText('上一份完整候选已保留');
+    await page.locator('[data-workspace="table"]').click();
+    await page.locator('[data-workspace="agent"]').click();
+    await expect(page.locator('.candidate-save')).toContainText('已保存');
+    await mkdir('.impeccable/review', { recursive: true });
+    await page.screenshot({ path: `.impeccable/review/candidate-${width === 390 ? 'mobile' : 'desktop'}.png`, fullPage: true });
+    await page.getByRole('button', { name: '放弃候选', exact: true }).click();
+    await expect(page.getByRole('button', { name: '取消', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: '放弃候选', exact: true })).toBeFocused();
+    expect(await readFile(join(directory, saved.structuredContent.candidate.candidate.path, 'resources/说明.txt'), 'utf8')).toBe('第二批原子保存');
+    await page.getByRole('button', { name: '放弃候选', exact: true }).click();
+    await page.getByRole('button', { name: '放弃候选并终结任务' }).click();
+    await expect(page.locator('.candidate-save')).toContainText('尚无候选');
+    await handler.dispose();
+  });
+}
+
+test('候选失败和外部变化通知保留草稿、所选 Scene 与详情焦点，检查状态不冒充保存', async ({ page }) => {
+  await loadWorkbench(page);
+  const candidate = { status: 'saved', baseline: 'one', sourceRevision: 'revision-one', candidate: { path: '.narracut/candidate-one/candidate', identity: 'sha256:one' }, checkpoint: null };
+  await installAppToolBridge(page, async () => {
+    await new Promise(resolve => setTimeout(resolve, 350));
+    return { structuredContent: { status: 'candidate-state', candidate } };
+  });
+  await sendResult(page, { ...validResult(), candidate });
+  await page.locator('[data-workspace="agent"]').click();
+  await page.getByRole('button', { name: '重新检查完整性' }).click();
+  await expect(page.locator('.candidate-save')).toContainText('正在检查完整性');
+  await expect(page.locator('.candidate-save')).toContainText('已保存');
+  const summary = page.locator('[data-candidate-details] summary');
+  await summary.click();
+  await page.waitForTimeout(4500);
+  await expect(summary).toBeFocused();
+  await sendResult(page, { status: 'candidate-state', candidate: { ...candidate, status: 'external-change', baseline: 'two', error: { code: 'EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED', message: '候选发生外部变化' } } });
+  await expect(summary).toBeFocused();
+  await sendResult(page, { status: 'candidate-failed', error: { code: 'CANDIDATE_SAVE_FAILED', message: '本批未保存，上一份候选已保留' } });
+  await expect(page.locator('.candidate-error')).toContainText('本批未保存');
+  await page.locator('[data-workspace="table"]').click();
+  await expect(page.locator('.scene-row')).toHaveCount(5);
+});
+
+test('等待用户期间仍刷新任务终结，连接恢复清除错误且任务详情保持焦点', async ({ page }) => {
+  await loadWorkbench(page); await sendResult(page, validResult());
+  let reads = 0;
+  const task = { taskId: 'task-refresh', status: 'running', reason: null, instruction: '明确目标', stage: 'read', threadPointer: 'thread-refresh' };
+  await installAppToolBridge(page, name => {
+    if (name === 'start_creation_task') return { structuredContent: { creationTask: task } };
+    if (name === 'get_creation_task') {
+      reads++;
+      if (reads === 1) throw new Error('临时网络失败');
+      return { structuredContent: { creationTask: { ...task, status: reads === 2 ? 'waiting' : 'terminated', reason: reads === 2 ? 'CANDIDATE_READY' : 'CANDIDATE_ACCEPTED' } } };
+    }
+    return { structuredContent: {} };
+  });
+  await sendResult(page, { creationTask: task });
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  const details = page.getByText('当前创作指令与任务详情', { exact: true });
+  await expect(page.locator('[data-agent-content]')).toContainText('临时网络失败');
+  await details.click();
+  await expect(page.getByRole('heading', { name: '已终结 · 候选已接受' })).toBeVisible({ timeout: 10000 });
+  await expect(details).toBeFocused();
+  await expect(page.getByText('task-refresh', { exact: true })).toBeVisible();
+});
+
+test('放弃确认默认取消，回执不明先核对且不重复删除', async ({ page }) => {
+  await loadWorkbench(page);
+  let candidate: any = { status: 'saved', baseline: 'first', candidate: { path: '.narracut/candidate-123/candidate', identity: 'tree' }, checkpoint: { path: '.narracut/candidate-123/checkpoint', identity: 'previous' } };
+  let task: any = { taskId: 'old-task', status: 'stopped', instruction: '旧目标', reason: 'USER_STOPPED' };
+  let submits = 0;
+  await installAppToolBridge(page, (name, args) => {
+    if (name === 'manage_project_candidate' && args.action === 'discard') {
+      submits++; candidate = { ...candidate, status: 'absent', baseline: 'absent', candidate: null, checkpoint: null };
+      task = { ...task, status: 'terminated', reason: 'CANDIDATE_ABANDONED' };
+      throw new Error('删除回执丢失');
+    }
+    return { structuredContent: { creationTask: task, candidate } };
+  });
+  await sendResult(page, { ...validResult(), creationTask: task, candidate });
+  await page.locator('[data-workspace="agent"]').click();
+  await page.getByRole('button', { name: '放弃候选', exact: true }).click();
+  await expect(page.locator('[data-candidate-cancel]')).toBeFocused();
+  await expect(page.getByRole('alertdialog')).toContainText('Agent 任务检查点');
+  await page.getByRole('button', { name: '放弃候选并终结任务', exact: true }).click();
+  await expect(page.getByRole('button', { name: '审阅并接受' })).toBeDisabled();
+  await page.locator('[data-candidate-region]').getByRole('button', { name: '核对操作结果' }).click();
+  await expect(page.locator('.creation-state')).toContainText('已终结');
+  await expect(page.locator('[data-candidate-region]')).toContainText('尚无候选');
+  expect(submits).toBe(1);
+});
+
+for (const width of [1440, 390]) test(`项目复制确认保留完整路径与安全停止说明 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await loadWorkbench(page);
+  await sendResult(page, validResult(2));
+  if (width === 390) await page.locator('[data-open-inspection]').click();
+  await page.screenshot({ path: `/tmp/issue88-before-${width}.png`, fullPage: true });
+  await page.getByRole('button', { name: '复制项目…', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '复制项目' })).toBeVisible();
+  await expect(page.getByText('保留候选，来源工作区将关闭。')).toBeVisible();
+  await expect(page.getByRole('button', { name: '复制并打开副本', exact: true })).toBeDisabled();
+  await page.screenshot({ path: `.impeccable/review/copy-${width}.png`, fullPage: true });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '复制项目' })).not.toBeVisible();
+});
+
+for (const width of [1440, 390]) test(`选择目标后复制并打开独立副本 ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await loadWorkbench(page);
+  const calls: string[] = [];
+  let started = false;
+  const result = validResult(2);
+  await page.exposeFunction('copyHost', async (name: string, args: any) => {
+    calls.push(name);
+    if (name === 'copy_project' && args.action === 'start') { started = true; return { structuredContent: { status: 'running', phase: 'copying', operationId: 'copy-1', sourceClosed: true } }; }
+    if (name === 'copy_project') return { structuredContent: { status: 'opened', workspace: { ...result, project: { ...result.project, folderName: '独立副本', directory: '/work/copies/独立副本', projectId: '10000000-0000-4000-8000-000000000002' } } } };
+    return { structuredContent: {} };
+  });
+  await page.evaluate(() => { (window as any).openai = { selectDirectory: async () => '/work/copies', callTool: (name: string, args: unknown) => (window as any).copyHost(name, args) }; });
+  await sendResult(page, result);
+  if (width === 390) await page.locator('[data-open-inspection]').click();
+  await page.locator('[data-copy-project]').click();
+  await page.locator('[data-copy-parent]').click();
+  await page.locator('[data-copy-name]').fill('独立副本');
+  await expect(page.locator('[data-copy-path]')).toHaveText('/work/copies/独立副本');
+  await page.locator('[data-copy-submit]').click();
+  await expect(page.getByRole('dialog', { name: '复制项目' })).not.toBeVisible();
+  await expect(page.locator('.folder')).toContainText('独立副本');
+  expect(started).toBe(true);
+  await expect(page.locator('.copy-result')).toContainText('/work/copies/独立副本');
+  await page.screenshot({ path: `.impeccable/review/copy-result-${width}.png`, fullPage: true });
+});
+
+test('复制状态轮询保留展开详情和取消按钮焦点', async ({ page }) => {
+  await loadWorkbench(page);
+  await page.exposeFunction('runningCopyHost', async () => ({ structuredContent: { status: 'running', phase: 'copying', operationId: 'copy-focus', sourceClosed: true } }));
+  await page.evaluate(() => { (window as any).openai = { selectDirectory: async () => '/work/copies', callTool: () => (window as any).runningCopyHost() }; });
+  await sendResult(page, validResult(1));
+  await page.locator('[data-copy-project]').click();
+  await page.locator('[data-copy-parent]').click();
+  await page.locator('[data-copy-submit]').click();
+  await expect(page.locator('.copy-progress')).toContainText('正在复制');
+  await page.locator('#project-copy-dialog summary').click();
+  await page.locator('[data-copy-cancel]').focus();
+  await page.waitForTimeout(800);
+  await expect(page.locator('#project-copy-dialog details')).toHaveAttribute('open', '');
+  await expect(page.locator('[data-copy-cancel]')).toBeFocused();
+});
+
+for (const failure of ['save', 'brief']) test(`复制前阻止未解决的 ${failure} 保存问题并保留来源`, async ({ page }) => {
+  await loadWorkbench(page);
+  const called: string[] = [];
+  await installAppToolBridge(page, name => {
+    called.push(name);
+    return name === 'save_project_video_brief'
+      ? { structuredContent: { status: 'brief-conflict', disk: { content: '# 磁盘版本', revision: `sha256:${'d'.repeat(64)}` } } }
+      : { isError: true, structuredContent: { status: 'save-failed', error: { code: 'PROJECT_SAVE_FAILED', message: '磁盘写入失败' } } };
+  });
+  await page.evaluate(() => { Object.assign((window as any).openai, { selectDirectory: async () => '/work/copies' }); });
+  await sendResult(page, validResult(1));
+  if (failure === 'save') {
+    await page.getByRole('button', { name: '编辑 Narration', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Scene 01 Narration' }).fill('尚未保存的新内容');
+    await page.getByRole('textbox', { name: 'Scene 01 Narration' }).blur();
+    await expect(page.getByText('保存失败', { exact: true })).toBeVisible();
+  } else {
+    await page.getByRole('button', { name: /Video Brief.*已保存/ }).click();
+    await page.getByRole('textbox', { name: 'Video Brief 原始 Markdown' }).fill('# 本地版本');
+    await expect(page.getByRole('heading', { name: '外部冲突' })).toBeVisible();
+    await page.getByRole('button', { name: '关闭 Video Brief 编辑器' }).click();
+  }
+  await page.locator('[data-copy-project]').click();
+  await page.locator('[data-copy-parent]').click();
+  await page.locator('[data-copy-submit]').click();
+  await expect(page.locator('#project-copy-dialog [role="alert"]')).toContainText(failure === 'save' ? 'Scene 保存失败' : 'Video Brief 尚未保存');
+  expect(called).not.toContain('copy_project');
+  await page.locator('[data-copy-close]').click();
+  await expect(page.locator('.folder')).toContainText('product-demo');
+});
+
+test('同 ID 冲突完整列出四个选择，转换前明确确认受影响路径', async ({ page }) => {
+  await loadWorkbench(page);
+  const calls: any[] = [];
+  await installAppToolBridge(page, (name, args) => { calls.push({ name, args }); return { structuredContent: validResult(1) }; });
+  await sendResult(page, validResult(1));
+  await sendResult(page, { status: 'identity-conflict', currentDirectory: '/work/current', selectedDirectory: '/work/manual-copy', projectId: 'same-id' });
+  const dialog = page.getByRole('dialog', { name: '两个路径具有相同 Project ID' });
+  await expect(dialog).toContainText('/work/current');
+  await expect(dialog).toContainText('/work/manual-copy');
+  await expect(dialog.getByRole('button')).toHaveCount(4);
+  await expect(dialog.getByRole('button', { name: '取消本次打开' })).toBeFocused();
+  await dialog.getByRole('button', { name: '将所选副本转换为独立项目（生成新 ID）' }).click();
+  expect(calls).toHaveLength(0);
+  await expect(dialog.getByRole('status')).toContainText('/work/manual-copy');
+  await dialog.getByRole('button', { name: '确认转换所选路径并生成新 ID' }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(calls).toEqual([{ name: 'open_project', args: { projectDirectory: '/work/manual-copy', identityChoice: 'convert' } }]);
+});
+
+test("TTS 版本冲突后可保留凭据输入并核对最新项目再保存", async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  delete initial.projectDsl.scenes[0]!.speech;
+  initial.scenes[0]!.speech = { status: "missing" };
+  const config = { provider: "tokendance", model: "minimax-speech-2.8-turbo", voice: "Chinese (Mandarin)_News_Anchor", speed: 1, volume: 1, pitch: 0 };
+  Object.assign(initial, { tts: { status: "configured", config, credential: { status: "missing", storage: "session" }, capabilities: { models: [{ value: config.model }], voices: [{ value: config.voice }] } } });
+  const latest = structuredClone(initial);
+  latest.projectRevision = `sha256:${"4".repeat(64)}`;
+  latest.projectDsl.scenes[0]!.narration.text = "外部已经更新的原文";
+  latest.scenes[0]!.narration = "外部已经更新的原文";
+  let saves = 0;
+  let refreshes = 0;
+  await installAppToolBridge(page, (name, args) => {
+    if (name === "get_workbench") {
+      refreshes++;
+      return { structuredContent: { ...latest, writable: refreshes > 1 } };
+    }
+    if (name === "save_project_tts_settings") {
+      saves++;
+      if (args.baselineRevision !== latest.projectRevision) return { isError: true, structuredContent: { status: "save-conflict", error: { code: "PROJECT_SAVE_CONFLICT", message: "project.json 已被外部修改；Narracut 已停止保存 TTS 配置。" } } };
+      expect(args.apiKey).toBe("test-only-secret");
+      return { structuredContent: { ...latest, status: "tts-saved", affectedSpeechCount: 0, tts: { ...(initial as any).tts, credential: { status: "available", storage: "session" } } } };
+    }
+    throw new Error(`意外工具：${name}`);
+  });
+  await sendResult(page, initial);
+  await page.getByRole("button", { name: "生成 Speech" }).click();
+  await page.getByLabel("TokenDance API Key").fill("test-only-secret");
+  await page.getByRole("button", { name: "保存 TTS 配置" }).click();
+  await expect(page.getByRole("alert")).toContainText("project.json 已被外部修改");
+  await page.getByRole("button", { name: "读取最新项目并保留 TTS 输入" }).click({ timeout: 3000 });
+  await expect(page.getByRole("alert")).toContainText("无法安全读取最新基线");
+  await expect(page.getByLabel("TokenDance API Key")).toHaveValue("test-only-secret");
+  expect(saves).toBe(1);
+  await page.getByRole("button", { name: "读取最新项目并保留 TTS 输入" }).click();
+  await expect(page.getByText("已读取最新项目，请核对 Scene 内容后再次保存 TTS 配置。", { exact: true })).toBeVisible();
+  expect(saves).toBe(1);
+  await page.getByRole("button", { name: "保存 TTS 配置" }).click();
+  await expect(page.getByText("API Key 已就绪", { exact: false })).toBeVisible();
+  expect(saves).toBe(2);
+  await expect(page.getByLabel("TokenDance API Key")).toHaveValue("");
 });

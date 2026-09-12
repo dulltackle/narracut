@@ -1,0 +1,80 @@
+{
+  "date": "2026-09-11",
+  "productBaseline": "8486795",
+  "note": "原始失败与独立复跑分别列出，不合并为完整命令一次通过；自动化不代表真实宿主。",
+  "runs": [
+    {
+      "run": "full",
+      "command": "pnpm test",
+      "logSha256": "ef3d947a56065d36b433cad91c8a07050ae470dbd6d24bf6d1995f9f74ded68e",
+      "summary": [
+        "Test Files  1 passed (1)",
+        "Tests  19 passed (19)",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯",
+        "FAIL  tests/codex-app-server-host.test.ts > Codex App Server 宿主适配器 > 请求无响应时在有界时间内失败并终止挂起子进程",
+        "FAIL  tests/creation-task.test.ts > MCP 原子修改小批候选并运行检查；外部候选不能静默接管",
+        "FAIL  tests/project-copy.test.ts > 复制保留完整修订历史、候选恢复检查点与可校验的离线依赖",
+        "FAIL  tests/project-restore.test.ts > 恢复保留完整修订历史、候选恢复检查点与可校验的离线依赖",
+        "Test Files  4 failed | 38 passed | 2 skipped (44)",
+        "Tests  4 failed | 328 passed | 2 skipped (334)"
+      ]
+    },
+    {
+      "run": "recheck",
+      "command": "pnpm exec vitest run tests/project-copy.test.ts tests/project-restore.test.ts tests/codex-app-server-host.test.ts tests/creation-task.test.ts --maxWorkers=1",
+      "logSha256": "797324e86e4a2c60a490c283971b77c10f65c0e2882d935e612db5d57b8f8160",
+      "summary": [
+        "Test Files  4 passed (4)",
+        "Tests  97 passed (97)"
+      ]
+    },
+    {
+      "run": "panel",
+      "command": "pnpm exec playwright test tests/e2e/workbench-panel.spec.ts tests/e2e/panel-reconnect.spec.ts tests/e2e/candidate-review.spec.ts",
+      "logSha256": "fc1deedf1b90b004db67ef37c3059c8ee1f99ade4d5792abc8c0c2ff7e585f9b",
+      "summary": [
+        "1 failed",
+        "18 passed (53.8s)"
+      ]
+    },
+    {
+      "run": "saveRepeat",
+      "command": "pnpm exec playwright test tests/e2e/workbench-panel.spec.ts --grep 公开面板通过启动器打开 --repeat-each 5",
+      "logSha256": "6a5d9809d744e298d09dc4c7c2def241624da54cde8c5208aa7a47a1012ebcd3",
+      "summary": [
+        "5 passed (17.3s)"
+      ]
+    },
+    {
+      "run": "e2eFull",
+      "command": "pnpm test:e2e",
+      "logSha256": "11fdc39fc17b1153a2dfac612ca12636bb95ad05c8843154af6d91484052abe2",
+      "summary": [
+        "85 passed (4.5m)"
+      ]
+    }
+  ],
+  "portableOutput": {
+    "evidenceSha256": "2b2f699972498384e9a01f0b4a318e5b94f10d521bdc3f5327d8c061bdeeddc0",
+    "videoSha256": "6fb8a5b39da6df46ad00f3c3e11766a199608c5ac1927a075e02e0c2230b10df",
+    "videoBytes": 116854,
+    "frames": [
+      0,
+      16,
+      31,
+      32,
+      33,
+      35,
+      49,
+      64,
+      65,
+      66,
+      68,
+      82,
+      98
+    ],
+    "networkAttempts": 0,
+    "renderStatus": "succeeded",
+    "note": "自动化浏览器和可控 Codex 驱动；真实执行胶囊与成片，不是桌面创作成功证据。"
+  }
+}

@@ -1,3 +1,9 @@
+import { recoveryHash, recoveryBindings, recoveryBaseline, sealRecovery, type RecoveryCommit, type RecoveryDraft, type RecoveryCut } from './project-recovery';
+import { finishIdentityTransition } from './project-identity';
+import { listenForProjectHandoff, requestProjectHandoff } from './project-lease-handoff';
+import { readCurrentPointer, verifyRevision } from './project-revisions';
+import { RUNTIME_REMOTION_VERSION } from './project-dependencies';
+import { regular, syncDirectory, createCandidateManager, type CandidateRequest, type CandidateStatus } from "./project-candidate";
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, type Stats } from "node:fs";
 import {
@@ -39,13 +45,19 @@ import {
 } from "./project-speech-vnext";
 
 const STARTER_REACT_VERSION = "19.2.8";
-const STARTER_REMOTION_VERSION = "4.0.512";
+const STARTER_REMOTION_VERSION = RUNTIME_REMOTION_VERSION;
 
 export type ProjectLifecycleErrorCode =
   | "PROJECT_CREATE_TARGET_EXISTS"
   | "PROJECT_CREATE_TARGET_INVALID"
   | "PROJECT_TEMPORARY_RESIDUE"
   | "PROJECT_TEMPORARY_RESIDUE_UNOWNED"
+  | "RECOVERY_TARGET_EXISTS"
+  | "RECOVERY_TARGET_UNAVAILABLE"
+  | "RECOVERY_PUBLISH_FAILED"
+  | "PROJECT_COPY_FAILED"
+  | "PROJECT_COPY_CLEANUP_FAILED"
+  | "PROJECT_COPY_CANCELLED"
   | "PROJECT_CREATE_FAILED"
   | "PROJECT_CREATE_CLEANUP_FAILED"
   | "PROJECT_IN_USE"
@@ -80,7 +92,12 @@ export type CreatedProjectVNext = {
   projectDirectory: string;
   projectId: string;
   revisionId: string;
+  cleanupWarning?: { path: string; message: string };
 };
+
+export class RecoveryPublicationUncertain extends ProjectLifecycleError {
+  constructor(path: string, readonly reconcile: () => Promise<CreatedProjectVNext>) { super("RECOVERY_PUBLISH_FAILED", path, "恢复已进入发布阶段，正在核对恢复结果。"); }
+}
 
 type CreateProjectOptions = {
   createId?: () => string;
@@ -94,13 +111,14 @@ function isCreateOperationMarker(
   value: unknown,
   projectDirectory: string,
   operationToken?: string,
+  operation = "create",
 ): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const marker = value as Record<string, unknown>;
   return Object.keys(marker).length === 5 &&
     marker.kind === "narracut-operation" &&
     marker.version === 1 &&
-    marker.operation === "create" &&
+    marker.operation === operation &&
     marker.targetDirectory === projectDirectory &&
     typeof marker.operationToken === "string" &&
     marker.operationToken.length > 0 &&
@@ -121,6 +139,7 @@ async function removeConfirmedCreateResidue(
   temporaryDirectory: string,
   projectDirectory: string,
   confirmed: boolean,
+  operation = "create",
 ): Promise<void> {
   const facts = await lstat(temporaryDirectory);
   if (!facts.isDirectory() || facts.isSymbolicLink()) {
@@ -145,7 +164,7 @@ async function removeConfirmedCreateResidue(
       `临时目录缺少可验证的创建标记：${temporaryDirectory}。Narracut 拒绝删除。`,
     );
   }
-  if (!isCreateOperationMarker(marker, projectDirectory)) {
+  if (!isCreateOperationMarker(marker, projectDirectory, undefined, operation)) {
     throw new ProjectLifecycleError(
       "PROJECT_TEMPORARY_RESIDUE_UNOWNED",
       temporaryDirectory,
@@ -390,18 +409,8 @@ async function validateCurrentProjectState(
   const currentPath = join(projectDirectory, ".narracut", "current.json");
   let briefRevision: string | null = null;
   try {
-    const current = parseStrictJson(
-      await readRegularUtf8(currentPath, 4096),
-      INTERNAL_JSON_LIMITS,
-    );
-    if (
-      !isPlainRecord(current) ||
-      Object.keys(current).length !== 1 ||
-      typeof current.revisionId !== "string" ||
-      !UUID_PATTERN.test(current.revisionId)
-    ) {
-      throw new Error("当前修订指针无效。");
-    }
+    const current = await readCurrentPointer(projectDirectory);
+    await verifyRevision(projectDirectory, current.revisionId);
     const revisionId = current.revisionId;
     const revisionDirectory = join(projectDirectory, ".narracut", "revisions", revisionId);
     const renderProgramDirectory = join(revisionDirectory, "render-program");
@@ -409,8 +418,8 @@ async function validateCurrentProjectState(
       throw new Error("当前修订没有可检查的 Render Program。");
     }
     const [revision, program, packageJson, lockfile, source] = await Promise.all([
-      readRegularUtf8(join(revisionDirectory, "revision.json"), 16_384)
-        .then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
+      readRegularUtf8(join(revisionDirectory, "revision.json"), 1_048_576)
+        .then((value) => JSON.parse(value)),
       readRegularUtf8(join(renderProgramDirectory, "program.json"), 16_384)
         .then((value) => parseStrictJson(value, INTERNAL_JSON_LIMITS)),
       readRegularUtf8(join(renderProgramDirectory, "package.json"), 65_536)
@@ -421,7 +430,7 @@ async function validateCurrentProjectState(
     if (
       !isPlainRecord(revision) ||
       Object.keys(revision).some((key) =>
-        !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary"].includes(key)
+        !["revisionId", "previousRevisionId", "briefFingerprint", "source", "summary", "programFingerprint", "acceptedAt", "inputFingerprint", "sourceRevision", "acceptance", "requestId"].includes(key)
       ) ||
       revision.revisionId !== revisionId ||
       !(revision.previousRevisionId === null ||
@@ -499,6 +508,7 @@ async function cleanupOwnedTemporaryDirectory(
   markerWritten: boolean,
   projectDirectory: string,
   operationToken: string,
+  operation = "create",
 ): Promise<void> {
   let facts;
   try {
@@ -515,7 +525,7 @@ async function cleanupOwnedTemporaryDirectory(
       join(temporaryDirectory, OPERATION_MARKER),
       4096,
     )) as unknown;
-    if (!isCreateOperationMarker(marker, projectDirectory, operationToken)) {
+    if (!isCreateOperationMarker(marker, projectDirectory, operationToken, operation)) {
       throw new Error("创建临时目录标记已变化，无法证明清理所有权。");
     }
   }
@@ -546,11 +556,22 @@ export async function createProjectVNext(
   inputPath: string,
   options: CreateProjectOptions = {},
 ): Promise<CreatedProjectVNext> {
+  return publishProjectVNext(inputPath, options, "create", async (temporary, projectId, revisionId) => {
+    await writeStarterProject(temporary, projectId, revisionId);
+    await validateStarterProject(temporary, projectId, revisionId);
+  });
+}
+
+/** 创建与复制共享临时目录所有权、目标保留和单一发布提交点。 */
+export async function publishProjectVNext(
+  inputPath: string, options: CreateProjectOptions, operation: "create" | "copy" | "recover",
+  prepare: (temporary: string, projectId: string, revisionId: string) => Promise<void>,
+): Promise<CreatedProjectVNext> {
   const projectDirectory = resolve(inputPath);
   const projectName = basename(projectDirectory);
   if (projectName === "" || projectName === "." || projectName === "..") {
     throw new ProjectLifecycleError(
-      "PROJECT_CREATE_TARGET_INVALID",
+      operation === "recover" ? "RECOVERY_TARGET_UNAVAILABLE" : "PROJECT_CREATE_TARGET_INVALID",
       projectDirectory,
       "创建目标必须是带有项目文件夹名的绝对路径。",
     );
@@ -563,10 +584,23 @@ export async function createProjectVNext(
   let temporaryIdentity: DirectoryIdentity | null = null;
   let markerWritten = false;
   let targetReservationIdentity: DirectoryIdentity | null = null;
+  let renameAttempted = false;
+  let publicationIdentity: DirectoryIdentity | null = null;
+  const reconcileRecovery = async (): Promise<CreatedProjectVNext> => {
+    const facts = await lstat(projectDirectory);
+    if (!publicationIdentity || !facts.isDirectory() || facts.isSymbolicLink() || !hasIdentity(facts, publicationIdentity)) throw new Error('尚不能确认发布目录身份。');
+    const marker = JSON.parse((await regular(join(projectDirectory, OPERATION_MARKER), 4096)).toString('utf8'));
+    if (!isCreateOperationMarker(marker, projectDirectory, operationToken, operation)) throw new Error('尚不能确认发布归属。');
+    await syncDirectory(projectDirectory); await syncDirectory(dirname(projectDirectory));
+    const result: CreatedProjectVNext = { projectDirectory, projectId, revisionId };
+    try { await unlink(join(projectDirectory, OPERATION_MARKER)); }
+    catch { result.cleanupWarning = { path: join(projectDirectory, OPERATION_MARKER), message: '恢复已完成，操作标记尚未清理。' }; }
+    return result;
+  };
   try {
     if (await pathExists(projectDirectory)) {
       throw new ProjectLifecycleError(
-        "PROJECT_CREATE_TARGET_EXISTS",
+        operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
         projectDirectory,
         `创建目标已存在：${projectDirectory}。请选择尚不存在的新路径。`,
       );
@@ -576,6 +610,7 @@ export async function createProjectVNext(
         temporaryDirectory,
         projectDirectory,
         options.confirmTemporaryCleanup === true,
+        operation,
       );
     }
     await mkdir(temporaryDirectory);
@@ -583,20 +618,19 @@ export async function createProjectVNext(
     await writeFile(join(temporaryDirectory, OPERATION_MARKER), JSON.stringify({
       kind: "narracut-operation",
       version: 1,
-      operation: "create",
+      operation,
       targetDirectory: projectDirectory,
       operationToken,
     }));
     markerWritten = true;
-    await writeStarterProject(temporaryDirectory, projectId, revisionId);
-    await validateStarterProject(temporaryDirectory, projectId, revisionId);
+    await prepare(temporaryDirectory, projectId, revisionId);
     if (process.platform !== "win32") {
       try {
         await mkdir(projectDirectory);
       } catch (error) {
         if (error instanceof Error && "code" in error && error.code === "EEXIST") {
           throw new ProjectLifecycleError(
-            "PROJECT_CREATE_TARGET_EXISTS",
+            operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
             projectDirectory,
             `原子发布前目标已经出现：${projectDirectory}。Narracut 拒绝接管。`,
             { cause: error },
@@ -607,13 +641,11 @@ export async function createProjectVNext(
       targetReservationIdentity = await captureDirectoryIdentity(projectDirectory);
     } else if (await pathExists(projectDirectory)) {
       throw new ProjectLifecycleError(
-        "PROJECT_CREATE_TARGET_EXISTS",
+        operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
         projectDirectory,
         `原子发布前目标已经出现：${projectDirectory}。Narracut 拒绝接管。`,
       );
     }
-    await unlink(join(temporaryDirectory, OPERATION_MARKER));
-    markerWritten = false;
     if (targetReservationIdentity !== null) {
       const currentReservation = await lstat(projectDirectory);
       if (
@@ -623,17 +655,26 @@ export async function createProjectVNext(
         (await readdir(projectDirectory)).length !== 0
       ) {
         throw new ProjectLifecycleError(
-          "PROJECT_CREATE_TARGET_EXISTS",
+          operation === "recover" ? "RECOVERY_TARGET_EXISTS" : "PROJECT_CREATE_TARGET_EXISTS",
           projectDirectory,
           `原子发布时目标保留目录发生变化：${projectDirectory}。Narracut 拒绝覆盖。`,
         );
       }
     }
+    publicationIdentity = temporaryIdentity; renameAttempted = true;
     await rename(temporaryDirectory, projectDirectory);
+    if (operation === "recover") return await reconcileRecovery();
     temporaryIdentity = null;
     targetReservationIdentity = null;
+    // 提交前一直保留归属标记，崩溃后仍能要求用户确认清理；提交后的清理不撤销发布。
+    await unlink(join(projectDirectory, OPERATION_MARKER)).catch(() => undefined);
     return { projectDirectory, projectId, revisionId };
   } catch (cause) {
+    if (operation === 'recover' && renameAttempted) {
+      try { return await reconcileRecovery(); } catch { /* 发布回执需要按同一归属标记继续核对。 */ }
+      const temporary = await lstat(temporaryDirectory).catch(() => null);
+      if (!temporary || !publicationIdentity || !hasIdentity(temporary, publicationIdentity)) throw new RecoveryPublicationUncertain(projectDirectory, reconcileRecovery);
+    }
     try {
       if (targetReservationIdentity !== null) {
         await cleanupTargetReservation(projectDirectory, targetReservationIdentity);
@@ -645,27 +686,37 @@ export async function createProjectVNext(
           markerWritten,
           projectDirectory,
           operationToken,
+          operation,
         );
       }
     } catch (cleanupCause) {
       throw new ProjectLifecycleError(
-        "PROJECT_CREATE_CLEANUP_FAILED",
+        operation === "recover" ? "RECOVERY_PUBLISH_FAILED" : operation === "copy" ? "PROJECT_COPY_CLEANUP_FAILED" : "PROJECT_CREATE_CLEANUP_FAILED",
         temporaryDirectory,
         `创建失败，且无法证明临时产物仍归本次操作所有；已保留现场：${temporaryDirectory}。`,
         { cause: cleanupCause },
       );
     }
-    if (cause instanceof ProjectLifecycleError) throw cause;
+    if (cause instanceof ProjectLifecycleError || (cause as { code?: string })?.code?.startsWith("RECOVERY_")) throw cause;
     throw new ProjectLifecycleError(
-      "PROJECT_CREATE_FAILED",
+      operation === "recover" ? "RECOVERY_PUBLISH_FAILED" : operation === "copy" ? "PROJECT_COPY_FAILED" : "PROJECT_CREATE_FAILED",
       projectDirectory,
-      `无法创建 Project VNext：${projectDirectory}。`,
+      `${operation === "recover" ? "恢复" : operation === "copy" ? "复制" : "创建"} Project VNext 失败：${projectDirectory}。${cause instanceof Error ? cause.message : ""}`,
       { cause },
     );
   }
 }
 
 export type OpenedProjectVNext = {
+  assertWritable: () => Promise<void>;
+  readonly identityLost: Error | null;
+  readonly recoveryRootIdentity: { dev: number; ino: number };
+  freezeRecovery: (draft: RecoveryDraft) => Promise<RecoveryCut | null>;
+  transferred?: boolean;
+  programTransaction: <T>(run: (manager: Awaited<ReturnType<typeof createCandidateManager>>) => Promise<T>) => Promise<T>;
+  candidate: (request: CandidateRequest) => Promise<CandidateStatus>;
+  readPreviewSource: Awaited<ReturnType<typeof createCandidateManager>>["previewSource"];
+  buildCandidateBundle: Awaited<ReturnType<typeof createCandidateManager>>["build"];
   inspection: ProjectVNextInspection;
   saveProject: (
     project: unknown,
@@ -674,6 +725,7 @@ export type OpenedProjectVNext = {
   saveVideoBrief: (
     content: string,
     baselineRevision: string,
+    authorize?: () => void,
   ) => Promise<
     | { status: "saved"; inspection: ProjectVNextInspection }
     | { status: "conflict"; disk: { content: string; revision: string; bytes: number } }
@@ -720,6 +772,7 @@ export type OpenedProjectVNext = {
 };
 
 type LeaseMarker = {
+  handoffPort?: number;
   kind: "narracut-project-lease";
   version: 1;
   projectDirectory: string;
@@ -754,6 +807,13 @@ async function leaseHolderIsAlive(marker: LeaseMarker): Promise<boolean> {
   return currentIdentity === null || currentIdentity === marker.processIdentity;
 }
 
+/** 只读代理仅连接已核实仍存活的租约；死进程交给常规打开流程清理。 */
+export async function liveProjectSession(inspection: ProjectVNextInspection) {
+  const marker = await readFile(join(inspection.projectDirectory, '.narracut/workspace.lease'), 'utf8').then(bytes => JSON.parse(bytes)).catch(() => null);
+  if (!marker || !isLeaseMarker(marker) || marker.projectId !== inspection.manifest.projectId || marker.projectDirectory !== inspection.projectDirectory || !marker.handoffPort || !await leaseHolderIsAlive(marker)) return null;
+  return { port: marker.handoffPort, token: marker.token };
+}
+
 function isLeaseMarker(value: unknown): value is LeaseMarker {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const marker = value as Partial<LeaseMarker>;
@@ -784,15 +844,27 @@ async function clearStaleLease(leasePath: string): Promise<boolean> {
 }
 
 type ProjectLease = {
+  transferred: boolean;
   assertCurrent: () => Promise<void>;
   release: () => Promise<void>;
 };
 
 async function acquireProjectLease(
   inspection: ProjectVNextInspection,
+  onHandoff?: () => Promise<void>,
+  readSession?: (input: unknown) => Promise<unknown>,
+  takeover = true,
 ): Promise<ProjectLease> {
   const projectDirectory = inspection.projectDirectory;
   const leasePath = join(projectDirectory, ".narracut", "workspace.lease");
+  let transferred = false;
+  if (onHandoff && takeover) {
+    const existing = await readFile(leasePath, "utf8").then(bytes => JSON.parse(bytes) as LeaseMarker).catch(() => null);
+    if (existing && isLeaseMarker(existing) && existing.projectId === inspection.manifest.projectId && existing.projectDirectory === projectDirectory && existing.handoffPort && await leaseHolderIsAlive(existing)) {
+      try { await requestProjectHandoff(existing.handoffPort, existing.token); transferred = true; }
+      catch (cause) { throw new ProjectLifecycleError("PROJECT_IN_USE", projectDirectory, "线程连接结果待核对；尚未取得任务控制权。", { cause }); }
+    }
+  }
   if (activeLeasePaths.has(leasePath)) {
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -832,10 +904,13 @@ async function acquireProjectLease(
       `无法取得项目写入租约：${projectDirectory}。`,
     );
   }
+  let endpoint: Awaited<ReturnType<typeof listenForProjectHandoff>> | undefined;
   try {
+    if (onHandoff) { endpoint = await listenForProjectHandoff(marker.token, onHandoff, readSession); marker.handoffPort = endpoint.port; }
     await handle.writeFile(JSON.stringify(marker));
     await handle.sync();
   } catch (cause) {
+    endpoint?.close();
     await handle.close();
     await rm(leasePath, { force: true });
     throw new ProjectLifecycleError(
@@ -850,6 +925,7 @@ async function acquireProjectLease(
   try {
     leaseDirectoryHandle = await openFile(dirname(leasePath), "r");
   } catch (cause) {
+    endpoint?.close();
     await rm(leasePath, { force: true });
     throw new ProjectLifecycleError(
       "PROJECT_IN_USE",
@@ -883,6 +959,7 @@ async function acquireProjectLease(
   const release = async () => {
     if (released) return;
     released = true;
+    endpoint?.close();
     activeLeasePaths.delete(leasePath);
     const anchoredLeasePath = process.platform === "win32"
       ? leasePath
@@ -896,7 +973,7 @@ async function acquireProjectLease(
       await leaseDirectoryHandle.close();
     }
   };
-  return { assertCurrent, release };
+  return { assertCurrent, release, transferred };
 }
 
 function revisionOf(bytes: Buffer): string {
@@ -1062,10 +1139,12 @@ async function copyStableFile(
   }
 }
 
-async function replaceProjectFile(
+async function atomicProjectFile(
   projectFile: string,
   bytes: Buffer,
   assertWritable: () => Promise<void>,
+  observeCommit?: RecoveryCommit,
+  assertAccess?: () => void,
 ): Promise<void> {
   const temporaryFile = join(dirname(projectFile), `.${basename(projectFile)}.${randomUUID()}.tmp`);
   let committed = false;
@@ -1078,7 +1157,11 @@ async function replaceProjectFile(
       await handle.close();
     }
     await assertWritable();
+    // 最后一次异步磁盘读取之后、提交之前重新确认当前请求的写权。
+    assertAccess?.();
+    observeCommit?.(projectFile, bytes, false);
     await rename(temporaryFile, projectFile);
+    observeCommit?.(projectFile, bytes, true);
     committed = true;
     try {
       const directory = await openFile(dirname(projectFile), "r");
@@ -1097,17 +1180,18 @@ async function replaceProjectFile(
 
 export async function openProjectVNext(
   inputPath: string,
-  options: { probeSpeechDurationMs?: (path: string) => Promise<number> } = {},
+  options: { probeSpeechDurationMs?: (path: string) => Promise<number>; onHandoff?: () => Promise<void>; readSession?: (input: unknown) => Promise<unknown>; takeover?: boolean; assertAccess?: () => void } = {},
 ): Promise<OpenedProjectVNext> {
   const projectDirectory = await realpath(resolve(inputPath)).catch(() => resolve(inputPath));
   try {
     const initialInspection = await inspectProjectVNext(projectDirectory, options);
     await validateCurrentProjectState(initialInspection);
     const directoryIdentity = await captureDirectoryIdentity(projectDirectory);
-    const lease = await acquireProjectLease(initialInspection);
+    const lease = await acquireProjectLease(initialInspection, options.onHandoff, options.readSession, options.takeover);
     let assetsDirectoryHandle: FileHandle | null = null;
     let speechDirectoryHandle: FileHandle | null = null;
     try {
+      await finishIdentityTransition(projectDirectory, initialInspection.manifest.projectId);
       const inspection = await inspectProjectVNext(projectDirectory, options);
       const acceptedBriefRevision = await validateCurrentProjectState(inspection);
       inspection.currentRenderProgram = {
@@ -1154,7 +1238,10 @@ export async function openProjectVNext(
       let saveQueue = Promise.resolve();
       let closing = false;
       let releasePromise: Promise<void> | null = null;
-      const assertWritable = async () => {
+      let identityLost: Error | null = null;
+      let frozenCut: Promise<RecoveryCut | null> | null = null;
+      let recoveryBase = await recoveryBaseline(projectDirectory, initialInspection.manifest.projectId);
+      const verifyWritable = async () => {
         await lease.assertCurrent();
         let facts;
         try {
@@ -1180,8 +1267,8 @@ export async function openProjectVNext(
           if (!manifestFacts.isFile() || manifestFacts.isSymbolicLink() || manifestFacts.nlink !== 1 || manifestFacts.size > 4096) {
             throw new Error("项目清单文件身份无效");
           }
-          const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { projectId?: unknown };
-          if (manifest.projectId !== initialInspection.manifest.projectId) {
+          const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { projectId?: unknown; kind?: unknown; formatVersion?: unknown };
+          if (manifest.projectId !== initialInspection.manifest.projectId || manifest.kind !== "narracut-project" || manifest.formatVersion !== 1) {
             throw new Error("项目清单中的 projectId 已变化");
           }
         } catch (cause) {
@@ -1193,6 +1280,40 @@ export async function openProjectVNext(
           );
         }
       };
+      const assertWritable = async () => {
+        options.assertAccess?.();
+        if (identityLost) throw identityLost;
+        try { await verifyWritable(); }
+        catch (error) { identityLost = error as Error; throw error; }
+        // 文件系统校验会让出执行；交接可能在其间撤销请求权限。
+        options.assertAccess?.();
+      };
+      const observe = async (result?: unknown) => {
+        if ((result as { code?: string })?.code === 'PROJECT_IDENTITY_LOST') identityLost ??= result as Error;
+        if (identityLost) return;
+        try { await assertWritable(); recoveryBase = await recoveryBaseline(projectDirectory, initialInspection.manifest.projectId, recoveryBase); }
+        catch { /* 只保留最后安全基线，绝不采纳替换项目的字节。 */ }
+      };
+      const briefCommits = new Map<string, string>();
+      const observeCommit: RecoveryCommit = (path, bytes, committed) => {
+        const component = path === join(projectDirectory, 'project.json') ? 'dsl' : path === join(projectDirectory, 'video.md') ? 'brief' : path.endsWith('/current.json') ? 'current' : path.endsWith('/candidate.json') ? 'candidate' : null;
+        if (!component) return;
+        const next = { path: relative(projectDirectory, path), fingerprint: recoveryHash(bytes), ...(['current', 'candidate'].includes(component) ? { bindings: recoveryBindings(path, bytes) } : {}) };
+        if (component === 'brief' && committed && recoveryBase.brief[0].fingerprint) {
+          briefCommits.set(recoveryBase.brief[0].fingerprint, next.fingerprint);
+          if (briefCommits.size > 2048) briefCommits.delete(briefCommits.keys().next().value!);
+        }
+        recoveryBase[component] = committed ? [next] : [...recoveryBase[component].slice(0, 1), next];
+      };
+      const replaceProjectFile = (path: string, bytes: Buffer, verify: () => Promise<void>) => atomicProjectFile(path, bytes, verify, observeCommit, options.assertAccess);
+      const candidateManager = await createCandidateManager(projectDirectory, assertWritable, observeCommit);
+      const candidate: OpenedProjectVNext["candidate"] = (request) => {
+        if (closing) return Promise.reject(new ProjectLifecycleError("PROJECT_IDENTITY_LOST", projectDirectory, "项目正在关闭。"));
+        const operation = saveQueue.then(() => candidateManager(request));
+        saveQueue = operation.then(observe, observe);
+        return operation;
+      };
+      await candidate({ action: "read" });
       const assertAssetsDirectoryCurrent = async () => {
         await assertWritable();
         let facts;
@@ -1307,10 +1428,10 @@ export async function openProjectVNext(
             );
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
-      const saveVideoBrief: OpenedProjectVNext["saveVideoBrief"] = (content, baselineRevision) => {
+      const saveVideoBrief: OpenedProjectVNext["saveVideoBrief"] = (content, baselineRevision, authorize) => {
         if (closing) {
           return Promise.reject(new ProjectLifecycleError(
             "PROJECT_IDENTITY_LOST",
@@ -1322,6 +1443,7 @@ export async function openProjectVNext(
           const videoBriefPath = join(projectDirectory, "video.md");
           try {
             await assertWritable();
+            authorize?.();
             const bytes = Buffer.from(content, "utf8");
             if (new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== content) {
               throw new ProjectLifecycleError(
@@ -1343,6 +1465,7 @@ export async function openProjectVNext(
             if (nextRevision !== baselineRevision) {
               await replaceProjectFile(videoBriefPath, bytes, async () => {
                 await assertWritable();
+                authorize?.();
                 const current = await readVideoBriefVNext(videoBriefPath);
                 if (current.revision !== baselineRevision) {
                   throw new ProjectLifecycleError(
@@ -1382,7 +1505,7 @@ export async function openProjectVNext(
             );
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const exportVideoBriefLocal: OpenedProjectVNext["exportVideoBriefLocal"] = async (
@@ -1639,7 +1762,7 @@ export async function openProjectVNext(
             await source.close().catch(() => undefined);
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const saveTtsSettings: OpenedProjectVNext["saveTtsSettings"] = (input) => {
@@ -1758,7 +1881,7 @@ export async function openProjectVNext(
             );
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const probeSpeechAudio: OpenedProjectVNext["probeSpeechAudio"] = async (input) => {
@@ -1958,7 +2081,7 @@ export async function openProjectVNext(
             );
           }
         });
-        saveQueue = operation.then(() => undefined, () => undefined);
+        saveQueue = operation.then(observe, observe);
         return operation;
       };
       const release = async () => {
@@ -1976,6 +2099,47 @@ export async function openProjectVNext(
         await releasePromise;
       };
       return {
+        assertWritable,
+        get identityLost() { return identityLost; },
+        recoveryRootIdentity: { ...directoryIdentity },
+        freezeRecovery: (draft) => {
+          if (frozenCut) return frozenCut.then(cut => structuredClone(cut));
+          const captured = structuredClone(draft);
+          identityLost ??= new ProjectLifecycleError('PROJECT_IDENTITY_LOST', projectDirectory, '项目身份已失效，编辑已停止。');
+          frozenCut = saveQueue.then(() => {
+            // 已确认的本会话保存链不是外部冲突，不把过时 BASE 作为冲突证据导出。
+            if (captured.briefBase !== undefined && recoveryBase.brief.length === 1) {
+              let base = recoveryHash(captured.briefBase);
+              const seen = new Set<string>();
+              while (briefCommits.has(base) && !seen.has(base)) { seen.add(base); base = briefCommits.get(base)!; }
+              if (base === recoveryBase.brief[0].fingerprint) delete captured.briefBase;
+            }
+            return sealRecovery(projectDirectory, initialInspection.manifest.projectId, recoveryBase, captured);
+          });
+          return frozenCut.then(cut => structuredClone(cut));
+        },
+        transferred: lease.transferred,
+        candidate,
+        programTransaction: (run) => {
+          if (closing) return Promise.reject(new Error('项目正在关闭。'));
+          const operation = saveQueue.then(async () => {
+            await assertWritable();
+            const result = await run(candidateManager);
+            const accepted = result as { status?: string; revision?: { briefFingerprint?: string; current?: boolean; valid?: boolean } } | null;
+            if (accepted?.status === 'accepted' && accepted.revision?.briefFingerprint && accepted.revision.current !== false && accepted.revision.valid !== false) {
+              const currentRenderProgram = { briefRevision: accepted.revision.briefFingerprint, briefReviewPending: accepted.revision.briefFingerprint !== currentInspection.videoBriefRevision, previewPreserved: true as const };
+              currentInspection = { ...currentInspection, currentRenderProgram }; inspection.currentRenderProgram = currentRenderProgram;
+            }
+            return result;
+          });
+          saveQueue = operation.then(observe, observe);
+          return operation;
+        },
+        readPreviewSource: async (target) => { await saveQueue; return candidateManager.previewSource(target); },
+        buildCandidateBundle: async (request) => {
+          await saveQueue;
+          return candidateManager.build(request);
+        },
         inspection,
         saveProject,
         saveVideoBrief,

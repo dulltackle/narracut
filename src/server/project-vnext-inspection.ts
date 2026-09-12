@@ -1,3 +1,4 @@
+import { readCurrentPointer } from './project-revisions';
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
@@ -559,7 +560,7 @@ export function validateProjectVNextForSave(
   return { project, bytes };
 }
 
-function decodeUtf8(bytes: Buffer, path: string, component: string, allowBom: boolean): string {
+export function decodeUtf8(bytes: Buffer, path: string, component: string, allowBom: boolean): string {
   if (!allowBom && bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     throw invalidControlFile(path, {
       code: "PROJECT_CONTROL_FILE_INVALID_UTF8",
@@ -578,7 +579,7 @@ function decodeUtf8(bytes: Buffer, path: string, component: string, allowBom: bo
   }
 }
 
-const MANIFEST_JSON_LIMITS: StrictJsonLimits = {
+export const MANIFEST_JSON_LIMITS: StrictJsonLimits = {
   maxDepth: 4,
   maxArrayItems: 0,
   maxObjectFields: 16,
@@ -589,7 +590,7 @@ const MANIFEST_JSON_LIMITS: StrictJsonLimits = {
   forbidArrays: true,
 };
 
-const PROJECT_JSON_LIMITS: StrictJsonLimits = {
+export const PROJECT_JSON_LIMITS: StrictJsonLimits = {
   maxDepth: 8,
   maxArrayItems: 100_000,
   maxObjectFields: 32_000,
@@ -621,7 +622,7 @@ function parseControlJson(
   }
 }
 
-async function readBoundedControlFile(
+export async function readBoundedControlFile(
   path: string,
   component: string,
   limit: number,
@@ -1044,7 +1045,7 @@ async function validateRenderProgramDirectory(
 
 export async function inspectProjectVNext(
   inputPath: string,
-  options: { probeSpeechDurationMs?: (path: string) => Promise<number> } = {},
+  options: { probeSpeechDurationMs?: (path: string) => Promise<number>; recoveryManifest?: ProjectManifestVNext; verifyAllRenderPrograms?: boolean } = {},
 ): Promise<ProjectVNextInspection> {
   const projectDirectory = resolve(inputPath);
   try {
@@ -1061,7 +1062,7 @@ export async function inspectProjectVNext(
   const manifestPath = join(projectDirectory, "narracut.json");
   let manifestBuffer: Buffer;
   try {
-    manifestBuffer = await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
+    manifestBuffer = options.recoveryManifest ? Buffer.from(JSON.stringify(options.recoveryManifest)) : await readBoundedControlFile(manifestPath, "narracut.json", 4 * 1024);
   } catch (cause) {
     if (cause instanceof ProjectInspectionError) throw cause;
     if (isFileSystemError(cause) && cause.code === "ENOENT") {
@@ -1141,7 +1142,11 @@ export async function inspectProjectVNext(
       "至少一份候选或修订内部的 render-program/",
     );
   }
+  let currentRevision: string | undefined;
+  try { currentRevision = (await readCurrentPointer(projectDirectory)).revisionId; } catch { /* 当前完整性由打开入口复核。 */ }
   for (const programDirectory of renderProgramDirectories) {
+    const retained = relative(projectDirectory, programDirectory).match(/^\.narracut\/revisions\/([0-9a-f-]{36})\/render-program$/);
+    if (!options.verifyAllRenderPrograms && currentRevision && retained && retained[1] !== currentRevision) continue;
     await validateRenderProgramDirectory(projectDirectory, programDirectory);
   }
 

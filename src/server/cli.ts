@@ -1,12 +1,9 @@
+import { inspectRecovery, planRecovery, recoverProject, extractRecovery } from './project-restore';
+import { readBoundedControlFile, decodeUtf8 } from './project-vnext-inspection';
+import { copyProjectVNext } from './project-copy';
 import { join, resolve } from "node:path";
-import { loadEnvFile } from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
-import {
-  DEFAULT_SERVER_HOST,
-  startNarracutServer,
-  type RunningServer,
-} from "./server";
 import {
   inspectProjectVNext,
   ProjectInspectionError,
@@ -21,12 +18,7 @@ import {
 
 type CliOptions = {
   args: string[];
-  staticDirectory?: string;
-  initialPort?: number;
   log?: (message: string) => void;
-  envFile?: string;
-  environment?: { NARRACUT_HOST?: string };
-  startServer?: typeof startNarracutServer;
 };
 
 type InspectCliOptions = {
@@ -37,7 +29,7 @@ type InspectCliOptions = {
 
 type ProjectWorkspaceCliOptions = Omit<CliOptions, "args"> & { args: string[] };
 
-export type CreateCliResult = CreatedProjectVNext & { server?: RunningServer };
+export type CreateCliResult = CreatedProjectVNext;
 
 class CliArgumentError extends Error {
   readonly code = "CLI_ARGUMENT_INVALID";
@@ -48,60 +40,9 @@ class CliArgumentError extends Error {
   }
 }
 
-const DEFAULT_STATIC_DIRECTORY = fileURLToPath(
-  new URL("../../dist/client", import.meta.url),
-);
-const DEFAULT_ENV_FILE = fileURLToPath(new URL("../../.env", import.meta.url));
-
-function loadOptionalEnvFile(envFile: string): void {
-  try {
-    loadEnvFile(envFile);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
-  }
-}
-
-export async function runCli({
-  args,
-  staticDirectory = DEFAULT_STATIC_DIRECTORY,
-  initialPort = 3579,
-  log = console.log,
-  envFile = DEFAULT_ENV_FILE,
-  environment = process.env,
-  startServer = startNarracutServer,
-}: CliOptions): Promise<RunningServer> {
-  const [projectPath, ...unexpectedArguments] = args;
-  if (projectPath === undefined || unexpectedArguments.length > 0) {
-    throw new Error("用法：pnpm start <项目路径>");
-  }
-
-  loadOptionalEnvFile(envFile);
-  const projectDirectory = resolve(projectPath);
-  const host = environment.NARRACUT_HOST ?? DEFAULT_SERVER_HOST;
-  let server: RunningServer;
-  try {
-    server = await startServer({
-      projectDirectory,
-      staticDirectory,
-      host,
-      initialPort,
-    });
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "EADDRNOTAVAIL") {
-      throw new Error(
-        `无法监听 ${host}：该地址在当前机器上不可用（EADDRNOTAVAIL：${error.message}）。` +
-          "请启动对应网络接口，或设置 NARRACUT_HOST=127.0.0.1 覆盖。",
-        { cause: error },
-      );
-    }
-    throw error;
-  }
-
-  log(`Narracut 已打开 ${projectDirectory}`);
-  log(`本地工作台：${server.url}`);
-  return server;
+/** CLI 只处理项目目录；交互工作区由 Codex 插件公开 MCP 入口承载。 */
+export async function runCli(options: CliOptions): Promise<ProjectVNextInspection> {
+  return runOpenProjectCli(options);
 }
 
 export async function runInspectCli({
@@ -131,37 +72,6 @@ export async function runInspectCli({
 
 export async function runDryRunCli(options: InspectCliOptions): Promise<ProjectVNextInspection> {
   return runInspectCli({ ...options, command: "dry-run" });
-}
-
-async function startWorkspaceServer(
-  projectDirectory: string,
-  {
-    staticDirectory = DEFAULT_STATIC_DIRECTORY,
-    initialPort = 3579,
-    log = console.log,
-    envFile = DEFAULT_ENV_FILE,
-    environment = process.env,
-    startServer = startNarracutServer,
-  }: Omit<ProjectWorkspaceCliOptions, "args">,
-): Promise<RunningServer> {
-  loadOptionalEnvFile(envFile);
-  const host = environment.NARRACUT_HOST ?? DEFAULT_SERVER_HOST;
-  let server: RunningServer;
-  try {
-    server = await startServer({ projectDirectory, staticDirectory, host, initialPort });
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "EADDRNOTAVAIL") {
-      throw new Error(
-        `无法监听 ${host}：该地址在当前机器上不可用（EADDRNOTAVAIL：${error.message}）。` +
-          "请启动对应网络接口，或设置 NARRACUT_HOST=127.0.0.1 覆盖。",
-        { cause: error },
-      );
-    }
-    throw error;
-  }
-  log(`Narracut 已打开 ${projectDirectory}`);
-  log(`本地工作台：${server.url}`);
-  return server;
 }
 
 function parseCreateArguments(args: readonly string[]): {
@@ -195,39 +105,36 @@ export async function runCreateCli(options: ProjectWorkspaceCliOptions): Promise
   });
   options.log?.(JSON.stringify({ code: "PROJECT_CREATED", path: created.projectDirectory }));
   if (!parsed.open) return created;
-  const server = await runOpenProjectCli({ ...options, args: [created.projectDirectory] });
-  return { ...created, server };
+  await runOpenProjectCli({ ...options, args: [created.projectDirectory] });
+  return created;
 }
 
-export async function runOpenProjectCli(
-  options: ProjectWorkspaceCliOptions,
-): Promise<RunningServer> {
+export async function runCopyCli(options: ProjectWorkspaceCliOptions): Promise<CreateCliResult> {
+  const [source, ...rest] = options.args;
+  if (!source || source.startsWith('--')) throw new Error('用法：copy <来源路径> <新路径> [--open] [--confirm-cleanup]');
+  const parsed = parseCreateArguments(rest);
+  const copied = await copyProjectVNext(source, parsed.projectDirectory, parsed);
+  options.log?.(JSON.stringify({ code: 'PROJECT_COPIED', path: copied.projectDirectory, projectId: copied.projectId }));
+  if (!parsed.open) return copied;
+  await runOpenProjectCli({ ...options, args: [copied.projectDirectory] });
+  return copied;
+}
+
+export async function runOpenProjectCli(options: ProjectWorkspaceCliOptions): Promise<ProjectVNextInspection> {
   const [projectPath, ...unexpectedArguments] = options.args;
   if (projectPath === undefined || unexpectedArguments.length > 0) {
-    throw new CliArgumentError(
-      resolve(projectPath ?? "."),
-      "参数无效。用法：pnpm start open <Project VNext 路径>",
-    );
+    throw new CliArgumentError(resolve(projectPath ?? "."), "参数无效。用法：pnpm start open <Project VNext 路径>");
   }
   const opened = await openProjectVNext(projectPath);
   try {
-    const server = await startWorkspaceServer(opened.inspection.projectDirectory, options);
-    let closed = false;
-    return {
-      ...server,
-      close: async () => {
-        if (closed) return;
-        closed = true;
-        try {
-          await server.close();
-        } finally {
-          await opened.release();
-        }
-      },
-    };
-  } catch (error) {
+    (options.log ?? console.log)(JSON.stringify({
+      code: "PROJECT_OPENED", path: opened.inspection.projectDirectory,
+      projectId: opened.inspection.manifest.projectId,
+      message: "项目已通过校验。请在 Narracut Codex 插件工作台打开此目录以继续编辑、Preview 和最终 Render。",
+    }));
+    return opened.inspection;
+  } finally {
     await opened.release();
-    throw error;
   }
 }
 
@@ -256,16 +163,48 @@ export function formatCliError(error: unknown): string {
   return lines.join("\n");
 }
 
+export async function runRecoveryCli(options: ProjectWorkspaceCliOptions, recover = false) {
+  const args = [...options.args], action = recover ? 'recover' : args.shift();
+  const paths: string[] = [], flags = new Map<string, string>();
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (['--open', '--confirm-cleanup'].includes(arg)) flags.set(arg, 'true');
+    else if (['--plan', '--brief-result'].includes(arg) && args[i + 1] && !args[i + 1]!.startsWith('--')) flags.set(arg, args[++i]!);
+    else if (arg.startsWith('--')) throw new Error(`未知或不完整参数：${arg}`);
+    else paths.push(arg);
+  }
+  const briefFile = flags.get('--brief-result');
+  const briefResult = briefFile === undefined ? undefined : decodeUtf8(await readBoundedControlFile(briefFile, 'video.md', 2 * 1024 * 1024), briefFile, 'video.md', true);
+  let result: any;
+  if (action === 'inspect' && paths.length === 1 && flags.size === 0) result = await inspectRecovery(paths[0]!);
+  else if (action === 'dry-run' && paths.length === 2 && [...flags.keys()].every(key => key === '--brief-result')) result = await planRecovery(paths[0]!, paths[1]!, briefResult);
+  else if (action === 'extract' && paths.length === 4 && flags.size === 0 && ['dsl', 'briefLocal', 'briefBase'].includes(paths[2]!)) result = await extractRecovery(paths[0]!, paths[1]!, paths[2] as 'dsl' | 'briefLocal' | 'briefBase', paths[3]!);
+  else if (action === 'recover' && paths.length === 3 && flags.has('--plan')) {
+    result = await recoverProject(paths[0]!, paths[1]!, paths[2]!, { planId: flags.get('--plan')!, briefResult, confirmTemporaryCleanup: flags.has('--confirm-cleanup') });
+    (options.log ?? console.log)(JSON.stringify({ code: 'PROJECT_RECOVERED', ...result }));
+    if (flags.has('--open')) await runOpenProjectCli({ ...options, args: [result.projectDirectory] });
+    return result;
+  } else throw new Error('用法：recovery inspect <快照>；recovery dry-run <快照> <明确来源> [--brief-result <文件>]；recover <快照> <明确来源> <新路径> --plan <计划摘要> [--brief-result <文件>] [--confirm-cleanup] [--open]；recovery extract <快照> <明确来源> <dsl|briefLocal|briefBase> <新文件>');
+  (options.log ?? console.log)(JSON.stringify(result));
+  return result;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  if (args[0] === "recovery" || args[0] === "recover") {
+    const result = await runRecoveryCli({ args: args.slice(1) }, args[0] === "recover");
+    return;
+  }
+  if (args[0] === "copy") {
+    const copied = await runCopyCli({ args: args.slice(1) });
+    return;
+  }
   if (args[0] === "create") {
     const created = await runCreateCli({ args: args.slice(1) });
-    if (created.server === undefined) return;
-    registerShutdown(created.server);
     return;
   }
   if (args[0] === "open") {
-    registerShutdown(await runOpenProjectCli({ args: args.slice(1) }));
+    await runOpenProjectCli({ args: args.slice(1) });
     return;
   }
   if (args[0] === "inspect") {
@@ -276,20 +215,7 @@ async function main(): Promise<void> {
     await runDryRunCli({ args: args.slice(1) });
     return;
   }
-  registerShutdown(await runCli({ args }));
-}
-
-function registerShutdown(server: RunningServer): void {
-  const shutdown = () => {
-    void server
-      .close()
-      .catch(() => {
-        process.exitCode = 1;
-      })
-      .finally(() => process.exit(process.exitCode));
-  };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  await runCli({ args });
 }
 
 const isEntryPoint =
