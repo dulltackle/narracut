@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-12T14:59:31.214689+00:00",
+  "generatedAt": "2026-09-12T15:19:22.386289+00:00",
   "title": "Design System: Narracut",
   "extensions": {
     "colorMeta": {
@@ -62,7 +62,7 @@
       "refersTo": "button-primary",
       "description": "Scene 工具栏按钮；窄屏真实页面触控高度提升到 44px。",
       "html": "<button class=\"ds-primary\">新增 Scene</button>",
-      "css": ".ds-primary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;min-height:32px;padding:4px 10px;border:1px solid var(--blue-deep,#242424);background:var(--blue-deep,#242424);color:var(--white,#fff);border-radius:6px;cursor:pointer}.ds-primary:hover:not(:disabled){border-color:var(--blue-deep,#242424)}.ds-primary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-primary:disabled{opacity:.5;cursor:not-allowed}"
+      "css": ".ds-primary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;min-height:32px;padding:4px 10px;border:1px solid var(--blue-deep,#242424);background:var(--blue-deep,#242424);color:var(--white,#fff);border-radius:6px;cursor:pointer}.ds-primary:hover:not(:disabled){border-color:var(--blue-deep,#242424);background:var(--blue-deep,#242424);color:var(--white,#fff)}.ds-primary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-primary:disabled{opacity:.5;cursor:not-allowed}@media(max-width:700px){.ds-primary{min-height:44px}}"
     },
     {
       "name": "次要操作",
@@ -70,7 +70,7 @@
       "refersTo": "button-secondary",
       "description": "Scene 工具栏按钮；窄屏真实页面触控高度提升到 44px。",
       "html": "<button class=\"ds-secondary\">Scene 操作</button>",
-      "css": ".ds-secondary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;min-height:32px;padding:4px 10px;border:1px solid var(--line,#e3e3e3);background:var(--white,#fff);color:var(--ink,#171717);border-radius:6px;cursor:pointer}.ds-secondary:hover:not(:disabled){border-color:var(--blue-deep,#242424);color:var(--blue-deep,#242424)}.ds-secondary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-secondary:disabled{opacity:.5;cursor:not-allowed}"
+      "css": ".ds-secondary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;min-height:32px;padding:4px 10px;border:1px solid var(--line,#e3e3e3);background:var(--white,#fff);color:var(--ink,#171717);border-radius:6px;cursor:pointer}.ds-secondary:hover:not(:disabled){border-color:var(--blue-deep,#242424);color:var(--blue-deep,#242424)}.ds-secondary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-secondary:disabled{opacity:.5;cursor:not-allowed}@media(max-width:700px){.ds-secondary{min-height:44px}}"
     },
     {
       "name": "Narration 原位文本框",
@@ -94,7 +94,7 @@
       "refersTo": "scene-row-selected",
       "description": "连续表格中的一行；长文本自然增长。",
       "html": "<div class=\"ds-row\"><span>01</span><span>在每一个认真生活的日常里，总有一些被忽略的细节。</span><span>未绑定 · 添加</span><span>● 已生成 1.7 秒</span></div>",
-      "css": ".ds-row{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 190px;min-height:52px;background:var(--control,#f5f5f5);color:var(--ink,#171717);border-bottom:1px solid var(--line,#e3e3e3);font-size:14px;line-height:1.65}.ds-row span{padding:8px 12px;overflow-wrap:anywhere}.ds-row span:nth-child(n+3){font-size:12px;color:var(--muted,#626262)}"
+      "css": ".ds-row{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 190px;min-height:52px;background:var(--control,#f5f5f5);color:var(--ink,#171717);border-bottom:1px solid var(--line,#e3e3e3);font-size:14px;line-height:1.65}.ds-row span{padding:8px 12px;overflow-wrap:anywhere}.ds-row span:nth-child(n+3){font-size:12px;color:var(--muted,#626262)}@media(max-width:700px){.ds-row{grid-template-columns:48px minmax(220px,1fr) 140px 150px;min-width:558px}}"
     },
     {
       "name": "共享反馈",
@@ -102,46 +102,32 @@
       "refersTo": "shared-feedback",
       "description": "两个工作区共同显示；示例为保存失败后的恢复操作。",
       "html": "<section class=\"ds-feedback\" aria-label=\"保存与连接状态\"><span role=\"status\">保存失败 · 本地编辑尚未保存</span><button>重试保存</button><button>返回编辑</button></section>",
-      "css": ".ds-feedback{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 16px;font-size:12px;line-height:1.6;color:var(--muted,#626262);border-bottom:1px solid var(--line,#e3e3e3)}.ds-feedback button{min-height:32px;padding:4px 10px;background:#fff;border:1px solid var(--line,#e3e3e3);border-radius:6px;color:var(--ink,#171717);font:inherit;cursor:pointer}.ds-feedback button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}"
+      "css": ".ds-feedback{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 16px;font-size:12px;line-height:1.6;color:var(--muted,#626262);border-bottom:1px solid var(--line,#e3e3e3)}.ds-feedback button{min-height:32px;padding:4px 10px;background:#fff;border:1px solid var(--line,#e3e3e3);border-radius:6px;color:var(--ink,#171717);font:inherit;cursor:pointer}.ds-feedback button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-feedback button:disabled{opacity:.5;cursor:not-allowed}@media(max-width:700px){.ds-feedback{padding:6px 8px}}"
     }
   ],
   "narrative": {
     "northStar": "浅色连续 Scene 编辑台",
-    "overview": "白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮服务密集脚本编辑。#109 已迁移视觉基础；Agent 与启动器仍沿现有模块布局，第 2 批候选审阅和第 3 批导航及项目入口重排尚未落地。页面自动化和截图不等于真实 Codex 宿主验收。",
+    "overview": "白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。\n\n本记录刷新已过时的“暗房接触印样台”体系。#109 已移除表格的暗色框体、纸张与胶片纹理、背光和装饰边码。Agent 工作区、启动器及宿主连接反馈的基础色已迁移到浅色；其具体布局仍沿现有模块。第 2 批候选审阅新布局、第 3 批单行分组导航及项目入口重排均不在本次已落地范围，后续以对应工单为准。\n\n依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。当前页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。",
     "keyCharacteristics": [
-      "Narration、Asset、Speech 同行，长文本自然展开。",
-      "Narration 原位编辑，blur 保存并保护 IME 输入。",
-      "共享保存与连接反馈在两个工作区均可见。",
-      "所有尺寸使用按需检查抽屉，窄屏保留四列横滚并同步表头。"
+      "连续表格优先，避免每个 Scene 独立成卡。",
+      "内容按长度展开，选择、编辑与保存反馈可核对。",
+      "表格全宽使用可用空间；项目检查按需打开抽屉。",
+      "创作入口仍是 Codex 当前对话；Agent 工作区用于任务状态与候选审阅。"
     ],
-    "rules": [
-      {
-        "name": "内容权威",
-        "body": "表格工作区独占 Scene 内容写入，Agent 仅提出 Scene 修改建议。",
-        "section": "components"
-      },
-      {
-        "name": "状态证据",
-        "body": "颜色配合文字或形状；本地编辑不冒充持久结果，过期 Preview 不冒充最新候选。",
-        "section": "colors"
-      },
-      {
-        "name": "实现边界",
-        "body": "参考原型只说明方向，后续布局以对应工单为准；截图不证明真实宿主集成已验收。",
-        "section": "layout"
-      }
-    ],
+    "rules": [],
     "dos": [
-      "保持连续四列表格与按内容增长的行高。",
-      "使用白底、近黑正文、轻边框和深色主按钮。",
-      "保留键盘焦点与可执行的失败恢复入口。",
-      "保持创作在 Codex 当前对话，接受候选与最终 Render 分开表达。"
+      "让 Narration 主导阅读，维持四列连续表格与按内容增长的行高。",
+      "同时用文字和视觉标记表达状态，并让键盘焦点与恢复操作可达。",
+      "保持两个工作区共享保存反馈，明确本地草稿与持久结果的区别。",
+      "新增表面复用白底、近黑字、灰色辅助、轻边框和深色主按钮。",
+      "区分当前实现、已确认原型与待实施工单，说明截图和宿主验收的边界。"
     ],
     "donts": [
-      "不要恢复暗房材料、纹理、灯箱动画或装饰边码。",
-      "不要在窄屏隐藏 Asset 或 Speech 列。",
-      "不要让常驻检查侧栏占用表格宽度。",
-      "不要把后续候选审阅和单行导航设计写为已落地。"
+      "恢复暗房框体、纸张胶片纹理、背光表格或装饰印章。",
+      "把窄屏表格改为隐藏 Asset／Speech 列，或用固定行高截断长 Narration。",
+      "以常驻检查侧栏挤占 Scene 主编辑区。",
+      "把第 2 批候选审阅或第 3 批导航及项目入口方案描述为已经交付。",
+      "用短暂成功提示覆盖过期 Preview，或把接受候选等同最终输出完成。"
     ]
   }
 }

@@ -52,6 +52,9 @@ components:
     textColor: "{colors.paper}"
     rounded: "{rounded.control}"
     padding: "4px 10px"
+  button-primary-hover:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.paper}"
   button-secondary:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
@@ -80,11 +83,13 @@ components:
 
 ## Overview
 
-**视觉方向：浅色连续 Scene 编辑台。** 白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。
+**Creative North Star: "浅色连续 Scene 编辑台"** 白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。
 
 本记录刷新已过时的“暗房接触印样台”体系。#109 已移除表格的暗色框体、纸张与胶片纹理、背光和装饰边码。Agent 工作区、启动器及宿主连接反馈的基础色已迁移到浅色；其具体布局仍沿现有模块。第 2 批候选审阅新布局、第 3 批单行分组导航及项目入口重排均不在本次已落地范围，后续以对应工单为准。
 
-依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。当前页面证据为 `.impeccable/review/issue109-{902,960,1200,430}.png`。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。
+依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。当前页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。
+
+**Key Characteristics:**
 
 - 连续表格优先，避免每个 Scene 独立成卡。
 - 内容按长度展开，选择、编辑与保存反馈可核对。
@@ -127,7 +132,7 @@ components:
 
 ### 按钮与工作区导航
 
-新增 Scene 等主按钮为深底白字，次按钮白底近黑字与轻描边。桌面 Scene 工具按钮最小高度 32px、内边距 `4px 10px`；窄屏提升到 44px。禁用态以透明度及禁用语义表达。工作区标签当前仍独立成行，选中态同时有浅灰背景、深字与底部线；焦点保持可见。
+新增 Scene 等主按钮为深底白字，悬停时保持深底白字；次按钮白底近黑字与轻描边。桌面 Scene 工具按钮最小高度 32px、内边距 `4px 10px`；窄屏提升到 44px。禁用态以透明度及禁用语义表达。工作区标签当前仍独立成行，选中态同时有浅灰背景、深字与底部线；焦点保持可见。
 
 ### Narration 原位编辑
 
@@ -135,13 +140,13 @@ Narration 点击或编辑入口进入原位文本框；文本框以 `scrollHeigh
 
 ### Scene、Asset 与 Speech
 
-每个 Scene 的稳定身份、Narration、Asset 摘要与 Speech 同行。Asset 入口按需打开管理抽屉；Speech 状态、时长与生成／重新生成等操作相邻。状态配合文字与标记；Draft Duration 必须明确是草稿估算，不能冒充完整 Speech 的 Duration。
+每个 Scene 的稳定身份、Narration、Asset 摘要与 Speech 同行。Asset 入口按需打开管理抽屉；Speech 状态、时长与生成／重新生成等操作相邻。生成 Speech 使用麦克风图标，重新生成使用循环箭头；按钮的可访问名称与提示包含动作和 Scene 序号，生成中提供文字“取消”按钮。状态配合文字与标记；Draft Duration 必须明确是草稿估算，不能冒充完整 Speech 的 Duration。
 
 表格工作区独占 Scene 内容写入。Agent 的 Scene 修改建议不能直接改写 Scene；内容与 Render Program 的表现权威遵循 `CONTEXT.md` 和 ADR-0009。
 
 ### 共享保存与连接反馈
 
-共享反馈位于顶部项目区域下方、工作区标签上方，因此在表格与 Agent 工作区均可见。它显示已保存、待保存或失败，以及断线后的只读说明；按状态提供重试保存、返回编辑与重新连接。返回编辑定位最近编辑的 Scene；原 Scene 删除时回到可用位置并说明。不要把本地草稿说成已经持久化。
+共享反馈位于顶部项目区域下方、工作区标签上方，因此在表格与 Agent 工作区均可见。它显示已保存、待保存、保存中或失败，以及断线后的只读说明；按状态提供重试保存、返回编辑与重新连接。返回编辑定位最近编辑的 Scene；原 Scene 删除时回到可用位置并说明。失败原因持续显示；断连时保留原页面内容并说明任务仅为最后确认状态，重连核对身份与写权后才恢复编辑。本地草稿只在原页面存活期间保留，不承诺关闭页面后的恢复。不要把本地草稿说成已经持久化。
 
 ### Agent 审阅与当前对话
 
