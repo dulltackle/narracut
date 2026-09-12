@@ -15,7 +15,7 @@ test('真实候选同时报告 Manifest 与离线依赖错误，独立环境检�
     let result = await checks.status(opened);
     for (let attempt = 0; result.batches.at(-1)?.status === 'running' && attempt < 50; attempt++) { await new Promise(resolve => setTimeout(resolve, 20)); result = await checks.status(opened); }
     expect(result.batches[0].status).toBe('complete');
-    expect(result.batches[0].diagnostics.map(item => item.code)).toEqual(expect.arrayContaining(['MANIFEST_INVALID', 'DEPENDENCY_LOCK_INVALID']));
+    expect(result.batches[0].diagnostics.map(item => item.code)).toEqual(expect.arrayContaining(['MANIFEST_INVALID', 'DEPENDENCY_UNAVAILABLE']));
     expect(result.batches[0].stages.find(item => item.id === 'build')).toMatchObject({ status: 'not-run' });
     expect(result.batches[0].stages.find(item => item.id === 'capsule')?.status).not.toBe('not-run');
     expect(result.batches[0].diagnostics.find(item => item.code === 'MANIFEST_INVALID')).toMatchObject({ location: { kind: 'file', path: 'program.json' }, identity: { program: broken.candidate?.identity } });
