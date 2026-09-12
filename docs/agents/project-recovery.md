@@ -20,7 +20,7 @@ pnpm start recover /恢复/未保存.narracut-recovery.json /明确来源 /新�
 
 存在 Brief 冲突时，准备完整结果文件，并在 `dry-run` 和 `recover` 两步都传入 `--brief-result /完整结果.md`。空文件表示明确采用空 Brief。任何来源或结果变化都需要重新生成计划摘要。
 
-`recover` 默认完成后退出，只有 `--open` 才打开工作区。目标同级 `.目标名.narracut-tmp` 残留只有标记与恢复操作及目标匹配时，才能通过 `--confirm-cleanup` 明确确认清理并从头重试；不匹配残留不会删除。
+`recover` 默认完成后退出；`--open` 只检查项目并输出插件入口指引，不启动独立浏览器。交互操作按[插件工作台技能](../../plugins/narracut/skills/narracut-workbench/SKILL.md)打开项目。目标同级 `.目标名.narracut-tmp` 残留只有标记与恢复操作及目标匹配时，才能通过 `--confirm-cleanup` 明确确认清理并从头重试；不匹配残留不会删除。
 
 ```bash
 pnpm start recovery extract /恢复/未保存.narracut-recovery.json /受阻来源 briefLocal /抢救/完整目标.md
@@ -28,10 +28,8 @@ pnpm start recovery extract /恢复/未保存.narracut-recovery.json /受阻来�
 
 提取组件名为 `dsl`、`briefLocal` 或 `briefBase`；不存在的组件、已存在的目标文件及项目内目标均拒绝。
 
-## 服务契约
+## 工具调用与实现入口
 
-`project-restore.ts` 提供只读 `inspectRecovery`、`planRecovery`，有限操作 `recoverProject`、`extractRecovery`，以及宿主 `RecoveryOperations`。所有入口复用严格信封与 DSL 校验；DSL 上限 10 MiB，Brief 上限 2 MiB，恢复信封上限 20,622,000 字节，另执行严格 UTF-8／JSON／Base64 和元数据预算。
+通过工作台 `restore_project` 发起恢复或提取时，每次新操作使用独立 UUID `operationId`。回执不明时先查询原操作；只有确认未收到该 ID 时才重发原请求，保持 ID 和参数一致。操作回执仅在当前进程保留，进程重启后应先核对目标是否已经创建。
 
-`restore_project` 是工作台专用工具，支持 `inspect`、`plan`、按需读取 `content`、`recover`、`extract`、`status`、`cancel`。恢复和提取请求必须包含新的 UUID `operationId`；重复提交相同 ID 只返回同一结果，不能更换参数。进程内状态为 `running`、`completed`、`failed`、`uncertain`。结果不明时只允许核对原操作。
-
-操作级稳定代码补充：`RECOVERY_OPERATION_UNKNOWN` 表示当前进程尚未收到该 ID，可重发原请求；`RECOVERY_EXTRACTION_UNAVAILABLE` 表示来源未阻断完整恢复；`RECOVERY_PAYLOAD_MISSING` 表示快照未携带所选组件。其余快照、来源、资源和发布诊断遵循 `docs/spec/project-vnext.md`。操作回执只在当前进程内保留，不创建项目外操作日志。
+服务接口见[恢复服务](../../src/server/project-restore.ts)，工具字段见[插件协议声明](../../plugins/narracut/src/server.ts)；格式、资源限制与错误语义见[规范第 14–15 节](../spec/project-vnext.md#14-恢复快照与项目恢复)。

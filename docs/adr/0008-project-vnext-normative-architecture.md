@@ -40,5 +40,5 @@ Project VNext 采用一次破坏性架构切换：
   | ADR-0005 | 整体替代 | ADR-0009 |
   | ADR-0006 | 整体替代 | ADR-0009 |
   | ADR-0007 | 整体替代 | ADR-0008 |
-- VNext 已替代 Legacy 生产入口；实现与验收范围见[可移动项目验收](../portable-project-acceptance.md)和[当前对话完整流程验收](../current-conversation-acceptance.md)。此决策不提供兼容或迁移路径。
+- VNext 已替代 Legacy 生产入口；实现与验收范围见[公开流程验证](../README.md#公开流程验证)和[当前对话完整流程验收](../current-conversation-acceptance.md)。此决策不提供兼容或迁移路径。
 - 实现与后续变更必须以公开工作台/CLI 到持久项目与最终 Render 的边界作为主要验收 seam。
