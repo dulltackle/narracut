@@ -5,6 +5,7 @@
 | 需要了解的内容 | 入口 |
 | --- | --- |
 | 产品与视觉约定 | [PRODUCT.md](../PRODUCT.md)、[DESIGN.md](../DESIGN.md) |
+| 已确认、待实现的交互设计参考（非生产验收） | [项目入口与导航](design-references/prototype-navigation-light/README.md)、[候选审阅与输出](design-references/prototype-review-light/README.md) |
 | 执行隔离与依赖操作 | [执行胶囊](execution-capsule.md)、[依赖协调](dependency-coordination.md) |
 | 候选操作与代表帧交付 | [候选管理](agents/candidate-management.md)、[代表帧](representative-frames.md) |
 | 项目恢复与载荷抢救 | [恢复操作](agents/project-recovery.md) |
