@@ -4,6 +4,7 @@ description: 浅色连续 Scene 编辑台，以脚本内容和可核对状态组
 colors:
   paper: "#fff"
   ink: "#171717"
+  content-ink: "#262626"
   muted: "#626262"
   line: "#e3e3e3"
   panel: "#fafafa"
@@ -17,6 +18,10 @@ colors:
   amber: "#895211"
   editor-line: "#9a9a9a"
 typography:
+  ui-base:
+    fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
+    fontSize: "16px"
+    fontWeight: 400
   body:
     fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
     fontSize: "14px"
@@ -36,7 +41,10 @@ typography:
     fontWeight: 500
     lineHeight: 1.5
   detail:
+    fontFamily: "ui-monospace, monospace"
     fontSize: "11px"
+    fontWeight: 500
+    lineHeight: 1.35
 rounded:
   flat: "0"
   control: "6px"
@@ -88,6 +96,12 @@ components:
   review-drawer:
     backgroundColor: "{colors.paper}"
     width: "min(560px,100%)"
+  acceptance-confirm:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.content-ink}"
+    padding: "20px"
+  acceptance-feedback:
+    textColor: "{colors.content-ink}"
 ---
 
 # Design System: Narracut
@@ -100,7 +114,7 @@ components:
 
 依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。基础编辑页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。
 
-本次刷新对照 #111 的窄屏 Speech 原因浮层、#112 的桌面视频主面与窄屏审阅抽屉截图，并核对当前 CSS 的最终覆盖规则。组件示例与叙述同步保存在 `.impeccable/design.json`；其中色阶是供面板展示的派生 OKLCH 色阶，不是生产调色板。
+本次刷新使用当前工作台资源与只读协议夹具，在 Chromium 的 902px 与 430px 视口提取计算样式并查看页面截图；同时对照 #112 的窄屏审阅抽屉和 [#113 接受收尾截图](docs/acceptance/issue113/accepted-cleanup-902.png)。#113 截图使用零 Scene 协议夹具，不是实际成片。此轮核对覆盖样式与文档一致性，不新增真实宿主或媒体执行验收。组件示例与叙述同步保存在 `.impeccable/design.json`；其中色阶是供面板展示的派生 OKLCH 色阶，不是生产调色板。
 
 **Key Characteristics:**
 
@@ -113,7 +127,7 @@ components:
 
 ### Primary
 
-主色是深灰 `primary`，用于新增 Scene 等主要操作；正文使用 `ink`，辅助文字使用 `muted`。
+主色是深灰 `primary`，用于新增 Scene 等主要操作；基础文字使用 `ink`，Narration 阅读态及接受区域使用 `content-ink`，辅助文字使用 `muted`。
 
 ### Neutral
 
@@ -125,7 +139,7 @@ components:
 
 ## Typography
 
-表格正文使用中文 UI sans 字体栈，14px、400 字重、1.65 行高；表头 12px、500 字重，Scene 序号 13px。状态摘要 12px，细节 11px。正文保持自然中文阅读，不用展示字或等宽体排 Narration。
+页面基础字体使用中文 UI sans 字体栈，默认 16px、400 字重；`typography.body` 专指 Narration 阅读及编辑角色，为 14px、400 字重、1.65 行高，不是 body 元素的默认字号。表头 12px、500 字重，Scene 序号 13px。状态摘要 12px；Speech 时长等细节为 11px 的 `ui-monospace, monospace`，500 字重、1.35 行高。工作区标签为 14px、650 字重。正文保持自然中文阅读，不用展示字或等宽体排 Narration。
 
 顶部品牌已改为同一 UI 字体栈的 17px 标识。项目机器身份仍可使用现有等宽标签；Agent 与启动器中保留的标题尺度只描述现有模块，不作为新页面的统一展示字要求。
 
@@ -139,11 +153,13 @@ components:
 
 项目检查在所有尺寸均按需打开右侧抽屉，宽 `min(90vw,380px)`，不常驻占用表格宽度。Agent 审阅抽屉覆盖工作区右侧，宽 `min(560px,100%)`，正文独立滚动；窄屏占满工作区宽度，顶部关闭入口保持可见。视频容器最终高度为 `clamp(180px,calc(100dvh - 430px),480px)`；桌面内边距 16px，窄屏为 `12px 8px`。这里描述宿主视频容器，实际画面保留自身比例。启动器仍使用既有模块。
 
+修订历史是独立的原生模态 dialog，从视口右侧展开，宽 `min(600px,100vw)`、高 `100dvh`，内边距 24px；在 680px 及以下改为全宽、20px 内边距。它不同于覆盖工作区的审阅抽屉。工作台还保留 900px 顶栏压缩、980px Scene 工具栏菜单以及启动器 760px 的局部断点；这些不是一套统一的全局响应式尺度。
+
 ## Elevation & Depth
 
 主工作面以白底、浅灰分层与细分隔线建立层级，表格框、选中 Scene 和主要审阅面板无投影。工具栏 Scene 菜单使用 `0 8px 24px #00000014`；右键／Shift+F10 上下文菜单与 Speech 原因浮层使用 `0 8px 24px #00000024`。项目检查和候选审阅抽屉均使用 `-12px 8px 36px #00000014`，表达覆盖工作面的叠加关系。
 
-键盘焦点使用 2px 可见描边，不依赖发光。Scene 表格已关闭旧灯箱动画及纹理；不要恢复材料首现效果。启动器忙碌圆点仍有 1 秒 `ease-in-out` 往返亮度脉冲；这是局部等待反馈，当前没有统一的过渡时长或缓动体系。
+键盘焦点一般使用 `focus-blue` 的 2px 描边、2px 外偏移，不依赖发光。接受区域与修订历史的局部高优先级规则仍使用 `#9dbcf0` 的 2px 描边、3px 外偏移；宿主连接反馈按钮也沿用此浅蓝描边。这是现存局部样式，不是替换全局焦点色的新约定。修订历史通过 `rgba(3,5,5,.7)` 背景遮罩表达模态关系，不沿用审阅抽屉的投影。Scene 表格已关闭旧灯箱动画及纹理；不要恢复材料首现效果。启动器忙碌圆点仍有 1 秒 `ease-in-out` 往返亮度脉冲；这是局部等待反馈，当前没有统一的过渡时长或缓动体系。
 
 ## Shapes
 
@@ -153,7 +169,7 @@ components:
 
 ### 按钮与工作区导航
 
-新增 Scene 等主按钮为深底白字，悬停时保持深底白字；次按钮白底近黑字与轻描边。桌面 Scene 工具按钮最小高度 32px、内边距 `4px 10px`；窄屏提升到 44px。Scene 操作按钮继承 `.76rem`、700 字重，禁用透明度为 `.46`；其他通用按钮禁用透明度为 `.5`。工作区标签当前仍独立成行，选中态同时有浅灰背景、深字与底部线；焦点保持可见。
+新增 Scene 等主按钮为深底白字，悬停时保持深底白字；次按钮白底近黑字与轻描边。桌面 Scene 工具按钮最小高度 32px、内边距 `4px 10px`；窄屏提升到 44px，其中主要操作内边距为 `0 9px`，撤销／重做为 `4px 8px`。Scene 操作按钮继承 `.76rem`、700 字重，禁用透明度为 `.46`；其他通用按钮禁用透明度为 `.5`。工作区标签当前仍独立成行，选中态同时有浅灰背景、深字与底部线；焦点保持可见。
 
 Scene 上下文菜单宽 `min(248px,calc(100vw - 16px))`，最高为视口高度减 16px，超长菜单内部滚动。菜单项桌面最小高度 36px、窄屏 44px，悬停以浅灰底突出；选择态与键盘焦点独立表达。
 
@@ -178,6 +194,14 @@ Narration 点击或编辑入口进入原位文本框；文本框以 `scrollHeigh
 Agent 工作区以视频为主面，播放区之后是单句变更摘要、审阅详情和接受入口；过期状态、硬阻断与非阻断警告直接展示。右侧抽屉组织变更摘要、检查证据和 Scene 建议，完整覆盖计划、Preview 版本身份与创作指令按需展开；原有最终 Render 保持独立。打开抽屉不额外暂停播放，关闭后焦点返回入口，Tab 在抽屉内循环。切换工作区保留选择和版本状态，仅暂停隐藏播放器，不停止任务。底部指引说明在当前 Codex 对话表达创作目标，工作台不提供第二个聊天输入或发起创作入口。
 
 Preview 保持画面比例，版本必须显式切换，新候选就绪只提示。Scene 建议仅复制或定位到表格手工编辑；目标删除时禁用定位并解释，复制仍可用。返回候选审阅保留抽屉阅读位置与同一 Preview 实例的帧，视频保持暂停；输入变化立即标记旧 Preview 过期，新实例从自己的首帧开始，不套用旧视频位置。页面与真实媒体证据见 [#112 验收记录](docs/acceptance/issue112/README.md)。候选由用户整体接受；接受完成不代表最终 Render 已完成。代表帧证据不记录用户观看范围，也不替代审美判断。遵循 ADR-0010 与产品规范，不因视觉迁移改变门禁或历史回退语义。
+
+### 候选决策与修订历史
+
+接受确认在视频下方的决策区原位展开，白底、深灰细边框、20px 内边距，680px 及以下收为 16px；依次呈现变更摘要、候选身份、输入新鲜度、检查结论、全部非阻断警告和接受后果。读取完成后焦点落在“取消”，取消返回“审阅并接受”。确认按钮沿用白底、蓝色边框，不能把 Scene 深底主按钮的样式笼统套用于所有主要操作。
+
+决策区内接受操作组的按钮最小高度为 36px，内边距 `8px 16px`；区域内的结果查询、清理按钮仍为 44px。结果以常驻文字和相邻恢复按钮表达，通过 `role="status"` 与 `aria-live="polite"` 通告。回执不明时显示“正在核对接受结果”，保留只读查看与手动核对，禁用重复或冲突提交。确认已接受但收尾未完成时，明确显示“候选已接受，任务收尾待完成”及“重试清理”；清理失败不撤销接受事实，最终 Render 仍需独立发起。
+
+修订历史入口在只读状态可用；打开聚焦关闭按钮，关闭后焦点返回入口。修订条目先显示摘要、短身份、时间与来源，检查详情及完整指纹按需展开，长身份和记录允许换行。损坏修订显示原因并禁用创建候选；已有候选时提示先接受或明确放弃。交互及页面证据见 [#113 验收记录](docs/acceptance/issue113/README.md)。
 
 ## Do's and Don'ts
 
