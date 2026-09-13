@@ -167,9 +167,9 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     await expect(page.locator('[data-accept-message]')).toContainText('已接受', { timeout: 30000 });
     const renderRegion = page.getByRole('region', { name: '最终 Render', exact: true });
     await page.evaluate(path => { (window as any).openai.selectDirectory = async () => ({ path }); }, root);
-    await renderRegion.getByRole('button', { name: '准备最终 Render', exact: true }).click();
+    await renderRegion.getByRole('button', { name: '输出视频', exact: true }).click();
     await renderRegion.getByRole('button', { name: '选择输出文件夹' }).click();
-    await renderRegion.getByRole('button', { name: '开始 Render', exact: true }).click();
+    await renderRegion.getByRole('button', { name: '开始输出', exact: true }).click();
     let render: any;
     await expect.poll(async () => { render = await call('project_render', { action: 'status' }); return render.jobs.at(-1)?.status; }, { timeout: 240000 }).toBe('succeeded');
     expect(render.source.details.bundle).toBe(preview.identity.bundle);

@@ -277,7 +277,7 @@ test('最终 Render 用统一系统目录选择桥接接收输出路径', async 
     });
     await page.goto(panel.url); const app = page.frameLocator('iframe');
     await app.getByRole('tab', { name: 'Agent 工作区' }).click();
-    await app.getByRole('button', { name: '准备最终 Render', exact: true }).click();
+    await app.getByRole('button', { name: '输出视频', exact: true }).click();
     await app.getByRole('button', { name: '选择输出文件夹', exact: true }).click();
     await expect(app.locator('[data-render-location]')).toContainText(root);
     expect(picked).toBe(true);

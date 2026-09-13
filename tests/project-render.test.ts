@@ -3,6 +3,8 @@ import { readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, expect, vi } from 'vitest';
 import { acceptedRenderFixture } from './helpers/accepted-render-fixture';
+import { capturePreviewFrames } from '../src/server/preview-evidence';
+import { compareVisualFrames } from './support/visual-comparison';
 import { runRemotionCli } from '../src/server/video-media';
 
 test('最终 Render 只接受当前已验收状态，复用 Bundle 并发布含权威音轨的逐帧产物', async () => {
@@ -23,9 +25,13 @@ test('最终 Render 只接受当前已验收状态，复用 Bundle 并发布含�
     const streams = JSON.parse(stdout.toString()).streams;
     expect(streams.find((stream: any) => stream.codec_type === 'video')).toMatchObject({ width: 320, height: 240, nb_read_frames: String(preview.input.durationInFrames), avg_frame_rate: '30/1' });
     expect(streams.some((stream: any) => stream.codec_type === 'audio')).toBe(true);
+    const previewFrames = await capturePreviewFrames(preview, f.preview.source.snapshot(preview.url), [0, preview.input.durationInFrames - 1]);
     for (const [frame, channel] of [[0, 0], [preview.input.durationInFrames - 1, 2]]) {
       const imagePath = join(f.root, `frame-${frame}.png`);
       await runRemotionCli('ffmpeg', ['-v', 'error', '-ss', String(frame / 30), '-i', outputPath, '-frames:v', '1', imagePath]);
+      const previewPath = join(f.root, `preview-${frame}.png`);
+      await writeFile(previewPath, previewFrames.find(item => item.frame === frame)!.image!);
+      await compareVisualFrames(previewPath, imagePath, { sceneId: 'final-render', frame, channelThreshold: 30, maxDifferentPixelRatio: 0.012, artifactDirectory: f.root });
       const { default: sharp } = await import('sharp');
       const pixel = await sharp(imagePath).resize(1, 1).removeAlpha().raw().toBuffer();
       expect(pixel[channel]).toBeGreaterThan(230);
@@ -148,5 +154,23 @@ test('含 Speech 的连续前后切帧保持快照采集就绪', async () => {
       const captured = await capturePreviewFrames(descriptor, files, [0, 10, 2, 11, 1, 12, 3, 13, 4, 14, 5, 9]);
       expect(captured.filter(frame => frame.error).map(({ frame, error, errorCode }) => ({ frame, error, errorCode }))).toEqual([]);
     }
+  } finally { await f.close(); }
+}, 180000);
+
+test('Draft 候选可以接受，缺 Speech 的具体 Scene 仍阻断最终输出', async () => {
+  const f = await acceptedRenderFixture();
+  try {
+    const draft = { ...f.project, scenes: f.project.scenes.map(({ speech, ...scene }) => scene) };
+    await writeFile(join(f.directory, 'project.json'), JSON.stringify(draft));
+    await f.accept();
+    const { source } = await f.render.status(f.opened);
+    expect(source).toMatchObject({ accepted: true, ready: false });
+    expect(source.issues).toContainEqual(expect.objectContaining({ code: 'RENDER_DRAFT_DURATION', location: { sceneId: draft.scenes[0].id } }));
+    const outputPath = join(f.root, 'draft.mp4');
+    await expect(f.render.start(f.opened, { key: source.key, outputPath, requestId: randomUUID() })).rejects.toMatchObject({ code: 'RENDER_NOT_READY' });
+    await expect(readFile(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    // 补回匹配 Speech 也不能沿用缺 Speech 时的接受记录。
+    await writeFile(join(f.directory, 'project.json'), JSON.stringify(f.project));
+    expect((await f.render.status(f.opened)).source).toMatchObject({ accepted: true, ready: false, issues: expect.arrayContaining([expect.objectContaining({ code: 'RENDER_NOT_ACCEPTED' })]) });
   } finally { await f.close(); }
 }, 180000);

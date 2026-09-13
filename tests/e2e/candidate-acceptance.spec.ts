@@ -151,8 +151,8 @@ for (const width of [902, 960, 1200]) test(`接受提交前失败与提交后收
     await expect(page.locator('[data-accept-message]')).toContainText('候选已接受，任务收尾待完成', { timeout: 10000 });
     await expect(page.locator('[data-accept-message]')).toContainText('最终 Render 尚需独立发起');
     await mkdir('docs/acceptance/issue113', { recursive: true });
-    await expect(page.locator('[data-render-accepted]')).toHaveText('已接受', { timeout: 10000 });
-    await page.screenshot({ path: `docs/acceptance/issue113/accepted-cleanup-${width}.png`, fullPage: true });
+    await expect(page.locator('[data-render-accepted]')).toHaveText('已接受，尚未输出', { timeout: 10000 });
+    if (process.env.NARRACUT_CAPTURE_OUTPUT) await page.screenshot({ path: `docs/acceptance/issue113/accepted-cleanup-${width}.png`, fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.getByRole('button', { name: '重试清理', exact: true }).click();
     await expect(page.locator('[data-accept-message]')).toContainText('清理完成');

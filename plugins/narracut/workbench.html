@@ -203,23 +203,28 @@
 
 </style>
 <style>
-[data-final-render]{margin:14px;flex:none;color:var(--ink)}
+[data-final-render]{margin:14px;flex:none;color:var(--ink);border-width:1px 0 0;padding:20px 16px;--preview-copy:var(--muted);--asset-capacity-copy:#895211}
 [data-final-render] header,.render-output,.render-actions,.render-status{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 [data-final-render] header,.render-output{justify-content:space-between}
 [data-final-render] h2{margin:0;font-size:1.08rem}
-[data-final-render] p{line-height:1.75;overflow-wrap:anywhere;white-space:pre-line;max-width:75ch}
+[data-final-render] p{font-size:14px;line-height:1.65;margin-block:8px;color:var(--ink);overflow-wrap:anywhere;white-space:pre-line;max-width:75ch}
 [data-final-render] button,[data-final-render] summary{min-height:44px;font:inherit;cursor:pointer}
 [data-final-render] button{padding:8px 16px;border:1px solid var(--preview-control-line);border-radius:6px;background:var(--control);color:var(--ink)}
 [data-final-render] button:hover:not(:disabled){border-color:var(--focus-blue);background:var(--line)}
 [data-final-render] button:disabled{opacity:.5;cursor:not-allowed}
-[data-final-render] .render-primary{background:var(--blue-deep);border-color:var(--blue)}
+[data-final-render] .render-primary{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+[data-final-render] .render-primary:hover:not(:disabled){background:var(--ink);color:var(--paper)}
+.render-issues{padding-inline-start:20px;overflow-wrap:anywhere}.render-issues:empty{display:none}.render-issues li{margin-block:12px}.render-issues li p{margin-block:0 8px}
 [data-final-render] :focus-visible{outline:2px solid var(--focus-blue);outline-offset:3px}
 .render-status{font-size:.84rem;color:var(--preview-copy)}
 [data-render-preparation]{margin-top:24px;padding-top:16px;border-top:1px solid var(--separator)}
 .render-output{margin:16px 0;align-items:flex-start}.render-output>div{flex:1;min-width:160px}
 [data-render-location]{font-variant-numeric:tabular-nums}
 .render-issues,[data-render-mismatch]{color:var(--asset-capacity-copy)}
+[data-render-feedback]:empty{display:none}
 [data-render-feedback]{min-height:1.75em}
+[data-render-start]{margin-inline-end:8px}
+[data-final-render] .render-issues p,[data-final-render] [data-render-mismatch]{color:#895211}
 [data-final-render] details{margin-top:16px;color:var(--muted)}
 [data-final-render] summary{display:flex;align-items:center}
 [data-final-render] pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.79rem;color:var(--preview-copy)}

@@ -228,7 +228,7 @@
   let controlNotice = '';
   let controlEpoch = 0;
   let controlPollBusy = false;
-  const readButtons = '[data-candidate-action="read"],[data-accept-result],[data-accept-cancel],[data-candidate-cancel],[data-task-check],[data-open-review],[data-close-review],[data-return-review],[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
+  const readButtons = '[data-candidate-action="read"],[data-accept-result],[data-accept-cancel],[data-candidate-cancel],[data-task-check],[data-open-review],[data-close-review],[data-return-review],[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-render-copy],[data-render-issue],[data-render-close],[data-render-prepare],[data-render-reconcile],[data-render-target],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
   function enforceControl() {
     if (state.result?.status !== 'valid') return;
     const blocked = state.disconnected || state.result.writable !== true;
@@ -1235,11 +1235,18 @@
   const deliveryWorkbench = createDeliveryWorkbench((action, args) => callHostTool(action === "displayed" ? "project_delivery_display" : "project_delivery", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, ...(action === "displayed" ? {} : { action }), ...args }), () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate, scenes: currentScenes() } : undefined, previewWorkbench, id => locateSuggestion(id));
   const finalRenderWorkbench = createRenderWorkbench(
     (action, args) => callHostTool('project_render', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
-    () => state.result?.project,
-    () => state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict && state.result?.writable !== false,
+    () => state.result?.project ? { ...state.result.project, writable: state.result.writable } : undefined,
+    () => !state.disconnected && state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict && state.result?.writable !== false,
     previewWorkbench, location => {
       const sceneId = location?.sceneId ?? state.result?.scenes.find(scene => scene.assets?.some(asset => asset.path === location?.path))?.id;
-      if (sceneId) state.selected = sceneId;
+      if (sceneId) {
+        reviewReturn = true; state.selected = sceneId;
+        switchWorkspace('table'); render();
+        const row = document.querySelector(`[data-scene-id="${CSS.escape(sceneId)}"]`);
+        if (location?.path) { const button = row?.querySelector('[data-open-scene-assets]'); if (button) openSceneAssets(button); }
+        else { const button = row?.querySelector('[data-speech-action]') ?? row?.querySelector('.scene-select'); button?.focus({ preventScroll: true }); }
+        row?.scrollIntoView({ block: 'nearest' }); return;
+      }
       switchWorkspace('table'); render();
     }, createUuid,
   );
