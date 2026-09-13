@@ -663,9 +663,12 @@ test("Scene Speech 单元格引导项目 TTS 配置、生成状态与半开时�
   });
   const calls: Array<{ name: string; args: Record<string, any> }> = [];
   let reads = 0;
+  let configured = false;
   await installAppToolBridge(page, (name, args) => {
     calls.push({ name, args: structuredClone(args) });
+    if (name === "get_workbench") return { structuredContent: { ...initial, tts: configured ? { status:"configured", config, credential:{status:"available"}, capabilities } : (initial as any).tts } };
     if (name === "save_project_tts_settings") {
+      configured = true;
       return {
         structuredContent: {
           ...initial,
@@ -725,12 +728,12 @@ test("Scene Speech 单元格引导项目 TTS 配置、生成状态与半开时�
   await sendResult(page, initial);
 
   await page.getByRole("button", { name: /^生成 Speech/ }).click();
-  await expect(page.getByRole("heading", { name: "项目 TTS 配置" })).toBeVisible();
-  await expect(page.getByText("需要先保存 TTS 配置与 API Key", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "声音配置" })).toBeVisible();
+  await expect(page.getByText("整部视频共用此声音", { exact: true })).toBeVisible();
   await expect(page.getByText("MP3 · 32 kHz · 单声道", { exact: true })).toBeVisible();
   await page.getByLabel("TokenDance API Key").fill("test-secret-key");
-  await page.getByRole("button", { name: "保存 TTS 配置" }).click();
-  await expect(page.getByText("API Key 已就绪 · ••••-key", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存并生成此句" }).click();
+
   expect(calls.find((call) => call.name === "save_project_tts_settings")?.args).toMatchObject({
     config,
     credentialAction: "replace",
@@ -738,9 +741,7 @@ test("Scene Speech 单元格引导项目 TTS 配置、生成状态与半开时�
     expectedAffectedSpeechCount: 0,
   });
 
-  await page.getByRole("button", { name: "返回项目检查" }).click();
-  await page.getByRole("button", { name: "关闭项目检查" }).click();
-  await page.getByRole("button", { name: /^生成 Speech/ }).click();
+
   await expect(page.getByText("正在校验", { exact: true })).toBeVisible();
   await expect(page.getByText("1.001 秒", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^重新生成 Speech/ })).toBeFocused();
@@ -1580,7 +1581,7 @@ test("TTS 版本冲突后可保留凭据输入并核对最新项目再保存", a
   await installAppToolBridge(page, (name, args) => {
     if (name === "get_workbench") {
       refreshes++;
-      return { structuredContent: { ...latest, writable: refreshes > 1 } };
+      return { structuredContent: { ...latest, writable: refreshes === 1 || refreshes > 2 } };
     }
     if (name === "save_project_tts_settings") {
       saves++;
@@ -1593,7 +1594,7 @@ test("TTS 版本冲突后可保留凭据输入并核对最新项目再保存", a
   await sendResult(page, initial);
   await page.getByRole("button", { name: /^生成 Speech/ }).click();
   await page.getByLabel("TokenDance API Key").fill("test-only-secret");
-  await page.getByRole("button", { name: "保存 TTS 配置" }).click();
+  await page.getByRole("button", { name: "保存并生成此句" }).click();
   await expect(page.getByRole("alert")).toContainText("project.json 已被外部修改");
   await page.getByRole("button", { name: "读取最新项目并保留 TTS 输入" }).click({ timeout: 3000 });
   await expect(page.getByRole("alert")).toContainText("无法安全读取最新基线");
@@ -1602,8 +1603,9 @@ test("TTS 版本冲突后可保留凭据输入并核对最新项目再保存", a
   await page.getByRole("button", { name: "读取最新项目并保留 TTS 输入" }).click();
   await expect(page.getByText("已读取最新项目，请核对 Scene 内容后再次保存 TTS 配置。", { exact: true })).toBeVisible();
   expect(saves).toBe(1);
-  await page.getByRole("button", { name: "保存 TTS 配置" }).click();
-  await expect(page.getByText("API Key 已就绪", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "保存并生成此句" }).click();
+  await expect(page.getByText("声音配置已保存", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成最新内容" })).toBeVisible();
   expect(saves).toBe(2);
   await expect(page.getByLabel("TokenDance API Key")).toHaveValue("");
 });

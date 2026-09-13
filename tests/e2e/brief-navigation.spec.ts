@@ -154,7 +154,7 @@ for (const viewport of [{width:902,height:667},{width:960,height:640},{width:120
     await expect(page.getByRole('dialog',{name:'修订历史'})).toBeVisible();
     await page.keyboard.press('Escape'); await expect(page.getByRole('button',{name:'程序历史'})).toBeFocused();
     await page.getByRole('button',{name:'声音配置'}).click();
-    await expect(page.getByRole('heading',{name:'项目 TTS 配置'})).toBeVisible();
+    await expect(page.getByRole('heading',{name:'声音配置'})).toBeVisible();
     await page.getByRole('button',{name:'关闭项目 TTS 配置'}).click();
     await expect(page.getByRole('button',{name:'声音配置'})).toBeFocused();
     await page.getByRole('button',{name:'打开项目检查'}).click();

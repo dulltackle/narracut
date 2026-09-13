@@ -32833,7 +32833,7 @@ var ProjectChecks = class {
 };
 
 // plugins/narracut/src/server.ts
-import { randomUUID as randomUUID17 } from "node:crypto";
+import { createHash as createHash13, randomUUID as randomUUID17 } from "node:crypto";
 import { readFile as readFile7 } from "node:fs/promises";
 import { basename as basename7, isAbsolute as isAbsolute8, join as join17 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -33627,7 +33627,8 @@ var tools = [
         config: { type: "object" },
         credentialAction: { type: "string", enum: ["keep", "replace", "clear"] },
         apiKey: { type: "string", minLength: 1 },
-        expectedAffectedSpeechCount: { type: "integer", minimum: 0 }
+        expectedAffectedSpeechCount: { type: "integer", minimum: 0 },
+        operationId: { type: "string", minLength: 1, maxLength: 128 }
       },
       additionalProperties: false
     },
@@ -33645,7 +33646,9 @@ var tools = [
       properties: {
         projectDirectory: { type: "string", minLength: 1 },
         projectId: { type: "string", minLength: 1 },
-        sceneId: { type: "string", minLength: 1 }
+        sceneId: { type: "string", minLength: 1 },
+        expectedNarration: { type: "string" },
+        operationId: { type: "string", minLength: 1, maxLength: 128 }
       },
       additionalProperties: false
     },
@@ -34031,6 +34034,8 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     this.checks.clear();
     this.#credentials.clear();
     this.#speechJobs.clear();
+    this.#ttsOperations.clear();
+    this.#speechOperations.clear();
     return { status: "launcher", connection: launcherConnectionState() };
   }
   async recoveryOperation(input) {
@@ -34457,7 +34462,21 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     }
     return readProjectAssetPreview(opened.inspection, input.assetId);
   }
+  #ttsOperations = /* @__PURE__ */ new Map();
+  #speechOperations = /* @__PURE__ */ new Map();
   async saveTtsSettings(input) {
+    this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.operationId) {
+      const signature = createHash13("sha256").update(JSON.stringify(input)).digest("hex");
+      const prior = this.#ttsOperations.get(input.operationId);
+      if (prior) {
+        if (prior.signature !== signature) throw new SpeechToolError("TTS_OPERATION_MISMATCH", "\u4FDD\u5B58\u64CD\u4F5C\u8EAB\u4EFD\u4E0E\u539F\u8BF7\u6C42\u4E0D\u5339\u914D\u3002");
+        return prior.result;
+      }
+      const result = this.saveTtsSettings({ ...input, operationId: void 0 });
+      this.#ttsOperations.set(input.operationId, { signature, result });
+      return result;
+    }
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     if (input.credentialAction === "replace" && (input.apiKey === void 0 || input.apiKey.trim() === "")) {
       throw new SpeechToolError("TTS_CREDENTIAL_INVALID", "\u66FF\u6362 API Key \u65F6\u5FC5\u987B\u63D0\u4F9B\u975E\u7A7A\u503C\u3002");
@@ -34478,6 +34497,15 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     return saved;
   }
   startSpeech(input) {
+    this.#requireOpened(input.projectDirectory, input.projectId);
+    const signature = createHash13("sha256").update(JSON.stringify(input)).digest("hex");
+    if (input.operationId) {
+      const prior = this.#speechOperations.get(input.operationId);
+      if (prior) {
+        if (prior.signature !== signature) throw new SpeechToolError("SPEECH_OPERATION_MISMATCH", "\u751F\u6210\u64CD\u4F5C\u8EAB\u4EFD\u4E0E\u539F\u8BF7\u6C42\u4E0D\u5339\u914D\u3002");
+        return this.getSpeech(prior.jobId).job;
+      }
+    }
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const tts = opened.inspection.tts;
     if (tts.status !== "configured") {
@@ -34489,6 +34517,9 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     }
     const scene = opened.inspection.project.scenes.find((candidate) => candidate.id === input.sceneId);
     if (scene === void 0) throw new SpeechToolError("SPEECH_SCENE_MISSING", "\u76EE\u6807 Scene \u4E0D\u5B58\u5728\u3002");
+    if (input.expectedNarration !== void 0 && scene.narration.text !== input.expectedNarration) {
+      throw new SpeechToolError("SPEECH_NARRATION_CHANGED", "\u539F\u53E5\u6587\u672C\u5DF2\u53D8\u5316\uFF0C\u8BF7\u6838\u5BF9\u6700\u65B0\u5185\u5BB9\u540E\u91CD\u65B0\u751F\u6210\u3002");
+    }
     if (scene.narration.text.trim() === "") {
       throw new SpeechToolError("SPEECH_NARRATION_EMPTY", "\u7A7A Narration \u4E0D\u80FD\u751F\u6210 Speech\uFF1B\u8BF7\u5148\u8865\u5145\u5185\u5BB9\u3002");
     }
@@ -34517,6 +34548,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
       credential: key
     };
     this.#speechJobs.set(job.id, job);
+    if (input.operationId) this.#speechOperations.set(input.operationId, { signature, jobId: job.id });
     const processing = new Promise((resolve6) => setImmediate(() => {
       void this.#processSpeech(job).finally(resolve6);
     }));
@@ -34676,6 +34708,8 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     await this.preview.close();
     this.#credentials.clear();
     this.#speechJobs.clear();
+    this.#ttsOperations.clear();
+    this.#speechOperations.clear();
     const opened = this.#opened;
     this.#opened = null;
     if (opened !== null) await opened.release();
@@ -35176,7 +35210,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" || input.operationId !== void 0 && (typeof input.operationId !== "string" || !input.operationId.trim() || input.operationId.length > 128) || typeof input.config !== "object" || input.config === null || !["keep", "replace", "clear"].includes(String(input.credentialAction)) || !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 || input.apiKey !== void 0 && typeof input.apiKey !== "string") {
       return {
         isError: true,
         structuredContent: { status: "tts-save-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u3001\u914D\u7F6E\u6216\u51ED\u636E\u64CD\u4F5C\u65E0\u6548\u3002" } },
@@ -35185,6 +35219,7 @@ async function callTool(params, hostValidation, workspace) {
     }
     try {
       const saved = await workspace.saveTtsSettings({
+        ...typeof input.operationId === "string" ? { operationId: input.operationId } : {},
         projectDirectory: input.projectDirectory,
         projectId: input.projectId,
         baselineRevision: input.baselineRevision,
@@ -35233,7 +35268,7 @@ async function callTool(params, hostValidation, workspace) {
       };
     }
     const input = argumentsValue;
-    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
+    if (typeof input.projectDirectory !== "string" || !isAbsolute8(input.projectDirectory) || input.operationId !== void 0 && (typeof input.operationId !== "string" || !input.operationId.trim() || input.operationId.length > 128) || input.expectedNarration !== void 0 && typeof input.expectedNarration !== "string" || typeof input.projectId !== "string" || typeof input.sceneId !== "string") {
       return {
         isError: true,
         structuredContent: { status: "speech-start-failed", error: { code: "INVALID_TOOL_INPUT", message: "\u9879\u76EE\u8EAB\u4EFD\u6216 Scene ID \u65E0\u6548\u3002" } },
@@ -35244,7 +35279,9 @@ async function callTool(params, hostValidation, workspace) {
       const speechJob = workspace.startSpeech({
         projectDirectory: input.projectDirectory,
         projectId: input.projectId,
-        sceneId: input.sceneId
+        sceneId: input.sceneId,
+        ...typeof input.expectedNarration === "string" ? { expectedNarration: input.expectedNarration } : {},
+        ...typeof input.operationId === "string" ? { operationId: input.operationId } : {}
       });
       return {
         structuredContent: { status: "speech-started", speechJob },

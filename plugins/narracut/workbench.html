@@ -517,6 +517,22 @@ button:disabled { opacity:.5; cursor:not-allowed; }
       .brief-layer .brief-evidence-grid{display:block}.brief-layer .brief-evidence-grid .brief-evidence{display:none}.brief-layer .brief-evidence-grid .brief-evidence[data-current="true"]{display:grid}
       .brief-layer .brief-resolution-actions{display:grid;grid-template-columns:1fr}.brief-layer .brief-resolution-actions button{width:100%}
     }
+
+.tts-inspection { width:min(560px,100vw); top:var(--workbench-tabs-bottom,88px); bottom:0; padding:20px; overflow:auto; border-color:var(--line); box-shadow:none; }
+.tts-inspection h2 { font:600 20px/1.4 var(--font-ui,sans-serif); }
+.tts-inspection p,.tts-inspection label,.tts-inspection small,.tts-inspection strong,.tts-inspection summary,.tts-inspection li,.credential-state { font-size:14px; line-height:1.65; overflow-wrap:anywhere; }
+.tts-form input::placeholder { color:#626262; opacity:1; }
+.project-control strong { color:var(--ink); }
+.tts-fields { display:grid; gap:16px; }
+.tts-form fieldset { display:grid; gap:16px; border:0; margin:0; padding:0; min-width:0; }
+.tts-form input,.tts-form select { border-color:#d5d5d5; font:inherit; }
+.tts-origin { margin:16px 0; padding:12px 0; border-block:1px solid var(--line); }
+.tts-origin button,.tts-save,.tts-confirm button { min-height:44px; padding:8px 12px; border:1px solid #d5d5d5; border-radius:6px; background:#fff; color:#171717; font-weight:400; }
+.tts-save,.tts-confirm [data-confirm-tts] { background:#242424; color:white; border-color:#242424; }
+.tts-form .session-warning { padding:0; border:0; color:#626262; }
+.tts-confirm details { margin-bottom:16px; }
+.tts-inspection .fixed-contract { border-color:var(--line); padding-inline:0; }
+@media(max-width:700px) { .tts-inspection { width:100%; padding:16px; } .tts-number-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 </style>
 </head>
 <body data-surface="narracut-vnext-contact-sheet">

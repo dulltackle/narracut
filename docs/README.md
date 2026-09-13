@@ -12,6 +12,7 @@
 | Bundle、Preview Bridge 与最终输出实现 | [Bundle](../src/server/program-bundle.ts)、[Runtime Bridge](../src/server/program-runtime-source.ts)、[Preview 来源](../src/server/preview-origin.ts)、[Render 服务](../src/server/project-render.ts)、[Render 界面](../plugins/narracut/workbench-render.js) |
 | 本地插件构建、安装与启动验证 | [插件打包](plugin-packaging.md) |
 | 当前对话右侧工作台与展示重试 | [工作台面板](workbench-panel.md) |
+| 首次 Speech 配置、原句续生成与声音变更确认 | [#116 验收记录](acceptance/issue116/README.md) |
 | 分组项目工具栏、Brief 编辑、外部冲突与持久验证 | [#115 验收记录](acceptance/issue115/README.md) |
 | 独立视频输出、阻断定位与真实产物 | [#114 验收记录](acceptance/issue114/README.md) |
 | 候选决策、回执核对与接受收尾 | [#113 验收记录](acceptance/issue113/README.md) |

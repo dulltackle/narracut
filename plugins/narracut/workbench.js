@@ -13,6 +13,7 @@
   let activeBriefSavePromise = null;
   let assetPreviewRequest = 0;
   let speechPollTimer = null;
+  let ttsLoadRequest = 0;
   let bindings = new AbortController();
   let composing = false;
   let renderPending = false;
@@ -74,6 +75,12 @@
     ttsConflict: false,
     ttsBlockedReason: null,
     ttsPendingConfirm: null,
+    ttsContinuation: null,
+    ttsSaved: false,
+    ttsLoading: false,
+    ttsLoadFailed: false,
+    ttsOperation: null,
+    ttsUncertain: false,
     brief: {
       open: false,
       base: "",
@@ -231,7 +238,7 @@
   let controlNotice = '';
   let controlEpoch = 0;
   let controlPollBusy = false;
-  const readButtons = '[data-project-info],[data-close-project-info],[data-project-history],[data-open-tts],[data-return-brief],[data-brief-discard-cancel],[data-candidate-action="read"],[data-accept-result],[data-accept-cancel],[data-candidate-cancel],[data-task-check],[data-open-review],[data-close-review],[data-return-review],[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-render-copy],[data-render-issue],[data-render-close],[data-render-prepare],[data-render-reconcile],[data-render-target],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
+  const readButtons = '[data-tts-reload],[data-project-info],[data-close-project-info],[data-project-history],[data-open-tts],[data-return-brief],[data-brief-discard-cancel],[data-candidate-action="read"],[data-accept-result],[data-accept-cancel],[data-candidate-cancel],[data-task-check],[data-open-review],[data-close-review],[data-return-review],[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-render-copy],[data-render-issue],[data-render-close],[data-render-prepare],[data-render-reconcile],[data-render-target],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
   function enforceControl() {
     if (state.result?.status !== 'valid') return;
     const blocked = state.disconnected || state.result.writable !== true || closingProject === 'closing';
@@ -603,10 +610,14 @@
     return `<aside class="inspection tts-inspection" aria-label="项目 TTS 配置" data-open="${state.inspectionOpen}">
       <button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目 TTS 配置">关闭</button>
       <button type="button" class="inspection-back" data-project-inspection>返回项目检查</button>
-      <h2>项目 TTS 配置</h2><p class="tts-kicker">TokenDance · 项目级输出契约</p><div class="rule"></div>
+      <h2>声音配置</h2><p>整部视频共用此声音</p><div class="rule"></div>
+      ${state.ttsError && !state.ttsOperation && !state.ttsSaved ? '<button type="button" data-tts-reload>重新读取声音配置</button>' : ''}
+      ${state.ttsLoading ? '<p role="status">正在读取声音配置…</p>' : ''}
+      ${sceneWriteBlocked() ? '<p role="status">当前只读，声音配置可以查看，不能保存或生成。</p>' : ''}
+      ${state.ttsContinuation ? `<section class="tts-origin"><strong>${state.ttsSaved ? '声音配置已保存' : '配置后生成原句'}</strong><p>${escapeHtml(state.ttsContinuation.text)}</p>${state.ttsContinuation.changed ? '<p>原句文本已变化，请核对最新文字。</p><button type="button" data-tts-continue>生成最新内容</button>' : state.ttsContinuation.retry ? '<button type="button" data-tts-continue>重新核对原句</button>' : ''}</section>` : ''}
       ${state.ttsBlockedReason ? `<div class="tts-blocked" role="status"><strong>生成前需要配置</strong><span>${escapeHtml(state.ttsBlockedReason)}</span></div>` : ""}
-      <form class="tts-form" data-tts-form>
-        <label><span>Provider</span><input value="TokenDance" disabled aria-label="TTS Provider"></label>
+      <form class="tts-form" data-tts-form><fieldset ${state.ttsSaving || state.ttsLoading || state.ttsLoadFailed || state.ttsSaved || sceneWriteBlocked() ? "disabled" : ""}>
+        <div class="tts-fields" ${state.ttsUncertain || state.ttsPendingConfirm ? "inert" : ""}><label><span>Provider</span><input value="TokenDance" disabled aria-label="TTS Provider"></label>
         <label><span>模型</span><select data-tts-field="model" aria-label="TTS 模型">${(capabilities.models ?? []).map((item) => `<option value="${escapeHtml(item.value)}" ${item.value === form.model ? "selected" : ""}>${escapeHtml(item.label ?? item.value)}</option>`).join("")}</select></label>
         <label><span>声音</span><select data-tts-field="voice" aria-label="TTS 声音">${(capabilities.voices ?? []).map((item) => `<option value="${escapeHtml(item.value)}" ${item.value === form.voice ? "selected" : ""}>${escapeHtml(item.label ?? item.value)}</option>`).join("")}</select></label>
         <div class="tts-number-grid">
@@ -618,9 +629,11 @@
         <label class="credential-field"><span>TokenDance API Key</span><input type="password" data-tts-api-key aria-label="TokenDance API Key" value="${escapeHtml(state.ttsApiKey)}" autocomplete="off" placeholder="${credential.status === "available" && !state.ttsClearCredential ? credential.masked ?? "已在本次会话中设置" : "仅保存到本次会话"}"></label>
         <div class="credential-state"><span class="status-mark" data-status="${credential.status === "available" && !state.ttsClearCredential ? "connected" : "unavailable"}" aria-hidden="true"></span><span>${credential.status === "available" && !state.ttsClearCredential ? `API Key 已就绪 · ${escapeHtml(credential.masked ?? "已隐藏")}` : "API Key 缺失"}</span>${credential.status === "available" && !state.ttsClearCredential ? '<button type="button" data-clear-tts-key>清除会话凭据</button>' : ""}</div>
         <p class="session-warning">当前宿主未提供安全凭据库。API Key 只保留在本次应用会话，不写入项目、配置或日志。</p>
+        </div>${state.ttsUncertain ? '<p role="status">保存回执不明，请核对保存结果；核对完成前不会重复保存或生成。</p>' : ''}
         ${state.ttsError ? `<div class="tts-error" role="alert">${escapeHtml(state.ttsError)}</div>` : ""}
         ${state.ttsConflict ? `<button type="button" data-refresh-tts ${state.ttsSaving ? "disabled" : ""}>读取最新项目并保留 TTS 输入</button>` : ""}
-        ${pending ? `<div class="tts-confirm" role="alertdialog" aria-label="确认更改 TTS 输出配置"><strong>将使 ${pending.affectedSpeechCount} 条 Speech 失效</strong><p>保存后会原子移除不再匹配的 Speech 记录；Scene、Narration 与 Asset 引用保持不变。</p><div><button type="button" data-confirm-tts>确认保存</button><button type="button" data-cancel-tts-confirm>取消</button></div></div>` : `<button class="tts-save" type="submit" ${state.ttsSaving ? "disabled" : ""}>${state.ttsSaving ? "正在保存…" : "保存 TTS 配置"}</button>`}
+        ${pending ? `<div class="tts-confirm" role="alertdialog" aria-label="确认更改 TTS 输出配置"><strong>将使 ${pending.affectedSpeechCount} 条 Speech 失效</strong><p>这些 Speech 将需要重新生成，相关预览与验收证据需更新。正在生成的旧配置任务也会取消。</p><details><summary>查看受影响 Scene</summary><ul>${pending.scenes.map(scene => `<li>Scene ${pad(currentScenes().findIndex(item => item.id === scene.id) + 1)} · ${escapeHtml(scene.narration.text)}</li>`).join('')}</ul></details><div><button type="button" data-cancel-tts-confirm>返回修改</button><button type="button" data-confirm-tts>确认更改</button></div></div>` : `<button class="tts-save" type="submit" ${state.ttsSaving || state.ttsSaved ? "disabled" : ""}>${state.ttsSaving ? "正在保存…" : state.ttsUncertain ? "核对保存结果" : state.ttsContinuation ? "保存并生成此句" : "保存配置"}</button>`}
+        </fieldset>
       </form>
     </aside>`;
   }
@@ -667,8 +680,18 @@
   }
 
   function closeInspection() {
+    if (state.inspectorMode === 'tts') {
+      if (state.ttsSaving) return;
+      ttsLoadRequest++; state.ttsLoading = false;
+      if (!state.ttsUncertain) { state.ttsContinuation = null; state.ttsOperation = null; }
+      state.ttsPendingConfirm = null;
+      state.ttsApiKey = '';
+      state.ttsError = null;
+      state.ttsSaved = false;
+      if (!state.ttsUncertain) initializeTtsForm();
+    }
     state.inspectionOpen = false;
-    state.focusTarget = state.inspectionReturnTarget ?? "[data-open-inspection]";
+    state.focusTarget = document.querySelector(state.inspectionReturnTarget ?? "[data-open-inspection]") ? state.inspectionReturnTarget ?? "[data-open-inspection]" : "[data-open-tts]";
     state.inspectionReturnTarget = null;
     render();
   }
@@ -2330,17 +2353,22 @@
   }
 
   async function saveTtsSettings(confirmed = false) {
-    if (state.ttsSaving || !state.ttsForm || !state.result?.project) return;
+    if (state.ttsSaving || state.ttsLoading || state.ttsLoadFailed || state.ttsSaved || sceneWriteBlocked() || !state.ttsForm || !state.result?.project) return;
+    if (state.ttsUncertain) return submitTtsOperation();
     const oldConfig = state.result.tts?.status === "configured" ? state.result.tts.config : null;
     const configChanged = JSON.stringify(oldConfig) !== JSON.stringify(state.ttsForm);
     const affectedSpeechCount = configChanged
       ? currentScenes().filter((scene) => scene.speech !== undefined).length
       : 0;
-    if (!confirmed && affectedSpeechCount > 0) {
-      state.ttsPendingConfirm = { affectedSpeechCount };
+    if (!confirmed && (affectedSpeechCount > 0 || oldConfig && configChanged)) {
+      state.ttsPendingConfirm = { affectedSpeechCount, scenes: clone(currentScenes().filter(scene => scene.speech)), baseline: state.baselineRevision };
       render();
-      document.querySelector("[data-confirm-tts]")?.focus();
+      document.querySelector("[data-cancel-tts-confirm]")?.focus();
       return;
+    }
+    if (confirmed && state.ttsPendingConfirm?.baseline !== state.baselineRevision) {
+      state.ttsPendingConfirm = null;
+      return saveTtsSettings(false);
     }
     const expectedAffectedSpeechCount = confirmed
       ? state.ttsPendingConfirm?.affectedSpeechCount ?? affectedSpeechCount
@@ -2350,33 +2378,50 @@
       render();
       return;
     }
+    if (confirmed && state.ttsPendingConfirm?.baseline !== state.baselineRevision) {
+      state.ttsPendingConfirm = null;
+      return saveTtsSettings(false);
+    }
+    const credentialAction = state.ttsClearCredential ? "clear" : state.ttsApiKey.trim() ? "replace" : "keep";
+    state.ttsOperation = {
+      operationId: createUuid(),
+      projectDirectory: state.result.project.directory,
+      projectId: state.result.project.projectId,
+      baselineRevision: state.baselineRevision,
+      config: clone(state.ttsForm), credentialAction, expectedAffectedSpeechCount,
+      ...(credentialAction === 'replace' ? {apiKey: state.ttsApiKey.trim()} : {}),
+    };
+    return submitTtsOperation();
+  }
+
+  async function submitTtsOperation() {
+    if (state.ttsSaving || !state.ttsOperation || sceneWriteBlocked()) return;
     state.ttsSaving = true;
     state.ttsError = null;
     state.ttsPendingConfirm = null;
+    const epoch = controlEpoch;
+    const version = state.version;
     render();
     try {
-      const credentialAction = state.ttsClearCredential ? "clear" : state.ttsApiKey.trim() ? "replace" : "keep";
-      const response = await callHostTool("save_project_tts_settings", {
-        projectDirectory: state.result.project.directory,
-        projectId: state.result.project.projectId,
-        baselineRevision: state.baselineRevision,
-        config: clone(state.ttsForm),
-        credentialAction,
-        expectedAffectedSpeechCount,
-        ...(credentialAction === "replace" ? { apiKey: state.ttsApiKey.trim() } : {}),
-      });
+      const response = await callHostTool('save_project_tts_settings', state.ttsOperation);
       const content = response?.structuredContent ?? response;
+      if (epoch !== controlEpoch) throw new Error('写权已变化，请核对声音配置保存结果。');
+      if (content?.status || response?.isError) state.ttsUncertain = false;
       if (content?.status === "tts-confirmation-required") {
-        state.ttsPendingConfirm = { affectedSpeechCount: content.affectedSpeechCount };
-        state.ttsError = null;
+        state.ttsConflict = true;
+        state.ttsError = "受影响 Speech 已变化，请读取最新项目后重新确认。";
         announce(`TTS 配置变更需要确认，将移除 ${content.affectedSpeechCount} 条 Speech。`);
         return;
       }
       if (content?.status === "save-conflict") state.ttsConflict = true;
       if (response?.isError || ["tts-save-failed", "save-conflict", "identity-lost"].includes(content?.status)) {
-        throw new Error(content?.error?.message ?? "TTS 配置保存失败。");
+        throw Object.assign(new Error(content?.error?.message ?? "TTS 配置保存失败。"), {confirmedFailure:true});
       }
-      applyWorkspaceContent(content);
+      if (content?.status !== 'tts-saved' || !content.projectDsl) { state.ttsUncertain = true; throw new Error('保存回执不完整，请核对最新配置。'); }
+      if (version === state.version && !state.editing && !state.saveInFlight) applyWorkspaceContent(content);
+      else { state.result.tts = content.tts; state.speechRefreshNeeded = true; scheduleSpeechPoll(); }
+      state.ttsSaved = true;
+      state.ttsOperation = null;
       state.ttsConflict = false;
       initializeTtsForm(content.tts);
       state.ttsApiKey = "";
@@ -2386,12 +2431,82 @@
         ? `TTS 配置已保存；${content.affectedSpeechCount} 条不匹配的 Speech 已移除。`
         : "TTS 配置已保存。");
     } catch (error) {
+      // 明确失败允许新请求；传输异常保留同一操作身份，重试只核对原结果。
+      if (state.ttsOperation && !state.ttsError && !error.confirmedFailure) state.ttsUncertain = true;
       state.ttsError = error?.message ?? "TTS 配置保存失败。";
       announce(`TTS 配置保存失败。${state.ttsError}`);
     } finally {
       state.ttsSaving = false;
       render();
     }
+    if (state.ttsSaved) {
+      if (state.ttsContinuation) await continueConfiguredSpeech();
+      else closeInspection();
+    }
+  }
+
+  async function continueConfiguredSpeech(explicit = false) {
+    const target = state.ttsContinuation;
+    if (!target || state.ttsSaving) return;
+    state.ttsSaving = true;
+    const epoch = controlEpoch;
+    try {
+      const response = await callHostTool('get_workbench', {});
+      const latest = response?.structuredContent ?? response;
+      if (response?.isError || !latest?.projectDsl) throw new Error('无法核对原句，请重试读取。');
+      if (latest.project?.projectId === target.projectId && !latest.writable) { if (state.result.writable) retainControlDraft(); state.result.writable = false; }
+      if (epoch !== controlEpoch || sceneWriteBlocked() || !latest.writable || latest.project?.projectId !== target.projectId) throw new Error('项目或写权已变化，已停止续生成。');
+      if (state.version !== state.savedVersion || state.saveInFlight) throw new Error('仍有未保存的 Scene 修改，请关闭配置并先完成保存。');
+      applyWorkspaceContent(latest);
+      const scene = currentScenes().find(item => item.id === target.sceneId);
+      if (!scene) throw new Error('原 Scene 已删除，未生成其他 Scene。');
+      if (!scene.narration.text.trim()) throw new Error('原句已变空，请填写旁白后再生成。');
+      if (scene.narration.text !== target.text) {
+        target.text = scene.narration.text;
+        target.changed = true;
+        render();
+        document.querySelector('[data-tts-continue]')?.focus();
+        return;
+      }
+      if (target.changed && !explicit) return;
+      state.ttsSaving = false;
+      closeInspection();
+      await startSpeech(target.sceneId, target.text);
+      announce('声音配置已保存。' + (state.speechJobs[target.sceneId]?.status === 'failed' ? '生成失败，请在原句重试。' : '原句 Speech 已排队。'));
+    } catch (error) {
+      state.ttsError = error?.message ?? '无法核对原句。';
+      target.retry = true;
+    } finally { state.ttsSaving = false; render(); }
+  }
+
+  async function openTts(target = null) {
+    if (state.ttsSaving) return;
+    if (state.ttsUncertain) { state.inspectionReturnTarget = target ? `[data-scene-id="${target.sceneId}"] [data-speech-action]` : "[data-open-tts]"; state.focusTarget = "[data-close-inspection]"; state.inspectorMode = "tts"; state.inspectionOpen = true; render(); return; }
+    state.ttsOperation = null;
+    state.ttsContinuation = target;
+    state.ttsSaved = false;
+    state.ttsError = null;
+    state.ttsPendingConfirm = null;
+    state.ttsConflict = false;
+    state.ttsApiKey = '';
+    state.ttsClearCredential = false;
+    state.inspectionReturnTarget = target ? `[data-scene-id="${target.sceneId}"] [data-speech-action]` : '[data-open-tts]';
+    state.inspectorMode = 'tts'; state.inspectionOpen = true;
+    initializeTtsForm();
+    state.ttsLoading = true; state.ttsLoadFailed = false;
+    const request = ++ttsLoadRequest;
+    state.focusTarget = '[data-close-inspection]'; render();
+    const projectId = state.result.project.projectId;
+    try {
+      const response = await callHostTool('get_workbench', {});
+      const latest = response?.structuredContent ?? response;
+      if (response?.isError || !latest.tts || latest.project?.projectId !== projectId) throw new Error('声音配置加载失败，请重新读取。');
+      if (request !== ttsLoadRequest || !state.inspectionOpen || state.inspectorMode !== 'tts' || state.result.project.projectId !== projectId) return;
+      if (!latest.writable) { if (state.result.writable) retainControlDraft(); state.result.writable = false; }
+      state.result.tts = latest.tts;
+      initializeTtsForm(latest.tts);
+    } catch(error) { if (request === ttsLoadRequest) { state.ttsLoadFailed = true; state.ttsError = error?.message ?? '声音配置加载失败，请重新读取。'; } }
+    finally { if (request === ttsLoadRequest) { state.ttsLoading = false; render(); } }
   }
 
   function sameSceneContent(project) {
@@ -2408,7 +2523,7 @@
     clearTimeout(speechPollTimer);
     if (state.disconnected || !state.project) return;
     const activeJobs = Object.values(state.speechJobs).filter(job =>
-      !['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status));
+      job.id && !['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status));
     if (!activeJobs.length && !state.speechRefreshNeeded) return;
     speechPollTimer = setTimeout(async () => {
       const epoch = controlEpoch;
@@ -2456,21 +2571,13 @@
     }, delay);
   }
 
-  async function startSpeech(sceneId) {
+  async function startSpeech(sceneId, expectedNarration) {
     const scene = currentScenes().find((item) => item.id === sceneId);
-    if (!scene || sceneWriteBlocked() || scene.narration.text.trim() === "") return;
+    if (!scene || state.speechJobs[sceneId]?.status === "starting" || sceneWriteBlocked() || scene.narration.text.trim() === "") return;
     const configured = state.result.tts?.status === "configured";
     const credentialReady = state.result.tts?.credential?.status === "available";
     if (!configured || !credentialReady) {
-      state.selected = sceneId;
-      state.inspectionReturnTarget = "[data-open-tts]";
-      state.focusTarget = "[data-close-inspection]";
-      state.inspectorMode = "tts";
-      state.inspectionOpen = true;
-      state.ttsBlockedReason = "需要先保存 TTS 配置与 API Key";
-      render();
-      state.focusTarget = null;
-      document.querySelector("[data-tts-api-key]")?.focus();
+      await openTts({sceneId, text: scene.narration.text, projectId: state.result.project.projectId, changed: false});
       return;
     }
     if (!await flushProjectBeforeAssetImport()) {
@@ -2480,22 +2587,40 @@
     const epoch = controlEpoch;
     if (sceneWriteBlocked() || !currentScenes().find(item => item.id === sceneId)?.narration.text.trim()) return;
     delete state.speechInvalidated[sceneId];
+    const request = state.speechJobs[sceneId]?.uncertainRequest ?? {
+      operationId: createUuid(),
+      projectDirectory: state.result.project.directory,
+      projectId: state.result.project.projectId, sceneId,
+      ...(expectedNarration === undefined ? {} : { expectedNarration }),
+    };
+    state.speechJobs[sceneId] = {id:'', sceneId, status:'starting', stage:'正在核对生成请求'};
+    render();
     try {
-      const response = await callHostTool("start_scene_speech", {
-        projectDirectory: state.result.project.directory,
-        projectId: state.result.project.projectId,
-        sceneId,
-      });
+      const response = await callHostTool("start_scene_speech", request);
       const content = response?.structuredContent ?? response;
-      if (epoch !== controlEpoch) return;
-      if (response?.isError || !content?.speechJob) throw new Error(content?.error?.message ?? "无法开始 Speech 生成。");
+      if (epoch !== controlEpoch) {
+        state.speechJobs[sceneId] = {id:'', sceneId, status:'failed', stage:'生成结果待核对', uncertainRequest:request, error:{message:'写权已变化。恢复写权后重试将核对原生成请求。'}};
+        render(); return;
+      }
+      if (content?.error?.code === 'SPEECH_NARRATION_CHANGED' && expectedNarration !== undefined) {
+        delete state.speechJobs[sceneId];
+        await openTts({sceneId, text:expectedNarration, projectId:request.projectId, changed:false});
+        state.ttsSaved = true;
+        await continueConfiguredSpeech();
+        return;
+      }
+      if (response?.isError || !content?.speechJob) throw Object.assign(new Error(content?.error?.message ?? "无法核对 Speech 生成回执，请重试核对。"), {confirmedFailure: !!response?.isError});
       state.speechJobs[sceneId] = content.speechJob;
+      if (content.speechJob.status === "succeeded") state.speechRefreshNeeded = true;
       announce("Speech 已排队。");
       render();
       scheduleSpeechPoll();
     } catch (error) {
-      if (epoch !== controlEpoch) return;
-      state.speechJobs[sceneId] = { id: "", sceneId, status: "failed", stage: "生成失败", error: { message: error?.message ?? "无法开始 Speech 生成。" } };
+      if (epoch !== controlEpoch) {
+        state.speechJobs[sceneId] = {id:'', sceneId, status:'failed', stage:'生成结果待核对', uncertainRequest:request, error:{message:'写权已变化。恢复写权后重试将核对原生成请求。'}};
+        render(); return;
+      }
+      state.speechJobs[sceneId] = { id: "", sceneId, status: "failed", stage: "生成失败", ...(!error.confirmedFailure ? {uncertainRequest:request} : {}), error: { message: error?.message ?? "无法开始 Speech 生成。" } };
       render();
       announce(`Speech 生成失败。${error?.message ?? "请重试。"}`);
     }
@@ -2819,6 +2944,7 @@
   function bindInspector() {
     document.querySelector("[data-close-inspection]")?.addEventListener("click", closeInspection, { signal: bindings.signal });
     document.querySelectorAll("[data-project-inspection]").forEach((button) => button.addEventListener("click", () => {
+      if (state.inspectorMode === "tts") { if (state.ttsSaving || state.ttsUncertain) return; state.ttsContinuation = null; state.ttsApiKey = ""; }
       state.inspectorMode = "project";
       state.assetSearch = "";
       state.ttsBlockedReason = null;
@@ -2829,15 +2955,9 @@
     document.querySelector('[data-project-info]')?.addEventListener('click', showProjectInfo, { signal: bindings.signal });
     document.querySelector('[data-project-history]')?.addEventListener('click', event => acceptanceWorkbench.openHistory(event.currentTarget), { signal: bindings.signal });
     document.querySelector('[data-close-project]')?.addEventListener('click', closeProject, { signal: bindings.signal });
-    document.querySelector("[data-open-tts]")?.addEventListener("click", () => {
-      state.inspectionReturnTarget = "[data-open-tts]";
-      state.focusTarget = "[data-close-inspection]";
-      state.inspectorMode = "tts";
-      state.inspectionOpen = true;
-      state.ttsBlockedReason = null;
-      initializeTtsForm();
-      render();
-    }, { signal: bindings.signal });
+    document.querySelector('[data-open-tts]')?.addEventListener('click', () => openTts(), {signal: bindings.signal});
+    document.querySelector('[data-tts-reload]')?.addEventListener('click', () => openTts(state.ttsContinuation), {signal:bindings.signal});
+    document.querySelector('[data-tts-continue]')?.addEventListener('click', () => continueConfiguredSpeech(true), {signal: bindings.signal});
     document.querySelector("[data-manage-project-assets]")?.addEventListener("click", () => {
       state.inspectorMode = "project-assets";
       state.assetSearch = "";
@@ -3096,6 +3216,13 @@
       trapAssetPreviewFocus(event);
       if (event.isComposing || composing) return;
       trapBriefFocus(event);
+      if (event.key === 'Tab' && state.inspectionOpen && state.inspectorMode === 'tts') {
+        const controls = [...document.querySelectorAll('.tts-inspection button,.tts-inspection input,.tts-inspection select,.tts-inspection summary')].filter(el => !el.matches(':disabled') && !el.closest('[inert]') && el.getClientRects().length);
+        const index = controls.indexOf(document.activeElement);
+        if (controls.length && (index < 0 || (!event.shiftKey && index === controls.length - 1) || (event.shiftKey && index === 0))) {
+          event.preventDefault(); controls[event.shiftKey ? controls.length - 1 : 0].focus();
+        }
+      }
       if (event.key === "Escape" && state.speechReasonScene) {
         event.preventDefault(); closeSpeechReason();
       } else if (event.key === "Escape" && state.assetPreview) {
@@ -3417,6 +3544,13 @@
     state.ttsConflict = false;
     state.ttsBlockedReason = null;
     state.ttsPendingConfirm = null;
+    state.ttsContinuation = null;
+    state.ttsSaved = false;
+    state.ttsOperation = null;
+    state.ttsUncertain = false;
+    state.ttsLoading = false;
+    state.ttsLoadFailed = false;
+    ttsLoadRequest++;
     const incomingBrief = result?.videoBrief ?? {
       content: "",
       revision: null,

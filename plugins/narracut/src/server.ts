@@ -13,7 +13,7 @@ import { ProjectChecks } from '../../../src/server/project-checks';
 import { ProjectPreview } from '../../../src/server/project-preview';
 import { DependencyError } from '../../../src/server/project-dependencies';
 import { CandidateError, type CandidateRequest, type CandidateStatus } from "../../../src/server/project-candidate";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -404,6 +404,7 @@ const tools = [
         credentialAction: { type: "string", enum: ["keep", "replace", "clear"] },
         apiKey: { type: "string", minLength: 1 },
         expectedAffectedSpeechCount: { type: "integer", minimum: 0 },
+        operationId: { type: "string", minLength: 1, maxLength: 128 },
       },
       additionalProperties: false,
     },
@@ -422,6 +423,8 @@ const tools = [
         projectDirectory: { type: "string", minLength: 1 },
         projectId: { type: "string", minLength: 1 },
         sceneId: { type: "string", minLength: 1 },
+        expectedNarration: { type: "string" },
+        operationId: { type: "string", minLength: 1, maxLength: 128 },
       },
       additionalProperties: false,
     },
@@ -810,7 +813,7 @@ class ProjectWorkspaceSession {
     await opened.assertWritable();
     await opened.release();
     this.#opened = null; this.creation = null;
-    this.delivery.clear(); this.checks.clear(); this.#credentials.clear(); this.#speechJobs.clear();
+    this.delivery.clear(); this.checks.clear(); this.#credentials.clear(); this.#speechJobs.clear(); this.#ttsOperations.clear(); this.#speechOperations.clear();
     return { status: 'launcher', connection: launcherConnectionState() };
   }
   async recoveryOperation(input: any) {
@@ -1226,7 +1229,11 @@ class ProjectWorkspaceSession {
     return readProjectAssetPreview(opened.inspection, input.assetId);
   }
 
+  readonly #ttsOperations = new Map<string, { signature: string; result: Promise<{ affectedSpeechCount: number; inspection: ProjectVNextInspection }> }>();
+  readonly #speechOperations = new Map<string, { signature: string; jobId: string }>();
+
   async saveTtsSettings(input: {
+    operationId?: string;
     projectDirectory: string;
     projectId: string;
     baselineRevision: string;
@@ -1235,6 +1242,18 @@ class ProjectWorkspaceSession {
     apiKey?: string;
     expectedAffectedSpeechCount: number;
   }): Promise<{ affectedSpeechCount: number; inspection: ProjectVNextInspection }> {
+    this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.operationId) {
+      const signature = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+      const prior = this.#ttsOperations.get(input.operationId);
+      if (prior) {
+        if (prior.signature !== signature) throw new SpeechToolError('TTS_OPERATION_MISMATCH', '保存操作身份与原请求不匹配。');
+        return prior.result;
+      }
+      const result = this.saveTtsSettings({ ...input, operationId: undefined });
+      this.#ttsOperations.set(input.operationId, { signature, result });
+      return result;
+    }
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     if (input.credentialAction === "replace" && (input.apiKey === undefined || input.apiKey.trim() === "")) {
       throw new SpeechToolError("TTS_CREDENTIAL_INVALID", "替换 API Key 时必须提供非空值。");
@@ -1261,10 +1280,21 @@ class ProjectWorkspaceSession {
   }
 
   startSpeech(input: {
+    expectedNarration?: string;
+    operationId?: string;
     projectDirectory: string;
     projectId: string;
     sceneId: string;
   }): SpeechJob {
+    this.#requireOpened(input.projectDirectory, input.projectId);
+    const signature = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    if (input.operationId) {
+      const prior = this.#speechOperations.get(input.operationId);
+      if (prior) {
+        if (prior.signature !== signature) throw new SpeechToolError('SPEECH_OPERATION_MISMATCH', '生成操作身份与原请求不匹配。');
+        return this.getSpeech(prior.jobId).job;
+      }
+    }
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     const tts = opened.inspection.tts;
     if (tts.status !== "configured") {
@@ -1276,6 +1306,9 @@ class ProjectWorkspaceSession {
     }
     const scene = opened.inspection.project.scenes.find((candidate) => candidate.id === input.sceneId);
     if (scene === undefined) throw new SpeechToolError("SPEECH_SCENE_MISSING", "目标 Scene 不存在。");
+    if (input.expectedNarration !== undefined && scene.narration.text !== input.expectedNarration) {
+      throw new SpeechToolError('SPEECH_NARRATION_CHANGED', '原句文本已变化，请核对最新内容后重新生成。');
+    }
     if (scene.narration.text.trim() === "") {
       throw new SpeechToolError("SPEECH_NARRATION_EMPTY", "空 Narration 不能生成 Speech；请先补充内容。");
     }
@@ -1308,6 +1341,7 @@ class ProjectWorkspaceSession {
       credential: key,
     };
     this.#speechJobs.set(job.id, job);
+    if (input.operationId) this.#speechOperations.set(input.operationId, { signature, jobId: job.id });
     const processing = new Promise<void>(resolve => setImmediate(() => { void this.#processSpeech(job).finally(resolve); }));
     this.#speechPending.add(processing);
     void processing.finally(() => this.#speechPending.delete(processing));
@@ -1480,7 +1514,7 @@ class ProjectWorkspaceSession {
     this.checks.clear();
     await this.preview.close();
     this.#credentials.clear();
-    this.#speechJobs.clear();
+    this.#speechJobs.clear(); this.#ttsOperations.clear(); this.#speechOperations.clear();
     const opened = this.#opened;
     this.#opened = null;
     if (opened !== null) await opened.release();
@@ -2000,6 +2034,7 @@ async function callTool(
     if (
       typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
       typeof input.projectId !== "string" || typeof input.baselineRevision !== "string" ||
+      (input.operationId !== undefined && (typeof input.operationId !== "string" || !input.operationId.trim() || input.operationId.length > 128)) ||
       typeof input.config !== "object" || input.config === null ||
       !["keep", "replace", "clear"].includes(String(input.credentialAction)) ||
       !Number.isSafeInteger(input.expectedAffectedSpeechCount) || Number(input.expectedAffectedSpeechCount) < 0 ||
@@ -2013,6 +2048,7 @@ async function callTool(
     }
     try {
       const saved = await workspace.saveTtsSettings({
+        ...(typeof input.operationId === "string" ? { operationId: input.operationId } : {}),
         projectDirectory: input.projectDirectory,
         projectId: input.projectId,
         baselineRevision: input.baselineRevision,
@@ -2068,6 +2104,8 @@ async function callTool(
     const input = argumentsValue as Record<string, unknown>;
     if (
       typeof input.projectDirectory !== "string" || !isAbsolute(input.projectDirectory) ||
+      (input.operationId !== undefined && (typeof input.operationId !== "string" || !input.operationId.trim() || input.operationId.length > 128)) ||
+      (input.expectedNarration !== undefined && typeof input.expectedNarration !== "string") ||
       typeof input.projectId !== "string" || typeof input.sceneId !== "string"
     ) {
       return {
@@ -2081,6 +2119,8 @@ async function callTool(
         projectDirectory: input.projectDirectory,
         projectId: input.projectId,
         sceneId: input.sceneId,
+        ...(typeof input.expectedNarration === "string" ? { expectedNarration: input.expectedNarration } : {}),
+        ...(typeof input.operationId === "string" ? { operationId: input.operationId } : {}),
       });
       return {
         structuredContent: { status: "speech-started", speechJob },
