@@ -40,6 +40,7 @@ typography:
 rounded:
   flat: "0"
   control: "6px"
+  editor: "2px"
 spacing:
   xs: "4px"
   sm: "8px"
@@ -64,6 +65,7 @@ components:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
     typography: "{typography.body}"
+    rounded: "{rounded.editor}"
     padding: "6px"
     width: "100%"
   workspace-tab-selected:
@@ -77,6 +79,15 @@ components:
   shared-feedback:
     textColor: "{colors.muted}"
     padding: "6px 16px"
+  speech-reason-popover:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.control}"
+    padding: "16px"
+    width: "min(330px,calc(100vw - 16px))"
+  review-drawer:
+    backgroundColor: "{colors.paper}"
+    width: "min(560px,100%)"
 ---
 
 # Design System: Narracut
@@ -87,7 +98,9 @@ components:
 
 本记录刷新已过时的“暗房接触印样台”体系。#109 已移除表格的暗色框体、纸张与胶片纹理、背光和装饰边码。Agent 工作区、启动器及宿主连接反馈的基础色已迁移到浅色；其具体布局仍沿现有模块。#112 已将候选审阅改为视频主面与按需右侧抽屉；第 3 批单行分组导航及项目入口重排仍以后续工单为准。
 
-依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。当前页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。
+依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。基础编辑页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。
+
+本次刷新对照 #111 的窄屏 Speech 原因浮层、#112 的桌面视频主面与窄屏审阅抽屉截图，并核对当前 CSS 的最终覆盖规则。组件示例与叙述同步保存在 `.impeccable/design.json`；其中色阶是供面板展示的派生 OKLCH 色阶，不是生产调色板。
 
 **Key Characteristics:**
 
@@ -98,7 +111,15 @@ components:
 
 ## Colors
 
-主色是深灰 `primary`，用于新增 Scene 等主要操作；正文使用 `ink`，辅助文字使用 `muted`。`paper` 覆盖主工作面，`panel` 用于表头和底部指引等轻微分层，`line` 用于结构分隔。选中 Scene 用 `control`，当前工作区用 `tab-selected` 与底部 `tab-indicator` 同时标记。
+### Primary
+
+主色是深灰 `primary`，用于新增 Scene 等主要操作；正文使用 `ink`，辅助文字使用 `muted`。
+
+### Neutral
+
+`paper` 覆盖主工作面，`panel` 用于表头和底部指引等轻微分层，`line` 用于结构分隔。选中 Scene 用 `control`，当前工作区用 `tab-selected` 与底部 `tab-indicator` 同时标记。
+
+### 功能色
 
 `focus-blue` 保留键盘焦点功能，文本选择使用 `selection`；绿色和琥珀用于成功、连接或需处理的语义，不再承担暗房装饰。颜色不能独自表达状态，继续配合文字、图标或形状。旧模块中的历史变量名和局部色值不自动成为新品牌规范；新增表面使用上述已确认基础。
 
@@ -116,23 +137,25 @@ components:
 
 在 `max-width:700px` 时，工作面内边距为 8px，列定义为 `48px minmax(220px,1fr) 140px 190px`，最小表格宽度 598px。保留 Scene、Narration、Asset、Speech 四列，通过内容区横向滚动访问右侧列；表头由滚动事件同步位移。430px 截图右侧 Speech 未在初始视口出现，表示可横滚，不表示列被隐藏。窄屏工具栏与 Speech 操作最小触控高度为 44px。
 
-项目检查在所有尺寸均按需打开右侧抽屉，宽 `min(90vw,380px)`，不常驻占用表格宽度。Agent 审阅区使用视频主面与按需右侧抽屉；启动器仍使用既有模块。
+项目检查在所有尺寸均按需打开右侧抽屉，宽 `min(90vw,380px)`，不常驻占用表格宽度。Agent 审阅抽屉覆盖工作区右侧，宽 `min(560px,100%)`，正文独立滚动；窄屏占满工作区宽度，顶部关闭入口保持可见。视频容器最终高度为 `clamp(180px,calc(100dvh - 430px),480px)`；桌面内边距 16px，窄屏为 `12px 8px`。这里描述宿主视频容器，实际画面保留自身比例。启动器仍使用既有模块。
 
 ## Elevation & Depth
 
-主工作面以白底、浅灰分层与细分隔线建立层级，表格框、选中 Scene 和主要审阅面板无投影。浮动 Scene 操作菜单保留 `0 8px 24px #00000014`，检查抽屉保留 `-12px 8px 36px #00000014`，仅表达叠加关系。
+主工作面以白底、浅灰分层与细分隔线建立层级，表格框、选中 Scene 和主要审阅面板无投影。工具栏 Scene 菜单使用 `0 8px 24px #00000014`；右键／Shift+F10 上下文菜单与 Speech 原因浮层使用 `0 8px 24px #00000024`。项目检查和候选审阅抽屉均使用 `-12px 8px 36px #00000014`，表达覆盖工作面的叠加关系。
 
-键盘焦点使用 2px 可见描边，不依赖发光。Scene 表格已关闭旧灯箱动画及纹理；不要恢复材料首现效果。
+键盘焦点使用 2px 可见描边，不依赖发光。Scene 表格已关闭旧灯箱动画及纹理；不要恢复材料首现效果。启动器忙碌圆点仍有 1 秒 `ease-in-out` 往返亮度脉冲；这是局部等待反馈，当前没有统一的过渡时长或缓动体系。
 
 ## Shapes
 
-连续表格采用平直边界与逐行细线，去除列间强分割、选中三角与印章。常规 Scene 操作按钮使用 6px 圆角，密集行内操作紧邻状态。控件圆角不意味着每条 Scene 或每段审阅内容都需要卡片容器。
+连续表格采用平直边界与逐行细线，去除列间强分割、选中三角与印章。常规 Scene 操作按钮使用 6px 圆角，密集行内操作紧邻状态。Narration 文本框保留 2px 圆角。Speech 原因浮层与 Scene 上下文菜单采用 6px 圆角，分别使用 16px 与 8px 内边距。控件圆角不意味着每条 Scene 或每段审阅内容都需要卡片容器。
 
 ## Components
 
 ### 按钮与工作区导航
 
-新增 Scene 等主按钮为深底白字，悬停时保持深底白字；次按钮白底近黑字与轻描边。桌面 Scene 工具按钮最小高度 32px、内边距 `4px 10px`；窄屏提升到 44px。禁用态以透明度及禁用语义表达。工作区标签当前仍独立成行，选中态同时有浅灰背景、深字与底部线；焦点保持可见。
+新增 Scene 等主按钮为深底白字，悬停时保持深底白字；次按钮白底近黑字与轻描边。桌面 Scene 工具按钮最小高度 32px、内边距 `4px 10px`；窄屏提升到 44px。Scene 操作按钮继承 `.76rem`、700 字重，禁用透明度为 `.46`；其他通用按钮禁用透明度为 `.5`。工作区标签当前仍独立成行，选中态同时有浅灰背景、深字与底部线；焦点保持可见。
+
+Scene 上下文菜单宽 `min(248px,calc(100vw - 16px))`，最高为视口高度减 16px，超长菜单内部滚动。菜单项桌面最小高度 36px、窄屏 44px，悬停以浅灰底突出；选择态与键盘焦点独立表达。
 
 ### Narration 原位编辑
 

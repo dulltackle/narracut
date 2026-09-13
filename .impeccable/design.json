@@ -1,28 +1,204 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-12T15:19:22.386289+00:00",
+  "generatedAt": "2026-09-13T05:29:08.798561+00:00",
   "title": "Design System: Narracut",
   "extensions": {
     "colorMeta": {
-      "primary": {
-        "role": "primary",
-        "displayName": "深灰主操作"
-      },
       "paper": {
         "role": "neutral",
-        "displayName": "白色工作面"
+        "displayName": "白色工作面",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
       },
       "ink": {
         "role": "neutral",
-        "displayName": "近黑正文"
+        "displayName": "近黑正文",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
       },
       "muted": {
         "role": "neutral",
-        "displayName": "灰色辅助信息"
+        "displayName": "灰色辅助信息",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "浅灰分隔",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "浅灰面板",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "浅灰控件与选择",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "深灰主操作",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "tab-selected": {
+        "role": "neutral",
+        "displayName": "当前工作区浅灰底",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
+      },
+      "tab-indicator": {
+        "role": "neutral",
+        "displayName": "当前工作区深灰线",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
       },
       "focus-blue": {
         "role": "secondary",
-        "displayName": "键盘焦点蓝"
+        "displayName": "键盘焦点蓝",
+        "tonalRamp": [
+          "oklch(15.00% 0.10925 256.32)",
+          "oklch(26.43% 0.10925 256.32)",
+          "oklch(37.86% 0.10925 256.32)",
+          "oklch(49.29% 0.10925 256.32)",
+          "oklch(60.71% 0.10925 256.32)",
+          "oklch(72.14% 0.10925 256.32)",
+          "oklch(83.57% 0.10925 256.32)",
+          "oklch(95.00% 0.10925 256.32)"
+        ]
+      },
+      "selection": {
+        "role": "secondary",
+        "displayName": "文本选择浅蓝",
+        "tonalRamp": [
+          "oklch(15.00% 0.02128 252.50)",
+          "oklch(26.43% 0.02128 252.50)",
+          "oklch(37.86% 0.02128 252.50)",
+          "oklch(49.29% 0.02128 252.50)",
+          "oklch(60.71% 0.02128 252.50)",
+          "oklch(72.14% 0.02128 252.50)",
+          "oklch(83.57% 0.02128 252.50)",
+          "oklch(95.00% 0.02128 252.50)"
+        ]
+      },
+      "green": {
+        "role": "secondary",
+        "displayName": "成功绿",
+        "tonalRamp": [
+          "oklch(15.00% 0.11692 148.26)",
+          "oklch(26.43% 0.11692 148.26)",
+          "oklch(37.86% 0.11692 148.26)",
+          "oklch(49.29% 0.11692 148.26)",
+          "oklch(60.71% 0.11692 148.26)",
+          "oklch(72.14% 0.11692 148.26)",
+          "oklch(83.57% 0.11692 148.26)",
+          "oklch(95.00% 0.11692 148.26)"
+        ]
+      },
+      "amber": {
+        "role": "secondary",
+        "displayName": "需处理的琥珀色",
+        "tonalRamp": [
+          "oklch(15.00% 0.10392 63.82)",
+          "oklch(26.43% 0.10392 63.82)",
+          "oklch(37.86% 0.10392 63.82)",
+          "oklch(49.29% 0.10392 63.82)",
+          "oklch(60.71% 0.10392 63.82)",
+          "oklch(72.14% 0.10392 63.82)",
+          "oklch(83.57% 0.10392 63.82)",
+          "oklch(95.00% 0.10392 63.82)"
+        ]
+      },
+      "editor-line": {
+        "role": "neutral",
+        "displayName": "编辑框灰色描边",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
       }
     },
     "typographyMeta": {
@@ -42,12 +218,23 @@
         "purpose": "浮动 Scene 操作菜单。"
       },
       {
+        "name": "context-popover",
+        "value": "0 8px 24px #00000024",
+        "purpose": "Scene 上下文菜单与 Speech 原因浮层。"
+      },
+      {
         "name": "inspection-drawer",
         "value": "-12px 8px 36px #00000014",
-        "purpose": "按需打开的项目检查抽屉。"
+        "purpose": "项目检查与候选审阅抽屉。"
       }
     ],
-    "motion": [],
+    "motion": [
+      {
+        "name": "launcher-busy",
+        "value": "launch-pulse 1s ease-in-out infinite alternate",
+        "purpose": "仅启动器忙碌圆点；关键帧终点 filter:brightness(1.5)，不是通用动画规范。"
+      }
+    ],
     "breakpoints": [
       {
         "name": "compact-table",
@@ -62,7 +249,7 @@
       "refersTo": "button-primary",
       "description": "Scene 工具栏按钮；窄屏真实页面触控高度提升到 44px。",
       "html": "<button class=\"ds-primary\">新增 Scene</button>",
-      "css": ".ds-primary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;min-height:32px;padding:4px 10px;border:1px solid var(--blue-deep,#242424);background:var(--blue-deep,#242424);color:var(--white,#fff);border-radius:6px;cursor:pointer}.ds-primary:hover:not(:disabled){border-color:var(--blue-deep,#242424);background:var(--blue-deep,#242424);color:var(--white,#fff)}.ds-primary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-primary:disabled{opacity:.5;cursor:not-allowed}@media(max-width:700px){.ds-primary{min-height:44px}}"
+      "css": ".ds-primary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;font-size:.76rem;font-weight:700;min-height:32px;padding:4px 10px;border:1px solid var(--blue-deep,#242424);background:var(--blue-deep,#242424);color:var(--white,#fff);border-radius:6px;cursor:pointer}.ds-primary:hover:not(:disabled){border-color:var(--blue-deep,#242424);background:var(--blue-deep,#242424);color:var(--white,#fff)}.ds-primary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-primary:disabled{opacity:.46;cursor:not-allowed}@media(max-width:700px){.ds-primary{min-height:44px}}"
     },
     {
       "name": "次要操作",
@@ -70,7 +257,7 @@
       "refersTo": "button-secondary",
       "description": "Scene 工具栏按钮；窄屏真实页面触控高度提升到 44px。",
       "html": "<button class=\"ds-secondary\">Scene 操作</button>",
-      "css": ".ds-secondary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;min-height:32px;padding:4px 10px;border:1px solid var(--line,#e3e3e3);background:var(--white,#fff);color:var(--ink,#171717);border-radius:6px;cursor:pointer}.ds-secondary:hover:not(:disabled){border-color:var(--blue-deep,#242424);color:var(--blue-deep,#242424)}.ds-secondary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-secondary:disabled{opacity:.5;cursor:not-allowed}@media(max-width:700px){.ds-secondary{min-height:44px}}"
+      "css": ".ds-secondary{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;font-size:.76rem;font-weight:700;min-height:32px;padding:4px 10px;border:1px solid var(--line,#e3e3e3);background:var(--white,#fff);color:var(--ink,#171717);border-radius:6px;cursor:pointer}.ds-secondary:hover:not(:disabled){border-color:var(--blue-deep,#242424);color:var(--blue-deep,#242424)}.ds-secondary:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-secondary:disabled{opacity:.46;cursor:not-allowed}@media(max-width:700px){.ds-secondary{min-height:44px}}"
     },
     {
       "name": "Narration 原位文本框",
@@ -78,7 +265,7 @@
       "refersTo": "narration-editor",
       "description": "视觉示例；生产页面通过 input、blur 和组合输入事件管理高度与保存。",
       "html": "<textarea class=\"ds-editor\" aria-label=\"编辑 Narration\">在每一个认真生活的日常里，总有一些被忽略的细节。</textarea>",
-      "css": ".ds-editor{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;width:100%;min-height:38px;padding:6px;border:1px solid #9a9a9a;background:var(--white,#fff);color:var(--ink,#171717);font-size:14px;line-height:1.65;resize:none}.ds-editor:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}"
+      "css": ".ds-editor{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;width:100%;min-height:38px;padding:6px;border:1px solid #9a9a9a;background:var(--white,#fff);color:var(--ink,#171717);font-size:14px;line-height:1.65;font-weight:400;border-radius:2px;resize:none}.ds-editor:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}"
     },
     {
       "name": "工作区标签",
@@ -86,7 +273,7 @@
       "refersTo": "workspace-tab-selected",
       "description": "当前实现仍为独立标签行；示例不宣称单行分组导航已落地。",
       "html": "<nav class=\"ds-tabs\" aria-label=\"工作区\"><button aria-current=\"page\">表格工作区</button><button>Agent 工作区</button></nav>",
-      "css": ".ds-tabs{display:flex;font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;border-bottom:1px solid var(--line,#e3e3e3)}.ds-tabs button{min-height:44px;padding:0 20px;border:0;border-right:1px solid var(--line,#e3e3e3);background:#fff;color:var(--muted,#626262);font:inherit;font-size:14px;font-weight:650;cursor:pointer}.ds-tabs button[aria-current]{background:#f3f3f3;color:var(--ink,#171717);box-shadow:inset 0 -2px #262626}.ds-tabs button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}"
+      "css": ".ds-tabs{display:flex;font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;border-bottom:1px solid var(--line,#e3e3e3)}.ds-tabs button{min-height:44px;padding:0 20px;border:0;border-right:1px solid var(--line,#e3e3e3);background:#fff;color:var(--muted,#626262);font:inherit;font-size:14px;font-weight:650;cursor:pointer}.ds-tabs button[aria-current]{background:#f3f3f3;color:var(--ink,#171717);box-shadow:inset 0 -2px #262626}.ds-tabs button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}@media(max-width:700px){.ds-tabs button{min-width:0;flex:1;text-align:center}}"
     },
     {
       "name": "选中 Scene",
@@ -94,7 +281,7 @@
       "refersTo": "scene-row-selected",
       "description": "连续表格中的一行；长文本自然增长。",
       "html": "<div class=\"ds-row\"><span>01</span><span>在每一个认真生活的日常里，总有一些被忽略的细节。</span><span>未绑定 · 添加</span><span>● 已生成 1.7 秒</span></div>",
-      "css": ".ds-row{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 190px;min-height:52px;background:var(--control,#f5f5f5);color:var(--ink,#171717);border-bottom:1px solid var(--line,#e3e3e3);font-size:14px;line-height:1.65}.ds-row span{padding:8px 12px;overflow-wrap:anywhere}.ds-row span:nth-child(n+3){font-size:12px;color:var(--muted,#626262)}@media(max-width:700px){.ds-row{grid-template-columns:48px minmax(220px,1fr) 140px 150px;min-width:558px}}"
+      "css": ".ds-row{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 190px;min-height:52px;background:var(--control,#f5f5f5);color:var(--ink,#171717);border-bottom:1px solid var(--line,#e3e3e3);font-size:14px;line-height:1.65}.ds-row span{padding:8px 12px;overflow-wrap:anywhere}.ds-row span:nth-child(n+3){font-size:12px;color:var(--muted,#626262)}@media(max-width:700px){.ds-row{grid-template-columns:48px minmax(220px,1fr) 140px 190px;min-width:598px}}"
     },
     {
       "name": "共享反馈",
@@ -103,11 +290,27 @@
       "description": "两个工作区共同显示；示例为保存失败后的恢复操作。",
       "html": "<section class=\"ds-feedback\" aria-label=\"保存与连接状态\"><span role=\"status\">保存失败 · 本地编辑尚未保存</span><button>重试保存</button><button>返回编辑</button></section>",
       "css": ".ds-feedback{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 16px;font-size:12px;line-height:1.6;color:var(--muted,#626262);border-bottom:1px solid var(--line,#e3e3e3)}.ds-feedback button{min-height:32px;padding:4px 10px;background:#fff;border:1px solid var(--line,#e3e3e3);border-radius:6px;color:var(--ink,#171717);font:inherit;cursor:pointer}.ds-feedback button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}.ds-feedback button:disabled{opacity:.5;cursor:not-allowed}@media(max-width:700px){.ds-feedback{padding:6px 8px}}"
+    },
+    {
+      "name": "Speech 原因浮层",
+      "kind": "custom",
+      "refersTo": "speech-reason-popover",
+      "description": "失败原因按需展示；此处为静态内容示例，关闭行为由生产页面管理。",
+      "html": "<section class=\"ds-reason\" aria-label=\"Speech 原因\"><header><strong>Speech · Scene 01</strong><button>关闭</button></header><p>服务返回 429：请求过于频繁，请稍后重试。</p></section>",
+      "css": ".ds-reason{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;width:min(330px,calc(100vw - 16px));padding:16px;border-radius:6px;background:var(--paper,#fff);color:var(--ink,#171717);box-shadow:0 8px 24px #00000024;font-size:13px;line-height:1.65;overflow-wrap:anywhere}.ds-reason header{display:flex;align-items:center;justify-content:space-between;gap:12px}.ds-reason p{margin:12px 0 0}.ds-reason button{font:inherit;min-height:32px;border:1px solid var(--line,#e3e3e3);border-radius:6px;padding:4px 8px;background:var(--paper,#fff);color:var(--ink,#171717);cursor:pointer}.ds-reason button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px}@media(max-width:700px){.ds-reason button{min-height:44px;min-width:44px}}"
+    },
+    {
+      "name": "审阅抽屉容器",
+      "kind": "custom",
+      "refersTo": "review-drawer",
+      "description": "展示抽屉的层级与尺寸；实际版本切换、焦点循环和媒体实例由工作台管理。",
+      "html": "<aside class=\"ds-review\" aria-label=\"审阅详情\"><header><h2>审阅详情</h2></header><div><h3>检查证据</h3><p>查看候选对应的检查结果与 Scene 建议。</p></div></aside>",
+      "css": ".ds-review{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;width:min(560px,100%);background:var(--paper,#fff);color:var(--ink,#171717);box-shadow:-12px 8px 36px #00000014;display:flex;flex-direction:column;min-height:0}.ds-review header{padding:12px 16px;border-bottom:1px solid var(--line,#e3e3e3)}.ds-review h2{margin:0;font-size:16px}.ds-review h3{font-size:14px}.ds-review>div{overflow:auto;padding:0 16px 16px;overscroll-behavior:contain}.ds-review p{overflow-wrap:anywhere}@media(max-width:700px){.ds-review header,.ds-review>div{padding-inline:12px}}"
     }
   ],
   "narrative": {
     "northStar": "浅色连续 Scene 编辑台",
-    "overview": "白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。\n\n本记录刷新已过时的“暗房接触印样台”体系。#109 已移除表格的暗色框体、纸张与胶片纹理、背光和装饰边码。Agent 工作区、启动器及宿主连接反馈的基础色已迁移到浅色；其具体布局仍沿现有模块。第 2 批候选审阅新布局、第 3 批单行分组导航及项目入口重排均不在本次已落地范围，后续以对应工单为准。\n\n依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。当前页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。",
+    "overview": "白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。\n\n本记录刷新已过时的“暗房接触印样台”体系。#109 已移除表格的暗色框体、纸张与胶片纹理、背光和装饰边码。Agent 工作区、启动器及宿主连接反馈的基础色已迁移到浅色；其具体布局仍沿现有模块。#112 已将候选审阅改为视频主面与按需右侧抽屉；第 3 批单行分组导航及项目入口重排仍以后续工单为准。\n\n依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。基础编辑页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。\n\n本次刷新对照 #111 的窄屏 Speech 原因浮层、#112 的桌面视频主面与窄屏审阅抽屉截图，并核对当前 CSS 的最终覆盖规则。组件示例与叙述同步保存在 `.impeccable/design.json`；其中色阶是供面板展示的派生 OKLCH 色阶，不是生产调色板。",
     "keyCharacteristics": [
       "连续表格优先，避免每个 Scene 独立成卡。",
       "内容按长度展开，选择、编辑与保存反馈可核对。",
@@ -126,7 +329,7 @@
       "恢复暗房框体、纸张胶片纹理、背光表格或装饰印章。",
       "把窄屏表格改为隐藏 Asset／Speech 列，或用固定行高截断长 Narration。",
       "以常驻检查侧栏挤占 Scene 主编辑区。",
-      "把第 2 批候选审阅或第 3 批导航及项目入口方案描述为已经交付。",
+      "把第 3 批导航及项目入口方案描述为已经交付。",
       "用短暂成功提示覆盖过期 Preview，或把接受候选等同最终输出完成。"
     ]
   }
