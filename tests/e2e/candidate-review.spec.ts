@@ -76,3 +76,114 @@ test('公开面板只读禁用候选决策，服务端拒绝接受和放弃，�
     expect((await call(owner, 'get_workbench')).structuredContent.scenes[0].narration).toBe('保留 Scene 内容');
   } finally { await page.close(); await other.close(); await viewer.close(); await owner.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test('停止与放弃回执丢失时只查询结果，保留或消费真实持久成果', async ({ page }) => {
+  const { readFile } = await import('node:fs/promises');
+  const root = await mkdtemp(join(tmpdir(), 'decision-receipts-'));
+  const panel = await startWorkbenchPanel({ threadId: 'decision-receipts' });
+  const call = async (name: string, args = {}) => (await (await page.request.post(`${panel.url}rpc`, {
+    headers: { Origin: new URL(panel.url).origin }, data: { id: 1, method: 'tools/call', params: { name, arguments: args } },
+  })).json()).result;
+  let stopWrites = 0, discardWrites = 0, blockReads = false, rejectDiscard = true;
+  try {
+    const created = (await call('create_project', { projectDirectory: join(root, 'project') })).structuredContent;
+    const identity = { projectDirectory: created.project.directory, projectId: created.project.projectId };
+    const task = (await call('start_creation_task', { ...identity, instruction: '保留候选，等待审阅' })).structuredContent.creationTask;
+    const original = await readFile(join(identity.projectDirectory, '.narracut/current.json'));
+    await page.goto(panel.url);
+    await page.route(`${panel.url}rpc`, async route => {
+      const request = route.request().postDataJSON(), { name, arguments: args } = request.params;
+      const fail = () => route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { isError: true, structuredContent: { error: { code: 'RESPONSE_LOST', message: '注入回执丢失' } } } } });
+      if (blockReads && (name === 'get_creation_task' || name === 'manage_project_candidate' && args.action === 'read')) return fail();
+      if (name === 'respond_creation_task' && args.action === 'stop') {
+        stopWrites++; await route.fetch(); blockReads = true; return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { structuredContent: { creationTask: {} } } } });
+      }
+      if (name === 'manage_project_candidate' && args.action === 'discard') {
+        discardWrites++;
+        if (!rejectDiscard) await route.fetch();
+        blockReads = true; return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { structuredContent: { candidate: {} } } } });
+      }
+      return route.continue();
+    });
+    const app = page.frameLocator('iframe');
+    await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    await app.getByRole('button', { name: '审阅详情', exact: true }).click();
+    await app.getByRole('button', { name: '停止任务', exact: true }).click();
+    await expect(app.getByRole('button', { name: '重新核对停止结果' })).toBeVisible();
+    await app.getByRole('button', { name: '重新核对停止结果' }).click();
+    await expect(app.getByRole('button', { name: '放弃候选', exact: true })).toBeDisabled();
+    const checkpoint = JSON.parse(await readFile(join(identity.projectDirectory, '.narracut/agent-task.json'), 'utf8'));
+    expect(checkpoint).toMatchObject({ taskId: task.taskId, status: 'stopped', reason: 'USER_STOPPED' });
+    const candidate = (await call('manage_project_candidate', { ...identity, action: 'read' })).structuredContent.candidate;
+    expect(candidate.status).toBe('saved');
+    expect(stopWrites).toBe(1);
+    blockReads = false;
+    await expect(app.getByRole('button', { name: '放弃候选', exact: true })).toBeEnabled({ timeout: 10000 });
+    await app.getByRole('button', { name: '放弃候选', exact: true }).click();
+    await expect(app.getByRole('button', { name: '取消', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(app.getByRole('button', { name: '放弃候选', exact: true })).toBeFocused();
+    expect(await readFile(join(identity.projectDirectory, '.narracut/agent-task.json'), 'utf8')).toBe(JSON.stringify(checkpoint));
+    await app.getByRole('button', { name: '放弃候选', exact: true }).click();
+    await app.getByRole('button', { name: '放弃候选并终结任务', exact: true }).click();
+    await expect(app.getByRole('button', { name: '核对操作结果', exact: true })).toBeVisible();
+    await app.getByRole('button', { name: '核对操作结果', exact: true }).click();
+    expect(discardWrites).toBe(1);
+    blockReads = false;
+    await expect(app.locator('[data-candidate-region]')).toContainText('候选仍存在', { timeout: 10000 });
+    expect((await call('manage_project_candidate', { ...identity, action: 'read' })).structuredContent.candidate).toEqual(candidate);
+    rejectDiscard = false;
+    await app.getByRole('button', { name: '放弃候选', exact: true }).click();
+    await app.getByRole('button', { name: '放弃候选并终结任务', exact: true }).click();
+    await expect(app.getByRole('button', { name: '核对操作结果', exact: true })).toBeVisible();
+    blockReads = false;
+    await expect(app.getByRole('button', { name: '核对操作结果', exact: true })).toHaveCount(0, { timeout: 10000 });
+    await expect(app.locator('.candidate-save')).toContainText('尚无候选');
+    expect(await readFile(join(identity.projectDirectory, '.narracut/current.json'))).toEqual(original);
+    await expect(readFile(join(identity.projectDirectory, '.narracut/agent-task.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(discardWrites).toBe(2);
+    expect(stopWrites).toBe(1);
+  } finally { await page.close(); await panel.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('放弃回执不明期间撤销写权，旧面板仍能只读核对且不再提交', async ({ page }) => {
+  const { readFile } = await import('node:fs/promises');
+  const root = await mkdtemp(join(tmpdir(), 'decision-control-'));
+  const owner = await startWorkbenchPanel({ threadId: 'decision-owner' });
+  const next = await startWorkbenchPanel({ threadId: 'decision-next' });
+  const call = async (panel: typeof owner, name: string, args = {}) => (await (await page.request.post(`${panel.url}rpc`, {
+    headers: { Origin: new URL(panel.url).origin }, data: { id: 1, method: 'tools/call', params: { name, arguments: args } },
+  })).json()).result;
+  let blockReads = true, writes = 0;
+  try {
+    const created = (await call(owner, 'create_project', { projectDirectory: join(root, 'project') })).structuredContent;
+    const identity = { projectDirectory: created.project.directory, projectId: created.project.projectId };
+    const candidate = (await call(owner, 'manage_project_candidate', { ...identity, action: 'create' })).structuredContent.candidate;
+    const original = await readFile(join(identity.projectDirectory, '.narracut/current.json'));
+    await page.goto(owner.url);
+    await page.route(`${owner.url}rpc`, async route => {
+      const request = route.request().postDataJSON(), { name, arguments: args } = request.params;
+      if (name === 'manage_project_candidate' && (args.action === 'discard' || blockReads && args.action === 'read')) {
+        if (args.action === 'discard') writes++;
+        return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { isError: true, structuredContent: { error: { code: 'RESPONSE_LOST', message: '注入回执不明' } } } } });
+      }
+      return route.continue();
+    });
+    const app = page.frameLocator('iframe');
+    await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    await app.getByRole('button', { name: '审阅详情', exact: true }).click();
+    await app.getByRole('button', { name: '放弃候选', exact: true }).click();
+    await app.getByRole('button', { name: '放弃候选并终结任务', exact: true }).click();
+    await expect(app.getByRole('button', { name: '核对操作结果', exact: true })).toBeVisible();
+    await call(next, 'open_project', identity);
+    expect((await call(next, 'project_control', { ...identity, action: 'takeover' })).isError).not.toBe(true);
+    await expect(app.getByText('只读 · 项目由另一对话控制', { exact: true })).toBeVisible();
+    blockReads = false;
+    await app.getByRole('button', { name: '核对操作结果', exact: true }).click();
+    await expect(app.getByRole('button', { name: '核对操作结果', exact: true })).toHaveCount(0, { timeout: 10000 });
+    await expect(app.getByRole('button', { name: '放弃候选', exact: true })).toBeDisabled();
+    expect((await call(next, 'manage_project_candidate', { ...identity, action: 'read' })).structuredContent.candidate).toEqual(candidate);
+    expect(await readFile(join(identity.projectDirectory, '.narracut/current.json'))).toEqual(original);
+    expect(writes).toBe(1);
+  } finally { await page.close(); await next.close(); await owner.close(); await rm(root, { recursive: true, force: true }); }
+});

@@ -933,7 +933,7 @@ class ProjectWorkspaceSession {
     try {
       const result = await this.acceptance.operate(opened, input);
       this.#candidateStatus = await opened.candidate({ action: 'read' });
-      if (result.status === 'accepted' && result.revision.current !== false && this.#candidateStatus.status === 'absent') {
+      if ((result.status === 'accepted' && input.action !== 'result' && result.revision.current !== false || input.action === 'cleanup' && this.creation?.value?.reason === 'CANDIDATE_ACCEPTED') && this.#candidateStatus.status === 'absent') {
         try { await this.creation?.terminate('CANDIDATE_ACCEPTED'); }
         catch { result.taskCleanupPending = true; }
       }

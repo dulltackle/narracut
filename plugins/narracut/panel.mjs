@@ -31874,6 +31874,7 @@ var ProjectAcceptance = class {
       const history = await manager.history();
       const known = history.revisions.find((item) => item.requestId === requestId);
       if (known) {
+        if (args.action === "result") return { status: "accepted", revision: known, cleanupPending: history.cleanupPending, taskCleanupPending: history.taskCleanupPending };
         const instanceId = known.acceptance?.instanceId;
         if (known.current && known.valid) this.preview.accept(instanceId, known.revisionId);
         this.delivery.consume(instanceId);
@@ -34162,7 +34163,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     try {
       const result = await this.acceptance.operate(opened, input);
       this.#candidateStatus = await opened.candidate({ action: "read" });
-      if (result.status === "accepted" && result.revision.current !== false && this.#candidateStatus.status === "absent") {
+      if ((result.status === "accepted" && input.action !== "result" && result.revision.current !== false || input.action === "cleanup" && this.creation?.value?.reason === "CANDIDATE_ACCEPTED") && this.#candidateStatus.status === "absent") {
         try {
           await this.creation?.terminate("CANDIDATE_ACCEPTED");
         } catch {

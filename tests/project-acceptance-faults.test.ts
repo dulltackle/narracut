@@ -2,6 +2,10 @@ import { test, expect, vi } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { ProjectAcceptance } from '../src/server/project-acceptance';
+import { ProjectPreview } from '../src/server/project-preview';
+import { ProjectChecks } from '../src/server/project-checks';
+import { ProjectDelivery } from '../src/server/project-delivery';
 import { createProjectVNext, openProjectVNext } from '../src/server/project-lifecycle';
 const fault = vi.hoisted(() => ({ phase: '' }));
 vi.mock('node:fs/promises', async importOriginal => {
@@ -66,11 +70,16 @@ test('接受的提交点同时使旧任务检查点失效，收尾失败不允�
     await expect(opened.programTransaction(manager => manager.accept({ baseline: candidate.baseline, summary: '接受', source: 'candidate', acceptance: {} }, async () => {}))).rejects.toThrow('未接受');
     expect(await endedTaskReason(path)).toBeNull();
     fault.phase = 'task-cleanup';
-    const result = await opened.programTransaction(manager => manager.accept({ baseline: candidate.baseline, summary: '接受', source: 'candidate', acceptance: {} }, async () => {}));
+    const requestId = '10000000-0000-4000-8000-000000000113';
+    const result = await opened.programTransaction(manager => manager.accept({ baseline: candidate.baseline, summary: '接受', source: 'candidate', acceptance: {}, requestId }, async () => {}));
     expect(result).toMatchObject({ status: 'accepted', cleanupPending: true });
     expect((await opened.candidate({ action: 'read' })).status).toBe('absent');
     expect(await endedTaskReason(path)).toBe('CANDIDATE_ACCEPTED');
     fault.phase = '';
+    const preview = new ProjectPreview();
+    const acceptance = new ProjectAcceptance(new ProjectDelivery(preview, new ProjectChecks(preview)), preview);
+    expect(await acceptance.operate(opened, { action: 'result', requestId })).toMatchObject({ status: 'accepted', taskCleanupPending: true });
+    expect(JSON.parse(await readFile(checkpoint, 'utf8')).taskId).toBe('旧任务');
     await opened.programTransaction(manager => manager.cleanupAcceptance());
     await expect(readFile(checkpoint)).rejects.toMatchObject({ code: 'ENOENT' });
     await writeFile(checkpoint, '新任务');

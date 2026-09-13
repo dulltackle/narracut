@@ -228,7 +228,7 @@
   let controlNotice = '';
   let controlEpoch = 0;
   let controlPollBusy = false;
-  const readButtons = '[data-open-review],[data-close-review],[data-return-review],[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
+  const readButtons = '[data-candidate-action="read"],[data-accept-result],[data-accept-cancel],[data-candidate-cancel],[data-task-check],[data-open-review],[data-close-review],[data-return-review],[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
   function enforceControl() {
     if (state.result?.status !== 'valid') return;
     const blocked = state.disconnected || state.result.writable !== true;
@@ -986,6 +986,8 @@
 
   // 沿用暗房工作台：状态后呈现必要待办；所有内容写入由用户明确决定。
   let taskActionBusy = false, seenBriefChange = null;
+  const validTaskReceipt = task => task === null || (typeof task?.taskId === 'string' && ['running', 'waiting', 'stopped', 'terminated'].includes(task.status));
+  const validCandidateReceipt = candidate => typeof candidate?.baseline === 'string' && ['absent', 'saved', 'external-change', 'integrity-failed'].includes(candidate.status);
   function suggestionMarkup(items, required) {
     return items.filter(item => !!item.required === required).map(item => {
       const index = state.project?.scenes?.findIndex(scene => scene.id === item.sceneId) ?? -1;
@@ -1002,13 +1004,16 @@
     requestAnimationFrame(() => document.querySelector(`[data-scene-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' }));
   }
   async function respondTask(action) {
-    if (action !== 'stop' || taskActionBusy || !state.result?.writable || state.creationTask?.transferred) return;
+    if (!['stop', 'finish-stop'].includes(action) || taskActionBusy) return;
+    if (action === 'finish-stop' && state.creationTask?.operation !== 'stop-uncertain') return;
+    if (action === 'stop' && (state.taskOperation === 'stop-uncertain' || state.creationTask?.operation === 'stop-uncertain')) { schedulePoll(0); return; }
+    if (!state.result?.writable || state.disconnected || state.creationTask?.transferred || state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked()) return;
     const project = state.result.project;
     taskActionBusy = true; state.taskOperation = 'stopping'; updateTaskRegion();
     try {
-      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action });
+      const response = await callHostTool('respond_creation_task', { projectDirectory: project.directory, projectId: project.projectId, action: 'stop' });
       if (state.result.project !== project) return;
-      if (response.isError || !response.structuredContent?.creationTask) throw new Error(response.structuredContent?.error?.message ?? '停止回执不完整，请重新核对');
+      if (response.isError || !response.structuredContent?.creationTask || !validTaskReceipt(response.structuredContent.creationTask)) throw new Error(response.structuredContent?.error?.message ?? '停止回执不完整，请重新核对');
       state.taskOperation = null; applyCreation(response.structuredContent.creationTask);
     } catch (error) { if (state.result.project === project) { state.taskOperation = 'stop-uncertain'; state.agentError = error.message; schedulePoll(); } }
     finally { taskActionBusy = false; updateTaskRegion(); bindings.abort(); bindings = new AbortController(); bind(); }
@@ -1016,9 +1021,10 @@
   function taskControls(task) {
     if (!task || task.transferred || task.status === 'terminated' || state.creationRecovery) return '';
     const operation = state.taskOperation ?? task.operation;
+    const disabled = taskActionBusy || state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked() || !state.result?.writable || state.disconnected;
     if (operation === 'stopping') return '<p class="creation-details" role="status">正在停止…</p>';
-    if (operation === 'stop-uncertain') return '<div class="creation-details"><p role="status">停止结果待核对</p><button class="agent-action" data-task-action="stop">重新核对停止结果</button></div>';
-    return ['running', 'waiting'].includes(task.status) ? '<div class="creation-details"><button class="agent-action" data-task-action="stop">停止任务</button></div>' : '';
+    if (operation === 'stop-uncertain') return `<div class="creation-details"><p role="status">停止结果待核对；正在自动核对，完成前不会重复提交。仍可只读查看。</p><button class="agent-action" data-task-action="stop" data-task-check>重新核对停止结果</button>${task.operation === 'stop-uncertain' ? `<p>已核对：停止收尾尚未完成。可重试完成原停止操作，候选继续保留。</p><button class="agent-action" data-task-action="finish-stop" ${disabled ? 'disabled' : ''}>重试停止收尾</button>` : ''}</div>`;
+    return ['running', 'waiting'].includes(task.status) ? `<div class="creation-details"><p>停止保留候选和任务检查点；只有你在当前 Codex 对话明确继续，才会恢复同一任务。</p><button class="agent-action" data-task-action="stop" ${disabled ? 'disabled' : ''}>停止任务</button></div>` : '';
   }
   function updateRecoveryRegion() {
     const region = document.querySelector('[data-task-recovery]');
@@ -1051,7 +1057,7 @@
 
   function taskNotice(includeStop = true) {
     const task = state.creationTask;
-    return task ? `<span>${task.transferred ? '任务已转移到另一线程' : state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${creationStopCopy[task.reason]?.[0] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${includeStop && ["running","waiting"].includes(task.status) && !task.transferred && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || task.operation === "stopping" ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
+    return task ? `<span>${task.transferred ? '任务已转移到另一线程' : state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${creationStopCopy[task.reason]?.[0] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${includeStop && ["running","waiting"].includes(task.status) && !task.transferred && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || state.taskOperation || task.operation || state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked() || !state.result?.writable || state.disconnected ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
   }
   function updateTaskRegion() {
     updateRecoveryRegion();
@@ -1136,14 +1142,14 @@
   function candidatePanel() {
     const candidate = state.candidate;
     const absent = candidate?.status === "absent";
-    const disabled = state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation || state.autosaveStopped || !state.result?.writable;
+    const disabled = state.candidateBusy || state.candidateUncertain || state.taskOperation || state.disconnected || acceptanceWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation || state.autosaveStopped || !state.result?.writable;
     return `<section class="candidate-panel" aria-labelledby="candidate-title"><header><h2 id="candidate-title">候选 Render Program</h2><span class="candidate-save" role="status"><span class="status-mark" data-status="${candidate?.status === "saved" ? "succeeded" : "unavailable"}" aria-hidden="true"></span>${candidateLabel()}</span></header>
       <p>${absent ? "尚无候选，请在当前 Codex 对话中表达创作目标。" : "Agent、人工与受控工具共享这个候选。停止活动或切换工作区都会保留它。"}</p>
       <dl><div><dt>检查</dt><dd>检查批次与操作条件见下方；构建与播放见上方成片 Preview</dd></div><div><dt>恢复检查点</dt><dd>${candidate?.checkpoint ? "上一份完整候选已保留" : "尚无恢复检查点"}</dd></div></dl>
       ${state.candidateError || candidate?.error ? `<p class="candidate-error" role="alert">${escapeHtml((state.candidateError ?? candidate.error).message)}</p>` : ""}
-      ${state.candidateUncertain ? '<p role="status">正在核对操作结果；核对前不会重复提交。</p><button class="agent-action" data-candidate-action="read">核对操作结果</button>' : ''}<div class="candidate-actions"><button type="button" class="agent-action" data-candidate-action="read" ${disabled ? "disabled" : ""}>重新检查完整性</button>${candidate && !absent ? `<button type="button" class="agent-action" data-candidate-discard ${disabled ? "disabled" : ""}>放弃候选</button>` : ""}</div>
+      ${state.candidateUncertain ? '<p role="status">正在核对操作结果；将自动重试，也可手动核对。核对前不会重复或冲突提交，仍可只读查看。</p><button class="agent-action" data-candidate-action="read">核对操作结果</button>' : ''}<div class="candidate-actions"><button type="button" class="agent-action" data-candidate-action="read" ${state.candidateBusy ? "disabled" : ""}>重新检查完整性</button>${candidate && !absent ? `<button type="button" class="agent-action" data-candidate-discard ${disabled ? "disabled" : ""}>放弃候选</button>` : ""}</div>
       <details ${state.candidateDetails ? "open" : ""} data-candidate-details><summary>身份与完整性详情</summary><dl><div><dt>来源修订</dt><dd>${escapeHtml(candidate?.sourceRevision ?? "尚未读取")}</dd></div>${[ ["候选", candidate?.candidate], ["恢复检查点", candidate?.checkpoint] ].map(([label, ref]) => ref ? `<div><dt>${label}路径</dt><dd><code>${escapeHtml(ref.path)}</code></dd></div><div><dt>${label}完整树身份</dt><dd><code>${escapeHtml(ref.identity)}</code></dd></div>` : "").join("")}</dl><p>完整性检查核对目录、普通文件和完整树字节；不表示源码、类型或构建检查通过。恢复替换与损坏导出尚未接入。</p></details>
-      ${state.candidateConfirm ? `<div class="candidate-confirm" role="alertdialog" aria-modal="true" aria-labelledby="candidate-discard-title" aria-describedby="candidate-discard-help"><h3 id="candidate-discard-title">放弃候选并终结任务？</h3><p id="candidate-discard-help">候选、候选恢复检查点和 Agent 任务检查点将一起删除，并终结旧任务。当前修订保留，操作不可撤销。</p><div class="candidate-actions"><button type="button" class="agent-action" data-candidate-cancel>取消</button><button type="button" class="agent-action" data-candidate-action="discard">放弃候选并终结任务</button></div></div>` : ""}</section>`;
+      ${state.candidateConfirm ? `<div class="candidate-confirm" role="alertdialog" aria-modal="true" aria-labelledby="candidate-discard-title" aria-describedby="candidate-discard-help"><h3 id="candidate-discard-title">放弃候选并终结任务？</h3><p id="candidate-discard-help">候选、候选恢复检查点和 Agent 任务检查点将一起删除，并终结旧任务。当前修订保留，操作不可撤销。</p><div class="candidate-actions"><button type="button" class="agent-action" data-candidate-cancel>取消</button><button type="button" class="agent-action" data-candidate-action="discard" ${disabled ? "disabled" : ""}>放弃候选并终结任务</button></div></div>` : ""}</section>`;
   }
 
   function updateCandidate() {
@@ -1160,7 +1166,7 @@
   }
 
   async function candidateOperation(action, quiet = false) {
-    if (state.candidateBusy || (action !== 'read' && (state.candidateUncertain || acceptanceWorkbench.blocked())) || !state.result?.writable || state.autosaveStopped || (quiet && state.candidateConfirm)) return;
+    if (state.candidateBusy || (action !== 'read' && (state.candidateUncertain || state.taskOperation || acceptanceWorkbench.blocked() || !state.result?.writable || state.disconnected || state.autosaveStopped)) || !state.result?.project || (quiet && state.candidateConfirm)) return;
     const project = state.result.project;
     state.candidateBusy = true;
     state.candidateAction = action;
@@ -1169,6 +1175,7 @@
       const response = await callHostTool("manage_project_candidate", { projectDirectory: project.directory, projectId: project.projectId, action, ...(action === "discard" ? { baseline: state.candidate?.baseline, confirmed: true } : {}) });
       if (state.result?.project !== project) return;
       const content = response?.structuredContent;
+      if (content?.candidate && !validCandidateReceipt(content.candidate)) throw new Error('候选回执不完整，继续核对持久结果。');
       if (content?.candidate) {
         state.candidate = content.candidate; state.candidateError = null;
         if (action === 'discard' || state.candidateUncertain) {
@@ -1182,7 +1189,7 @@
       }
       else if (content?.error) {
         state.candidateError = content.error;
-        if (action === 'discard' && content.error.code === 'CANDIDATE_SAVE_FAILED') state.candidateUncertain = true;
+        if (action === 'discard') state.candidateUncertain = true;
         if (content.error.code === "PROJECT_IDENTITY_LOST") state.autosaveStopped = true;
       } else if (!quiet) { state.candidateUncertain ||= action === 'discard'; state.candidateError = { message: '正在核对操作结果，请点击核对操作结果。' }; }
     } catch (error) {
@@ -1238,8 +1245,8 @@
   );
   const acceptanceWorkbench = createAcceptanceWorkbench(
     (action, args) => callHostTool('project_acceptance', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
-    () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate } : undefined,
-    () => state.result?.writable === true && !state.candidateUncertain && !(state.candidateBusy && state.candidateAction !== 'read') && state.creationTask?.status !== 'running' && !state.creationTask?.operation && state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict,
+    () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate, writable: state.result.writable } : undefined,
+    () => state.result?.writable === true && !state.disconnected && !state.taskOperation && !state.candidateConfirm && !state.candidateUncertain && !(state.candidateBusy && state.candidateAction !== 'read') && state.creationTask?.status !== 'running' && !state.creationTask?.operation && state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict,
     deliveryWorkbench, previewWorkbench,
     async (result) => {
       if (result?.status === 'accepted' && result.revision.valid !== false && result.revision.current !== false) {
@@ -3029,7 +3036,7 @@
 
   async function callHostTool(name, args) {
     if (inputsPending() && ((name === 'project_preview' && args.action === 'build') || (name === 'project_checks' && args.action === 'start') || (name === 'project_delivery' && args.action === 'create') || (name === 'project_acceptance' && args.action === 'accept') || (name === 'project_render' && args.action === 'start'))) throw new Error('请先保存本地编辑并重新检查，再执行此操作。');
-    if (state.disconnected && !['get_workbench', 'get_creation_task', 'get_scene_speech_job', 'project_recovery', 'inspect_project', 'get_project_asset_preview'].includes(name) && !['read', 'view', 'release', 'status', 'history', 'check'].includes(args?.action)) throw new Error('连接中断，核对项目身份与写权后才能写入。');
+    if (state.disconnected && !['get_workbench', 'get_creation_task', 'get_scene_speech_job', 'project_recovery', 'inspect_project', 'get_project_asset_preview'].includes(name) && !['read', 'view', 'release', 'status', 'history', 'check', 'result'].includes(args?.action)) throw new Error('连接中断，核对项目身份与写权后才能写入。');
     if (recovery && name !== 'project_recovery') throw new Error('项目身份已失效，编辑已停止。');
     const requestEpoch = controlEpoch;
     const response = typeof window.openai?.callTool === 'function'
@@ -3193,12 +3200,15 @@
     const project = state.result.project;
     pollTimer = setTimeout(async () => {
       try {
+        const operationAtRead = state.taskOperation;
         const response = await callHostTool('get_creation_task', { projectDirectory: project.directory, projectId: project.projectId });
+        if (operationAtRead !== state.taskOperation || taskActionBusy) { schedulePoll(); return; }
         if (state.result.project !== project) return;
         if (response?.isError) throw new Error(response.structuredContent?.error?.message ?? '无法读取任务');
         if (response.structuredContent?.candidate) { state.candidate = response.structuredContent.candidate; updateCandidate(); }
         state.creationRecovery = response.structuredContent?.creationRecovery ?? null;
-        if (response.structuredContent?.creationTask && !response.structuredContent.creationTask.operation) state.taskOperation = null;
+        if (!response.structuredContent || !('creationTask' in response.structuredContent) || !validTaskReceipt(response.structuredContent.creationTask)) throw new Error('任务回执不完整，继续核对。');
+        if (!taskActionBusy && !response.structuredContent.creationTask?.operation) state.taskOperation = null;
         applyCreation(response.structuredContent?.creationTask);
       } catch (error) { if (state.result?.project !== project) return; state.agentError = error.message; updateTaskRegion();  schedulePoll(2000); }
     }, state.creationTask?.status === 'running' ? delay : Math.max(delay, 2000));

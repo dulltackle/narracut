@@ -5,6 +5,7 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
   async function request(action, args = {}) {
     const key = projectKey, response = await call(action, args), value = response.structuredContent ?? response;
     if (key !== projectKey) throw new Error('项目已切换');
+    if (response.isError && !value.error) throw new Error('操作回执不完整，请核对结果。');
     if (value.error) throw Object.assign(new Error(value.error.message), { code: value.error.code });
     return value;
   }
@@ -18,8 +19,8 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
     const evidenceBlocked = getProject()?.hasCandidate === false || !!evidence.delivery?.stale || !!batch?.hardOperations?.includes('accept');
     if (confirmation && (!settled() || evidenceBlocked)) { confirmation = null; message = '项目输入或验收证据已变化，旧确认已失效；请完成保存与检查后重新审阅。'; }
     region.querySelector('[data-accept-message]').textContent = message;
-    region.querySelectorAll('[data-from-revision]').forEach(button => { button.disabled = busy || !history.revisions?.find(item => item.revisionId === button.dataset.fromRevision)?.valid; });
-    region.querySelector('[data-accept-review]').disabled = busy || !!unresolved || !settled() || evidenceBlocked;
+    region.querySelectorAll('[data-from-revision]').forEach(button => { button.disabled = busy || !!unresolved || cleanupPending || !settled() || !history.revisions?.find(item => item.revisionId === button.dataset.fromRevision)?.valid; });
+    region.querySelector('[data-accept-review]').disabled = busy || !!unresolved || cleanupPending || !settled() || evidenceBlocked;
     region.querySelector('[data-accept-review]').hidden = !!confirmation;
     region.querySelector('[data-accept-confirm]').hidden = !confirmation;
     region.querySelector('[data-accept-submit]').disabled = busy || checking || !!unresolved || !settled() || evidenceBlocked;
@@ -27,27 +28,28 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
     region.querySelector('[data-accept-result]').hidden = !unresolved;
     region.querySelector('[data-accept-result]').disabled = busy;
     region.querySelector('[data-accept-cleanup]').hidden = !cleanupPending;
-    region.querySelector('[data-accept-cleanup]').disabled = busy;
+    region.querySelector('[data-accept-cleanup]').disabled = busy || getProject()?.writable !== true;
     region.querySelector('[data-current-revision]').textContent = history.current ? `当前修订 · ${history.current.slice(0,8)}` : '当前修订';
   }
   function renderConfirmation(value) {
     confirmation = value;
     region.querySelector('[data-accept-summary]').innerHTML = `<h3>接受完整候选</h3><p>${esc(value.summary)}</p><dl><div><dt>候选身份</dt><dd><code>${esc(value.record.identity.program)}</code></dd></div><div><dt>输入新鲜度</dt><dd>Brief、Scene、媒体和执行环境均对应最新状态</dd></div><div><dt>检查结论</dt><dd>${value.record.zeroScenes ? 'Manifest 与构建检查通过；零 Scene 不需运行期代表帧' : '必要检查与完整代表帧证据已通过'}</dd></div></dl><h4>全部非阻断警告</h4>${value.record.warnings.length ? `<ul>${value.record.warnings.map(text=>`<li>${esc(text)}</li>`).join('')}</ul>` : '<p>当前没有非阻断警告。</p>'}<p>接受后终结本次任务，删除 Agent 任务检查点；创建不可变修订、更新当前修订并消费整个候选及候选恢复检查点；不代表已完成最终 Render。</p>${value.willPrune ? '<p class="accept-warning">历史已满，最旧修订将自动移出最近 20 个修订。</p>' : ''}`;
-    update(); region.querySelector('[data-accept-cancel]').focus({preventScroll:true});
+    update();
   }
   async function success(value) {
+    if (value?.status !== 'accepted' || typeof value.revision?.revisionId !== 'string' || !value.revision.revisionId) throw new Error('接受回执不完整，继续核对持久结果。');
     unresolved = null; confirmation = null; cleanupPending = value.cleanupPending || value.taskCleanupPending;
     if (value.revision.valid !== false && value.revision.current !== false) preview.accepted(value.revision.acceptance?.instanceId, value.revision.revisionId);
-    notice(`${value.taskCleanupPending ? '候选已接受，任务收尾待完成' : cleanupPending ? '已接受，清理待重试' : '已接受'} · ${value.revision.revisionId.slice(0,8)} · ${value.revision.summary}${value.revision.valid === false ? '；请查看历史中的损坏原因，接受事实不会撤销。' : ''}`);
-    await changed(value).catch(()=>notice('已接受；候选状态刷新失败，请重新检查完整性。')); await refreshHistory().catch(()=>{});
+    notice(`${value.taskCleanupPending ? '候选已接受，任务收尾待完成' : cleanupPending ? '已接受，清理待重试' : '已接受'} · ${value.revision.revisionId.slice(0,8)} · ${value.revision.summary}；最终 Render 尚需独立发起${value.revision.valid === false ? '；请查看历史中的损坏原因，接受事实不会撤销。' : ''}`);
+    await changed(value).catch(()=>notice(message + '；候选状态刷新失败，请重新检查完整性。')); await refreshHistory().catch(()=>{});
   }
   async function action(kind, args) {
-    if (busy) return; busy = true; update();
+    if (busy || (['review', 'accept', 'from-history'].includes(kind) && (unresolved || cleanupPending || !settled())) || (kind === 'cleanup' && getProject()?.writable !== true)) return; busy = true; update();
     try {
       if (kind === 'review') { if (!settled()) throw new Error('请先完成项目输入保存。'); const value = await request('review'); renderConfirmation(value.confirmation); message = ''; }
       else if (kind === 'accept') {
         const reviewed = confirmation; if (!reviewed || !settled()) throw new Error('确认已失效，请重新审阅。');
-        unresolved = { requestId: reviewed.requestId, baseline: reviewed.baseline, currentRevision: reviewed.currentRevision }; notice('提交前正在复核门禁');
+        unresolved = { requestId: reviewed.requestId, baseline: reviewed.baseline, currentRevision: reviewed.currentRevision }; confirmation = null; notice('提交前正在复核门禁');
         try { await success(await request('accept', { key: reviewed.key, requestId: reviewed.requestId, confirmed: true })); }
         catch (error) {
           if (['ACCEPTANCE_STALE','ACCEPTANCE_NOT_COMMITTED','ACCEPTANCE_NOT_READY','ACCEPTANCE_BLOCKED','ACCEPTANCE_CLEANUP_PENDING','ACCEPTANCE_CONFIRMATION_REQUIRED'].includes(error.code)) {
@@ -55,14 +57,14 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
           } else { notice('正在核对接受结果'); await reconcile(); }
         }
       } else if (kind === 'result') { notice('正在核对接受结果'); await reconcile(); }
-      else if (kind === 'cleanup') { const value = await request('cleanup'); cleanupPending = value.cleanupPending; notice(cleanupPending ? `已接受，清理待重试：${value.cleanupError}` : '已接受，清理完成'); }
+      else if (kind === 'cleanup') { const value = await request('cleanup'); if (typeof value.cleanupPending !== 'boolean') throw new Error('已接受；收尾回执不完整，请重试清理。'); cleanupPending = value.cleanupPending || value.taskCleanupPending; notice(cleanupPending ? `已接受，清理待重试：${value.cleanupError ?? '任务收尾尚未完成'}` : '已接受，清理完成；最终 Render 尚需独立发起'); await changed(value).catch(() => {}); }
       else if (kind === 'from-history') {
         if (delivery.view().delivery || getProject()?.hasCandidate) throw new Error('已有候选，请返回现有候选，先接受或明确放弃。');
         const value = await request(kind, args);
         if (value.status === 'candidate-created') { confirmation = null; region.querySelector('dialog').close(); await changed(); notice(`已从修订 ${args.revisionId.slice(0,8)} 创建候选 · 待针对最新输入检查、构建 Preview 和验收`); region.scrollIntoView({block:'start'}); }
       }
-    } catch (error) { notice(unresolved ? '正在核对接受结果；连接恢复后点击“核对接受结果”，完成前不会再次提交。' : error.message); }
-    finally { busy = false; update(); }
+    } catch (error) { notice(unresolved ? '正在核对接受结果；将自动重试，也可点击“核对接受结果”。核对完成前不会重复或冲突提交，可继续只读查看。' : error.message); }
+    finally { busy = false; update(); if (kind === 'review' && confirmation) region.querySelector('[data-accept-cancel]').focus({preventScroll:true}); }
   }
   async function reconcile() {
     const value = await request('result', unresolved);
@@ -89,9 +91,9 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
     catch { if (confirmation === original) { confirmation = null; notice('证据过期或无法复核，请重新准备证据后审阅。'); } }
     finally { poll = checking = false; update(); }
   }
-  setInterval(()=>{if(visible()){update();void verifyConfirmation();}},2000);
+  setInterval(()=>{if (!document.hidden && region?.isConnected && unresolved && !busy) void action('result'); if(visible()){update();void verifyConfirmation();}},2000);
   document.addEventListener('input',()=>{if(visible())update();});
-  return { blocked: () => busy || !!unresolved, mount(node) {
+  return { blocked: () => busy || !!unresolved || cleanupPending, mount(node) {
     const project = getProject(), key = project && `${project.projectId}:${project.directory}`;
     if (key !== projectKey) { projectKey = key; confirmation = unresolved = undefined; message = ''; history = {}; busy = cleanupPending = false; }
     if (region === node) { update(); return; } region = node; if (!region) return;

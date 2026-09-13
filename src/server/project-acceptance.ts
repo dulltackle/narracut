@@ -49,6 +49,8 @@ export class ProjectAcceptance {
       const history = await manager.history();
       const known = history.revisions.find(item => item.requestId === requestId);
       if (known) {
+        // 核对仅返回持久事实；收尾必须走有写权的明确入口。
+        if (args.action === 'result') return { status: 'accepted', revision: known, cleanupPending: history.cleanupPending, taskCleanupPending: history.taskCleanupPending };
         const instanceId = known.acceptance?.instanceId as string;
         if (known.current && known.valid) this.preview.accept(instanceId, known.revisionId);
         this.delivery.consume(instanceId);
