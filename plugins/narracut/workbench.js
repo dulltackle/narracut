@@ -53,6 +53,7 @@
     toast: null,
     focusTarget: null,
     dragged: null,
+    sceneMenu: null,
     operationMessage: null,
     creationTask: null,
     creationRecovery: null,
@@ -761,29 +762,71 @@
     }[state.saveStatus] ?? "已保存";
   }
 
-  function actionButtons(inMenu = false) {
-    const scene = selectedScene();
-    const index = scene ? currentScenes().indexOf(scene) : -1;
-    const disabled = !scene || state.autosaveStopped || state.assetBusy;
-    return `<button class="scene-action" type="button" data-copy ${disabled || currentScenes().length >= 1000 ? "disabled" : ""}>复制</button>
-      <button class="scene-action" type="button" data-move-up ${disabled || index <= 0 ? "disabled" : ""}>上移</button>
-      <button class="scene-action" type="button" data-move-down ${disabled || index >= currentScenes().length - 1 ? "disabled" : ""}>下移</button>
-      <label class="sr-only" for="${inMenu ? "scene-move-mobile" : "scene-move"}">移动到位置</label>
-      <input id="${inMenu ? "scene-move-mobile" : "scene-move"}" class="move-field" type="number" min="1" max="${Math.max(1, currentScenes().length)}" value="${Math.max(1, index + 1)}" aria-label="移动到位置" ${disabled ? "disabled" : ""}>
-      <button class="scene-action" type="button" data-move ${disabled ? "disabled" : ""}>移动</button>
-      <button class="scene-action" type="button" data-delete ${disabled ? "disabled" : ""}>删除</button>`;
+  function sceneWriteBlocked() {
+    return !state.project || state.result?.writable !== true || state.disconnected || state.autosaveStopped || state.assetBusy;
+  }
+
+  function sceneRowTarget(id = state.selected) {
+    return id ? `[data-scene-row][data-scene-id="${CSS.escape(id)}"]` : '[data-add-first]';
+  }
+
+  function historyLabel(stack, verb) {
+    return stack.length ? `${verb}：${stack.at(-1).label ?? '修改 Scene'}` : `没有可${verb}的记录`;
+  }
+
+  function sceneContextMenu() {
+    if (!state.sceneMenu || !selectedScene()) return '';
+    const index = currentScenes().indexOf(selectedScene());
+    const reason = sceneWriteBlocked() ? '编辑已暂停，请先恢复连接或写权' : '';
+    const item = (action, text, boundary = '') => {
+      const disabledReason = reason || boundary;
+      return `<div><button class="scene-action" role="menuitem" type="button" data-${action} aria-label="${text}" ${disabledReason ? `disabled aria-describedby="scene-${action}-reason"` : ''}>${text}</button>${disabledReason ? `<small id="scene-${action}-reason">${disabledReason}</small>` : ''}</div>`;
+    };
+    return `<div class="scene-context-menu" role="menu" aria-label="Scene ${pad(index + 1)} 操作" tabindex="-1">
+      ${item('copy', '复制', currentScenes().length >= 1000 ? '已达到 1,000 个 Scene 上限' : '')}
+      ${item('move-up', '上移', index === 0 ? '已经是第一句' : '')}
+      ${item('move-down', '下移', index === currentScenes().length - 1 ? '已经是最后一句' : '')}
+      <div class="scene-move-group" role="group" aria-label="移动到指定位置"><label for="scene-move">移动到位置</label><input id="scene-move" class="move-field" type="number" min="1" max="${currentScenes().length}" step="1" value="${index + 1}" ${reason ? 'disabled' : ''}><button class="scene-action" role="menuitem" type="button" data-move ${reason ? 'disabled' : ''}>移动</button></div>
+      ${item('delete', '删除')}
+    </div>`;
+  }
+
+  function closeSceneMenu(returnFocus = true) {
+    if (!state.sceneMenu) return;
+    state.sceneMenu = null;
+    if (returnFocus) state.focusTarget = sceneRowTarget();
+    render();
+  }
+
+  function openSceneMenu(row, event, keyboard = false) {
+    if (!state.project || state.workspace !== 'table') return;
+    event.preventDefault();
+    const box = row.getBoundingClientRect();
+    state.selected = row.dataset.sceneId;
+    previewWorkbench.selectScene(state.selected);
+    state.sceneMenu = { x: keyboard ? Math.max(8, box.left + 32) : event.clientX, y: keyboard ? Math.max(8, box.top + 20) : event.clientY };
+    state.focusTarget = sceneWriteBlocked() ? '.scene-context-menu' : '.scene-context-menu [role="menuitem"]:not(:disabled)';
+    render();
+  }
+
+  function positionSceneMenu() {
+    const menu = document.querySelector('.scene-context-menu');
+    if (!menu || !state.sceneMenu) return;
+    const box = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(state.sceneMenu.x, innerWidth - box.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(state.sceneMenu.y, innerHeight - box.height - 8))}px`;
   }
 
   function toolbar() {
-    const stopped = state.autosaveStopped || state.assetBusy;
+    const stopped = sceneWriteBlocked();
+    const addReason = stopped ? '编辑已暂停，请先恢复连接或写权' : currentScenes().length >= 1000 ? '已达到 1,000 个 Scene 上限' : '在所选 Scene 后新增；未选择时追加到末尾';
     return `<div class="scene-toolbar" aria-label="Scene 操作轨">
-      <span class="scene-count">${count(currentScenes().length)} 个 Scene</span><div class="toolbar-primary"><button class="scene-action" data-primary="true" type="button" data-add ${currentScenes().length >= 1000 || stopped ? "disabled" : ""}>新增 Scene</button></div>
-      <div class="toolbar-actions">${actionButtons()}</div>
+      <span class="scene-count">${count(currentScenes().length)} 个 Scene</span><div class="toolbar-primary"><button class="scene-action" data-primary="true" type="button" data-add title="${addReason}" ${currentScenes().length >= 1000 || stopped ? 'disabled' : ''}>新增 Scene</button></div>
       <div class="toolbar-history">
-        <button class="scene-action" type="button" data-undo aria-label="Undo" ${state.undo.length === 0 || stopped ? "disabled" : ""}>Undo</button>
-        <button class="scene-action" type="button" data-redo aria-label="Redo" ${state.redo.length === 0 || stopped ? "disabled" : ""}>Redo</button>
-        <details class="scene-menu"><summary class="scene-action">Scene 操作</summary><div class="scene-menu-panel">${actionButtons(true)}</div></details>
+        <button class="scene-action" type="button" data-undo title="${escapeHtml(historyLabel(state.undo, '撤销'))}" aria-label="${escapeHtml(historyLabel(state.undo, '撤销'))}" ${state.undo.length === 0 || stopped ? 'disabled' : ''}>撤销</button>
+        <button class="scene-action" type="button" data-redo title="${escapeHtml(historyLabel(state.redo, '重做'))}" aria-label="${escapeHtml(historyLabel(state.redo, '重做'))}" ${state.redo.length === 0 || stopped ? 'disabled' : ''}>重做</button>
       </div>
+      <p class="scene-operation-hint">${currentScenes().length >= 1000 ? '已达到 1,000 个 Scene 上限 · ' : ''}右键 Scene 或按 Shift+F10 打开操作；撤销记录仅保留在当前页面。</p>
     </div>`;
   }
 
@@ -825,7 +868,7 @@
     const speechAction = speech.action === "cancel"
       ? `<button type="button" class="speech-action" data-cancel-speech aria-label="取消 Speech 生成 · Scene ${pad(index + 1)}" title="取消 Speech 生成 · Scene ${pad(index + 1)}" ${speechDisabled ? "disabled" : ""}>取消</button>`
       : `<button type="button" class="speech-action" data-speech-action aria-label="${speech.action === "regenerate" ? "重新生成 Speech" : speech.action === "retry" ? "重试生成 Speech" : "生成 Speech"} · Scene ${pad(index + 1)}" title="Scene ${pad(index + 1)} · ${speech.action === "regenerate" ? "重新生成 Speech" : speech.action === "retry" ? "重试生成 Speech" : "生成 Speech"}" ${speechDisabled ? "disabled" : ""}>${speechIcon}</button>`;
-    return `<div class="scene-row" role="group" draggable="false" data-scene-row data-scene-id="${escapeHtml(scene.id)}" data-selected="${selected}" aria-label="Scene ${pad(index + 1)} 行">
+    return `<div class="scene-row" role="group" tabindex="0" aria-haspopup="menu" draggable="false" data-scene-row data-scene-id="${escapeHtml(scene.id)}" data-selected="${selected}" aria-label="Scene ${pad(index + 1)} 行">
       <span class="scene-no">${editable ? `<button class="drag-handle" type="button" draggable="${!state.assetBusy}" aria-label="拖动第 ${index + 1} 行" ${state.assetBusy ? "disabled" : ""}><span aria-hidden="true"></span></button>` : ""}<button class="scene-select" type="button" aria-label="Scene ${pad(index + 1)}：${escapeHtml(scene.narration.text)}" aria-pressed="${selected}"><strong>${pad(index + 1)}</strong><small>${pad(index + 1)}A</small></button></span>
       <span class="scene-copy">${editable && editing ? `<span class="narration-editor-wrap"><textarea class="narration-editor" aria-label="Scene ${pad(index + 1)} Narration" data-narration-editor ${state.assetBusy ? "disabled" : ""}>${escapeHtml(scene.narration.text)}</textarea><button class="expand-editor" type="button" data-expand ${state.assetBusy ? "disabled" : ""}>展开编辑</button></span><small class="narration-help">修改 Narration 会立即移除原 Speech</small>` : `<span class="narration-view">${escapeHtml(scene.narration.text || "空 Narration")}</span>${editable ? `<button class="edit-narration" type="button" aria-label="编辑 Narration" data-edit-narration ${state.assetBusy ? "disabled" : ""}>编辑 Narration</button>` : ""}`}</span>
       ${(editable || state.result?.control) ? `<button class="scene-assets" type="button" data-open-scene-assets aria-label="第 ${pad(index + 1)} 个 Scene 的 Asset：${escapeHtml(summary.text)}"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "管理引用" : `${assets.length} / 256`}</span></button>` : `<span class="scene-assets"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "未绑定文件" : `${assets.length} / 256`}</span></span>`}
@@ -1190,6 +1233,10 @@
       return;
     }
     renderPending = false;
+    if (state.sceneMenu && sceneWriteBlocked()) {
+      state.sceneMenu = null;
+      state.focusTarget = sceneRowTarget();
+    }
     const result = state.result;
     const launcherMode = result?.status === "launcher";
     app.className = `app-shell${launcherMode ? " launcher-shell" : state.project ? " editing-shell" : ""}`;
@@ -1217,11 +1264,12 @@
         finalRenderWorkbench.mount(document.querySelector("[data-final-render]"));
         checksWorkbench.mount(document.querySelector("[data-program-checks]"));
         updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
-        updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}`);
+        updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}${sceneContextMenu()}`);
       }
       updateWorkspaceVisibility();
     }
     bind();
+    positionSceneMenu();
     updateSharedFeedback();
     if (launcherMode && result.conversation?.status === 'unavailable') {
       app.querySelectorAll('button,input').forEach(control => { control.disabled = true; });
@@ -1372,19 +1420,20 @@
     const indicator = document.querySelector("[data-save-state]");
     updateSharedFeedback();
     enforceInputFreshness();
-    if (!indicator) return;
-    indicator.dataset.status = state.saveStatus;
-    indicator.textContent = saveLabel();
-    const undoButton = document.querySelector("[data-undo]");
-    const redoButton = document.querySelector("[data-redo]");
-    if (undoButton) undoButton.disabled = state.undo.length === 0 || state.autosaveStopped || state.assetBusy;
-    if (redoButton) redoButton.disabled = state.redo.length === 0 || state.autosaveStopped || state.assetBusy;
+    if (indicator) { indicator.dataset.status = state.saveStatus; indicator.textContent = saveLabel(); }
+    for (const [selector, stack, verb] of [['[data-undo]', state.undo, '撤销'], ['[data-redo]', state.redo, '重做']]) {
+      const button = document.querySelector(selector);
+      if (!button) continue;
+      button.disabled = stack.length === 0 || sceneWriteBlocked();
+      button.title = historyLabel(stack, verb);
+      button.setAttribute('aria-label', button.title);
+    }
   }
 
-  function snapshot() {
+  function snapshot(label = "修改 Scene") {
     const project = clone(state.project);
     const bytes = new TextEncoder().encode(JSON.stringify(project)).length;
-    return { project, selected: state.selected, bytes };
+    return { project, selected: state.selected, bytes, label };
   }
 
   function pushHistory(stack, entry) {
@@ -1393,8 +1442,8 @@
     while (stack.length > 1 && total > HISTORY_BYTE_LIMIT) total -= stack.shift().bytes;
   }
 
-  function recordSnapshot() {
-    pushHistory(state.undo, snapshot());
+  function recordSnapshot(label) {
+    pushHistory(state.undo, snapshot(label));
     state.redo = [];
   }
 
@@ -1761,18 +1810,20 @@
   }
 
   function commitProject(nextProject, message, options = {}) {
+    if (sceneWriteBlocked()) return false;
     const error = validateProject(nextProject);
     if (error) {
       announce(`修改被拒绝。${error}`);
       return false;
     }
     state.editGroupOpen = false;
-    recordSnapshot();
+    recordSnapshot(options.label);
+    state.sceneMenu = null;
     state.project = nextProject;
     if (options.selected !== undefined) state.selected = options.selected;
     state.editing = options.editing ?? null;
     state.toast = options.toast ?? null;
-    state.focusTarget = options.focusTarget ?? null;
+    state.focusTarget = options.focusTarget ?? sceneRowTarget();
     markDirty(options.immediate === true);
     state.operationMessage = message ? { version: state.version, message } : null;
     render();
@@ -1781,12 +1832,13 @@
   }
 
   function addScene() {
-    if (state.autosaveStopped || state.assetBusy || !state.project) return;
+    if (sceneWriteBlocked()) return;
     const id = createUuid();
     const scenes = clone(currentScenes());
     const index = state.selected ? Math.max(0, scenes.findIndex((scene) => scene.id === state.selected) + 1) : scenes.length;
     scenes.splice(index, 0, { id, narration: { text: "" }, assetIds: [] });
     commitProject({ ...clone(state.project), scenes }, `已新增 Scene ${pad(index + 1)}。`, {
+      label: `新增 Scene ${pad(index + 1)}`,
       selected: id,
       editing: id,
       focusTarget: "[data-narration-editor]",
@@ -1796,78 +1848,79 @@
 
   function copyScene() {
     const source = selectedScene();
-    if (!source || state.autosaveStopped || state.assetBusy) return;
+    if (!source || sceneWriteBlocked()) return;
     const scenes = clone(currentScenes());
     const index = scenes.findIndex((scene) => scene.id === source.id);
     const copy = { id: createUuid(), narration: { text: source.narration.text }, assetIds: [...source.assetIds] };
     scenes.splice(index + 1, 0, copy);
-    commitProject({ ...clone(state.project), scenes }, `已复制 Scene ${pad(index + 1)}；副本位于位置 ${index + 2}，Speech 缺失。`, { selected: copy.id, immediate: true });
+    commitProject({ ...clone(state.project), scenes }, `已复制 Scene ${pad(index + 1)}；副本位于位置 ${index + 2}，Speech 缺失。`, { label: `复制 Scene ${pad(index + 1)}`, selected: copy.id, immediate: true });
   }
 
   function deleteScene() {
     const source = selectedScene();
-    if (!source || state.autosaveStopped || state.assetBusy) return;
+    if (!source || sceneWriteBlocked()) return;
     const scenes = clone(currentScenes());
     const index = scenes.findIndex((scene) => scene.id === source.id);
     scenes.splice(index, 1);
     const nextSelected = scenes[index]?.id ?? scenes[index - 1]?.id ?? null;
-    commitProject({ ...clone(state.project), scenes }, `已删除 Scene ${pad(index + 1)}；可撤销。`, {
+    const selectionMessage = scenes[index] ? "已选择原位置的下一句" : nextSelected ? "已选择前一句" : "已无 Scene，可继续新增";
+    commitProject({ ...clone(state.project), scenes }, `已删除 Scene ${pad(index + 1)}；${selectionMessage}；可撤销。`, {
+      label: `删除 Scene ${pad(index + 1)}`,
       selected: nextSelected,
-      toast: `已删除 Scene ${pad(index + 1)}`,
+      toast: `已删除 Scene ${pad(index + 1)} · ${selectionMessage}`,
       immediate: true,
     });
   }
 
   function moveScene(targetIndex) {
+    if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= currentScenes().length || sceneWriteBlocked()) return;
     const source = selectedScene();
     const scenes = clone(currentScenes());
     const from = scenes.findIndex((scene) => scene.id === source?.id);
     const to = Math.max(0, Math.min(scenes.length - 1, targetIndex));
-    if (from < 0 || from === to || state.autosaveStopped || state.assetBusy) return;
+    if (from < 0) return;
+    if (from === to) { closeSceneMenu(); return; }
     const [moved] = scenes.splice(from, 1);
     scenes.splice(to, 0, moved);
-    commitProject({ ...clone(state.project), scenes }, `Scene 已从位置 ${from + 1} 移动到位置 ${to + 1}。`, { selected: moved.id, immediate: true });
+    commitProject({ ...clone(state.project), scenes }, `Scene 已从位置 ${from + 1} 移动到位置 ${to + 1}。`, { label: `移动 Scene ${pad(from + 1)} 到位置 ${to + 1}`, selected: moved.id, immediate: true });
     requestAnimationFrame(() => document.querySelector(`[data-scene-id="${CSS.escape(moved.id)}"]`)?.scrollIntoView({ block: "nearest" }));
   }
 
-  function undo() {
-    const previous = state.undo.pop();
-    if (!previous || state.autosaveStopped || state.assetBusy) return;
-    pushHistory(state.redo, snapshot());
-    state.project = previous.project;
-    state.selected = previous.selected;
+  function moveSceneHistory(from, to, verb) {
+    if (sceneWriteBlocked()) return;
+    const entry = from.pop();
+    if (!entry) return;
+    pushHistory(to, snapshot(entry.label));
+    state.project = entry.project;
+    state.selected = entry.selected;
     state.editing = null;
+    state.editGroupOpen = false;
+    state.sceneMenu = null;
     state.toast = null;
     state.operationMessage = null;
+    state.focusTarget = sceneRowTarget();
     markDirty(true);
     render();
-    announce("已撤销上一个 Scene 修改，正在重新保存。");
+    announce(`已${verb}${entry.label ?? '修改 Scene'}，正在重新保存。`);
   }
 
-  function redo() {
-    const next = state.redo.pop();
-    if (!next || state.autosaveStopped || state.assetBusy) return;
-    pushHistory(state.undo, snapshot());
-    state.project = next.project;
-    state.selected = next.selected;
-    state.editing = null;
-    state.toast = null;
-    markDirty(true);
-    render();
-    announce("已重做 Scene 修改，正在重新保存。");
-  }
+  function undo() { moveSceneHistory(state.undo, state.redo, '撤销'); }
+  function redo() { moveSceneHistory(state.redo, state.undo, '重做'); }
 
   function updateNarration(sceneId, value, source) {
     const index = currentScenes().findIndex((scene) => scene.id === sceneId);
     if (index < 0 || state.autosaveStopped || state.assetBusy) return;
     const previousValue = state.project.scenes[index].narration.text;
+    if (value === previousValue) return;
+    state.toast = null;
+    document.querySelector(".undo-toast")?.remove();
     if ([...value].length > 65_536 || new TextEncoder().encode(value).length > 256 * 1024) {
       source.value = previousValue;
       announce("输入被拒绝。Narration 超过 65,536 个 Unicode 标量或 256 KiB 上限。");
       return;
     }
     if (!state.editGroupOpen) {
-      recordSnapshot();
+      recordSnapshot(`修改 Scene ${pad(index + 1)} Narration`);
       state.editGroupOpen = true;
     }
     state.project.scenes[index] = {
@@ -2248,6 +2301,7 @@
               if (undoScene && beforeScene) {
                 undoScene.assetIds = [...beforeScene.assetIds];
                 pushHistory(state.undo, {
+                  label: "导入并绑定 Asset",
                   project: undoProject,
                   selected: state.selected,
                   bytes: new TextEncoder().encode(JSON.stringify(undoProject)).length,
@@ -2362,6 +2416,13 @@
 
   function bindSceneRows() {
     document.querySelectorAll("[data-scene-row]").forEach((row) => {
+      row.addEventListener('contextmenu', event => openSceneMenu(row, event), { signal: bindings.signal });
+      row.addEventListener('keydown', event => {
+        if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openSceneMenu(row, event, true);
+        else if (event.target === row && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault(); state.selected = row.dataset.sceneId; previewWorkbench.selectScene(state.selected); render();
+        }
+      }, { signal: bindings.signal });
       row.addEventListener("click", (event) => {
         if (event.target.closest("button,textarea,input")) return;
         state.selected = row.dataset.sceneId;
@@ -2432,7 +2493,32 @@
     if (header) header.style.transform = `translateX(${-event.target.scrollLeft}px)`;
   }, true);
 
+  app.addEventListener('pointerdown', event => {
+    if (state.sceneMenu && !event.target.closest('.scene-context-menu') && event.button !== 2) closeSceneMenu(false);
+  });
+  window.addEventListener('resize', positionSceneMenu);
+
   function bindTable() {
+    document.querySelector('.scene-context-menu')?.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        event.preventDefault(); closeSceneMenu(); return;
+      }
+      const controls = [...event.currentTarget.querySelectorAll('button:not(:disabled),input:not(:disabled)')];
+      const current = controls.indexOf(document.activeElement);
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        const next = current + (event.shiftKey ? -1 : 1);
+        if (next < 0 || next >= controls.length) closeSceneMenu();
+        else controls[next].focus();
+        return;
+      }
+      if (event.target.matches('input')) {
+        if (event.key === 'Enter') { event.preventDefault(); if (event.target.reportValidity()) moveScene(event.target.valueAsNumber - 1); }
+        return;
+      }
+      const next = event.key === 'ArrowDown' ? (current + 1) % controls.length : event.key === 'ArrowUp' ? (current - 1 + controls.length) % controls.length : event.key === 'Home' ? 0 : event.key === 'End' ? controls.length - 1 : null;
+      if (next !== null) { event.preventDefault(); controls[next]?.focus(); }
+    }, { signal: bindings.signal });
     document.querySelectorAll("[data-add],[data-add-first]").forEach((button) => button.addEventListener("click", addScene, { signal: bindings.signal }));
     document.querySelectorAll("[data-copy]").forEach((button) => button.addEventListener("click", copyScene, { signal: bindings.signal }));
     document.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", deleteScene, { signal: bindings.signal }));
@@ -2440,7 +2526,7 @@
     document.querySelectorAll("[data-move-down]").forEach((button) => button.addEventListener("click", () => moveScene(currentScenes().findIndex((scene) => scene.id === state.selected) + 1), { signal: bindings.signal }));
     document.querySelectorAll("[data-move]").forEach((button) => button.addEventListener("click", () => {
       const input = button.previousElementSibling;
-      moveScene(Number(input.value) - 1);
+      if (input.reportValidity()) moveScene(input.valueAsNumber - 1);
     }, { signal: bindings.signal }));
     document.querySelector("[data-undo]")?.addEventListener("click", undo, { signal: bindings.signal });
     document.querySelector("[data-redo]")?.addEventListener("click", redo, { signal: bindings.signal });
@@ -3048,6 +3134,7 @@
     state.saveInFlight = false;
     state.undo = [];
     state.redo = [];
+    state.sceneMenu = null;
     state.editing = null;
     state.expanded = null;
     state.toast = null;

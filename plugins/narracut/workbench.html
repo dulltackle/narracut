@@ -355,6 +355,23 @@ button:disabled { opacity:.5; cursor:not-allowed; }
  .shared-feedback { padding:6px 8px; }
 }
 
+/* Scene 编排：行选择与键盘焦点独立，菜单随指针打开。 */
+.scene-row:focus-visible { outline:2px solid var(--focus-blue); outline-offset:-2px; }
+.scene-context-menu { position:fixed; z-index:45; width:min(248px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; display:grid; gap:4px; padding:8px; background:var(--paper); color:var(--ink); border-radius:6px; box-shadow:0 8px 24px #00000024; }
+.scene-context-menu .scene-action { width:100%; text-align:left; border:0; min-height:36px; font-size:13px; font-weight:500; }
+.scene-context-menu .scene-action:hover:not(:disabled) { background:var(--control); color:var(--ink); }
+.scene-context-menu small { display:block; padding:0 10px 4px; color:var(--muted); font-size:12px; }
+.scene-move-group { display:grid; grid-template-columns:1fr 60px auto; align-items:center; gap:4px; padding-block:6px; border-block:1px solid var(--line); font-size:12px; }
+.scene-move-group .move-field { width:60px; min-height:36px; border-color:var(--line); border-radius:6px; font-family:inherit; }
+.scene-operation-hint { flex-basis:100%; margin:0; color:var(--muted); font-size:12px; line-height:1.5; }
+.empty-edit { background:var(--paper); background-image:none; border:0; box-shadow:none; }
+.undo-toast { position:static; transform:none; min-height:40px; padding:4px 8px; max-width:100%; width:auto; border:0; box-shadow:none; background:var(--panel); flex-wrap:wrap; font-size:12px; }
+.contact-frame[data-editable="true"]:has(.undo-toast) { grid-template-rows:auto auto minmax(0,1fr) auto; }
+@media(max-width:700px) {
+  .toolbar-history [data-undo],.toolbar-history [data-redo] { width:auto; padding:4px 8px; font-size:12px; }
+  .toolbar-history [data-undo]::after,.toolbar-history [data-redo]::after { content:none; }
+  .scene-context-menu .scene-action,.scene-move-group .move-field { min-height:44px; }
+}
   </style>
 </head>
 <body data-surface="narracut-vnext-contact-sheet">
