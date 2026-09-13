@@ -40,6 +40,8 @@
     selected: null,
     inspectionOpen: false,
     inspectorMode: "project",
+    assetSceneId: null,
+    inspectionReturnTarget: null,
     assetSearch: "",
     assetBusy: false,
     assetImportResults: [],
@@ -61,6 +63,9 @@
     candidateUncertain: false,
     agentError: null,
     speechJobs: {},
+    speechInvalidated: {},
+    speechRefreshNeeded: false,
+    speechReasonScene: null,
     ttsForm: null,
     ttsApiKey: "",
     ttsClearCredential: false,
@@ -223,7 +228,7 @@
   let controlNotice = '';
   let controlEpoch = 0;
   let controlPollBusy = false;
-  const readButtons = '[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
+  const readButtons = '[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
   function enforceControl() {
     if (state.result?.status !== 'valid') return;
     const blocked = state.disconnected || state.result.writable !== true;
@@ -333,6 +338,7 @@
         } else { state.saveStatus = 'failed'; state.saveError = { message: '连接已恢复，本地编辑尚未保存，请重试保存。' }; }
       }
       state.disconnected = false; controlNotice = '';
+      if (reconnecting) scheduleSpeechPoll();
       state.result.control = content.control; state.result.writable = content.writable;
       if (changed || reconnecting || !content.writable) {
         if (retainedDraft || state.version === state.savedVersion && !state.editing) {
@@ -352,6 +358,7 @@
       state.disconnected = true; state.autosaveStopped = true;
       clearTimeout(saveTimer); clearTimeout(briefSaveTimer);
       state.saveError = { message: error.message };
+      render();
       updateSharedFeedback(); enforceControl();
     } finally { controlPollBusy = false; }
   }
@@ -480,7 +487,7 @@
   }
 
   function speechRuntime(scene) {
-    if (!scene.speech && state.result?.projectDsl?.scenes?.some(item => item.id === scene.id && item.speech)) return { status: 'missing' };
+    if (!scene.speech) return { status: 'missing' };
     return (state.result?.speechStates ?? []).find((item) => item.sceneId === scene.id)
       ?? state.result?.scenes?.find((item) => item.id === scene.id)?.speech
       ?? (scene.speech ? { sceneId: scene.id, status: "available", durationMs: scene.speech.durationMs } : { sceneId: scene.id, status: "missing" });
@@ -608,8 +615,29 @@
     return `<ol class="import-ledger" aria-label="Asset 导入结果">${state.assetImportResults.map((item) => `<li data-status="${escapeHtml(item.status)}"><span class="status-mark" data-status="${item.status === "copying" ? "running" : item.status.startsWith("imported-") ? "connected" : "unavailable"}" aria-hidden="true"></span><div><strong>${escapeHtml(item.name)}</strong><span>${importStatusLabel(item.status)}</span>${item.message ? `<small>${escapeHtml(item.message)}</small>` : ""}</div></li>`).join("")}</ol>`;
   }
 
+  function assetScene() {
+    return currentScenes().find(scene => scene.id === state.assetSceneId) ?? null;
+  }
+
+  function openSceneAssets(button) {
+    state.assetSceneId = button.closest("[data-scene-id]").dataset.sceneId;
+    state.inspectionReturnTarget = `[data-scene-id="${state.assetSceneId}"] [data-open-scene-assets]`;
+    state.inspectorMode = "scene-assets";
+    state.inspectionOpen = true;
+    state.assetSearch = "";
+    state.focusTarget = "[data-close-inspection]";
+    render();
+  }
+
+  function closeInspection() {
+    state.inspectionOpen = false;
+    state.focusTarget = state.inspectionReturnTarget ?? "[data-open-inspection]";
+    state.inspectionReturnTarget = null;
+    render();
+  }
+
   function sceneAssetInspector(result) {
-    const scene = selectedScene();
+    const scene = assetScene();
     if (!scene) {
       state.inspectorMode = "project";
       return projectInspector(result);
@@ -630,7 +658,7 @@
   }
 
   function assetPickerInspector(result, projectMode = false) {
-    const scene = selectedScene();
+    const scene = assetScene();
     const referenced = new Set(scene?.assetIds ?? []);
     const query = state.assetSearch.trim().toLocaleLowerCase();
     const filtered = state.project.assets.filter((asset) => asset.path.toLocaleLowerCase().includes(query));
@@ -833,46 +861,93 @@
   function speechPresentation(scene) {
     const runtime = speechRuntime(scene);
     const job = state.speechJobs[scene.id];
-    if (job && !["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) {
-      return { label: job.stage, detail: job.pollError ? "状态读取中断 · 后台仍运行，正在重试" : "既有 Speech 在新结果提交前保持可用", mark: "running", action: "cancel" };
+    const invalidated = state.speechInvalidated[scene.id] && runtime.status !== 'available';
+    const active = job && !['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status);
+    const draft = runtime.status !== 'available';
+    let label = runtime.status === 'available' ? '已生成' : '待生成';
+    let reason = invalidated ? 'Narration 已修改，需重新生成 Speech。' : runtime.reason ?? '';
+    let action = draft ? 'generate' : 'regenerate';
+    let mark = draft ? 'idle' : 'connected';
+    if (active) {
+      label = invalidated ? '待生成' : state.disconnected || job.pollError ? '状态待核对' : job.stage;
+      reason = [reason, state.disconnected || job.pollError
+        ? `仅显示最后确认状态，无法确认后台进度。${job.pollError ?? ''}`
+        : `${job.stage}。既有匹配 Speech 在新结果提交前保持可用。`].filter(Boolean).join(' ');
+      action = 'cancel'; mark = 'running';
+    } else if (job && ['cancelled', 'failed', 'rejected'].includes(job.status) && !invalidated) {
+      label = job.status === 'cancelled' ? '已取消' : '生成失败';
+      reason = job.error?.message ?? '生成已取消，可以直接重试。';
+      action = 'retry'; mark = 'unavailable';
+    } else if (draft && runtime.status !== 'missing' && !invalidated) {
+      label = ({ unavailable: '文件不可用', 'decode-failed': '解码失败', changed: '音频已变更', 'profile-mismatch': '配置已变更' })[runtime.status] ?? '待生成';
+      mark = 'unavailable';
     }
-    if (job && ["cancelled", "failed", "rejected"].includes(job.status)) {
-      return { label: job.stage, detail: job.error?.message ?? "既有 Speech 保持不变", mark: "unavailable", action: "retry" };
-    }
-    if (runtime.status === "available") {
-      return { label: "已生成", detail: seconds(runtime.durationMs), mark: "connected", action: "regenerate" };
-    }
-    const labels = {
-      missing: "缺失",
-      unavailable: "文件不可用",
-      "decode-failed": "解码失败",
-      changed: "音频已变更",
-      "profile-mismatch": "配置已变更",
-    };
-    return {
-      label: labels[runtime.status] ?? "缺失",
-      detail: scene.narration.text.trim() === "" ? "空 Narration" : "Draft · 5 秒",
-      mark: runtime.status === "missing" ? "idle" : "unavailable",
-      action: "generate",
-    };
+    if (!scene.narration.text.trim()) reason = 'Narration 为空，请先填写旁白再生成 Speech。';
+    if (draft) reason += ' 缺少匹配 Speech，仅以 Draft Duration（草稿估算 5 秒）参与 Preview，不能用于最终 Render。';
+    if (state.disconnected) reason += ' 连接已中断，暂时只读；请重新连接后核对。';
+    else if (state.result?.writable !== true) reason += ' 当前项目只读，需要写权才能生成或取消 Speech。';
+    else if (state.autosaveStopped) reason += ' 保存已暂停，请先解决保存冲突或项目身份问题。';
+    else if (state.version !== state.savedVersion || state.saveInFlight) reason += ' Scene 修改尚未保存完成，生成前会先等待保存成功。';
+    if (state.saveStatus === 'failed') reason += ` 保存失败：${state.saveError?.message ?? state.saveError ?? '请重试保存。'}`;
+    if (state.assetBusy) reason += ' Asset 正在导入，请等待完成后操作。';
+    return { label, reason: reason.trim(), detail: draft ? '草稿 5 秒' : seconds(runtime.durationMs), mark, action };
   }
+
+  function speechCell(scene, index, editable = true) {
+    const speech = speechPresentation(scene);
+    const speechDisabled = sceneWriteBlocked() || (speech.action !== 'cancel' && !scene.narration.text.trim());
+    const actionLabel = speech.action === 'cancel' ? '取消 Speech 生成' : speech.action === 'regenerate' ? '重新生成 Speech' : speech.action === 'retry' ? '重试生成 Speech' : '生成 Speech';
+    const icon = `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${speech.action === 'generate' ? '<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/>' : '<path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2l1 4M4 12l1 4a8 8 0 0 0 13 2"/>'}</svg>`;
+    return `${speech.reason ? `<button type="button" class="speech-reason" data-speech-reason aria-haspopup="dialog" aria-expanded="${state.speechReasonScene === scene.id}" aria-label="查看 Speech 原因 · Scene ${pad(index + 1)}" title="查看 Speech 原因 · Scene ${pad(index + 1)}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4M12 17h.01"/></svg></button>` : ''}<span class="speech-summary"><span class="cell-value ${speech.mark === 'connected' ? 'ready' : 'missing'}" title="${escapeHtml(speech.label)}"><span class="status-mark" data-status="${speech.mark}" aria-hidden="true"></span>${escapeHtml(speech.label)}</span><span class="cell-detail">${escapeHtml(speech.detail)}</span></span>${editable ? `<button type="button" class="speech-action" ${speech.action === 'cancel' ? 'data-cancel-speech' : 'data-speech-action'} aria-label="${actionLabel} · Scene ${pad(index + 1)}" title="Scene ${pad(index + 1)} · ${actionLabel}" ${speechDisabled ? 'disabled' : ''}>${speech.action === 'cancel' ? '取消' : icon}</button>` : ''}`;
+  }
+
+  function speechReasonLayer() {
+    const scene = currentScenes().find(scene => scene.id === state.speechReasonScene);
+    if (!scene) return '';
+    return `<div class="speech-reason-popover" role="dialog" tabindex="-1" aria-label="Speech 原因 · Scene ${pad(currentScenes().indexOf(scene) + 1)}"><header><strong>Speech · Scene ${pad(currentScenes().indexOf(scene) + 1)}</strong><button type="button" data-close-speech-reason aria-label="关闭 Speech 原因">关闭</button></header><p>${escapeHtml(speechPresentation(scene).reason)}</p></div>`;
+  }
+
+  function positionSpeechReason() {
+    const popover = document.querySelector('.speech-reason-popover');
+    const trigger = document.querySelector(`[data-scene-id="${state.speechReasonScene}"] [data-speech-reason]`);
+    if (!popover || !trigger) return;
+    const anchor = trigger.getBoundingClientRect(), box = popover.getBoundingClientRect();
+    popover.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - box.width - 8))}px`;
+    popover.style.top = `${Math.max(8, Math.min(anchor.bottom + 6, innerHeight - box.height - 8))}px`;
+  }
+
+  function closeSpeechReason() {
+    const id = state.speechReasonScene;
+    state.speechReasonScene = null;
+    state.focusTarget = `[data-scene-id="${id}"] [data-speech-reason]`;
+    render();
+  }
+
+  document.addEventListener('click', event => {
+    if (event.target.closest('[data-speech-action]:not(:disabled)')) void startSpeech(event.target.closest('[data-scene-id]').dataset.sceneId);
+    if (event.target.closest('[data-cancel-speech]:not(:disabled)')) void cancelSpeech(event.target.closest('[data-scene-id]').dataset.sceneId);
+    const button = event.target.closest('[data-speech-reason]');
+    if (button) {
+      const id = button.closest('[data-scene-id]').dataset.sceneId;
+      if (state.speechReasonScene === id) { closeSpeechReason(); return; }
+      state.speechReasonScene = id;
+      state.focusTarget = '.speech-reason-popover';
+      render();
+    } else if (state.speechReasonScene && (!event.target.closest('.speech-reason-popover') || event.target.closest('[data-close-speech-reason]'))) closeSpeechReason();
+  });
+  document.addEventListener('scroll', positionSpeechReason, true);
+  window.addEventListener('resize', positionSpeechReason);
 
   function sceneRow(scene, index, editable = true) {
     const selected = scene.id === state.selected;
     const assets = assetsFor(scene);
     const summary = assetSummary(scene);
     const editing = state.editing === scene.id;
-    const speech = speechPresentation(scene);
-    const speechDisabled = state.autosaveStopped || state.assetBusy || scene.narration.text.trim() === "";
-    const speechIcon = `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${speech.action === 'generate' ? '<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/>' : '<path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2l1 4M4 12l1 4a8 8 0 0 0 13 2"/>'}</svg>`;
-    const speechAction = speech.action === "cancel"
-      ? `<button type="button" class="speech-action" data-cancel-speech aria-label="取消 Speech 生成 · Scene ${pad(index + 1)}" title="取消 Speech 生成 · Scene ${pad(index + 1)}" ${speechDisabled ? "disabled" : ""}>取消</button>`
-      : `<button type="button" class="speech-action" data-speech-action aria-label="${speech.action === "regenerate" ? "重新生成 Speech" : speech.action === "retry" ? "重试生成 Speech" : "生成 Speech"} · Scene ${pad(index + 1)}" title="Scene ${pad(index + 1)} · ${speech.action === "regenerate" ? "重新生成 Speech" : speech.action === "retry" ? "重试生成 Speech" : "生成 Speech"}" ${speechDisabled ? "disabled" : ""}>${speechIcon}</button>`;
     return `<div class="scene-row" role="group" tabindex="0" aria-haspopup="menu" draggable="false" data-scene-row data-scene-id="${escapeHtml(scene.id)}" data-selected="${selected}" aria-label="Scene ${pad(index + 1)} 行">
       <span class="scene-no">${editable ? `<button class="drag-handle" type="button" draggable="${!state.assetBusy}" aria-label="拖动第 ${index + 1} 行" ${state.assetBusy ? "disabled" : ""}><span aria-hidden="true"></span></button>` : ""}<button class="scene-select" type="button" aria-label="Scene ${pad(index + 1)}：${escapeHtml(scene.narration.text)}" aria-pressed="${selected}"><strong>${pad(index + 1)}</strong><small>${pad(index + 1)}A</small></button></span>
       <span class="scene-copy">${editable && editing ? `<span class="narration-editor-wrap"><textarea class="narration-editor" aria-label="Scene ${pad(index + 1)} Narration" data-narration-editor ${state.assetBusy ? "disabled" : ""}>${escapeHtml(scene.narration.text)}</textarea><button class="expand-editor" type="button" data-expand ${state.assetBusy ? "disabled" : ""}>展开编辑</button></span><small class="narration-help">修改 Narration 会立即移除原 Speech</small>` : `<span class="narration-view">${escapeHtml(scene.narration.text || "空 Narration")}</span>${editable ? `<button class="edit-narration" type="button" aria-label="编辑 Narration" data-edit-narration ${state.assetBusy ? "disabled" : ""}>编辑 Narration</button>` : ""}`}</span>
-      ${(editable || state.result?.control) ? `<button class="scene-assets" type="button" data-open-scene-assets aria-label="第 ${pad(index + 1)} 个 Scene 的 Asset：${escapeHtml(summary.text)}"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "管理引用" : `${assets.length} / 256`}</span></button>` : `<span class="scene-assets"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "未绑定文件" : `${assets.length} / 256`}</span></span>`}
-      <div class="scene-speech"><span class="cell-label">Speech</span><span class="cell-value ${speech.mark === "connected" ? "ready" : "missing"}"><span class="status-mark" data-status="${speech.mark}" aria-hidden="true"></span>${escapeHtml(speech.label)}</span><span class="cell-detail" title="${escapeHtml(speech.detail)}">${escapeHtml(speech.detail)}</span>${editable ? speechAction : ""}</div>
+      <button class="scene-assets" type="button" data-open-scene-assets aria-label="第 ${pad(index + 1)} 个 Scene 的 Asset：${escapeHtml(summary.text)}"><span class="cell-label">Asset</span><span class="cell-value">${summary.abnormal ? '<span class="asset-warning" aria-hidden="true"></span>' : ""}${escapeHtml(summary.text)}</span><span class="cell-detail">${assets.length === 0 ? "管理引用" : `${assets.length} / 256`}</span></button>
+      <div class="scene-speech">${speechCell(scene, index, editable)}</div>
     </div>`;
   }
 
@@ -1233,6 +1308,16 @@
       return;
     }
     renderPending = false;
+    if (state.speechReasonScene) {
+      const scene = currentScenes().find(scene => scene.id === state.speechReasonScene);
+      const focused = document.activeElement?.closest('.speech-reason-popover');
+      if (!scene || !speechPresentation(scene).reason) {
+        if (focused) state.focusTarget = scene ? `[data-scene-id="${scene.id}"] [data-speech-action]` : sceneRowTarget();
+        state.speechReasonScene = null;
+      } else if (focused && !state.focusTarget) {
+        state.focusTarget = document.activeElement.matches('[data-close-speech-reason]') ? '[data-close-speech-reason]' : '.speech-reason-popover';
+      }
+    }
     if (state.sceneMenu && sceneWriteBlocked()) {
       state.sceneMenu = null;
       state.focusTarget = sceneRowTarget();
@@ -1264,12 +1349,13 @@
         finalRenderWorkbench.mount(document.querySelector("[data-final-render]"));
         checksWorkbench.mount(document.querySelector("[data-program-checks]"));
         updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
-        updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}${sceneContextMenu()}`);
+        updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}${sceneContextMenu()}${speechReasonLayer()}`);
       }
       updateWorkspaceVisibility();
     }
     bind();
     positionSceneMenu();
+    positionSpeechReason();
     updateSharedFeedback();
     if (launcherMode && result.conversation?.status === 'unavailable') {
       app.querySelectorAll('button,input').forEach(control => { control.disabled = true; });
@@ -1928,11 +2014,13 @@
       narration: { text: value },
     };
     delete state.project.scenes[index].speech;
+    state.speechInvalidated[sceneId] = true;
     state.lastEditedScene = sceneId;
     markDirty(false);
     resizeNarration(source);
-    const cell = source.closest('[data-scene-row]')?.querySelector('.scene-speech .cell-value');
-    if (cell) { cell.textContent = '待生成'; cell.className = 'cell-value missing'; cell.title = 'Narration 已修改，需重新生成 Speech'; }
+    const cell = document.querySelector(`[data-scene-id="${sceneId}"] .scene-speech`);
+    if (cell) updateTable(cell, speechCell(state.project.scenes[index], index));
+
   }
 
   function rebaseHistoryAssets(assets) {
@@ -1963,17 +2051,17 @@
     const scene = project.scenes.find((item) => item.id === sceneId);
     if (!scene || state.autosaveStopped || state.assetBusy) return false;
     scene.assetIds = nextAssetIds;
-    return commitProject(project, message, { selected: sceneId, immediate: true });
+    return commitProject(project, message, { selected: state.selected, immediate: true });
   }
 
   function addExistingAsset(assetId) {
-    const scene = selectedScene();
+    const scene = assetScene();
     if (!scene || scene.assetIds.includes(assetId) || scene.assetIds.length >= 256) return;
     changeSceneAssets(scene.id, [...scene.assetIds, assetId], `已将 ${assetFilename(state.project.assets.find((asset) => asset.id === assetId)?.path) ?? "Asset"} 添加到 Scene。`);
   }
 
   function moveAssetReference(assetId, targetIndex) {
-    const scene = selectedScene();
+    const scene = assetScene();
     if (!scene) return;
     const from = scene.assetIds.indexOf(assetId);
     const to = Math.max(0, Math.min(scene.assetIds.length - 1, targetIndex));
@@ -1985,7 +2073,7 @@
   }
 
   function unlinkAssetReference(assetId) {
-    const scene = selectedScene();
+    const scene = assetScene();
     if (!scene || !scene.assetIds.includes(assetId)) return;
     changeSceneAssets(scene.id, scene.assetIds.filter((id) => id !== assetId), "已解除当前 Scene 的 Asset 引用；项目登记与文件保持不变。");
   }
@@ -2032,16 +2120,17 @@
   async function flushProjectBeforeAssetImport() {
     clearTimeout(saveTimer);
     state.editGroupOpen = false;
-    while (!state.autosaveStopped && state.version !== state.savedVersion) {
+    while (!state.disconnected && state.result?.writable === true && !state.autosaveStopped && state.version !== state.savedVersion) {
       await saveProject();
       if (["failed", "conflict", "identity"].includes(state.saveStatus)) return false;
     }
-    return !state.autosaveStopped && state.version === state.savedVersion;
+    return !state.disconnected && state.result?.writable === true && !state.autosaveStopped && state.version === state.savedVersion;
   }
 
   function applyWorkspaceContent(content) {
     if (content?.projectDsl) {
       const nextProject = clone(content.projectDsl);
+      for (const scene of nextProject.scenes) if (scene.speech) delete state.speechInvalidated[scene.id];
       rebaseHistorySpeech(nextProject);
       state.project = nextProject;
       state.baselineRevision = content.projectRevision ?? state.baselineRevision;
@@ -2151,44 +2240,71 @@
     }
   }
 
+  function sameSceneContent(project) {
+    const content = value => value && JSON.stringify({ assets: value.assets, scenes: value.scenes.map(({ speech, ...scene }) => scene) });
+    return content(project) === content(state.project);
+  }
+
+  function canApplySpeechContent(content, version, epoch) {
+    return epoch === controlEpoch && !sceneWriteBlocked() && !state.saveInFlight &&
+      version === state.version && state.version === state.savedVersion && sameSceneContent(content.projectDsl);
+  }
+
   function scheduleSpeechPoll(delay = 900) {
     clearTimeout(speechPollTimer);
-    const activeJobs = Object.values(state.speechJobs).filter((job) =>
-      !["succeeded", "cancelled", "failed", "rejected"].includes(job.status));
-    if (activeJobs.length === 0) return;
+    if (state.disconnected || !state.project) return;
+    const activeJobs = Object.values(state.speechJobs).filter(job =>
+      !['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status));
+    if (!activeJobs.length && !state.speechRefreshNeeded) return;
     speechPollTimer = setTimeout(async () => {
-      await Promise.all(activeJobs.map(async (known) => {
+      const epoch = controlEpoch;
+      if (state.speechRefreshNeeded && !sceneWriteBlocked() && !state.saveInFlight && state.version === state.savedVersion) {
+        const version = state.version;
         try {
-          const response = await callHostTool("get_scene_speech_job", { jobId: known.id });
+          const response = await callHostTool('get_workbench', {});
           const content = response?.structuredContent ?? response;
-          if (response?.isError || !content?.speechJob) throw new Error(content?.error?.message ?? "无法读取 Speech 状态。");
+          if (!response?.isError && canApplySpeechContent(content, version, epoch)) {
+            applyWorkspaceContent(content);
+            state.speechRefreshNeeded = false;
+          }
+        } catch { /* 保留待核对标记，下次读取最新持久内容。 */ }
+      }
+      await Promise.all(activeJobs.map(async known => {
+        const version = state.version;
+        try {
+          const response = await callHostTool('get_scene_speech_job', { jobId: known.id });
+          if (epoch !== controlEpoch || state.speechJobs[known.sceneId]?.id !== known.id || state.disconnected) return;
+          const content = response?.structuredContent ?? response;
+          if (response?.isError || !content?.speechJob) throw new Error(content?.error?.message ?? '无法读取 Speech 状态。');
           const job = { ...content.speechJob, pollFailures: 0, pollError: null };
           const stageChanged = known.status !== job.status || known.stage !== job.stage;
+          const returnFocus = document.activeElement?.matches(`[data-scene-id="${known.sceneId}"] [data-cancel-speech]`);
           state.speechJobs[job.sceneId] = job;
-          if (content.projectDsl) applyWorkspaceContent(content);
+          if (content.projectDsl) {
+            if (canApplySpeechContent(content, version, epoch)) applyWorkspaceContent(content);
+            else state.speechRefreshNeeded = true;
+          }
           if (stageChanged) announce(`Speech：${job.stage}。`);
-          if (["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) {
+          if (returnFocus && ['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) {
             state.focusTarget = `[data-scene-id="${job.sceneId}"] [data-speech-action]`;
           }
         } catch (error) {
+          if (epoch !== controlEpoch || state.speechJobs[known.sceneId]?.id !== known.id) return;
           const pollFailures = (known.pollFailures ?? 0) + 1;
-          state.speechJobs[known.sceneId] = {
-            ...known,
-            pollFailures,
-            pollError: error?.message ?? "无法读取 Speech 状态。",
-          };
-          if (pollFailures === 1) announce("Speech 状态读取暂时中断，正在重试；后台生成没有被标记为失败。");
+          state.speechJobs[known.sceneId] = { ...known, pollFailures, pollError: error?.message ?? '无法读取 Speech 状态。' };
+          if (pollFailures === 1) announce('Speech 状态读取暂时中断，仅显示最后确认状态，正在重试。');
         }
       }));
+      if (epoch !== controlEpoch) return;
       render();
-      const failures = Math.max(0, ...Object.values(state.speechJobs).map((job) => job.pollFailures ?? 0));
+      const failures = Math.max(0, ...Object.values(state.speechJobs).map(job => job.pollFailures ?? 0));
       scheduleSpeechPoll(Math.min(4_000, 900 * (2 ** Math.min(failures, 2))));
     }, delay);
   }
 
   async function startSpeech(sceneId) {
     const scene = currentScenes().find((item) => item.id === sceneId);
-    if (!scene || scene.narration.text.trim() === "") return;
+    if (!scene || sceneWriteBlocked() || scene.narration.text.trim() === "") return;
     const configured = state.result.tts?.status === "configured";
     const credentialReady = state.result.tts?.credential?.status === "available";
     if (!configured || !credentialReady) {
@@ -2205,6 +2321,9 @@
       announce("Speech 生成已取消：Scene 修改尚未安全保存。");
       return;
     }
+    const epoch = controlEpoch;
+    if (sceneWriteBlocked() || !currentScenes().find(item => item.id === sceneId)?.narration.text.trim()) return;
+    delete state.speechInvalidated[sceneId];
     try {
       const response = await callHostTool("start_scene_speech", {
         projectDirectory: state.result.project.directory,
@@ -2212,12 +2331,14 @@
         sceneId,
       });
       const content = response?.structuredContent ?? response;
+      if (epoch !== controlEpoch) return;
       if (response?.isError || !content?.speechJob) throw new Error(content?.error?.message ?? "无法开始 Speech 生成。");
       state.speechJobs[sceneId] = content.speechJob;
       announce("Speech 已排队。");
       render();
       scheduleSpeechPoll();
     } catch (error) {
+      if (epoch !== controlEpoch) return;
       state.speechJobs[sceneId] = { id: "", sceneId, status: "failed", stage: "生成失败", error: { message: error?.message ?? "无法开始 Speech 生成。" } };
       render();
       announce(`Speech 生成失败。${error?.message ?? "请重试。"}`);
@@ -2226,7 +2347,7 @@
 
   async function cancelSpeech(sceneId) {
     const known = state.speechJobs[sceneId];
-    if (!known?.id) return;
+    if (!known?.id || sceneWriteBlocked()) return;
     try {
       const response = await callHostTool("cancel_scene_speech_job", { jobId: known.id });
       const content = response?.structuredContent ?? response;
@@ -2444,16 +2565,7 @@
         state.focusTarget = "[data-narration-editor]";
         render();
       }, { signal: bindings.signal });
-      row.querySelector("[data-open-scene-assets]")?.addEventListener("click", () => {
-        state.selected = row.dataset.sceneId;
-        previewWorkbench.selectScene(state.selected);
-        state.inspectorMode = "scene-assets";
-        state.inspectionOpen = true;
-        state.assetSearch = "";
-        render();
-      }, { signal: bindings.signal });
-      row.querySelector("[data-speech-action]")?.addEventListener("click", () => startSpeech(row.dataset.sceneId), { signal: bindings.signal });
-      row.querySelector("[data-cancel-speech]")?.addEventListener("click", () => cancelSpeech(row.dataset.sceneId), { signal: bindings.signal });
+
       const editor = row.querySelector("[data-narration-editor]");
       editor?.addEventListener("input", () => updateNarration(row.dataset.sceneId, editor.value, editor), { signal: bindings.signal });
       editor?.addEventListener("blur", (event) => {
@@ -2549,12 +2661,7 @@
   }
 
   function bindInspector() {
-    document.querySelector("[data-close-inspection]")?.addEventListener("click", () => {
-      state.inspectionOpen = false;
-      document.querySelector(".inspection")?.setAttribute("data-open", "false");
-      document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "false");
-      document.querySelector("[data-open-inspection]")?.focus();
-    }, { signal: bindings.signal });
+    document.querySelector("[data-close-inspection]")?.addEventListener("click", closeInspection, { signal: bindings.signal });
     document.querySelectorAll("[data-project-inspection]").forEach((button) => button.addEventListener("click", () => {
       state.inspectorMode = "project";
       state.assetSearch = "";
@@ -2603,7 +2710,7 @@
     document.querySelectorAll("[data-add-asset]").forEach((button) => button.addEventListener("click", () => addExistingAsset(button.dataset.addAsset), { signal: bindings.signal }));
     document.querySelectorAll("[data-preview-asset]").forEach((button) => button.addEventListener("click", () => openAssetPreview(button.dataset.previewAsset), { signal: bindings.signal }));
     document.querySelectorAll("[data-move-asset]").forEach((button) => button.addEventListener("click", () => {
-      const scene = selectedScene();
+      const scene = assetScene();
       const index = scene?.assetIds.indexOf(button.dataset.moveAsset) ?? -1;
       moveAssetReference(button.dataset.moveAsset, index + (button.dataset.direction === "up" ? -1 : 1));
     }, { signal: bindings.signal }));
@@ -2824,6 +2931,7 @@
       document.querySelector(`[data-workspace="${target}"]`)?.focus();
     }, { signal: bindings.signal }));
     document.querySelector("[data-open-inspection]")?.addEventListener("click", () => {
+      state.inspectionReturnTarget = "[data-open-inspection]";
       state.inspectionOpen = true;
       document.querySelector(".inspection")?.setAttribute("data-open", "true");
       document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "true");
@@ -2834,7 +2942,9 @@
     document.onkeydown = (event) => {
       trapAssetPreviewFocus(event);
       trapBriefFocus(event);
-      if (event.key === "Escape" && state.assetPreview) {
+      if (event.key === "Escape" && state.speechReasonScene) {
+        event.preventDefault(); closeSpeechReason();
+      } else if (event.key === "Escape" && state.assetPreview) {
         event.preventDefault();
         closeAssetPreview();
       } else if (event.key === "Escape" && state.brief.open) {
@@ -2844,16 +2954,17 @@
         state.focusTarget = "[data-open-brief]";
         saveVideoBrief();
         render();
+      } else if (event.key === "Escape" && state.inspectionOpen) {
+        event.preventDefault(); closeInspection();
       }
     };
+    document.querySelectorAll('[data-open-scene-assets]').forEach(button => button.addEventListener('click', event => {
+      event.stopPropagation(); openSceneAssets(button);
+    }, { signal: bindings.signal }));
     bindInspector();
     bindBriefEditor();
     if (state.result?.status === "valid" && state.result.writable) bindTable();
     if (state.result?.status === "valid" && !state.result.writable) {
-      document.querySelectorAll('[data-open-scene-assets]').forEach(button => button.addEventListener('click', event => {
-        event.stopPropagation(); state.selected = button.closest('[data-scene-id]').dataset.sceneId;
-        state.inspectorMode = 'scene-assets'; state.inspectionOpen = true; render();
-      }, { signal: bindings.signal }));
       document.querySelectorAll("[data-scene-id]").forEach((row) => row.addEventListener("click", () => {
         state.selected = row.dataset.sceneId;
         previewWorkbench.selectScene(state.selected);
@@ -3139,6 +3250,11 @@
     state.expanded = null;
     state.toast = null;
     state.speechJobs = {};
+    state.speechInvalidated = {};
+    state.speechRefreshNeeded = false;
+    state.speechReasonScene = null;
+    state.assetSceneId = null;
+    state.inspectionReturnTarget = null;
     state.ttsApiKey = "";
     state.ttsClearCredential = false;
     state.ttsSaving = false;

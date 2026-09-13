@@ -845,7 +845,7 @@ test("编辑、复制、移动、删除与 Undo/Redo 保持 Scene 身份和保�
   await expect(selected).toContainText("改写完成");
   const copiedId = await selected.getAttribute("data-scene-id");
   expect(copiedId).not.toBe(secondId);
-  await expect(selected.getByText("缺失", { exact: true })).toBeVisible();
+  await expect(selected.getByText("待生成", { exact: true })).toBeVisible();
 
   await selected.press("Shift+F10");
   await page.getByRole("spinbutton", { name: "移动到位置" }).fill("1");
@@ -1852,4 +1852,228 @@ test('菜单打开期间失去写权会关闭并返回行，保留内容且禁�
   await expect(row).toBeFocused();
   await expect(row).toContainText(initial.scenes[1]!.narration);
   expect(writes).toBe(0);
+});
+
+test('Asset 管理与预览保持原 Scene 选择，关闭返回同行入口', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(2);
+  await installAppToolBridge(page, (name) => {
+    expect(name).toBe('read_project_asset_preview');
+    return { structuredContent: { assetPreview: { status: 'unavailable', reason: '文件已移走', path: 'assets/scene-2.png' } } };
+  });
+  await sendResult(page, initial);
+  const selected = page.getByRole('button', { name: /^Scene 01：/ });
+  await selected.click();
+  const entry = page.getByRole('button', { name: /第 02 个 Scene 的 Asset/ });
+  await entry.click();
+  await expect(page.getByRole('heading', { name: 'Scene 02 · Asset' })).toBeVisible();
+  await expect(selected).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: '关闭项目检查' })).toBeFocused();
+  await page.getByRole('button', { name: '预览 scene-2.png' }).click();
+  await expect(page.getByRole('dialog', { name: 'Asset 只读预览' })).toContainText('文件已移走');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: '预览 scene-2.png' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(entry).toBeFocused();
+  await expect(selected).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Speech 原因通过同行图标打开，Narration 即时失效且空文本禁止生成', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  await installAppToolBridge(page, (name, args) => ({ structuredContent: { ...initial, status: 'saved', projectDsl: args.project, projectRevision: `sha256:${'2'.repeat(64)}` } }));
+  await sendResult(page, initial);
+  const row = page.getByRole('group', { name: 'Scene 01 行', exact: true });
+  await row.getByRole('button', { name: '编辑 Narration' }).click();
+  const editor = page.getByRole('textbox', { name: 'Scene 01 Narration' });
+  await editor.fill('改过的旁白');
+  await expect(row).toContainText('待生成');
+  const reason = row.getByRole('button', { name: '查看 Speech 原因 · Scene 01' });
+  await reason.focus(); await reason.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Speech 原因 · Scene 01' });
+  await expect(dialog).toContainText('Narration 已修改');
+  await expect(dialog).toContainText('最终 Render');
+  await page.keyboard.press('Escape');
+  await expect(reason).toBeFocused();
+  await reason.press('Space');
+  await expect(dialog).toBeVisible();
+  await page.getByText('Narracut', { exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(reason).toBeFocused();
+  await editor.fill('');
+  await expect(row.getByRole('button', { name: '生成 Speech · Scene 01', exact: true })).toBeDisabled();
+  await reason.click();
+  await expect(dialog).toContainText('Narration 为空');
+});
+
+test('Speech 迟到成功回执不覆盖正在编辑的 Narration，也不抢焦点', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  Object.assign(initial, { tts: { status: 'configured', credential: { status: 'available' } } });
+  let finish!: () => void;
+  let polling = false;
+  const gate = new Promise<void>(resolve => { finish = resolve; });
+  await installAppToolBridge(page, async (name) => {
+    if (name === 'start_scene_speech') return { structuredContent: { speechJob: { id: 'late', sceneId: initial.scenes[0]!.id, status: 'queued', stage: '排队' } } };
+    if (name === 'get_scene_speech_job') {
+      polling = true; await gate;
+      return { structuredContent: { ...initial, speechJob: { id: 'late', sceneId: initial.scenes[0]!.id, status: 'succeeded', stage: '生成完成' } } };
+    }
+    if (name === 'get_workbench') return { structuredContent: initial };
+    throw new Error(`未预期调用 ${name}`);
+  });
+  await sendResult(page, initial);
+  await page.getByRole('button', { name: '重新生成 Speech · Scene 01' }).click();
+  await expect.poll(() => polling).toBe(true);
+  await page.getByRole('button', { name: '编辑 Narration' }).click();
+  const editor = page.getByRole('textbox', { name: 'Scene 01 Narration' });
+  await editor.fill('必须保留的新旁白');
+  finish();
+  await expect(page.getByRole('button', { name: '取消 Speech 生成 · Scene 01' })).toHaveCount(0);
+  await expect(editor).toHaveValue('必须保留的新旁白');
+  await expect(editor).toBeFocused();
+  await expect(page.getByRole('group', { name: 'Scene 01 行', exact: true })).toContainText('待生成');
+  await expect(page.getByRole('region', { name: '保存与连接状态' })).toContainText('待保存');
+});
+
+for (const viewport of [{ width: 902, height: 667 }, { width: 960, height: 640 }, { width: 1200, height: 720 }, { width: 430, height: 667 }]) {
+  test(`Speech 失败直接重试与取消，原因不撑高 Scene · ${viewport.width}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await loadWorkbench(page);
+    const initial = validResult(3);
+    Object.assign(initial, { tts: { status: 'configured', credential: { status: 'available' } } });
+    let starts = 0;
+    await installAppToolBridge(page, name => {
+      if (name === 'start_scene_speech') {
+        starts++;
+        if (starts === 1) return { isError: true, structuredContent: { error: { message: '服务返回 429：请求过于频繁，请稍后重试。' } } };
+        return { structuredContent: { speechJob: { id: 'retry', sceneId: initial.scenes[0]!.id, status: 'queued', stage: '排队' } } };
+      }
+      if (name === 'cancel_scene_speech_job') return { structuredContent: { speechJob: { id: 'retry', sceneId: initial.scenes[0]!.id, status: 'cancelled', stage: '已取消' } } };
+      if (name === 'get_scene_speech_job') return { structuredContent: { speechJob: { id: 'retry', sceneId: initial.scenes[0]!.id, status: 'generating', stage: '正在生成' } } };
+      throw new Error(name);
+    });
+    await sendResult(page, initial);
+    const row = page.getByRole('group', { name: 'Scene 01 行', exact: true });
+    const before = await row.boundingBox();
+    await row.getByRole('button', { name: '重新生成 Speech · Scene 01' }).click();
+    await expect(row).toContainText('生成失败');
+    const reason = row.getByRole('button', { name: '查看 Speech 原因 · Scene 01' });
+    await reason.click();
+    const popup = page.getByRole('dialog', { name: 'Speech 原因 · Scene 01' });
+    await expect(popup).toContainText('服务返回 429');
+    expect((await row.boundingBox())!.height).toBe(before!.height);
+    const box = (await popup.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    await page.screenshot({ path: `/tmp/issue111-speech-${viewport.width}.png` });
+    await page.keyboard.press('Escape');
+    await expect(reason).toBeFocused();
+    await row.getByRole('button', { name: '重试生成 Speech · Scene 01' }).click();
+    await expect.poll(() => starts).toBe(2);
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    const cancel = row.getByRole('button', { name: '取消 Speech 生成 · Scene 01' });
+    await expect(cancel).toBeEnabled();
+    await cancel.click();
+    await expect(row).toContainText('已取消');
+    await expect(row.getByRole('button', { name: '重试生成 Speech · Scene 01' })).toBeFocused();
+  });
+}
+
+test('只读 Scene 仍可管理只读 Asset 和查看 Speech 限制原因', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(2); initial.writable = false;
+  await sendResult(page, initial);
+  await page.getByRole('button', { name: '查看 Speech 原因 · Scene 01' }).click();
+  await expect(page.getByRole('dialog', { name: 'Speech 原因 · Scene 01' })).toContainText('只读');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /第 02 个 Scene 的 Asset/ }).click();
+  await expect(page.getByRole('button', { name: '预览 scene-2.png' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '解除 scene-2.png 引用' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '添加已有 Asset' })).toBeDisabled();
+});
+
+test('Speech 原因浮层随生成阶段更新保留焦点，成功后回到同行操作', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  Object.assign(initial, { tts: { status: 'configured', credential: { status: 'available' } } });
+  let status = 'queued';
+  await installAppToolBridge(page, name => {
+    if (name === 'start_scene_speech') return { structuredContent: { speechJob: { id: 'stages', sceneId: initial.scenes[0]!.id, status, stage: '排队' } } };
+    if (name === 'get_scene_speech_job') return { structuredContent: { ...(status === 'succeeded' ? initial : {}), speechJob: { id: 'stages', sceneId: initial.scenes[0]!.id, status, stage: status === 'generating' ? '正在生成' : status === 'succeeded' ? '生成完成' : '排队' } } };
+    throw new Error(name);
+  });
+  await sendResult(page, initial);
+  await page.getByRole('button', { name: '重新生成 Speech · Scene 01' }).click();
+  await page.getByRole('button', { name: '查看 Speech 原因 · Scene 01' }).click();
+  const popup = page.getByRole('dialog', { name: 'Speech 原因 · Scene 01' });
+  await expect(popup).toBeFocused();
+  status = 'generating';
+  await expect(popup).toContainText('正在生成');
+  await expect(popup).toBeFocused();
+  status = 'succeeded';
+  await expect(popup).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '重新生成 Speech · Scene 01' })).toBeFocused();
+});
+
+test('Speech 断连显示最后确认状态，原因可读，重连后恢复状态核对', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  Object.assign(initial, { conversation: { status: 'bound', threadId: 'speech-owner' }, control: { status: 'editable' }, tts: { status: 'configured', credential: { status: 'available' } } });
+  let offline = false;
+  let polls = 0;
+  await installAppToolBridge(page, name => {
+    if (name === 'get_workbench') { if (offline) throw new Error('测试连接中断'); return { structuredContent: initial }; }
+    if (name === 'start_scene_speech') return { structuredContent: { speechJob: { id: 'offline', sceneId: initial.scenes[0]!.id, status: 'queued', stage: '排队' } } };
+    if (name === 'get_scene_speech_job') { polls++; return { structuredContent: { speechJob: { id: 'offline', sceneId: initial.scenes[0]!.id, status: 'generating', stage: '正在生成' } } }; }
+    return { structuredContent: {} };
+  });
+  await sendResult(page, initial);
+  await page.getByRole('button', { name: '重新生成 Speech · Scene 01' }).click();
+  await expect.poll(() => polls).toBeGreaterThan(0);
+  offline = true;
+  await expect(page.getByRole('region', { name: '保存与连接状态' })).toContainText('连接已中断');
+  await expect(page.getByRole('button', { name: '取消 Speech 生成 · Scene 01' })).toBeDisabled();
+  await page.getByRole('button', { name: '查看 Speech 原因 · Scene 01' }).click();
+  await expect(page.getByRole('dialog', { name: 'Speech 原因 · Scene 01' })).toContainText('无法确认后台进度');
+  await page.keyboard.press('Escape');
+  const previousPolls = polls;
+  offline = false;
+  await page.getByRole('button', { name: '重新连接' }).click();
+  await expect(page.getByRole('button', { name: '取消 Speech 生成 · Scene 01' })).toBeEnabled();
+  await expect.poll(() => polls).toBeGreaterThan(previousPolls);
+});
+
+test('Speech 等待 Narration 保存成功，保存失败说明原因且不发起生成', async ({ page }) => {
+  await loadWorkbench(page);
+  const initial = validResult(1);
+  Object.assign(initial, { tts: { status: 'configured', credential: { status: 'available' } } });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let saves = 0, starts = 0;
+  await installAppToolBridge(page, async (name, args) => {
+    if (name === 'save_project_scenes') {
+      saves++;
+      if (saves === 1) { await gate; return { isError: true, structuredContent: { status: 'save-failed', error: { message: '测试磁盘暂不可写' } } }; }
+      return { structuredContent: { ...initial, projectDsl: args.project, status: 'saved', projectRevision: `sha256:${'3'.repeat(64)}` } };
+    }
+    if (name === 'start_scene_speech') { starts++; return { structuredContent: { speechJob: { id: 'saved', sceneId: initial.scenes[0]!.id, status: 'queued', stage: '排队' } } }; }
+    if (name === 'get_scene_speech_job') return { structuredContent: { speechJob: { id: 'saved', sceneId: initial.scenes[0]!.id, status: 'generating', stage: '正在生成' } } };
+    throw new Error(name);
+  });
+  await sendResult(page, initial);
+  await page.getByRole('button', { name: '编辑 Narration' }).click();
+  await page.getByRole('textbox', { name: 'Scene 01 Narration' }).fill('先保存新旁白');
+  await page.getByRole('button', { name: '生成 Speech · Scene 01', exact: true }).click();
+  await expect.poll(() => saves).toBe(1); expect(starts).toBe(0);
+  release();
+  await expect(page.getByRole('region', { name: '保存与连接状态' })).toContainText('保存失败');
+  expect(starts).toBe(0);
+  await page.getByRole('button', { name: '查看 Speech 原因 · Scene 01' }).click();
+  await expect(page.getByRole('dialog', { name: 'Speech 原因 · Scene 01' })).toContainText('测试磁盘暂不可写');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '重试保存', exact: true }).click();
+  await expect(page.getByRole('region', { name: '保存与连接状态' })).toContainText('已保存');
+  await page.getByRole('button', { name: '生成 Speech · Scene 01', exact: true }).click();
+  await expect.poll(() => starts).toBe(1);
 });

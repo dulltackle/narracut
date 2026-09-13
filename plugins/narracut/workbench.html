@@ -372,7 +372,30 @@ button:disabled { opacity:.5; cursor:not-allowed; }
   .toolbar-history [data-undo]::after,.toolbar-history [data-redo]::after { content:none; }
   .scene-context-menu .scene-action,.scene-move-group .move-field { min-height:44px; }
 }
-  </style>
+  /* #111：同行状态保持紧凑，原因按需浮出。 */
+.scene-speech { flex-wrap:nowrap; gap:6px; }
+.speech-summary { min-width:0; flex:1; display:flex; flex-direction:column; gap:2px; }
+.speech-summary .cell-value { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.speech-reason { flex:none; display:grid; place-items:center; min-width:28px; min-height:32px; padding:4px; border:0; border-radius:6px; color:var(--muted); background:transparent; cursor:pointer; }
+.speech-reason:hover { background:var(--control); color:var(--ink); }
+.speech-reason-popover { position:fixed; z-index:100; width:min(330px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; padding:16px; border-radius:6px; background:var(--paper); color:var(--ink); box-shadow:0 8px 24px #00000024; font-size:13px; line-height:1.65; overflow-wrap:anywhere; }
+.speech-reason-popover header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.speech-reason-popover p { margin:12px 0 0; }
+.speech-reason-popover button { min-height:32px; border:1px solid var(--line); border-radius:6px; padding:4px 8px; background:var(--paper); color:var(--ink); cursor:pointer; }
+.scene-assets { min-width:0; overflow:hidden; }
+.scene-assets .cell-value { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.asset-item:last-child,.project-asset-list li:last-child { border-color:var(--line); }
+.asset-item-head strong,.project-asset-list strong { white-space:normal; overflow-wrap:anywhere; }
+.asset-item-head span:last-child { flex-shrink:0; }
+.asset-item,.project-asset-list li,.asset-empty { border-color:var(--line); }
+.asset-primary-actions button:first-child,.project-import { background:#242424; color:var(--paper); border-color:#242424; }
+.asset-primary-actions button:first-child:hover,.project-import:hover { color:var(--paper); }
+@media(max-width:700px) {
+ .speech-reason,.speech-reason-popover button { min-height:44px; min-width:44px; }
+ .scene-header,.scene-row { grid-template-columns:48px minmax(220px,1fr) 140px 190px; }
+ .scene-header,.scene-list { min-width:598px; }
+}
+</style>
 </head>
 <body data-surface="narracut-vnext-contact-sheet">
   <div id="app" class="app-shell"></div>

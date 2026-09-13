@@ -1008,3 +1008,43 @@ it('最终 Render 工具仅供工作台，拒绝未接受状态并可核对未�
     expect((await call('project_render', { ...args, action: 'result', requestId })).structuredContent.status).toBe('not-started');
   } finally { await request.dispose(); }
 });
+
+it('Speech 生成期间保存新 Narration，过期结果不写回持久 Scene', async () => {
+  const projectDirectory = join(await mkdtemp(join(tmpdir(), 'speech-stale-result-')), 'project');
+  await createProjectVNext(projectDirectory);
+  const sceneId = '30000000-0000-4000-8000-000000000111';
+  await writeFile(join(projectDirectory, 'project.json'), JSON.stringify({ assets: [], scenes: [{ id: sceneId, narration: { text: '旧旁白' }, assetIds: [] }] }));
+  let release!: () => void;
+  let requested = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const handler = createNarracutRequestHandler({
+    codexHost: new PluginTestHost(),
+    ttsFetch: async () => {
+      requested = true; await gate;
+      return new Response(JSON.stringify({ data: { audio: Buffer.from('generated mp3').toString('hex') }, extra_info: { audio_length: 1_001, audio_format: 'mp3' }, base_resp: { status_code: 0 } }));
+    },
+    probeSpeechDurationMs: async () => 1_001,
+  });
+  const call = async (name: string, args = {}) => {
+    const result = await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any;
+    expect(result.isError, JSON.stringify(result)).not.toBe(true);
+    return result.structuredContent;
+  };
+  const opened = await call('open_project', { projectDirectory });
+  const identity = { projectDirectory, projectId: opened.project.projectId };
+  await call('save_project_tts_settings', { ...identity, baselineRevision: opened.projectRevision, config: { provider: 'tokendance', model: 'minimax-speech-2.8-turbo', voice: 'Chinese (Mandarin)_News_Anchor', speed: 1, volume: 1, pitch: 0 }, credentialAction: 'replace', apiKey: 'test-secret-key', expectedAffectedSpeechCount: 0 });
+  const started = await call('start_scene_speech', { ...identity, sceneId });
+  await expect.poll(() => requested).toBe(true);
+  const current = await call('get_workbench');
+  current.projectDsl.scenes[0].narration.text = '新旁白必须保留';
+  await call('save_project_scenes', { ...identity, baselineRevision: current.projectRevision, project: current.projectDsl });
+  release();
+  let terminal: any;
+  await expect.poll(async () => { terminal = await call('get_scene_speech_job', { jobId: started.speechJob.id }); return terminal.speechJob.status; }).toBe('rejected');
+  expect(terminal.speechJob.error.code).toBe('SPEECH_RESULT_NARRATION_CHANGED');
+  const disk = JSON.parse(await readFile(join(projectDirectory, 'project.json'), 'utf8'));
+  expect(disk.scenes[0].narration.text).toBe('新旁白必须保留');
+  expect(disk.scenes[0].speech).toBeUndefined();
+  expect((await call('get_workbench')).timeline.renderReady).toBe(false);
+  await handler.dispose();
+});

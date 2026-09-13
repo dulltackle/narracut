@@ -29,6 +29,7 @@ test.afterAll(async () => { await source?.close(); host?.closeAllConnections(); 
 test('显式 READY 切换、失败保留画面、精确 Scene 与隐藏暂停，桌面及窄屏可操作', async ({ page }) => {
   await page.goto(origin); let fail = false;
   await installAppToolBridge(page, (name, args) => {
+    if (name === 'read_project_asset_preview') return { structuredContent: { assetPreview: { status: 'unavailable', path: 'assets/scene-2.png', reason: '只读源文件检查' } } };
     if (name !== 'project_preview') return { structuredContent: {} };
     if (args.action === 'status') return { structuredContent: { stale: false, freshness: { brief: { status: 'latest', review: args.instanceId === first.instanceId ? 'reviewed' : 'pending' }, input: { status: 'latest' }, media: { status: 'latest' }, environment: { status: 'latest' } } } };
     if (args.action === 'release') return { structuredContent: {} };
@@ -65,6 +66,18 @@ test('显式 READY 切换、失败保留画面、精确 Scene 与隐藏暂停，
   await page.waitForTimeout(150);
   const paused = await page.locator('[data-frame-output]').textContent(); await page.waitForTimeout(150);
   expect(await page.locator('[data-frame-output]').textContent()).toBe(paused);
+  const selectedBeforeAsset = await page.getByRole('button', { name: /^Scene .*：/ }).evaluateAll(buttons => buttons.filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.getAttribute('aria-label')));
+  const assetEntry = page.getByRole('button', { name: /第 02 个 Scene 的 Asset/ });
+  await assetEntry.click();
+  await page.getByRole('button', { name: '预览 scene-2.png' }).click();
+  await expect(page.getByRole('dialog', { name: 'Asset 只读预览' })).toContainText('只读源文件检查');
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+  await expect(assetEntry).toBeFocused();
+  expect(await page.getByRole('button', { name: /^Scene .*：/ }).evaluateAll(buttons => buttons.filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.getAttribute('aria-label')))).toEqual(selectedBeforeAsset);
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  expect(await page.locator('[data-frame-output]').textContent()).toBe(paused);
+  await page.getByRole('tab', { name: '表格工作区' }).click();
+
   await page.getByRole('button', { name: /^Scene 02：/ }).click();
   expect(await page.locator('[data-frame-output]').textContent()).toBe(paused);
   await page.getByRole('tab', { name: 'Agent 工作区' }).click();

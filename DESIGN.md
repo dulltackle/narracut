@@ -114,7 +114,7 @@ components:
 
 表格使用单列全宽工作区，桌面内边距 `12px 16px`。Scene 表头与内容共享 `64px minmax(220px,1fr) 150px 190px` 列定义；短内容行最小高度 52px，长 Narration 和编辑框随内容增高，不以两行截断或强制单行挤压。
 
-在 `max-width:700px` 时，工作面内边距为 8px，列定义为 `48px minmax(220px,1fr) 140px 150px`，最小表格宽度 558px。保留 Scene、Narration、Asset、Speech 四列，通过内容区横向滚动访问右侧列；表头由滚动事件同步位移。430px 截图右侧 Speech 未在初始视口出现，表示可横滚，不表示列被隐藏。窄屏工具栏与 Speech 操作最小触控高度为 44px。
+在 `max-width:700px` 时，工作面内边距为 8px，列定义为 `48px minmax(220px,1fr) 140px 190px`，最小表格宽度 598px。保留 Scene、Narration、Asset、Speech 四列，通过内容区横向滚动访问右侧列；表头由滚动事件同步位移。430px 截图右侧 Speech 未在初始视口出现，表示可横滚，不表示列被隐藏。窄屏工具栏与 Speech 操作最小触控高度为 44px。
 
 项目检查在所有尺寸均按需打开右侧抽屉，宽 `min(90vw,380px)`，不常驻占用表格宽度。Agent 审阅区和启动器继续使用现有模块组织方式，具体后续布局不得从参考原型推断。
 
@@ -140,7 +140,9 @@ Narration 点击或编辑入口进入原位文本框；文本框以 `scrollHeigh
 
 ### Scene、Asset 与 Speech
 
-每个 Scene 的稳定身份、Narration、Asset 摘要与 Speech 同行。Asset 入口按需打开管理抽屉；Speech 状态、时长与生成／重新生成等操作相邻。生成 Speech 使用麦克风图标，重新生成使用循环箭头；按钮的可访问名称与提示包含动作和 Scene 序号，生成中提供文字“取消”按钮。状态配合文字与标记；Draft Duration 必须明确是草稿估算，不能冒充完整 Speech 的 Duration。
+每个 Scene 的稳定身份、Narration、Asset 摘要与 Speech 同行。Asset 入口无论单个或多个文件都先打开右侧临时管理面板；管理目标独立于所选 Scene。只读预览 Asset 本体，打开、预览与关闭保持原 Scene 选择和 Player 观看位置，关闭回到同行入口。长文件名在表格省略、在面板完整换行；未绑定与文件缺失分别说明，缺失文件仍可解除引用。Speech 状态与时长组成同行摘要，生成／重新生成等操作相邻。生成 Speech 使用麦克风图标，重新生成使用循环箭头；按钮的可访问名称与提示包含动作和 Scene 序号，生成中提供文字“取消”按钮。失败、失效与限制原因通过摘要另一侧的问题图标打开浮层，不新增原因行；支持点击、Enter／空格打开，点击外部或 Escape 关闭并返回问题图标。普通失败直接重试，无需确认。生成阶段刷新保留浮层焦点；成功后原因消失时自动收起，浮层内焦点返回同行生成操作。Narration 修改立即显示待生成，空 Narration 禁止生成；断连仅显示最后确认状态。状态配合文字与标记；Draft Duration 明确是草稿估算，只用于 Preview，缺少匹配 Speech 阻断最终 Render。
+
+上述 Asset 与 Speech 行为及四档页面证据见 [#111 验收记录](docs/acceptance/issue111/README.md)。
 
 表格工作区独占 Scene 内容写入。Agent 的 Scene 修改建议不能直接改写 Scene；内容与 Render Program 的表现权威遵循 `CONTEXT.md` 和 ADR-0009。
 
