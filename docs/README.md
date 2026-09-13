@@ -12,6 +12,7 @@
 | Bundle、Preview Bridge 与最终输出实现 | [Bundle](../src/server/program-bundle.ts)、[Runtime Bridge](../src/server/program-runtime-source.ts)、[Preview 来源](../src/server/preview-origin.ts)、[Render 服务](../src/server/project-render.ts)、[Render 界面](../plugins/narracut/workbench-render.js) |
 | 本地插件构建、安装与启动验证 | [插件打包](plugin-packaging.md) |
 | 当前对话右侧工作台与展示重试 | [工作台面板](workbench-panel.md) |
+| 视频主面、候选审阅抽屉与真实媒体播放 | [#112 验收记录](acceptance/issue112/README.md) |
 | 同行 Asset 检查、Speech 原因及生成状态 | [#111 验收记录](acceptance/issue111/README.md) |
 | Scene 编排、菜单键盘操作与持久验证 | [#110 验收记录](acceptance/issue110/README.md) |
 | 浅色工作台、连续编辑与断连验证 | [#109 验收记录](acceptance/issue109/README.md) |

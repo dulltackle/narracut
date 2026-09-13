@@ -29,11 +29,14 @@ test('Preview 先于交付摘要，警告及建议展开，采集与检查分离
   });
   await page.evaluate(result=>window.postMessage({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:{structuredContent:result}},'*'),{...validResult(),candidate:{status:'saved',candidate:{identity:'program'},baseline:'baseline'}});
   await page.getByRole('tab',{name:'Agent 工作区'}).click();
+  await expect(page.getByRole('button', { name: '审阅详情', exact: true })).toBeVisible();
+  await expect(page.locator('[data-delivery-summary]')).not.toBeVisible();
+  await page.getByRole('button', { name: '审阅详情', exact: true }).click();
   await expect(page.locator('[data-delivery-summary]')).toContainText('让开场更清晰');
   expect(await page.locator('[data-program-delivery]').evaluate(el=>!!(el.compareDocumentPosition(document.querySelector('[data-program-preview]')!) & Node.DOCUMENT_POSITION_PRECEDING))).toBe(true);
   await expect(page.locator('[data-delivery-progress]')).toContainText('已采集 6 / 6');
   await expect(page.locator('[data-delivery-progress]')).toContainText('已检查 0 / 6');
-  await expect(page.getByText('开场停留时间较短，请结合成片判断节奏。',{exact:true})).toBeVisible();
+  await expect(page.locator('[data-delivery-warnings]').getByText('开场停留时间较短，请结合成片判断节奏。',{exact:true})).toBeVisible();
   await expect(page.getByText('第二段信息较密集',{exact:true})).toBeVisible();
   expect(images).toBe(0);
   await page.getByText('展开代表帧证据',{exact:true}).click();
@@ -67,6 +70,7 @@ test('Preview 先于交付摘要，警告及建议展开，采集与检查分离
   await expect(page.locator('[data-go-scene="0"]')).toBeDisabled({ timeout: 10000 });
   await expect(page.locator('[data-delivery-suggestions]')).toContainText('目标 Scene 已删除');
   stale=true;await expect(page.locator('[data-delivery-state]')).toContainText('已过期',{timeout:10000});
+  await expect(page.getByRole('button', {name:'审阅并接受',exact:true})).toBeDisabled();
 });
 test('超过四个 Scene 的分页保持键盘上下文与完整计划',async({page})=>{
   const scenes=validResult(9).scenes.map((scene,i)=>({id:scene.id,time:{startFrame:i*3,durationInFrames:3}}));
@@ -76,6 +80,7 @@ test('超过四个 Scene 的分页保持键盘上下文与完整计划',async({p
   await installAppToolBridge(page,(name)=>name==='project_delivery'?{structuredContent:{delivery:set.view(),collecting:false,status:'incomplete',checks:{batches:[],gates:[]},output:{fps:30}}}:{structuredContent:{}});
   await page.evaluate(result=>window.postMessage({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:{structuredContent:result}},'*'),{...validResult(9),candidate:{status:'saved',candidate:{identity:'program'},baseline:'baseline'}});
   await page.getByRole('tab',{name:'Agent 工作区'}).click();
+  await page.getByRole('button',{name:'审阅详情',exact:true}).click();
   await expect(page.locator('[data-delivery-progress]')).toContainText('基础覆盖 27 帧');
   await page.getByText('展开代表帧证据',{exact:true}).click();
   await page.locator('[data-page="1"]').focus();await page.keyboard.press('Enter');

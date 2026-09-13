@@ -16,6 +16,7 @@ test('整体验收确认、过期与结果核对；历史详情保持焦点、Sc
   const revision=()=>({revisionId:accepted?newId:currentId,summary:'调整标题位置，保留 Scene 顺序',acceptedAt:'2026-09-08T00:00:00.000Z',source:'candidate',valid:true,current:true,acceptance:record});
   await page.goto(origin);
   await installAppToolBridge(page,(name,args)=>{
+    if(name==='project_delivery')return {structuredContent:{delivery:null,checks:{batches:[{id:'reviewable',status:'complete',hardOperations:[]}],gates:[{operation:'accept',status:'blocked',reason:'仍须用户明确整体接受候选'}]}}};
     if(name==='project_acceptance'){
       if(args.action==='history')return {structuredContent:{current:revision().revisionId,limit:20,revisions:[revision(),{revisionId:'10000000-0000-4000-8000-000000000003',valid:false,current:false,error:'完整树指纹不符'}]}};
       if(args.action==='review')return {structuredContent:{confirmation:{key,requestId:'10000000-0000-4000-8000-000000000004',record,summary:'调整标题位置，保留 Scene 顺序',willPrune:true}}};

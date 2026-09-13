@@ -130,6 +130,7 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     await expect(page.locator('[data-delivery-suggestions] article')).toHaveCount(2);
     await expect(page.locator('[data-go-scene="1"]')).toBeEnabled();
     const beforeSuggestion = (await call('get_workbench')).projectDsl;
+    await page.getByRole('button', { name: '审阅详情', exact: true }).click();
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.locator('[data-copy-suggestion="0"]').click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(suggestions[0].content);
@@ -138,6 +139,7 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     expect((await call('get_workbench')).projectDsl).toEqual(beforeSuggestion);
     await page.getByRole('tab', { name: 'Agent 工作区' }).click();
     await expect(page.locator('[data-preview-title]')).toContainText('候选');
+    await page.getByRole('button', { name: '关闭审阅详情' }).click();
     await page.getByRole('button', { name: '对比当前', exact: true }).click();
     await expect(page.locator('[data-preview-title]')).toContainText('正在查看：当前', { timeout: 120000 });
     await expect(page.locator('[data-preview-screen] iframe')).toHaveCount(2);
@@ -150,11 +152,13 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     // 完整候选报告在实际面板宽度下可读。
     await player.evaluate((node: HTMLIFrameElement) => { node.style.cssText = ''; });
     await page.locator('#workspace-agent').evaluate(node => { node.scrollTop = 0; });
+    await page.getByRole('button', { name: '审阅详情', exact: true }).click();
     await page.screenshot({ path: info.outputPath('review-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: info.outputPath('review-mobile.png') });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole('button', { name: '关闭审阅详情' }).click();
     // 等待工作台实际展示报告并提交展示回执，随后由用户明确接受。
     await expect(page.locator('[data-delivery-state]')).toHaveText('可交付 · 等待用户判断', { timeout: 30000 });
     await page.getByRole('button', { name: '审阅并接受', exact: true }).click();

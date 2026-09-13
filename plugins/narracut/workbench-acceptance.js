@@ -12,13 +12,17 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
   function notice(text) { message = text; update(); }
   function update() {
     if (!region?.isConnected) return;
-    if (confirmation && !settled()) { confirmation = null; message = '项目输入正在变化，旧确认已失效；保存完成后请重新审阅。'; }
+    const evidence = delivery.view();
+    const batch = evidence.checks?.batches?.at(-1);
+    // 接受门禁还包含用户明确确认，不能据此禁用确认入口本身。
+    const evidenceBlocked = getProject()?.hasCandidate === false || !!evidence.delivery?.stale || !!batch?.hardOperations?.includes('accept');
+    if (confirmation && (!settled() || evidenceBlocked)) { confirmation = null; message = '项目输入或验收证据已变化，旧确认已失效；请完成保存与检查后重新审阅。'; }
     region.querySelector('[data-accept-message]').textContent = message;
     region.querySelectorAll('[data-from-revision]').forEach(button => { button.disabled = busy || !history.revisions?.find(item => item.revisionId === button.dataset.fromRevision)?.valid; });
-    region.querySelector('[data-accept-review]').disabled = busy || !!unresolved || !settled();
+    region.querySelector('[data-accept-review]').disabled = busy || !!unresolved || !settled() || evidenceBlocked;
     region.querySelector('[data-accept-review]').hidden = !!confirmation;
     region.querySelector('[data-accept-confirm]').hidden = !confirmation;
-    region.querySelector('[data-accept-submit]').disabled = busy || checking || !!unresolved || !settled();
+    region.querySelector('[data-accept-submit]').disabled = busy || checking || !!unresolved || !settled() || evidenceBlocked;
     region.querySelector('[data-accept-cancel]').disabled = busy;
     region.querySelector('[data-accept-result]').hidden = !unresolved;
     region.querySelector('[data-accept-result]').disabled = busy;

@@ -539,7 +539,7 @@ test("键盘焦点不改变 Scene，显式激活后切换工作区仍保留选�
 
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
   await expect(page.getByRole("tab", { name: "Agent 工作区" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("heading", { name: "候选审阅" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "审阅详情", exact: true })).toBeVisible();
   await expect(page.getByText("在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。", { exact: true })).toBeVisible();
 });
 
@@ -1287,6 +1287,7 @@ test("Agent 标题在支持的窄屏与桌面宽度不产生孤字换行或溢�
   await sendResult(page, validResult());
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
 
+  await page.getByRole("button", { name: "审阅详情", exact: true }).click();
   for (const width of [320, 430, 1440]) {
     await page.setViewportSize({ width, height: 860 });
     const titleFits = await page.getByRole("heading", { name: "候选审阅" }).evaluate(
@@ -1308,8 +1309,9 @@ test("工作区标签支持手动键盘激活，零 Scene 在窄屏可用", asyn
   await expect(table).toHaveAttribute("aria-selected", "true");
   await agent.press("Enter");
   await expect(page.getByRole("tabpanel", { name: "Agent 工作区" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "尚无任务" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "审阅详情", exact: true })).toBeVisible();
   await expect(page.getByText("尚无预览 · 构建当前版本或候选后检查成片", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "审阅详情", exact: true }).click();
   await page.getByRole("heading", { name: "候选审阅" }).scrollIntoViewIfNeeded();
   expect(await page.locator("#workspace-agent .stage").evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true);
   await table.click();
@@ -1333,6 +1335,7 @@ for (const width of [1440, 390]) {
     await installAppToolBridge(page, tool);
     await sendResult(page, created.structuredContent);
     await page.locator('[data-workspace="agent"]').click();
+    if (!await page.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await page.getByRole('button', { name: '审阅详情', exact: true }).click();
     await tool('manage_project_candidate', { projectDirectory: directory, projectId: created.structuredContent.project.projectId, action: 'create' });
     await sendResult(page, (await tool('get_workbench', {})).structuredContent);
     await expect(page.locator('.candidate-save')).toContainText('已保存');
@@ -1344,6 +1347,7 @@ for (const width of [1440, 390]) {
     await expect(page.locator('.candidate-panel')).toContainText('上一份完整候选已保留');
     await page.locator('[data-workspace="table"]').click();
     await page.locator('[data-workspace="agent"]').click();
+    if (!await page.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await page.getByRole('button', { name: '审阅详情', exact: true }).click();
     await expect(page.locator('.candidate-save')).toContainText('已保存');
     await mkdir('.impeccable/review', { recursive: true });
     await page.screenshot({ path: `.impeccable/review/candidate-${width === 390 ? 'mobile' : 'desktop'}.png`, fullPage: true });
@@ -1368,6 +1372,7 @@ test('候选失败和外部变化通知保留草稿、所选 Scene 与详情焦�
   });
   await sendResult(page, { ...validResult(), candidate });
   await page.locator('[data-workspace="agent"]').click();
+    if (!await page.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await page.getByRole('button', { name: '审阅详情', exact: true }).click();
   await page.getByRole('button', { name: '重新检查完整性' }).click();
   await expect(page.locator('.candidate-save')).toContainText('正在检查完整性');
   await expect(page.locator('.candidate-save')).toContainText('已保存');
@@ -1398,6 +1403,7 @@ test('等待用户期间仍刷新任务终结，连接恢复清除错误且任�
   });
   await sendResult(page, { creationTask: task });
   await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  if (!await page.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await page.getByRole('button', { name: '审阅详情', exact: true }).click();
   const details = page.getByText('当前创作指令与任务详情', { exact: true });
   await expect(page.locator('[data-agent-content]')).toContainText('临时网络失败');
   await details.click();
@@ -1421,6 +1427,7 @@ test('放弃确认默认取消，回执不明先核对且不重复删除', async
   });
   await sendResult(page, { ...validResult(), creationTask: task, candidate });
   await page.locator('[data-workspace="agent"]').click();
+    if (!await page.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await page.getByRole('button', { name: '审阅详情', exact: true }).click();
   await page.getByRole('button', { name: '放弃候选', exact: true }).click();
   await expect(page.locator('[data-candidate-cancel]')).toBeFocused();
   await expect(page.getByRole('alertdialog')).toContainText('Agent 任务检查点');
@@ -1727,6 +1734,7 @@ test('长 Narration 前置时从 Agent 建议定位后续 Scene 仍在视口内'
   await installAppToolBridge(page, () => ({ structuredContent: {} }));
   await sendResult(page, initial);
   await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await page.getByRole('button', { name: '审阅详情', exact: true }).click();
   await page.getByRole('button', { name: '定位 Scene', exact: true }).click();
   const editor = page.getByRole('textbox', { name: 'Scene 21 Narration' });
   await expect(editor).toBeFocused();

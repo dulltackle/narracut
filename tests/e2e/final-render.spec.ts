@@ -68,7 +68,10 @@ test('最终输出展示准确来源，核对未知结果、取消与重试保�
   await expect(region).toContainText('此状态已接受，但已阻断再次 Render', { timeout: 10000 });
   await expect(region.getByRole('button', { name: '重试 Render', exact: true })).toBeHidden();
   await region.getByRole('button', { name: '前往候选检查与验收', exact: true }).click();
+  await expect(page.getByRole('button', { name: '关闭审阅详情' })).toBeVisible();
   await expect(page.locator('[data-candidate-region]')).toBeFocused();
+  await page.getByRole('button', { name: '关闭审阅详情' }).click();
+  await expect(region.getByRole('button', { name: '前往候选检查与验收', exact: true })).toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
   await region.evaluate(node => node.scrollIntoView({ block: 'start' }));
   await page.screenshot({ path: '.impeccable/review/render-mobile.png', fullPage: true });

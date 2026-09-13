@@ -52,6 +52,7 @@ test('销毁面板后同一任务提交持久成果，新页面同步且跨对�
     await expect.poll(() => host.turns.length).toBe(1);
     await page.goto(panel.url);
     await page.frameLocator('iframe').getByRole('tab', { name: 'Agent 工作区' }).click();
+    await page.frameLocator('iframe').getByRole('button', { name: '审阅详情', exact: true }).click();
     await expect(page.frameLocator('iframe').getByText('关闭面板后，任务仍会继续。需保持应用与 Codex 任务运行。')).toBeVisible();
     await page.close();
     expect(host.interruptions).toBe(0);
@@ -76,6 +77,7 @@ test('销毁面板后同一任务提交持久成果，新页面同步且跨对�
     expect(incoming.control.status).toBe('editable');
     const app = reopened.frameLocator('iframe');
     await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    if (!await app.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await app.getByRole('button', { name: '审阅详情', exact: true }).click();
     await expect(app.locator('[data-agent-content]')).toContainText('运行中');
     await app.getByText('当前创作指令与任务详情', { exact: true }).click();
     await expect(app.locator('[data-agent-content]')).toContainText(started.creationTask.taskId);
@@ -90,6 +92,7 @@ test('销毁面板后同一任务提交持久成果，新页面同步且跨对�
     const readonly = other.frameLocator('iframe');
     await expect(readonly.getByText('只读 · 项目由另一对话控制', { exact: true })).toBeVisible();
     await readonly.getByRole('tab', { name: 'Agent 工作区' }).click();
+    if (!await readonly.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await readonly.getByRole('button', { name: '审阅详情', exact: true }).click();
     await expect(readonly.locator('[data-task-action="stop"]').first()).toBeDisabled();
     await expect(readonly.getByRole('button', { name: '放弃候选', exact: true })).toBeDisabled();
     expect((await call(panel, 'get_workbench')).control.status).toBe('editable');
@@ -189,6 +192,7 @@ test('候选就绪重开直接呈现审阅状态，重试同步前没有可编�
     release();
     const app = page.frameLocator('iframe');
     await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    if (!await app.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await app.getByRole('button', { name: '审阅详情', exact: true }).click();
     await expect(app.locator('[data-agent-content]')).toContainText('候选已就绪');
     await expect(app.locator('[data-final-render]')).toBeVisible();
     expect(observed.some(name => ['start_creation_task', 'respond_creation_task', 'open_project', 'project_control'].includes(name))).toBe(false);
@@ -220,6 +224,7 @@ test('编辑中断连保留原页面与内容，重连核对后手动重试写�
     await expect(editor).toHaveValue('断连期间保留的完整旁白');
     await expect(editor).toHaveJSProperty('readOnly', true);
     await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    if (!await app.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await app.getByRole('button', { name: '审阅详情', exact: true }).click();
     await app.getByRole('tab', { name: '表格工作区' }).click();
     await expect(editor).toHaveValue('断连期间保留的完整旁白');
     await page.unroute(`${panel.url}rpc`);

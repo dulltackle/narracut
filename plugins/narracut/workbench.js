@@ -228,7 +228,7 @@
   let controlNotice = '';
   let controlEpoch = 0;
   let controlPollBusy = false;
-  const readButtons = '[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
+  const readButtons = '[data-open-review],[data-close-review],[data-return-review],[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
   function enforceControl() {
     if (state.result?.status !== 'valid') return;
     const blocked = state.disconnected || state.result.writable !== true;
@@ -700,6 +700,7 @@
 
   function enforceInputFreshness() {
     const blocked = inputsPending();
+    if (state.version !== state.savedVersion || state.brief.version !== state.brief.savedVersion) previewWorkbench.inputsChanged();
     app.querySelectorAll('[data-build-preview],[data-check-start],[data-delivery-create]').forEach(button => {
       if (blocked && !button.disabled) { button.dataset.inputDisabled = 'true'; button.disabled = true; }
       else if (!blocked && button.dataset.inputDisabled) { delete button.dataset.inputDisabled; button.disabled = false; }
@@ -993,6 +994,7 @@
   }
   function locateSuggestion(id, field = 'narration') {
     if (!state.project?.scenes.some(scene => scene.id === id)) { announce('目标 Scene 已删除，未定位其他 Scene。'); return; }
+    reviewReturn = true;
     state.selected = id;
     if (field === 'asset') { state.inspectorMode = 'scene-assets'; state.inspectionOpen = true; state.focusTarget = '[data-import-assets]'; }
     else { state.editing = id; state.focusTarget = '[data-narration-editor]'; }
@@ -1047,15 +1049,16 @@
     </section></main>`;
   }
 
-  function taskNotice() {
+  function taskNotice(includeStop = true) {
     const task = state.creationTask;
-    return task ? `<span>${task.transferred ? '任务已转移到另一线程' : state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${creationStopCopy[task.reason]?.[0] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${["running","waiting"].includes(task.status) && !task.transferred && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || task.operation === "stopping" ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
+    return task ? `<span>${task.transferred ? '任务已转移到另一线程' : state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${creationStopCopy[task.reason]?.[0] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${includeStop && ["running","waiting"].includes(task.status) && !task.transferred && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || task.operation === "stopping" ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
   }
   function updateTaskRegion() {
     updateRecoveryRegion();
     const briefReview = document.querySelector('[data-brief-review-state]');
     const pending = state.result?.currentRenderProgram?.briefReviewPending;
     if (briefReview) { briefReview.hidden = pending === false; updateRegion(briefReview, pending === false ? '' : `<strong>${pending ? 'Brief 待复核' : 'Brief 关系未检查'}</strong><p>当前 Render Program 与既有 Preview 保持不变</p>`); }
+    updateRegion(document.querySelector('[data-review-task]'), taskNotice(false));
     const notice = document.querySelector('[data-task-notice]');
     if (notice) updateRegion(notice, taskNotice());
     const region = document.querySelector('[data-agent-content]');
@@ -1235,7 +1238,7 @@
   );
   const acceptanceWorkbench = createAcceptanceWorkbench(
     (action, args) => callHostTool('project_acceptance', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
-    () => state.result?.project,
+    () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate } : undefined,
     () => state.result?.writable === true && !state.candidateUncertain && !(state.candidateBusy && state.candidateAction !== 'read') && state.creationTask?.status !== 'running' && !state.creationTask?.operation && state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict,
     deliveryWorkbench, previewWorkbench,
     async (result) => {
@@ -1252,8 +1255,46 @@
   });
 
   function valid(result) {
-    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent"><div data-agent-content></div><section class="agent-panel" data-task-recovery hidden></section><section class="preview-context" data-program-preview aria-label="成片 Preview"></section><section class="delivery-panel" data-program-delivery aria-label="候选交付"></section><section class="delivery-panel" data-brief-review-state hidden></section><section class="creation-optional" data-optional-suggestions></section><details class="checks-details"><summary>详细检查与操作状态</summary><section class="checks-panel" data-program-checks aria-label="检查与操作状态"></section></details><section class="delivery-panel" data-program-acceptance aria-label="接受候选"></section><div data-candidate-region></div><section class="preview-context" data-final-render aria-label="最终 Render"></section></div><div data-inspector-region></div></div><div data-overlay-region></div>`;
+    return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"><div data-review-return></div><div data-table-content></div></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent">
+      <div class="review-task" data-review-task></div><section class="preview-context" data-program-preview aria-label="成片 Preview"></section>
+      <div class="review-decision"><p data-review-summary>尚无候选 · 请在当前 Codex 对话中描述创作目标。</p><button class="agent-action" data-open-review aria-controls="review-drawer" aria-expanded="false">审阅详情</button><section class="delivery-panel" data-program-acceptance aria-label="接受候选"></section></div>
+      <div class="review-notices" data-review-notices role="status"></div>
+      <section class="delivery-panel" data-brief-review-state hidden></section>
+      <section class="preview-context" data-final-render aria-label="最终 Render"></section>
+      <aside id="review-drawer" class="review-drawer" aria-label="候选审阅详情" hidden><header class="review-drawer-head"><h2>审阅详情</h2><button class="agent-action" data-close-review>关闭审阅详情</button></header><div class="review-drawer-body">
+        <section class="delivery-panel" data-program-delivery aria-label="候选交付"></section>
+        <section class="creation-optional" data-optional-suggestions></section><section data-review-preview-details aria-label="Preview 版本与身份"></section>
+        <section aria-label="创作任务与候选管理"><div data-agent-content></div><section class="agent-panel" data-task-recovery hidden></section><div data-candidate-region></div></section>
+      </div></aside>
+    </div><div data-inspector-region></div></div><div data-overlay-region></div>`;
   }
+
+  let reviewReturn = false, reviewTrigger = null;
+  function setReviewOpen(open, restoreFocus = true) {
+    const drawer = document.getElementById('review-drawer');
+    if (!drawer) return;
+    if (open && drawer.hidden) reviewTrigger = document.activeElement;
+    drawer.hidden = !open;
+    document.querySelector('[data-open-review]')?.setAttribute('aria-expanded', String(open));
+    if (restoreFocus) (open ? document.querySelector('[data-close-review]') : reviewTrigger?.isConnected && !reviewTrigger.disabled && reviewTrigger.getClientRects().length ? reviewTrigger : document.querySelector('[data-open-review]'))?.focus({ preventScroll: true });
+  }
+  app.addEventListener('click', event => {
+    if (event.target.closest('[data-open-review],[data-render-candidate]')) setReviewOpen(true);
+    if (event.target.closest('[data-close-review]')) setReviewOpen(false);
+    if (event.target.closest('[data-return-review]')) { switchWorkspace('agent'); setReviewOpen(true); }
+  }, true);
+  app.addEventListener('keydown', event => {
+    const drawer = document.getElementById('review-drawer');
+    if (event.key === 'Tab' && drawer && !drawer.hidden && state.workspace === 'agent' && !document.querySelector('dialog[open]')) {
+      const nodes = [...drawer.querySelectorAll('button:not(:disabled),summary,a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')].filter(node => node.getClientRects().length);
+      const first = nodes[0], last = nodes.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+    if (event.key === 'Escape' && !document.getElementById('review-drawer')?.hidden && state.workspace === 'agent' && !event.defaultPrevented && !state.candidateConfirm && !document.querySelector('dialog[open]')) {
+      event.preventDefault(); setReviewOpen(false);
+    }
+  });
 
   function invalid(result) {
     const error = result.error ?? {};
@@ -1340,7 +1381,8 @@
       const region = document.querySelector("[data-workspace-region]");
       updateRegion(region, result === null ? loading() : result.status === "valid" ? valid(result) : invalid(result));
       if (result?.status === "valid") {
-        updateTable(document.getElementById("workspace-table"), table(result));
+        updateRegion(document.querySelector('[data-review-return]'), reviewReturn ? '<button class="agent-action return-review" data-return-review>返回候选审阅</button>' : '');
+        updateTable(document.querySelector('[data-table-content]'), table(result));
         updateTaskRegion();
         updateCandidate();
         previewWorkbench.mount(document.querySelector("[data-program-preview]"));
@@ -2916,7 +2958,7 @@
     document.querySelectorAll("[data-workspace]").forEach((tab) => tab.addEventListener("click", () => {
       if (state.result?.status === "valid") switchWorkspace(tab.dataset.workspace);
     }, { signal: bindings.signal }));
-    document.querySelectorAll('[data-view-task]').forEach(button => button.addEventListener('click', () => switchWorkspace('agent'), { signal: bindings.signal }));
+    document.querySelectorAll('[data-view-task]').forEach(button => button.addEventListener('click', () => { switchWorkspace('agent'); setReviewOpen(true); document.querySelector('[data-agent-content]')?.closest('details')?.setAttribute('open', ''); }, { signal: bindings.signal }));
     document.querySelectorAll('[data-todo-scene]').forEach(button => button.addEventListener('click', () => locateSuggestion(button.dataset.todoScene, button.dataset.todoField), { signal: bindings.signal }));
     document.querySelectorAll('[data-todo-copy]').forEach(button => button.addEventListener('click', async () => {
       const item = state.creationTask?.suggestions[Number(button.dataset.todoCopy)];
@@ -2937,7 +2979,7 @@
       document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "true");
       document.querySelector(".inspection [data-close-inspection]")?.focus();
     }, { signal: bindings.signal });
-    document.querySelector('[data-show-delivery]')?.addEventListener('click', () => { const region = document.querySelector('[data-program-delivery]'); region?.scrollIntoView({ block: 'start' }); const title = region?.querySelector('h2'); title?.setAttribute('tabindex', '-1'); title?.focus({ preventScroll: true }); }, { signal: bindings.signal });
+    document.querySelector('[data-show-delivery]')?.addEventListener('click', () => { setReviewOpen(true); const region = document.querySelector('[data-program-delivery]'); region?.scrollIntoView({ block: 'start' }); const title = region?.querySelector('h2'); title?.setAttribute('tabindex', '-1'); title?.focus({ preventScroll: true }); }, { signal: bindings.signal });
     document.querySelector("[data-close-preview]")?.addEventListener("click", closeAssetPreview, { signal: bindings.signal });
     document.onkeydown = (event) => {
       trapAssetPreviewFocus(event);
@@ -3204,6 +3246,7 @@
     if (result?.status === 'open-cancelled') return;
     if (projectCopy?.busy && !fromCopy) return;
     if (result?.status === 'valid' && state.result?.project?.projectId === result.project?.projectId && state.result.project.directory === result.project.directory) {
+      if (result.projectRevision !== state.result.projectRevision || result.videoBrief?.revision !== state.result.videoBrief?.revision) previewWorkbench.inputsChanged();
       if (!result.writable && state.result.writable) retainControlDraft();
       if (state.version === state.savedVersion && !state.saveInFlight && !document.activeElement?.matches("[data-narration-editor],[data-expanded-editor]")) {
         state.project = clone(result.projectDsl); state.baselineRevision = result.projectRevision;
@@ -3215,6 +3258,7 @@
       if ('creationTask' in result) applyCreation(result.creationTask);
       render(); return;
     }
+    reviewReturn = false;
     assetPreviewRequest += 1;
     clearTimeout(briefSaveTimer);
     activeBriefSavePromise = null;

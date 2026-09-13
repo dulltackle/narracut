@@ -17,6 +17,7 @@ test('公开工作台只提供候选审阅，停止任务不出现继续或新�
     await page.goto(panel.url);
     const app = page.frameLocator('iframe');
     await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    if (!await app.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await app.getByRole('button', { name: '审阅详情', exact: true }).click();
     // 生产接入现在能够运行；通过用户停止入口建立本场景的已停止状态。
     await expect(app.locator('[data-agent-content]')).toContainText('运行中');
     await app.getByRole('button', { name: '停止任务', exact: true }).click();
@@ -52,6 +53,7 @@ test('公开面板只读禁用候选决策，服务端拒绝接受和放弃，�
     await call(viewer, 'open_project', identity); await other.goto(viewer.url);
     const readonly = other.frameLocator('iframe');
     await readonly.getByRole('tab', { name: 'Agent 工作区' }).click();
+    if (!await readonly.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await readonly.getByRole('button', { name: '审阅详情', exact: true }).click();
     await expect(readonly.getByRole('button', { name: '审阅并接受', exact: true })).toBeDisabled();
     await expect(readonly.getByRole('button', { name: '放弃候选', exact: true })).toBeDisabled();
     for (const [name, args] of [['project_acceptance', { action: 'review' }], ['manage_project_candidate', { action: 'discard' }]] as const) {
@@ -60,11 +62,13 @@ test('公开面板只读禁用候选决策，服务端拒绝接受和放弃，�
       expect(denied.structuredContent.error.code).toBe('PROJECT_CONTROL_REQUIRED');
     }
     await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    if (!await app.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await app.getByRole('button', { name: '审阅详情', exact: true }).click();
     await expect(app.getByRole('button', { name: '放弃候选', exact: true })).toBeEnabled();
     await app.getByRole('tab', { name: '表格工作区' }).click();
     await expect(app.locator('[data-scene-row]').first()).toHaveAttribute('data-selected', 'true');
     await expect(app.getByRole('textbox', { name: 'Scene 01 Narration' })).toHaveValue('保留 Scene 内容');
     await app.getByRole('tab', { name: 'Agent 工作区' }).click();
+    if (!await app.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await app.getByRole('button', { name: '审阅详情', exact: true }).click();
     await app.getByRole('button', { name: '放弃候选', exact: true }).click();
     await expect(app.getByRole('button', { name: '取消', exact: true })).toBeFocused();
     await app.getByRole('button', { name: '放弃候选并终结任务', exact: true }).click();
