@@ -11,12 +11,12 @@ colors:
   control: "#f5f5f5"
   primary: "#242424"
   tab-selected: "#f3f3f3"
-  tab-indicator: "#262626"
   focus-blue: "#315e9a"
   selection: "#dce7f4"
   green: "#28743a"
   amber: "#895211"
   editor-line: "#9a9a9a"
+  control-line: "#d5d5d5"
 typography:
   ui-base:
     fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
@@ -27,6 +27,14 @@ typography:
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.65
+  workspace-label:
+    fontSize: "13px"
+    fontWeight: 400
+  brief-body:
+    fontFamily: '"Noto Sans SC", sans-serif'
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.75
   brand:
     fontFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif'
     fontSize: "17px"
@@ -79,7 +87,16 @@ components:
   workspace-tab-selected:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
+    typography: "{typography.workspace-label}"
+    rounded: "{rounded.control}"
     padding: "4px 10px"
+  brief-editor:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.content-ink}"
+    typography: "{typography.brief-body}"
+    rounded: "{rounded.editor}"
+    padding: "16px"
+    width: "100%"
   scene-row-selected:
     backgroundColor: "{colors.control}"
     textColor: "{colors.ink}"
@@ -114,7 +131,9 @@ components:
 
 依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。基础编辑页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。
 
-本次刷新使用当前工作台资源与只读协议夹具，在 Chromium 的 902px 与 430px 视口提取计算样式并查看页面截图；同时对照 #112 的窄屏审阅抽屉和 [#113 接受收尾截图](docs/acceptance/issue113/accepted-cleanup-902.png)。#113 截图使用零 Scene 协议夹具，不是实际成片。此轮核对覆盖样式与文档一致性，不新增真实宿主或媒体执行验收。组件示例与叙述另存于 `.impeccable/design.json`；其中色阶是供面板展示的派生 OKLCH 色阶，不是生产调色板。该 sidecar 存在早于 #115 的文档漂移，本票未修复，不能作为最新导航与 Brief 行为依据。
+本次刷新（2026-09-13）保留现有设计方向，核对当前工作台资源的最终 CSS 层叠，并通过 Chromium 协议夹具检查 902×667 与 430×860 视口的导航、表格、Brief 与冲突界面。计算样式确认工作区标签为 13px、400 字重，桌面最小高度 30px、窄屏 44px，选中态为白底轻投影。此次未执行真实 Codex 宿主、系统窗口或媒体输出验收；既有行为证据仍以各验收记录为准。
+
+组件示例与叙述同步保存在 `.impeccable/design.json`，已更新分段导航、901px 导航断点和 Brief 编辑框。其派生 OKLCH 色阶仅供设计面板展示，不是生产调色板；组件片段展示外观与 CSS 状态，不执行真实保存、导航或候选接受。文件结构遵循 [DESIGN.md 格式](https://raw.githubusercontent.com/google-labs-code/design.md/main/docs/spec.md)，前置令牌记录规范值，正文说明应用范围。
 
 #115 页面证据见 [902px 分组顶栏](docs/acceptance/issue115/toolbar-902.png)、[430px 分行顶栏](docs/acceptance/issue115/toolbar-430.png)、[长 Brief 弹窗](docs/acceptance/issue115/brief-902.png)、[窄屏冲突比较](docs/acceptance/issue115/conflict-430.png)与 [measurements.json](docs/acceptance/issue115/measurements.json)。这些截图和尺寸来自协议夹具；实际文件保存、再次冲突与导出行为由 `tests/e2e/brief-navigation.spec.ts` 验证，不代表真实 Codex 宿主验收。
 
@@ -133,7 +152,7 @@ components:
 
 ### Neutral
 
-`paper` 覆盖主工作面，`panel` 用于表头和底部指引等轻微分层，`line` 用于结构分隔。选中 Scene 用 `control`，分段工作区容器用 `tab-selected`，当前工作区用白色按钮面与轻投影标记。
+`paper` 覆盖主工作面，`panel` 用于表头和底部指引等轻微分层，`line` 用于结构分隔，`control-line` 用于项目工具、项目信息与 Brief 控件描边。选中 Scene 用 `control`，分段工作区容器用 `tab-selected`，当前工作区用白色按钮面与轻投影标记。
 
 ### 功能色
 
@@ -141,7 +160,7 @@ components:
 
 ## Typography
 
-页面基础字体使用中文 UI sans 字体栈，默认 16px、400 字重；`typography.body` 专指 Narration 阅读及编辑角色，为 14px、400 字重、1.65 行高，不是 body 元素的默认字号。表头 12px、500 字重，Scene 序号 13px。状态摘要 12px；Speech 时长等细节为 11px 的 `ui-monospace, monospace`，500 字重、1.35 行高。分组顶栏按钮与工作区标签为 13px，项目名称为 650 字重。正文保持自然中文阅读，不用展示字或等宽体排 Narration。
+页面基础字体使用中文 UI sans 字体栈，默认 16px、400 字重；`typography.body` 专指 Narration 阅读及编辑角色，为 14px、400 字重、1.65 行高，不是 body 元素的默认字号。表头 12px、500 字重，Scene 序号 13px。状态摘要 12px；Speech 时长等细节为 11px 的 `ui-monospace, monospace`，500 字重、1.35 行高。分组顶栏按钮与工作区标签为 13px、400 字重，项目名称为 650 字重。Brief 正文使用 `brief-body`：14px、400 字重、1.75 行高，独立于 Narration 的正文角色。正文保持自然中文阅读，不用展示字或等宽体排 Narration。
 
 Operate 顶部以项目名称作为入口，不再显示独立品牌标识。项目机器身份仍可使用现有等宽标签；Agent 与启动器中保留的标题尺度只描述现有模块，不作为新页面的统一展示字要求。
 
@@ -173,7 +192,7 @@ Operate 顶部以项目名称作为入口，不再显示独立品牌标识。项
 
 ### 按钮与工作区导航
 
-新增 Scene 等主按钮为深底白字，悬停时保持深底白字；次按钮白底近黑字与轻描边。桌面 Scene 工具按钮最小高度 32px、内边距 `4px 10px`；窄屏提升到 44px，其中主要操作内边距为 `0 9px`，撤销／重做为 `4px 8px`。Scene 操作按钮继承 `.76rem`、700 字重，禁用透明度为 `.46`；其他通用按钮禁用透明度为 `.5`。工作区使用浅灰分段容器，选中按钮为白底深字与轻投影，不显示底部指示线；焦点保持可见。项目名称是可点击的文件夹入口，弹窗显示项目文件夹名、路径、完整 Project ID 及可用时的对话详情，长目录自然换行。关闭项目入口与其他工具分组，使用浅暖底色和棕色文字。
+新增 Scene 等主按钮为深底白字，悬停时保持深底白字；次按钮白底近黑字与轻描边。桌面 Scene 工具按钮最小高度 32px、内边距 `4px 10px`；窄屏提升到 44px，其中主要操作内边距为 `0 9px`，撤销／重做为 `4px 8px`。Scene 操作按钮继承 `.76rem`、700 字重，禁用透明度为 `.46`；其他通用按钮禁用透明度为 `.5`。工作区使用浅灰分段容器，选中按钮为白底深字与轻投影，不显示底部指示线；容器内边距桌面为 3px、901px 及以下为 2px，标签间距为 2px。桌面普通项目工具最小高度 34px，标签最小高度 30px；901px 及以下均为 44px。未选中标签透明底、深灰字，悬停变浅灰底；选中标签始终保持白底轻投影，焦点描边独立可见。项目名称是可点击的文件夹入口，弹窗显示项目文件夹名、路径、完整 Project ID 及可用时的对话详情，长目录自然换行。关闭项目入口与其他工具分组，使用浅暖底色和棕色文字。
 
 Scene 上下文菜单宽 `min(248px,calc(100vw - 16px))`，最高为视口高度减 16px，超长菜单内部滚动。菜单项桌面最小高度 36px、窄屏 44px，悬停以浅灰底突出；选择态与键盘焦点独立表达。
 
@@ -195,7 +214,7 @@ Narration 点击或编辑入口进入原位文本框；文本框以 `scrollHeigh
 
 ### Video Brief 与外部冲突
 
-创作说明打开居中的原生模态 dialog，宽 `min(1000px,calc(100vw - 32px))`、高 `min(760px,calc(100dvh - 40px))`，白底、6px 圆角，正文区域独立滚动；700px 及以下距离视口四边 8px，操作最小高度 44px。原始 Markdown 使用 14px 中文 UI 字体、1.75 行高，长文本可滚动。打开聚焦编辑框，Tab 保持在弹窗内；关闭或 Escape 返回入口，重新打开保留编辑位置。
+创作说明打开居中的原生模态 dialog，宽 `min(1000px,calc(100vw - 32px))`、高 `min(760px,calc(100dvh - 40px))`，白底、6px 圆角，正文区域独立滚动；700px 及以下距离视口四边 8px，操作最小高度 44px。原始 Markdown 使用 `brief-body`，白底深灰正文、灰色细描边和 2px 圆角；正文框内边距桌面为 16px、700px 及以下为 12px，长文本可滚动。冲突证据框使用 `panel` 浅灰底与 `control-line` 描边，仍保留 16px 内边距；合并框保持白底。合并保存主按钮使用深灰底白字，悬停切换为 `ink` 底色，与 Scene 主按钮保持原色的悬停规则不同。打开聚焦编辑框，Tab 保持在弹窗内；关闭或 Escape 返回入口，重新打开保留编辑位置。
 
 普通编辑离开编辑框或关闭弹窗时保存，组合输入结束后再处理保存和关闭；保留原始换行、撤销与重做。失败保留本地文字并要求显式重试。只读、失权与断连时保留查看，禁止写入；保存回执不能覆盖之后的新输入。
 

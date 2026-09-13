@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-13T06:20:40.262Z",
+  "generatedAt": "2026-09-13T08:31:19.354Z",
   "title": "Design System: Narracut",
   "extensions": {
     "colorMeta": {
@@ -104,21 +104,7 @@
       },
       "tab-selected": {
         "role": "neutral",
-        "displayName": "当前工作区浅灰底",
-        "tonalRamp": [
-          "oklch(15.00% 0.00000 0.00)",
-          "oklch(26.43% 0.00000 0.00)",
-          "oklch(37.86% 0.00000 0.00)",
-          "oklch(49.29% 0.00000 0.00)",
-          "oklch(60.71% 0.00000 0.00)",
-          "oklch(72.14% 0.00000 0.00)",
-          "oklch(83.57% 0.00000 0.00)",
-          "oklch(95.00% 0.00000 0.00)"
-        ]
-      },
-      "tab-indicator": {
-        "role": "neutral",
-        "displayName": "当前工作区深灰线",
+        "displayName": "分段工作区容器浅灰",
         "tonalRamp": [
           "oklch(15.00% 0.00000 0.00)",
           "oklch(26.43% 0.00000 0.00)",
@@ -213,6 +199,20 @@
           "oklch(83.57% 0.00000 0.00)",
           "oklch(95.00% 0.00000 0.00)"
         ]
+      },
+      "control-line": {
+        "role": "neutral",
+        "displayName": "项目工具与 Brief 控件描边",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 0.00)",
+          "oklch(26.43% 0.00000 0.00)",
+          "oklch(37.86% 0.00000 0.00)",
+          "oklch(49.29% 0.00000 0.00)",
+          "oklch(60.71% 0.00000 0.00)",
+          "oklch(72.14% 0.00000 0.00)",
+          "oklch(83.57% 0.00000 0.00)",
+          "oklch(95.00% 0.00000 0.00)"
+        ]
       }
     },
     "typographyMeta": {
@@ -231,6 +231,14 @@
       "detail": {
         "displayName": "Speech 细节",
         "purpose": "时长等辅助信息沿用 11px 等宽体。"
+      },
+      "workspace-label": {
+        "displayName": "分段工作区标签",
+        "purpose": "13px、400 字重，项目工具同尺度；项目名称单独使用 650 字重。"
+      },
+      "brief-body": {
+        "displayName": "Brief 原始 Markdown",
+        "purpose": "14px、1.75 行高；正文与冲突证据共用，区别于 Narration 的 1.65 行高。"
       }
     },
     "shadows": [
@@ -248,6 +256,11 @@
         "name": "inspection-drawer",
         "value": "-12px 8px 36px #00000014",
         "purpose": "项目检查与候选审阅抽屉。"
+      },
+      {
+        "name": "workspace-selected",
+        "value": "0 1px 3px #00000018",
+        "purpose": "分段工作区当前标签的轻投影。"
       }
     ],
     "motion": [
@@ -268,7 +281,7 @@
       },
       {
         "name": "compact-project-rail",
-        "value": "900px"
+        "value": "901px"
       },
       {
         "name": "scene-toolbar-menu",
@@ -306,12 +319,12 @@
       "css": ".ds-editor{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;width:100%;min-height:38px;padding:6px;border:1px solid #9a9a9a;background:var(--white,#fff);color:var(--ink,#171717);font-size:14px;line-height:1.65;font-weight:400;border-radius:2px;resize:none}.ds-editor:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}"
     },
     {
-      "name": "工作区标签",
+      "name": "分段工作区导航",
       "kind": "nav",
       "refersTo": "workspace-tab-selected",
-      "description": "独立标签行；选中态为浅灰底与深色底线，标签按钮字号 14px、字重 650。",
-      "html": "<nav class=\"ds-tabs\" aria-label=\"工作区\"><button aria-current=\"page\">表格工作区</button><button>Agent 工作区</button></nav>",
-      "css": ".ds-tabs{display:flex;font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;border-bottom:1px solid var(--line,#e3e3e3)}.ds-tabs button{min-height:44px;padding:0 20px;border:0;border-right:1px solid var(--line,#e3e3e3);background:#fff;color:var(--muted,#626262);font:inherit;font-size:14px;font-weight:650;cursor:pointer}.ds-tabs button[aria-current]{background:#f3f3f3;color:var(--ink,#171717);box-shadow:inset 0 -2px #262626}.ds-tabs button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px;box-shadow:none}@media(max-width:700px){.ds-tabs button{min-width:0;flex:1;text-align:center}}"
+      "description": "浅灰分段容器、白底选中标签；静态展示两个工作区与键盘焦点样式。",
+      "html": "<div class=\"ds-tabs\" role=\"tablist\" aria-label=\"工作区\"><button role=\"tab\" aria-selected=\"true\" tabindex=\"0\">表格工作区</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Agent 工作区</button></div>",
+      "css": ".ds-tabs{display:flex;gap:2px;min-height:36px;width:fit-content;padding:3px;border:0;border-radius:6px;background:#f3f3f3;font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif}.ds-tabs button{font:inherit;font-size:13px;font-weight:400;min-height:30px;margin:0;padding:4px 10px;border:0;border-radius:6px;background:transparent;color:#262626;cursor:pointer;white-space:nowrap;text-align:left}.ds-tabs button:hover{background:#f5f5f5;color:#171717}.ds-tabs button[aria-selected=\"true\"]{background:#fff;color:#171717;box-shadow:0 1px 3px #00000018}.ds-tabs button:focus-visible{outline:2px solid #315e9a;outline-offset:2px}.ds-tabs button:disabled{opacity:.46;cursor:not-allowed}@media(max-width:901px){.ds-tabs{padding:2px}.ds-tabs button{min-height:44px}}"
     },
     {
       "name": "选中 Scene",
@@ -354,17 +367,17 @@
       "css": ".ds-confirm{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;font-size:16px;color:#262626;padding:20px;background:#fff;border:1px solid #364041}.ds-confirm h3{margin:0 0 12px}.ds-confirm p{max-width:72ch;overflow-wrap:anywhere}.ds-confirm footer{display:flex;flex-wrap:wrap;gap:8px}.ds-accept button{min-height:36px;padding:8px 16px;border:1px solid #4a5556;border-radius:6px;background:#fff;color:#262626;font:inherit;cursor:pointer}.ds-accept button:hover:not(:disabled){background:#fff}.ds-accept button:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}.ds-accept button:disabled{opacity:.5;cursor:not-allowed}.ds-confirm .ds-confirm-submit{border-color:#4e88df}@media(max-width:680px){.ds-confirm{padding:16px}}"
     },
     {
-      "name": "接受收尾反馈",
-      "kind": "custom",
-      "refersTo": "acceptance-feedback",
-      "description": "已接受与收尾失败同时可见；重试清理为视觉示例，实际操作受写权约束。",
-      "html": "<section class=\"ds-accept ds-cleanup\" aria-label=\"候选接受结果\"><p role=\"status\" aria-live=\"polite\">候选已接受，任务收尾待完成；最终 Render 尚需独立发起</p><button>重试清理</button></section>",
-      "css": ".ds-cleanup{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;font-size:16px;color:#262626;}.ds-cleanup p{overflow-wrap:anywhere}.ds-accept button{min-height:36px;padding:8px 16px;border:1px solid #4a5556;border-radius:6px;background:#fff;color:#262626;font:inherit;cursor:pointer}.ds-accept button:hover:not(:disabled){background:#fff}.ds-accept button:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}.ds-accept button:disabled{opacity:.5;cursor:not-allowed}.ds-cleanup button{min-height:44px}"
+      "name": "Video Brief 原始 Markdown",
+      "kind": "input",
+      "refersTo": "brief-editor",
+      "description": "居中 Brief 弹窗内的正文框；只展示文本框外观，保存与冲突由真实工作台处理。",
+      "html": "<label class=\"ds-brief-label\">Video Brief 原始 Markdown<textarea class=\"ds-brief-editor\" rows=\"7\"># 雨后散步\n\n以自然、安静的节奏记录街道。</textarea></label>",
+      "css": ".ds-brief-label{display:grid;gap:8px;color:#626262;font:400 12px/1.5 \"Noto Sans SC\",sans-serif}.ds-brief-editor{width:100%;min-height:150px;padding:16px;border:1px solid #9a9a9a;border-radius:2px;background:#fff;color:#262626;caret-color:#315e9a;font:400 14px/1.75 \"Noto Sans SC\",sans-serif;resize:none;tab-size:2;scrollbar-color:#aaa #f5f5f5}.ds-brief-editor::selection{background:#dce7f4;color:#171717}.ds-brief-editor:focus-visible{outline:2px solid #315e9a;outline-offset:2px;box-shadow:none}@media(max-width:700px){.ds-brief-editor{padding:12px}}"
     }
   ],
   "narrative": {
     "northStar": "浅色连续 Scene 编辑台",
-    "overview": "白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。\n\n本记录刷新已过时的“暗房接触印样台”体系。#109 已移除表格的暗色框体、纸张与胶片纹理、背光和装饰边码。Agent 工作区、启动器及宿主连接反馈的基础色已迁移到浅色；其具体布局仍沿现有模块。#112 已将候选审阅改为视频主面与按需右侧抽屉；第 3 批单行分组导航及项目入口重排仍以后续工单为准。\n\n依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。基础编辑页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。\n\n本次刷新使用当前工作台资源与只读协议夹具，在 Chromium 的 902px 与 430px 视口提取计算样式并查看页面截图；同时对照 #112 的窄屏审阅抽屉和 [#113 接受收尾截图](docs/acceptance/issue113/accepted-cleanup-902.png)。#113 截图使用零 Scene 协议夹具，不是实际成片。此轮核对覆盖样式与文档一致性，不新增真实宿主或媒体执行验收。组件示例与叙述同步保存在 `.impeccable/design.json`；其中色阶是供面板展示的派生 OKLCH 色阶，不是生产调色板。",
+    "overview": "白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。\n\n本记录刷新已过时的“暗房接触印样台”体系。#109 已移除表格的暗色框体、纸张与胶片纹理、背光和装饰边码。Agent 工作区、启动器及宿主连接反馈的基础色已迁移到浅色；其具体布局仍沿现有模块。#112 已将候选审阅改为视频主面与按需右侧抽屉；#115 已将项目入口、分段工作区、项目工具与独立关闭入口组成分组顶栏，并以居中弹窗编辑 Video Brief。\n\n依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。基础编辑页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。\n\n本次刷新（2026-09-13）保留现有设计方向，核对当前工作台资源的最终 CSS 层叠，并通过 Chromium 协议夹具检查 902×667 与 430×860 视口的导航、表格、Brief 与冲突界面。计算样式确认工作区标签为 13px、400 字重，桌面最小高度 30px、窄屏 44px，选中态为白底轻投影。此次未执行真实 Codex 宿主、系统窗口或媒体输出验收；既有行为证据仍以各验收记录为准。\n\n组件示例与叙述同步保存在 `.impeccable/design.json`，已更新分段导航、901px 导航断点和 Brief 编辑框。其派生 OKLCH 色阶仅供设计面板展示，不是生产调色板；组件片段展示外观与 CSS 状态，不执行真实保存、导航或候选接受。文件结构遵循 [DESIGN.md 格式](https://raw.githubusercontent.com/google-labs-code/design.md/main/docs/spec.md)，前置令牌记录规范值，正文说明应用范围。\n\n#115 页面证据见 [902px 分组顶栏](docs/acceptance/issue115/toolbar-902.png)、[430px 分行顶栏](docs/acceptance/issue115/toolbar-430.png)、[长 Brief 弹窗](docs/acceptance/issue115/brief-902.png)、[窄屏冲突比较](docs/acceptance/issue115/conflict-430.png)与 [measurements.json](docs/acceptance/issue115/measurements.json)。这些截图和尺寸来自协议夹具；实际文件保存、再次冲突与导出行为由 `tests/e2e/brief-navigation.spec.ts` 验证，不代表真实 Codex 宿主验收。",
     "keyCharacteristics": [
       "连续表格优先，避免每个 Scene 独立成卡。",
       "内容按长度展开，选择、编辑与保存反馈可核对。",
@@ -383,7 +396,6 @@
       "恢复暗房框体、纸张胶片纹理、背光表格或装饰印章。",
       "把窄屏表格改为隐藏 Asset／Speech 列，或用固定行高截断长 Narration。",
       "以常驻检查侧栏挤占 Scene 主编辑区。",
-      "把第 3 批导航及项目入口方案描述为已经交付。",
       "用短暂成功提示覆盖过期 Preview，或把接受候选等同最终输出完成。"
     ]
   }
