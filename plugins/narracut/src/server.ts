@@ -141,6 +141,7 @@ const tools = [
     _meta: { ui: { visibility: ['app'] } },
   },
   { name: 'restore_project', title: '从恢复快照创建项目', description: '只读检查恢复材料和计划，明确确认后在新路径恢复原身份项目；来源受阻时可提取普通文件。', inputSchema: { type: 'object', required: ['action'], additionalProperties: false, properties: { action: { enum: ['inspect', 'plan', 'content', 'recover', 'extract', 'status', 'cancel'] }, snapshotPath: { type: 'string' }, sourcePath: { type: 'string' }, targetPath: { type: 'string' }, planId: { type: 'string' }, briefResult: { type: 'string' }, component: { enum: ['dsl', 'briefLocal', 'briefBase'] }, operationId: { type: 'string' }, confirmTemporaryCleanup: { type: 'boolean' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
+  { name: 'close_project', title: '关闭项目', description: '保存完成后停止执行并释放当前项目，保留候选和项目文件。', inputSchema: { type: 'object', required: ['projectDirectory', 'projectId'], additionalProperties: false, properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'project_recovery', title: '项目恢复快照', description: '核对项目身份、封存未保存编辑并在项目外导出恢复快照。', inputSchema: { type: 'object', required: ['action', 'projectDirectory', 'projectId'], additionalProperties: false, properties: { action: { enum: ['check', 'seal', 'export', 'status', 'leave'] }, projectDirectory: { type: 'string' }, projectId: { type: 'string' }, draft: { type: 'object', additionalProperties: false, properties: { dsl: { type: 'string' }, briefLocal: { type: 'string' }, briefBase: { type: 'string' } } }, target: { type: 'string' }, operationId: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'copy_project', title: '复制项目', description: '安全停止并关闭来源，完整复制后打开独立副本；可查询阶段和在发布前取消。', inputSchema: { type: 'object', required: ['action'], additionalProperties: false, properties: { action: { enum: ['start', 'status', 'cancel'] }, projectDirectory: { type: 'string' }, projectId: { type: 'string' }, targetDirectory: { type: 'string' }, operationId: { type: 'string' }, confirmTemporaryCleanup: { type: 'boolean' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
   { name: 'creation_step', description: '当前对话 Agent 读取创作步骤或提交结构化结果。仅收到回执不代表候选落盘，须继续读取直到等待用户或停止。', inputSchema: { type: 'object', additionalProperties: false, required: ['projectDirectory', 'projectId', 'taskId', 'action'], properties: { projectDirectory: { type: 'string' }, projectId: { type: 'string' }, taskId: { type: 'string' }, action: { enum: ['read', 'submit', 'interrupt'] }, reason: { enum: ['CODEX_INTERRUPTED', 'CODEX_THREAD_UNAVAILABLE', 'CODEX_USAGE_LIMIT', 'CODEX_AUTH_REQUIRED', 'CODEX_UNAVAILABLE'] }, stepId: { type: 'string' }, answer: { type: 'object' } } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } } },
@@ -796,6 +797,21 @@ class ProjectWorkspaceSession {
       for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
       throw error;
     }
+  }
+  async closeProject(input: any) {
+    const opened = this.#opened;
+    if (!opened || opened.inspection.projectDirectory !== input?.projectDirectory || opened.inspection.manifest.projectId !== input?.projectId) throw new Error('关闭请求与当前项目身份不匹配。');
+    if (this.#copyPromise || this.#opening) throw new Error('项目操作尚未完成，请稍后关闭。');
+    await opened.assertWritable();
+    if (this.creation?.value && this.creation.value.status !== 'terminated') await this.creation.respond({ action: 'stop' });
+    await this.creation?.close(); await this.render.close();
+    for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
+    await Promise.all([...this.#speechPending]);
+    await opened.assertWritable();
+    await opened.release();
+    this.#opened = null; this.creation = null;
+    this.delivery.clear(); this.checks.clear(); this.#credentials.clear(); this.#speechJobs.clear();
+    return { status: 'launcher', connection: launcherConnectionState() };
   }
   async recoveryOperation(input: any) {
     // 恢复只读取旧会话的内存；正常转移撤销旧租约后也必须能抢救和离开。
@@ -1524,6 +1540,10 @@ async function callTool(
     catch (error) { return { isError: true, structuredContent: { status: 'identity-lost', error: { code: 'PROJECT_IDENTITY_LOST', message: (error as Error).message } }, content: [] }; }
   }
 
+  if (name === 'close_project') {
+    try { return { structuredContent: await workspace.closeProject(argumentsValue), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { error: { code: 'PROJECT_CLOSE_FAILED', message: (error as Error).message } }, content: [] }; }
+  }
   if (name === 'copy_project') {
     try { return { structuredContent: await workspace.copyOperation(argumentsValue), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? 'PROJECT_COPY_FAILED', message: (error as Error).message } }, content: [] }; }

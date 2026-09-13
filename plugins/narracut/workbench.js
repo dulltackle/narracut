@@ -89,7 +89,10 @@
       redo: [],
       historyBytes: 0,
       conflict: null,
-      conflictTab: "base",
+      conflictTab: "local",
+      positions: {},
+      discardConfirm: false,
+      closeAfterComposition: false,
       merge: "",
       exporting: false,
       exportMessage: null,
@@ -228,10 +231,10 @@
   let controlNotice = '';
   let controlEpoch = 0;
   let controlPollBusy = false;
-  const readButtons = '[data-candidate-action="read"],[data-accept-result],[data-accept-cancel],[data-candidate-cancel],[data-task-check],[data-open-review],[data-close-review],[data-return-review],[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-render-copy],[data-render-issue],[data-render-close],[data-render-prepare],[data-render-reconcile],[data-render-target],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
+  const readButtons = '[data-project-info],[data-close-project-info],[data-project-history],[data-open-tts],[data-return-brief],[data-brief-discard-cancel],[data-candidate-action="read"],[data-accept-result],[data-accept-cancel],[data-candidate-cancel],[data-task-check],[data-open-review],[data-close-review],[data-return-review],[data-speech-reason],[data-close-speech-reason],[data-return-edit],[data-reconnect],[data-workspace],[data-open-inspection],[data-close-inspection],[data-project-inspection],[data-open-brief],[data-close-brief],[data-open-scene-assets],[data-manage-project-assets],[data-preview-asset],[data-close-preview],[data-proposal-tab],[data-brief-conflict-tab],[data-render-table],[data-render-candidate],[data-render-reveal],[data-render-copy],[data-render-issue],[data-render-close],[data-render-prepare],[data-render-reconcile],[data-render-target],[data-play],[data-mute],[data-step],[data-jump],[data-version-switch],[data-preview-switch],[data-preview-compare],[data-open-history],[data-close-history],[data-return-candidate],[data-check-location],[data-go-scene],[data-enlarge],[data-evidence-seek],[data-copy-suggestion],[data-todo-copy],[data-todo-scene],[data-view-task],[data-show-delivery],[data-copy-control-draft],.scene-select,[data-close-expanded],button[aria-label="关闭"]';
   function enforceControl() {
     if (state.result?.status !== 'valid') return;
-    const blocked = state.disconnected || state.result.writable !== true;
+    const blocked = state.disconnected || state.result.writable !== true || closingProject === 'closing';
     app.querySelectorAll('button,input,textarea,select').forEach(element => {
       const read = element.matches(readButtons + ',[data-seek],[data-volume],[data-frame-input],[data-asset-search]') || element.closest('[data-control-drafts]');
       if (blocked && !read) {
@@ -309,7 +312,7 @@
       } catch (error) { retainedDraft.message = error.message; }
       render();
     }, { signal: bindings.signal });
-    const tabs = document.querySelector('.workspace-tabs') ?? document.querySelector('[role="tablist"]');
+    const tabs = document.querySelector('.shared-feedback');
     if (tabs) app.style.setProperty('--workbench-tabs-bottom', tabs.getBoundingClientRect().bottom + 'px');
     enforceControl();
   }
@@ -372,13 +375,47 @@
 
   function rail(result) {
     const project = result?.project ?? {};
-    const connected = result?.connection?.status === "connected";
-    return `<header class="project-rail">
-      <div class="brand">Narracut</div>
-      <div class="folder"><span class="folder-mark" aria-hidden="true"></span><span>${escapeHtml(project.folderName ?? "等待项目")}</span></div>
-      <div class="project-id">${result?.conversation ? conversationDetails(result) : `<strong>PROJECT ID</strong><span>${escapeHtml(project.projectId ?? "—")}</span>`}</div>
-      <div class="connection"><span class="lamp" data-status="${connected ? "connected" : "loading"}" aria-hidden="true"></span><span>${connected ? "连接正常" : "连接中"}</span></div>
+    return `<header class="project-rail grouped-rail" aria-label="项目工具栏">
+      <button type="button" class="project-folder" data-project-info title="${escapeHtml(project.folderName)}" aria-label="项目信息：${escapeHtml(project.folderName ?? '等待项目')}">${escapeHtml(project.folderName ?? '等待项目')}</button>
+      ${tabs()}
+      <div class="project-tools" role="group" aria-label="项目工具">
+        <button type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}">创作说明</button>
+        <button type="button" data-open-tts>声音配置</button>
+        <button type="button" data-project-history>程序历史</button>
+        <button type="button" data-open-inspection aria-label="打开项目检查" aria-expanded="${state.inspectionOpen}">项目检查</button>
+      </div><div class="project-exit"><button type="button" data-close-project>关闭项目</button></div>
     </header>`;
+  }
+
+  let closingProject = false;
+  async function closeProject() {
+    if (closingProject || briefWriteBlocked()) return;
+    if (state.assetBusy || state.taskOperation || state.candidateBusy || acceptanceWorkbench.blocked()) { announce('项目操作尚未完成，请稍后关闭。'); return; }
+    closingProject = true;
+    try {
+      await saveProject(); await saveVideoBrief();
+      if (state.version !== state.savedVersion || state.brief.version !== state.brief.savedVersion || state.brief.conflict) {
+        announce('项目仍有未保存内容，请先完成保存或处理 Brief 冲突。');
+        if (state.brief.conflict || state.brief.version !== state.brief.savedVersion) openBrief('[data-close-project]');
+        return;
+      }
+      closingProject = 'closing'; render();
+      const result = await callHostTool('close_project', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId });
+      if (result.isError || result.structuredContent?.status !== 'launcher') throw new Error(result.structuredContent?.error?.message ?? '关闭结果尚未确认，请重试。');
+      accept(result.structuredContent);
+    } catch (error) { state.saveError = { message: error.message }; render(); announce(error.message); }
+    finally { closingProject = false; render(); }
+  }
+
+  function showProjectInfo() {
+    const project = state.result.project;
+    const dialog = document.createElement('dialog');
+    dialog.className = 'project-info-dialog'; dialog.setAttribute('aria-labelledby', 'project-info-title');
+    dialog.innerHTML = `<header><h2 id="project-info-title">项目信息</h2><button type="button" data-close-project-info aria-label="关闭项目信息">关闭</button></header><dl><dt>项目文件夹</dt><dd>${escapeHtml(project.folderName)}</dd><dt>项目路径</dt><dd>${escapeHtml(project.directory)}</dd><dt>Project ID</dt><dd>${escapeHtml(project.projectId)}</dd></dl>${state.result.conversation ? conversationDetails(state.result) : ''}<p>文件夹名是当前位置标签，移动项目不会改变项目身份。</p>`;
+    document.body.append(dialog);
+    dialog.querySelector('[data-close-project-info]').onclick = () => dialog.close();
+    dialog.addEventListener('close', () => { dialog.remove(); document.querySelector('[data-project-info]')?.focus({ preventScroll: true }); });
+    dialog.showModal(); dialog.querySelector('button').focus();
   }
 
   function conversationDetails(result) {
@@ -390,7 +427,7 @@
     return `<nav class="tabs" role="tablist" aria-label="Narracut 工作区">
       <button class="tab" type="button" role="tab" id="workspace-tab-table" aria-controls="workspace-table" data-workspace="table" aria-selected="${state.workspace === "table"}">表格工作区</button>
       <button class="tab" type="button" role="tab" id="workspace-tab-agent" aria-controls="workspace-agent" data-workspace="agent" aria-selected="${state.workspace === "agent"}">Agent 工作区</button>
-      <button class="inspection-toggle" type="button" data-open-inspection aria-expanded="${state.inspectionOpen}">打开项目检查</button>
+
     </nav>`;
   }
 
@@ -550,7 +587,7 @@
       <button type="button" class="inspection-close" data-close-inspection aria-label="关闭项目检查">关闭</button>
       <h2>项目检查</h2>${result.copyReceipt ? `<section class="copy-result" role="status"><strong>独立副本已打开</strong><p>${escapeHtml(result.project.folderName)}<br>${escapeHtml(result.project.directory)}</p><p>项目身份独立，候选保持停止；明确继续后才运行。</p>${result.copyReceipt.warning ? `<p>${escapeHtml(result.copyReceipt.warning.message)}<br>${escapeHtml(result.copyReceipt.warning.path)}</p>` : ""}</section>` : ""}<div class="rule"></div><div class="checks">${checks(result)}</div>
       ${scene ? `<section class="selected"><div class="rule"></div><h3>Scene ${pad(currentScenes().indexOf(scene) + 1)}</h3><p class="selected-copy" data-testid="scene-narration-detail">${escapeHtml(scene.narration.text)}</p><dl class="facts"><div class="fact"><dt>Scene ID</dt><dd>${escapeHtml(scene.id)}</dd></div><div class="fact"><dt>Asset</dt><dd>${scene.assetIds.length}</dd></div><div class="fact"><dt>Speech</dt><dd>${speechReady ? `已生成 · ${seconds(speech.durationMs)}` : "Draft Duration"}</dd></div>${time ? `<div class="fact"><dt>Time Window</dt><dd>帧 ${time.startFrame}–${time.startFrame + time.durationInFrames}（不含 ${time.startFrame + time.durationInFrames}）</dd></div>` : ""}</dl><p class="render-readiness" data-ready="${speechReady}">${speechReady ? "可用于最终 Render" : "仅供草稿 Preview · 阻断最终 Render"}</p></section>` : ""}
-      <div class="inspection-actions">${writable ? `<button class="inspection-action" type="button" data-copy-project>复制项目…</button>` : ""}<button class="inspection-action brief-entry" type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}"><span class="brief-entry-copy"><strong>Video Brief</strong><small>原始 Markdown · video.md</small></span><span data-brief-entry-state>${briefEntryStatusLabel()}</span></button>${writable ? `<button class="inspection-action" type="button" data-open-tts>TTS 配置 <span>${result.tts?.status === "configured" ? "已配置" : "待配置"}</span></button><button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
+      <div class="inspection-actions">${writable ? `<button class="inspection-action" type="button" data-copy-project>复制项目…</button>` : ""}${writable ? `<button class="inspection-action" type="button" data-manage-project-assets>管理项目 Asset <span>${count(state.project?.assets.length ?? 0)}</span></button>` : ""}</div>
       <section class="readonly"><strong data-writable="${writable}">${writable ? "内容写入边界" : "只读"}</strong><p>${writable ? "表格工作区可以修改 Scene、Narration 与 Asset 引用；预览只检查 Asset 本体，不改变 Scene 或 Player。" : "当前项目只提供检查。Scene、Narration、Asset 和 Speech 不会在这里被修改。"}</p></section>
     </aside>`;
   }
@@ -708,7 +745,7 @@
   }
 
   function sharedFeedback() {
-    return `<section class="shared-feedback" aria-label="保存与连接状态"><span data-save-state></span><span data-shared-message role="status"></span><button type="button" data-shared-retry hidden>重试保存</button><button type="button" data-return-edit hidden>返回编辑</button><button type="button" data-reconnect hidden>重新连接</button></section>`;
+    return `<section class="shared-feedback" aria-label="保存与连接状态"><span data-save-state></span><span data-connection-state></span><span data-shared-message role="status"></span><button type="button" data-shared-retry hidden>重试保存</button><button type="button" data-return-edit hidden>返回编辑</button><button type="button" data-reconnect hidden>重新连接</button><span data-shared-brief role="status"></span><button type="button" data-return-brief hidden>返回 Brief 编辑</button><button type="button" data-shared-brief-retry hidden>重试 Brief 保存</button></section>`;
   }
 
   function updateSharedFeedback() {
@@ -716,7 +753,8 @@
     if (!region) return;
     const pendingEdit = state.version !== state.savedVersion;
     region.querySelector('[data-save-state]').textContent = saveLabel();
-    const message = state.disconnected
+    region.querySelector('[data-connection-state]').textContent = state.disconnected ? '连接中断' : state.result?.connection?.status === 'connected' ? '连接正常' : '连接中';
+    const message = closingProject === 'closing' ? '正在关闭项目，暂时只读；完成后返回启动器。' : state.disconnected
       ? '连接已中断 · 已保留本地内容，暂时只读；任务为最后确认状态。'
       : `${state.saveError ? ' · ' + (state.saveError.message ?? state.saveError) : ''}${pendingEdit ? ' · 本地编辑仅在原页面存活时保留；保存后需重新检查。' : ''}`;
     region.querySelector('[data-shared-message]').textContent = message;
@@ -724,9 +762,21 @@
     region.querySelector('[data-shared-retry]').disabled = state.disconnected || state.result?.writable !== true;
     region.querySelector('[data-return-edit]').hidden = !pendingEdit;
     region.querySelector('[data-reconnect]').hidden = !state.disconnected;
+    const brief = state.brief;
+    const unsaved = brief.version !== brief.savedVersion || !!brief.conflict;
+    region.querySelector('[data-shared-brief]').textContent = `Brief ${briefStatusLabel()}${brief.error ? ' · ' + brief.error.message : ''}${unsaved ? ' · 本地文字仅在原页面存活时保留。' : state.result?.currentRenderProgram?.briefReviewPending ? ' · Brief 待复核' : ''}`;
+    const back = region.querySelector('[data-return-brief]');
+    back.hidden = !unsaved && !brief.error;
+    back.textContent = brief.conflict ? '处理 Brief 冲突' : '返回 Brief 编辑';
+    const retry = region.querySelector('[data-shared-brief-retry]');
+    retry.hidden = brief.status !== 'failed' || !!brief.conflict;
+    retry.disabled = briefWriteBlocked() || brief.saveInFlight;
+
   }
 
   app.addEventListener('click', event => {
+    if (event.target.closest('[data-return-brief]')) openBrief('[data-return-brief]');
+    if (event.target.closest('[data-shared-brief-retry]')) void saveVideoBrief();
     if (event.target.closest('[data-shared-retry]')) void saveProject();
     if (event.target.closest('[data-reconnect]')) void refreshControl();
     if (event.target.closest('[data-return-edit]')) {
@@ -765,7 +815,7 @@
         }
         if (next.nodeType === 3) { if (old.textContent !== next.textContent) old.textContent = next.textContent; return; }
         if (next.nodeType !== 1) return;
-        for (const attr of [...old.attributes]) if (!next.hasAttribute(attr.name) && attr.name !== 'style') old.removeAttribute(attr.name);
+        for (const attr of [...old.attributes]) if (!next.hasAttribute(attr.name) && attr.name !== 'style' && !(old.matches('dialog') && attr.name === 'open')) old.removeAttribute(attr.name);
         for (const attr of next.attributes) if (old.getAttribute(attr.name) !== attr.value) old.setAttribute(attr.name, attr.value);
         if (old.matches('textarea')) {
           if (old !== document.activeElement && old.value !== next.value) old.value = next.value;
@@ -792,6 +842,7 @@
   }
 
   function sceneWriteBlocked() {
+    if (closingProject === 'closing') return true;
     return !state.project || state.result?.writable !== true || state.disconnected || state.autosaveStopped || state.assetBusy;
   }
 
@@ -1119,19 +1170,54 @@
     return `<div class="asset-preview-layer" role="dialog" aria-modal="true" aria-label="Asset 只读预览"><section class="asset-preview-sheet"><header><div><strong>Asset 只读预览</strong><span>只检查文件本体，不改变 Scene 或 Player</span></div><button type="button" data-close-preview aria-label="关闭预览">关闭</button></header><div class="asset-preview-body">${content}</div></section></div>`;
   }
 
+  function briefWriteBlocked() { return !!recovery || state.disconnected || state.result?.writable !== true || closingProject === 'closing'; }
+  function rememberBriefPosition() {
+    if (!state.brief.open || !document.querySelector('dialog.brief-layer[open]')) return;
+    document.querySelectorAll('.brief-layer textarea,.brief-conflict,.brief-editor-main').forEach(element => {
+      const key = element.getAttribute('aria-label') ?? element.className;
+      state.brief.positions[key] = { top: element.scrollTop, left: element.scrollLeft, start: element.selectionStart, end: element.selectionEnd };
+    });
+  }
+  function restoreBriefPosition() {
+    document.querySelectorAll('.brief-layer textarea,.brief-conflict,.brief-editor-main').forEach(element => {
+      const saved = state.brief.positions[element.getAttribute('aria-label') ?? element.className];
+      if (!saved) return;
+      if (saved.start !== undefined) element.setSelectionRange(saved.start, saved.end);
+      element.scrollTop = saved.top; element.scrollLeft = saved.left;
+    });
+  }
+  function openBrief(target) {
+    state.brief.returnTarget = target; state.brief.open = true;
+    state.focusTarget = state.brief.conflict ? '[data-brief-merge]' : '[data-brief-editor]';
+    render();
+  }
+  function closeBrief() {
+    if (composing) { state.brief.closeAfterComposition = true; return; }
+    rememberBriefPosition();
+    document.querySelector('dialog.brief-layer')?.close();
+    state.brief.open = false; state.brief.editGroupOpen = false;
+    state.focusTarget = state.brief.returnTarget ?? '[data-open-brief]';
+    if (state.brief.status !== "failed") void saveVideoBrief();
+    render();
+  }
+
   function briefEditorLayer() {
     const brief = state.brief;
-    if (!brief.open) return "";
+    if (!brief.open) return '';
     const conflict = brief.conflict;
-    const status = briefStatusLabel();
-    const byteCount = new TextEncoder().encode(brief.local).length;
-    const historyDisabled = brief.status === "conflict" || brief.saveInFlight;
-    const header = `<header class="brief-head"><div><h1 id="brief-editor-title">编辑 Video Brief</h1><p>项目级创作意图 · 自由 Markdown · 不改变 Scene 内容</p></div><div class="brief-head-actions"><button type="button" data-brief-undo aria-label="Video Brief Undo" ${brief.undo.length === 0 || historyDisabled ? "disabled" : ""}>Undo</button><button type="button" data-brief-redo aria-label="Video Brief Redo" ${brief.redo.length === 0 || historyDisabled ? "disabled" : ""}>Redo</button><span class="brief-save-state" data-brief-save-state data-status="${brief.status}" role="status">${status}</span><button type="button" data-close-brief aria-label="关闭 Video Brief 编辑器">关闭</button></div></header>`;
-    if (conflict) {
-      const tabs = [["base", "BASE"], ["local", "LOCAL"], ["disk", "DISK"]];
-      return `<div class="brief-layer" role="dialog" aria-modal="true" aria-label="编辑 Video Brief" aria-labelledby="brief-editor-title"><section class="brief-sheet" data-mode="conflict">${header}<main class="brief-conflict"><div class="brief-conflict-copy"><span class="status-mark" data-status="unavailable" aria-hidden="true"></span><div><h2>外部冲突</h2><p>自动保存已停止。比较三份只读证据，编辑新的完整合并结果，或明确放弃、导出 LOCAL。</p></div></div><div class="brief-evidence-tabs" role="tablist" aria-label="Video Brief 冲突证据">${tabs.map(([key, label]) => `<button type="button" role="tab" data-brief-conflict-tab="${key}" aria-selected="${brief.conflictTab === key}">查看 ${label}</button>`).join("")}</div><div class="brief-evidence-grid">${tabs.map(([key, label]) => `<label class="brief-evidence" data-current="${brief.conflictTab === key}"><span>${label} · 只读证据</span><textarea readonly aria-label="${label} 只读证据">${escapeHtml(key === "base" ? conflict.base : key === "local" ? conflict.local : conflict.disk)}</textarea></label>`).join("")}</div><label class="brief-merge"><span>合并结果 · 可编辑的完整 video.md</span><textarea data-brief-merge aria-label="合并结果">${escapeHtml(brief.merge)}</textarea></label>${brief.error ? `<div class="brief-error" role="alert">${escapeHtml(brief.error.message)}</div>` : ""}<div class="brief-resolution-actions"><button type="button" data-submit-brief-merge>提交合并结果</button><button type="button" data-discard-brief-local>放弃 LOCAL 并载入 DISK</button><button type="button" data-export-brief-local ${brief.exporting ? "disabled" : ""}>${brief.exporting ? "正在导出…" : "导出 LOCAL"}</button></div></main></section></div>`;
-    }
-    return `<div class="brief-layer" role="dialog" aria-modal="true" aria-label="编辑 Video Brief" aria-labelledby="brief-editor-title"><section class="brief-sheet">${header}<main class="brief-editor-main"><label><span class="sr-only">Video Brief 原始 Markdown</span><textarea data-brief-editor aria-label="Video Brief 原始 Markdown" spellcheck="true" maxlength="2097152">${escapeHtml(normalizeBriefEditorText(brief.local))}</textarea></label><footer><span>${formatBytes(byteCount)} / 2 MiB</span><span>保存完整原始字节 · 不自动格式化</span></footer>${brief.error ? `<div class="brief-error" role="alert">${escapeHtml(brief.error.message)}${brief.status === "failed" ? '<button type="button" data-retry-brief>重试保存</button>' : ""}</div>` : ""}${brief.exportMessage ? `<div class="brief-export-message" role="status">${escapeHtml(brief.exportMessage)}</div>` : ""}</main></section></div>`;
+    const disabled = brief.saveInFlight || brief.exporting || briefWriteBlocked();
+    const header = `<header class="brief-head"><div><h1 id="brief-editor-title">编辑 Video Brief</h1><p>项目级创作意图 · ${conflict ? '比较后点击保存合并结果' : '离开编辑框保存'}</p></div><div class="brief-head-actions"><button type="button" data-brief-undo aria-label="Video Brief Undo" ${!brief.undo.length || conflict || disabled ? 'disabled' : ''}>撤销</button><button type="button" data-brief-redo aria-label="Video Brief Redo" ${!brief.redo.length || conflict || disabled ? 'disabled' : ''}>重做</button><span class="brief-save-state" data-brief-save-state data-status="${brief.status}" role="status">${briefStatusLabel()}</span><button type="button" data-close-brief aria-label="关闭 Video Brief 编辑器">关闭</button></div></header>`;
+    const feedback = `${brief.error ? `<div class="brief-error" role="alert">${escapeHtml(brief.error.message)}${!conflict ? `<button type="button" data-retry-brief ${disabled ? 'disabled' : ''}>重试保存</button>` : ''}</div>` : ''}${brief.exportMessage ? `<p class="brief-export-message" role="status">${escapeHtml(brief.exportMessage)}</p>` : ''}`;
+    const evidence = (key, label) => `<label class="brief-evidence" data-current="${brief.conflictTab === key}"><span>${label}</span><textarea readonly aria-label="${key.toUpperCase()} 只读证据">${escapeHtml(conflict[key])}</textarea></label>`;
+    const content = conflict ? `<main class="brief-conflict"><div class="brief-conflict-copy"><div><h2>外部冲突</h2><p>比较本地与磁盘内容，在下方编辑完整合并结果。关闭后草稿仍留在当前页面。</p></div></div>
+      <div class="brief-evidence-tabs" role="tablist" aria-label="Video Brief 冲突证据">${[['local', '本地内容'], ['disk', '磁盘内容']].map(([key, label]) => `<button type="button" role="tab" data-brief-conflict-tab="${key}" aria-selected="${brief.conflictTab === key}">${label}</button>`).join('')}</div>
+      <div class="brief-evidence-grid">${evidence('local', '本地内容 · LOCAL')}${evidence('disk', '磁盘内容 · DISK')}</div>
+      <details class="brief-base"><summary>共同基准 · BASE</summary>${evidence('base', '共同基准')}</details>
+      <label class="brief-merge"><span>合并结果 · 完整 Markdown</span><textarea data-brief-merge aria-label="合并结果">${escapeHtml(brief.merge)}</textarea></label>
+      ${feedback}<div class="brief-resolution-actions"><button type="button" data-submit-brief-merge ${disabled ? 'disabled' : ''}>${brief.saveInFlight ? '正在保存合并结果…' : '保存合并结果'}</button><button type="button" data-export-brief-local ${disabled ? 'disabled' : ''}>${brief.exporting ? '正在导出…' : '导出本地内容'}</button><button type="button" data-discard-brief-local ${disabled ? 'disabled' : ''}>放弃本地，采用磁盘内容</button></div>
+      ${brief.discardConfirm ? `<section class="brief-discard-confirm" aria-label="确认放弃本地内容"><h3>放弃本地修改？</h3><p>本地内容及未提交的合并草稿将丢失，无法撤销。编辑器将采用上方展示的磁盘内容，不会改写磁盘。</p><div class="brief-resolution-actions"><button type="button" data-brief-discard-cancel>取消，保留本地</button><button type="button" data-brief-discard-confirm ${disabled ? 'disabled' : ''}>确认放弃本地内容</button></div></section>` : ''}</main>`
+      : `<main class="brief-editor-main"><label><span class="sr-only">Video Brief 原始 Markdown</span><textarea data-brief-editor aria-label="Video Brief 原始 Markdown" spellcheck="true" maxlength="2097152">${escapeHtml(normalizeBriefEditorText(brief.local))}</textarea></label><footer><span>${formatBytes(new TextEncoder().encode(brief.local).length)} / 2 MiB</span><span>Markdown · 保留原始换行</span></footer>${feedback}</main>`;
+    return `<dialog class="brief-layer" aria-modal="true" aria-labelledby="brief-editor-title"><section class="brief-sheet" data-mode="${conflict ? 'conflict' : 'edit'}">${header}${content}</section></dialog>`;
   }
 
   function candidateLabel() {
@@ -1259,6 +1345,7 @@
       if (result?.status === 'accepted' && result.revision.valid !== false && result.revision.current !== false) {
         state.result.currentRenderProgram = { briefRevision: result.revision.briefFingerprint, briefReviewPending: result.revision.briefFingerprint !== state.brief.baselineRevision, previewPreserved: true };
       }
+      if (['candidate-created', 'return-candidate'].includes(result?.status)) switchWorkspace('agent');
       if (result && 'creationTask' in result) applyCreation(result.creationTask);
       await candidateOperation('read'); await deliveryWorkbench.refresh(); render();
     }
@@ -1377,6 +1464,7 @@
       state.sceneMenu = null;
       state.focusTarget = sceneRowTarget();
     }
+    rememberBriefPosition();
     const result = state.result;
     const launcherMode = result?.status === "launcher";
     app.className = `app-shell${launcherMode ? " launcher-shell" : state.project ? " editing-shell" : ""}`;
@@ -1387,11 +1475,11 @@
       app.innerHTML = `${launcherRail()}${launcher()}${launcherFooter()}`;
     } else {
       if (!document.querySelector('[data-conversation-footer]')) {
-        app.innerHTML = `<div data-rail-region></div><div data-control-region></div>${sharedFeedback()}<div data-tabs-region></div><div data-workspace-region></div>${conversationFooter()}`;
+        app.innerHTML = `<div data-rail-region></div><div data-control-region></div>${sharedFeedback()}<div data-workspace-region></div>${conversationFooter()}`;
       }
-      updateRegion(document.querySelector("[data-rail-region]"), rail(result));
+      updateTable(document.querySelector("[data-rail-region]"), rail(result));
       updateRegion(document.querySelector("[data-control-region]"), controlMarkup());
-      updateRegion(document.querySelector("[data-tabs-region]"), tabs());
+
       const region = document.querySelector("[data-workspace-region]");
       updateRegion(region, result === null ? loading() : result.status === "valid" ? valid(result) : invalid(result));
       if (result?.status === "valid") {
@@ -1405,11 +1493,14 @@
         finalRenderWorkbench.mount(document.querySelector("[data-final-render]"));
         checksWorkbench.mount(document.querySelector("[data-program-checks]"));
         updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
-        updateRegion(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}${sceneContextMenu()}${speechReasonLayer()}`);
+        updateTable(document.querySelector("[data-overlay-region]"), `${assetPreviewLayer()}${briefEditorLayer()}${sceneContextMenu()}${speechReasonLayer()}`);
       }
       updateWorkspaceVisibility();
     }
     bind();
+    const briefDialog = document.querySelector('dialog.brief-layer');
+    if (briefDialog && !briefDialog.open) briefDialog.showModal();
+    restoreBriefPosition();
     positionSceneMenu();
     positionSpeechReason();
     updateSharedFeedback();
@@ -1424,16 +1515,17 @@
       const target = state.focusTarget;
       state.focusTarget = null;
       const element = document.querySelector(target);
-      if (element) element.focus();
+      if (element) element.focus({ preventScroll: true });
       else requestAnimationFrame(() => document.querySelector(target)?.focus());
     }
+    restoreBriefPosition();
   }
 
   app.addEventListener("compositionstart", () => { composing = true; });
   app.addEventListener("compositionend", () => {
     composing = false;
     // 最后一条 input 先提交，避免用上一次草稿替换中文候选。
-    queueMicrotask(() => { if (renderPending) render(); if (!document.activeElement?.matches("[data-narration-editor],[data-expanded-editor]")) void saveProject(); });
+    queueMicrotask(() => { if (state.brief.closeAfterComposition) { state.brief.closeAfterComposition = false; closeBrief(); } else if (state.brief.open && !document.activeElement?.matches("[data-brief-editor],[data-brief-merge]")) void saveVideoBrief(); if (renderPending) render(); if (!document.activeElement?.matches("[data-narration-editor],[data-expanded-editor]")) void saveProject(); });
   });
 
   function announce(message) {
@@ -1680,6 +1772,8 @@
     document.querySelectorAll("[data-open-brief]").forEach((button) => {
       button.setAttribute("aria-label", `Video Brief ${briefStatusLabel()}`);
     });
+    updateSharedFeedback();
+    enforceInputFreshness();
     const undoButton = document.querySelector("[data-brief-undo]");
     const redoButton = document.querySelector("[data-brief-redo]");
     if (undoButton) undoButton.disabled = brief.undo.length === 0 || brief.status === "conflict" || brief.saveInFlight;
@@ -1744,7 +1838,7 @@
     brief.exportMessage = null;
     updateBriefIndicator();
     clearTimeout(briefSaveTimer);
-    if (!brief.conflict) briefSaveTimer = setTimeout(saveVideoBrief, immediate ? 0 : 450);
+    if (immediate && !brief.conflict) briefSaveTimer = setTimeout(saveVideoBrief, 0);
   }
 
   function updateBrief(value) {
@@ -1762,16 +1856,17 @@
     clearTimeout(briefSaveTimer);
     if (activeBriefSavePromise) return activeBriefSavePromise;
     const brief = state.brief;
-    if (state.result?.writable === false || brief.conflict || brief.version === brief.savedVersion) return Promise.resolve();
+    if (briefWriteBlocked() || composing || brief.conflict || brief.version === brief.savedVersion) return Promise.resolve();
     activeBriefSavePromise = performVideoBriefSave();
     return activeBriefSavePromise;
   }
 
-  async function performVideoBriefSave() {
+  async function performVideoBriefSave(merging = false) {
     const brief = state.brief;
     const savingVersion = brief.version;
-    const savingContent = brief.local;
-    const baselineRevision = brief.baselineRevision;
+    const savingContent = merging ? brief.merge : brief.local;
+    const baselineRevision = merging ? brief.conflict.diskRevision : brief.baselineRevision;
+    const savingEpoch = controlEpoch;
     brief.editGroupOpen = false;
     brief.saveInFlight = true;
     brief.status = "saving";
@@ -1790,49 +1885,60 @@
         content: savingContent,
       });
       const content = response?.structuredContent ?? response;
+      if (savingEpoch !== controlEpoch || recovery) return;
       if (content?.status === "brief-conflict") {
         brief.status = "conflict";
-        brief.conflict = {
-          base: brief.base,
-          local: brief.local,
-          disk: content.disk.content,
-          diskRevision: content.disk.revision,
-        };
-        brief.merge = brief.local;
-        brief.conflictTab = "base";
-        brief.error = null;
-        state.focusTarget = "[data-brief-merge]";
+        if (!brief.conflict) {
+          brief.conflict = { base: brief.base, local: brief.local };
+          brief.merge = brief.local;
+          brief.conflictTab = 'local';
+          brief.positions = {};
+        }
+        brief.conflict.disk = content.disk.content;
+        brief.conflict.diskRevision = content.disk.revision;
+        brief.error = merging ? { message: '磁盘再次变化。合并草稿已保留，请重新比较后保存。' } : null;
+        if (brief.open && !merging) state.focusTarget = '[data-brief-merge]';
         render();
-        announce("Video Brief 发生外部冲突。自动保存已停止，BASE、LOCAL 与 DISK 均已保留。");
+        announce('Video Brief 发生外部冲突，本地内容、磁盘内容和共同基准均已保留。');
         return;
       }
       if (response?.isError || ["brief-save-failed", "identity-lost"].includes(content?.status)) {
         const failure = content?.error ?? { code: "BRIEF_SAVE_FAILED", message: "Video Brief 保存失败，请重试。" };
         brief.status = "failed";
         brief.error = failure;
-        state.focusTarget = "[data-brief-editor]";
         render();
         announce(`Video Brief 保存失败。${failure.message}`);
         return;
       }
+      if (merging) {
+        const laterMerge = brief.merge !== savingContent;
+        pushBriefHistory(brief.undo, brief.local); brief.redo = [];
+        brief.local = brief.merge;
+        brief.conflict = null; brief.discardConfirm = false;
+        brief.version = savingVersion + (laterMerge ? 1 : 0);
+        brief.positions = {};
+        if (brief.open) state.focusTarget = '[data-brief-editor]';
+      }
+      brief.error = null;
       brief.base = savingContent;
       brief.baselineRevision = content.videoBrief?.revision ?? baselineRevision;
       brief.savedVersion = savingVersion;
       brief.status = brief.version === savingVersion ? "saved" : "dirty";
       state.result = { ...state.result, ...content, status: "valid" };
+      if (merging) render();
       updateBriefIndicator();
       announce(brief.status === "saved" ? "Video Brief 已保存。" : "当前 Brief 修改已保存，仍有后续修改待保存。");
     } catch (error) {
       brief.status = "failed";
       brief.error = { code: "HOST_TOOL_ERROR", message: error?.message ?? "Video Brief 保存失败，请重试。" };
-      state.focusTarget = "[data-brief-editor]";
       render();
       announce(`Video Brief 保存失败。${brief.error.message}`);
     } finally {
       brief.saveInFlight = false;
       activeBriefSavePromise = null;
+      if (brief.open) render();
       updateBriefIndicator();
-      if (!brief.conflict && brief.status === "dirty" && brief.version > brief.savedVersion) {
+      if (!brief.conflict && brief.status === "dirty" && brief.version > brief.savedVersion && !document.activeElement?.matches("[data-brief-editor]") && !composing) {
         clearTimeout(briefSaveTimer);
         briefSaveTimer = setTimeout(saveVideoBrief, 0);
       }
@@ -1853,7 +1959,9 @@
 
   function discardBriefLocal() {
     const brief = state.brief;
-    if (!brief.conflict) return;
+    if (!brief.conflict || brief.saveInFlight || briefWriteBlocked()) return;
+    brief.discardConfirm = false;
+    brief.positions = {};
     brief.undo = [];
     brief.redo = [];
     brief.local = brief.conflict.disk;
@@ -1885,24 +1993,14 @@
   }
 
   function submitBriefMerge() {
-    const brief = state.brief;
-    if (!brief.conflict) return;
-    pushBriefHistory(brief.undo, brief.local);
-    brief.redo = [];
-    brief.local = brief.merge;
-    brief.base = brief.conflict.disk;
-    brief.baselineRevision = brief.conflict.diskRevision;
-    brief.conflict = null;
-    brief.editGroupOpen = false;
-    state.focusTarget = "[data-brief-editor]";
-    markBriefDirty(true);
-    render();
-    announce("合并结果已进入串行保存队列。");
+    if (!state.brief.conflict || state.brief.saveInFlight || briefWriteBlocked() || composing) return;
+    activeBriefSavePromise = performVideoBriefSave(true);
   }
 
   async function exportBriefLocal() {
     const brief = state.brief;
-    if (!brief.conflict || brief.exporting) return;
+    if (!brief.conflict || brief.exporting || brief.saveInFlight || briefWriteBlocked()) return;
+    const local = brief.conflict.local;
     const api = window.openai;
     const picker = api?.selectDirectory ?? api?.pickDirectory ?? api?.requestDirectoryPicker;
     if (typeof picker !== "function") {
@@ -1924,14 +2022,15 @@
       if (targetDirectory === null) {
         brief.exporting = false;
         render();
-        document.querySelector("[data-export-brief-local]")?.focus();
+        brief.exportMessage = "已取消导出；本地内容和合并草稿仍保留。";
+        render();
         return;
       }
       const response = await callHostTool("export_project_video_brief_local", {
         projectDirectory: state.result.project.directory,
         projectId: state.result.project.projectId,
         targetDirectory,
-        content: brief.conflict.local,
+        content: local,
       });
       const content = response?.structuredContent ?? response;
       if (response?.isError || content?.status !== "brief-exported") {
@@ -1939,8 +2038,7 @@
       }
       const exportedPath = content.exported.path;
       brief.exporting = false;
-      discardBriefLocal();
-      brief.exportMessage = `LOCAL 已导出到 ${exportedPath}；编辑器已载入 DISK。`;
+      brief.exportMessage = `本地内容已导出到 ${exportedPath}；外部冲突仍待处理。`;
       render();
       announce(brief.exportMessage);
     } catch (error) {
@@ -2365,6 +2463,8 @@
     const credentialReady = state.result.tts?.credential?.status === "available";
     if (!configured || !credentialReady) {
       state.selected = sceneId;
+      state.inspectionReturnTarget = "[data-open-tts]";
+      state.focusTarget = "[data-close-inspection]";
       state.inspectorMode = "tts";
       state.inspectionOpen = true;
       state.ttsBlockedReason = "需要先保存 TTS 配置与 API Key";
@@ -2573,8 +2673,8 @@
     const layer = document.querySelector(".brief-layer");
     if (!layer) return;
     const focusable = [...layer.querySelectorAll(
-      'button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])',
-    )];
+      'button:not(:disabled),summary,input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])',
+    )].filter(element => element.getClientRects().length);
     if (focusable.length === 0) {
       event.preventDefault();
       return;
@@ -2725,13 +2825,13 @@
       state.ttsPendingConfirm = null;
       render();
     }, { signal: bindings.signal }));
-    document.querySelector("[data-open-brief]")?.addEventListener("click", () => {
-      state.brief.open = true;
-      state.brief.error = null;
-      state.focusTarget = state.brief.conflict ? "[data-brief-merge]" : "[data-brief-editor]";
-      render();
-    }, { signal: bindings.signal });
+    document.querySelector('[data-open-brief]')?.addEventListener('click', () => openBrief('[data-open-brief]'), { signal: bindings.signal });
+    document.querySelector('[data-project-info]')?.addEventListener('click', showProjectInfo, { signal: bindings.signal });
+    document.querySelector('[data-project-history]')?.addEventListener('click', event => acceptanceWorkbench.openHistory(event.currentTarget), { signal: bindings.signal });
+    document.querySelector('[data-close-project]')?.addEventListener('click', closeProject, { signal: bindings.signal });
     document.querySelector("[data-open-tts]")?.addEventListener("click", () => {
+      state.inspectionReturnTarget = "[data-open-tts]";
+      state.focusTarget = "[data-close-inspection]";
       state.inspectorMode = "tts";
       state.inspectionOpen = true;
       state.ttsBlockedReason = null;
@@ -2806,13 +2906,8 @@
 
   function bindBriefEditor() {
     if (!state.brief.open) return;
-    document.querySelector("[data-close-brief]")?.addEventListener("click", () => {
-      state.brief.open = false;
-      state.brief.editGroupOpen = false;
-      state.focusTarget = "[data-open-brief]";
-      saveVideoBrief();
-      render();
-    }, { signal: bindings.signal });
+    document.querySelector('[data-close-brief]')?.addEventListener('click', closeBrief, { signal: bindings.signal });
+    document.querySelector('dialog.brief-layer')?.addEventListener('cancel', event => { event.preventDefault(); closeBrief(); }, { signal: bindings.signal });
     document.querySelector("[data-brief-undo]")?.addEventListener("click", () => moveBriefHistory(state.brief.undo, state.brief.redo), { signal: bindings.signal });
     document.querySelector("[data-brief-redo]")?.addEventListener("click", () => moveBriefHistory(state.brief.redo, state.brief.undo), { signal: bindings.signal });
     document.querySelector("[data-retry-brief]")?.addEventListener("click", () => {
@@ -2822,7 +2917,7 @@
       updateBriefIndicator();
     }, { signal: bindings.signal });
     const editor = document.querySelector("[data-brief-editor]");
-    editor?.addEventListener("input", () => updateBrief(editor.value), { signal: bindings.signal });
+    editor?.addEventListener('input', () => updateBrief(editor.value), { signal: bindings.signal });
     editor?.addEventListener("blur", (event) => {
       if (event.relatedTarget?.matches?.("[data-brief-undo],[data-brief-redo]")) return;
       state.brief.editGroupOpen = false;
@@ -2837,7 +2932,9 @@
       state.brief.merge = reconcileBriefEditorText(state.brief.merge, event.currentTarget.value);
     }, { signal: bindings.signal });
     document.querySelector("[data-submit-brief-merge]")?.addEventListener("click", submitBriefMerge, { signal: bindings.signal });
-    document.querySelector("[data-discard-brief-local]")?.addEventListener("click", discardBriefLocal, { signal: bindings.signal });
+    document.querySelector('[data-discard-brief-local]')?.addEventListener('click', () => { state.brief.discardConfirm = true; state.focusTarget = '[data-brief-discard-cancel]'; render(); }, { signal: bindings.signal });
+    document.querySelector('[data-brief-discard-confirm]')?.addEventListener('click', discardBriefLocal, { signal: bindings.signal });
+    document.querySelector('[data-brief-discard-cancel]')?.addEventListener('click', () => { state.brief.discardConfirm = false; state.focusTarget = '[data-discard-brief-local]'; render(); }, { signal: bindings.signal });
     document.querySelector("[data-export-brief-local]")?.addEventListener("click", exportBriefLocal, { signal: bindings.signal });
   }
 
@@ -2988,15 +3085,16 @@
     }, { signal: bindings.signal }));
     document.querySelector("[data-open-inspection]")?.addEventListener("click", () => {
       state.inspectionReturnTarget = "[data-open-inspection]";
+      state.inspectorMode = "project";
       state.inspectionOpen = true;
-      document.querySelector(".inspection")?.setAttribute("data-open", "true");
-      document.querySelector("[data-open-inspection]")?.setAttribute("aria-expanded", "true");
-      document.querySelector(".inspection [data-close-inspection]")?.focus();
+      state.focusTarget = "[data-close-inspection]";
+      render();
     }, { signal: bindings.signal });
     document.querySelector('[data-show-delivery]')?.addEventListener('click', () => { setReviewOpen(true); const region = document.querySelector('[data-program-delivery]'); region?.scrollIntoView({ block: 'start' }); const title = region?.querySelector('h2'); title?.setAttribute('tabindex', '-1'); title?.focus({ preventScroll: true }); }, { signal: bindings.signal });
     document.querySelector("[data-close-preview]")?.addEventListener("click", closeAssetPreview, { signal: bindings.signal });
     document.onkeydown = (event) => {
       trapAssetPreviewFocus(event);
+      if (event.isComposing || composing) return;
       trapBriefFocus(event);
       if (event.key === "Escape" && state.speechReasonScene) {
         event.preventDefault(); closeSpeechReason();
@@ -3005,11 +3103,7 @@
         closeAssetPreview();
       } else if (event.key === "Escape" && state.brief.open) {
         event.preventDefault();
-        state.brief.open = false;
-        state.brief.editGroupOpen = false;
-        state.focusTarget = "[data-open-brief]";
-        saveVideoBrief();
-        render();
+        closeBrief();
       } else if (event.key === "Escape" && state.inspectionOpen) {
         event.preventDefault(); closeInspection();
       }
@@ -3344,7 +3438,10 @@
       redo: [],
       historyBytes: 0,
       conflict: null,
-      conflictTab: "base",
+      conflictTab: "local",
+      positions: {},
+      discardConfirm: false,
+      closeAfterComposition: false,
       merge: "",
       exporting: false,
       exportMessage: null,

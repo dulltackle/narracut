@@ -1,0 +1,70 @@
+[
+  {
+    "width": 902,
+    "height": 667,
+    "toolbar": {
+      "x": 0,
+      "y": 0,
+      "width": 902,
+      "height": 56
+    },
+    "computed": {
+      "color": "rgb(38, 38, 38)",
+      "background": "rgb(250, 250, 250)",
+      "font": "14px / 24.5px \"Noto Sans SC\", sans-serif",
+      "padding": "16px"
+    },
+    "errors": []
+  },
+  {
+    "width": 960,
+    "height": 640,
+    "toolbar": {
+      "x": 0,
+      "y": 0,
+      "width": 960,
+      "height": 56
+    },
+    "computed": {
+      "color": "rgb(38, 38, 38)",
+      "background": "rgb(250, 250, 250)",
+      "font": "14px / 24.5px \"Noto Sans SC\", sans-serif",
+      "padding": "16px"
+    },
+    "errors": []
+  },
+  {
+    "width": 1200,
+    "height": 720,
+    "toolbar": {
+      "x": 0,
+      "y": 0,
+      "width": 1200,
+      "height": 56
+    },
+    "computed": {
+      "color": "rgb(38, 38, 38)",
+      "background": "rgb(250, 250, 250)",
+      "font": "14px / 24.5px \"Noto Sans SC\", sans-serif",
+      "padding": "16px"
+    },
+    "errors": []
+  },
+  {
+    "width": 430,
+    "height": 860,
+    "toolbar": {
+      "x": 0,
+      "y": 0,
+      "width": 430,
+      "height": 169
+    },
+    "computed": {
+      "color": "rgb(38, 38, 38)",
+      "background": "rgb(250, 250, 250)",
+      "font": "14px / 24.5px \"Noto Sans SC\", sans-serif",
+      "padding": "16px"
+    },
+    "errors": []
+  }
+]

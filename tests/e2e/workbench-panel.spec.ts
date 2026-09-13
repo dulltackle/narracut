@@ -171,10 +171,11 @@ for (const action of ['create', 'open'] as const) {
       await expect.poll(async () => (await (await page.request.get(`${panel.url}state`)).json()).structuredContent.scenes[0]?.narration).toBe('从当前对话检查一段视频。');
       await page.reload();
       await expect(app.locator('.narration-view').filter({ hasText: '从当前对话检查一段视频。' })).toBeVisible();
+      await app.getByRole('button', { name: /^项目信息：/ }).click();
       await app.getByText('已关联当前对话 · 查看详情').click();
       await expect(app.getByText('thread-public-entry', { exact: true })).toBeVisible();
       await expect(app.getByText(projectDirectory, { exact: true }).first()).toBeVisible();
-      await app.getByText('已关联当前对话 · 查看详情').click();
+      await app.getByRole('button', { name: '关闭项目信息' }).click();
       await expect(app.getByRole('button', { name: /第 01 个 Scene 的 Asset/ })).toBeVisible();
       await app.getByRole('button', { name: /第 01 个 Scene 的 Asset/ }).click();
       await app.getByRole('button', { name: '导入并绑定', exact: true }).click();

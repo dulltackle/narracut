@@ -198,11 +198,13 @@ test("Video Brief 使用独立历史与串行 ETag 保存，关闭后恢复入�
   await expect(page.getByRole("dialog", { name: "编辑 Video Brief" })).toBeVisible();
   await expect(editor).toBeFocused();
   await editor.fill("# 第一版\n");
+  await editor.blur();
   await expect.poll(() => calls.length).toBe(1);
   await editor.fill("# 第二版\n");
   await page.waitForTimeout(550);
   expect(calls).toHaveLength(1);
 
+  await editor.blur();
   releaseFirst();
   await expect.poll(() => calls.length).toBe(2);
   expect(calls[0]).toMatchObject({
@@ -303,19 +305,22 @@ test("Video Brief 外部冲突展示 BASE、LOCAL、DISK 与显式出口", async
   await page.getByRole("button", { name: /Video Brief.*已保存/ }).click();
   await page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }).fill("# LOCAL\n\n我的版本。\n");
 
+  await page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }).blur();
   await expect(page.getByRole("heading", { name: "外部冲突" })).toBeVisible();
+  await page.getByText("共同基准 · BASE", { exact: true }).click();
   await expect(page.getByRole("textbox", { name: "BASE 只读证据" })).toHaveValue(initial.videoBrief.content);
-  await page.getByRole("tab", { name: "查看 LOCAL" }).click();
+  await page.getByRole("tab", { name: "本地内容" }).click();
   await expect(page.getByRole("textbox", { name: "LOCAL 只读证据" })).toHaveValue("# LOCAL\n\n我的版本。\n");
-  await page.getByRole("tab", { name: "查看 DISK" }).click();
+  await page.getByRole("tab", { name: "磁盘内容" }).click();
   await expect(page.getByRole("textbox", { name: "DISK 只读证据" })).toHaveValue("# DISK\n\n外部工具的版本。\n");
   await expect(page.getByRole("textbox", { name: "合并结果" })).toHaveValue("# LOCAL\n\n我的版本。\n");
-  await expect(page.getByRole("button", { name: "提交合并结果" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "放弃 LOCAL 并载入 DISK" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "导出 LOCAL" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存合并结果" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "放弃本地，采用磁盘内容" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "导出本地内容" })).toBeVisible();
   await expect(page.getByText(/强制覆盖/u)).toHaveCount(0);
 
-  await page.getByRole("button", { name: "放弃 LOCAL 并载入 DISK" }).click();
+  await page.getByRole("button", { name: "放弃本地，采用磁盘内容" }).click();
+  await page.getByRole("button", { name: "确认放弃本地内容" }).click();
   await expect(page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }))
     .toHaveValue("# DISK\n\n外部工具的版本。\n");
   await expect(page.getByRole("dialog", { name: "编辑 Video Brief" }).getByRole("status"))
@@ -336,7 +341,7 @@ test("只读检查不会把未知的 Brief 指纹关系宣称为已绑定", asyn
   await expect(page.getByText("已对应当前 Brief", { exact: true })).toHaveCount(0);
 });
 
-test("Video Brief 冲突中的 LOCAL 可经系统目录选择导出后载入 DISK", async ({ page }) => {
+test("Video Brief 冲突中的 LOCAL 可经系统目录选择导出且保留冲突", async ({ page }) => {
   await loadWorkbench(page);
   const initial = validResult(1);
   const calls: Array<{ name: string; args: Record<string, any> }> = [];
@@ -373,14 +378,15 @@ test("Video Brief 冲突中的 LOCAL 可经系统目录选择导出后载入 DIS
   await page.getByRole("button", { name: "打开项目检查" }).click();
   await page.getByRole("button", { name: /Video Brief.*已保存/ }).click();
   await page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }).fill("# LOCAL\n");
+  await page.getByRole("textbox", { name: "Video Brief 原始 Markdown" }).blur();
   await expect(page.getByRole("heading", { name: "外部冲突" })).toBeVisible();
 
-  await page.getByRole("button", { name: "导出 LOCAL" }).click();
+  await page.getByRole("button", { name: "导出本地内容" }).click();
 
   await expect(page.getByRole("dialog", { name: "编辑 Video Brief" }).getByRole("status")
-    .filter({ hasText: "LOCAL 已导出到 /work/exports/video-brief-local.md；编辑器已载入 DISK。" }))
+    .filter({ hasText: "本地内容已导出到 /work/exports/video-brief-local.md；外部冲突仍待处理。" }))
     .toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Video Brief 原始 Markdown" })).toHaveValue("# DISK\n");
+  await expect(page.getByRole("textbox", { name: "合并结果" })).toHaveValue("# LOCAL\n");
   expect(calls.at(-1)).toEqual({
     name: "export_project_video_brief_local",
     args: {
@@ -497,7 +503,10 @@ test("有效项目首屏显示连接、身份、双工作区、Scene 与检查�
 
   await expect(page.getByText("连接正常", { exact: true })).toBeVisible();
   await expect(page.getByText("product-demo", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^项目信息：/ }).click();
   await expect(page.getByText("10000000-0000-4000-8000-000000000001", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "关闭项目信息" }).click();
+  await expect(page.getByRole("dialog", { name: "项目信息", includeHidden: true })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "表格工作区" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tab", { name: "Agent 工作区" })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Scene 01：/ })).toHaveAttribute("aria-pressed", "true");
@@ -601,7 +610,10 @@ test("窄面板把项目检查收进可操作抽屉，当前对话指引仍可�
   await sendResult(page, validResult());
 
   await expect(page.getByText("连接正常", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^项目信息：/ }).click();
   await expect(page.getByText("10000000-0000-4000-8000-000000000001", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "关闭项目信息" }).click();
+  await expect(page.getByRole("dialog", { name: "项目信息", includeHidden: true })).toHaveCount(0);
   await page.getByRole('group', { name: 'Scene 01 行', exact: true }).press('Shift+F10');
   await expect(page.getByRole('menuitem', { name: '复制', exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: '删除', exact: true })).toBeVisible();
@@ -1476,7 +1488,7 @@ for (const width of [1440, 390]) test(`选择目标后复制并打开独立副�
   await expect(page.locator('[data-copy-path]')).toHaveText('/work/copies/独立副本');
   await page.locator('[data-copy-submit]').click();
   await expect(page.getByRole('dialog', { name: '复制项目' })).not.toBeVisible();
-  await expect(page.locator('.folder')).toContainText('独立副本');
+  await expect(page.getByRole('button', { name: /^项目信息：/ })).toContainText('独立副本');
   expect(started).toBe(true);
   await expect(page.locator('.copy-result')).toContainText('/work/copies/独立副本');
   await page.screenshot({ path: `.impeccable/review/copy-result-${width}.png`, fullPage: true });
@@ -1519,6 +1531,7 @@ for (const failure of ['save', 'brief']) test(`复制前阻止未解决的 ${fai
     await page.locator('[data-open-inspection]').click();
     await page.getByRole('button', { name: /Video Brief.*已保存/ }).click();
     await page.getByRole('textbox', { name: 'Video Brief 原始 Markdown' }).fill('# 本地版本');
+    await page.getByRole('textbox', { name: 'Video Brief 原始 Markdown' }).blur();
     await expect(page.getByRole('heading', { name: '外部冲突' })).toBeVisible();
     await page.getByRole('button', { name: '关闭 Video Brief 编辑器' }).click();
   }
@@ -1529,7 +1542,7 @@ for (const failure of ['save', 'brief']) test(`复制前阻止未解决的 ${fai
   await expect(page.locator('#project-copy-dialog [role="alert"]')).toContainText(failure === 'save' ? 'Scene 保存失败' : 'Video Brief 尚未保存');
   expect(called).not.toContain('copy_project');
   await page.locator('[data-copy-close]').click();
-  await expect(page.locator('.folder')).toContainText('product-demo');
+  await expect(page.getByRole('button', { name: /^项目信息：/ })).toContainText('product-demo');
 });
 
 test('同 ID 冲突完整列出四个选择，转换前明确确认受影响路径', async ({ page }) => {
@@ -1905,7 +1918,7 @@ test('Speech 原因通过同行图标打开，Narration 即时失效且空文本
   await expect(reason).toBeFocused();
   await reason.press('Space');
   await expect(dialog).toBeVisible();
-  await page.getByText('Narracut', { exact: true }).click();
+  await page.getByText('连接正常', { exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(reason).toBeFocused();
   await editor.fill('');

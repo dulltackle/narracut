@@ -1,5 +1,6 @@
 /** 接受确认与历史常驻；刷新只改相关节点，不重建 Preview、Scene 或 Composer。 */
 function createAcceptanceWorkbench(call, getProject, settled, delivery, preview, changed) {
+  let historyDialog;
   let region, projectKey, confirmation, busy = false, checking = false, unresolved, message = '', cleanupPending = false, history = {}, poll = false;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   async function request(action, args = {}) {
@@ -9,7 +10,7 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
     if (value.error) throw Object.assign(new Error(value.error.message), { code: value.error.code });
     return value;
   }
-  const visible = () => region?.isConnected && !document.hidden && !document.getElementById('workspace-agent')?.hidden;
+  const visible = () => region?.isConnected && !document.hidden && (historyDialog?.open || !document.getElementById('workspace-agent')?.hidden);
   function notice(text) { message = text; update(); }
   function update() {
     if (!region?.isConnected) return;
@@ -19,7 +20,7 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
     const evidenceBlocked = getProject()?.hasCandidate === false || !!evidence.delivery?.stale || !!batch?.hardOperations?.includes('accept');
     if (confirmation && (!settled() || evidenceBlocked)) { confirmation = null; message = '项目输入或验收证据已变化，旧确认已失效；请完成保存与检查后重新审阅。'; }
     region.querySelector('[data-accept-message]').textContent = message;
-    region.querySelectorAll('[data-from-revision]').forEach(button => { button.disabled = busy || !!unresolved || cleanupPending || !settled() || !history.revisions?.find(item => item.revisionId === button.dataset.fromRevision)?.valid; });
+    historyDialog.querySelectorAll('[data-from-revision]').forEach(button => { button.disabled = busy || !!unresolved || cleanupPending || !settled() || !history.revisions?.find(item => item.revisionId === button.dataset.fromRevision)?.valid; });
     region.querySelector('[data-accept-review]').disabled = busy || !!unresolved || cleanupPending || !settled() || evidenceBlocked;
     region.querySelector('[data-accept-review]').hidden = !!confirmation;
     region.querySelector('[data-accept-confirm]').hidden = !confirmation;
@@ -61,7 +62,7 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
       else if (kind === 'from-history') {
         if (delivery.view().delivery || getProject()?.hasCandidate) throw new Error('已有候选，请返回现有候选，先接受或明确放弃。');
         const value = await request(kind, args);
-        if (value.status === 'candidate-created') { confirmation = null; region.querySelector('dialog').close(); await changed(); notice(`已从修订 ${args.revisionId.slice(0,8)} 创建候选 · 待针对最新输入检查、构建 Preview 和验收`); region.scrollIntoView({block:'start'}); }
+        if (value.status === 'candidate-created') { confirmation = null; historyDialog.close(); await changed(value); notice(`已从修订 ${args.revisionId.slice(0,8)} 创建候选 · 待针对最新输入检查、构建 Preview 和验收`); region.scrollIntoView({block:'start'}); }
       }
     } catch (error) { notice(unresolved ? '正在核对接受结果；将自动重试，也可点击“核对接受结果”。核对完成前不会重复或冲突提交，可继续只读查看。' : error.message); }
     finally { busy = false; update(); if (kind === 'review' && confirmation) region.querySelector('[data-accept-cancel]').focus({preventScroll:true}); }
@@ -75,7 +76,7 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
   async function refreshHistory() {
     const value = await request('history'); if (!value.revisions) return; history = value;
     if (value.cleanupPending) { cleanupPending = true; if (!message) message = value.taskCleanupPending ? '候选已接受，任务收尾待完成' : '已接受，清理待重试'; }
-    const list = region.querySelector('[data-history-list]');
+    const list = historyDialog.querySelector('[data-history-list]');
     const signature = JSON.stringify(value); if (list.dataset.signature === signature) { update(); return; }
     list.dataset.signature = signature;
     const expanded = new Set([...list.querySelectorAll('details[open][data-revision]')].map(node=>node.dataset.revision));
@@ -93,24 +94,36 @@ function createAcceptanceWorkbench(call, getProject, settled, delivery, preview,
   }
   setInterval(()=>{if (!document.hidden && region?.isConnected && unresolved && !busy) void action('result'); if(visible()){update();void verifyConfirmation();}},2000);
   document.addEventListener('input',()=>{if(visible())update();});
-  return { blocked: () => busy || !!unresolved || cleanupPending, mount(node) {
+  let historyTrigger;
+  function openHistory(trigger) {
+    historyTrigger = trigger;
+    const dialog = historyDialog;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    historyDialog.querySelector('[data-close-history]').focus();
+    void refreshHistory().catch(error => historyDialog.querySelector('[data-history-message]').textContent = error.message);
+  }
+  return { openHistory, blocked: () => busy || !!unresolved || cleanupPending, mount(node) {
     const project = getProject(), key = project && `${project.projectId}:${project.directory}`;
     if (key !== projectKey) { projectKey = key; confirmation = unresolved = undefined; message = ''; history = {}; busy = cleanupPending = false; }
     if (region === node) { update(); return; } region = node; if (!region) return;
     region.innerHTML = `<div class="accept-actions"><button data-accept-review>审阅并接受</button><span data-current-revision>当前修订</span><button data-open-history>修订历史</button></div><section data-accept-confirm hidden><div data-accept-summary></div><div class="accept-actions"><button data-accept-cancel>取消</button><button class="accept-primary" data-accept-submit>接受完整候选</button></div></section><p data-accept-message role="status" aria-live="polite"></p><button data-accept-result hidden>核对接受结果</button><button data-accept-cleanup hidden>重试清理</button><dialog class="revision-history" aria-labelledby="revision-history-title"><header><h2 id="revision-history-title">修订历史</h2><button data-close-history>关闭修订历史</button></header><p>最近 20 个，包含当前修订</p><p>已有候选时，请先接受或明确放弃，再从历史创建。</p><button data-return-candidate>返回现有候选</button><p data-history-message role="status"></p><div data-history-list></div></dialog>`;
-    const dialog = region.querySelector('dialog');
-    dialog.addEventListener('close',()=>region.querySelector('[data-open-history]').focus({preventScroll:true}));
-    region.addEventListener('click',event=>{
+    historyDialog?.remove();
+    const dialog = region.querySelector('dialog'); historyDialog = dialog;
+    document.body.append(dialog);
+    dialog.addEventListener('close',()=> (historyTrigger?.isConnected ? historyTrigger : region.querySelector('[data-open-history]')).focus({preventScroll:true}));
+    const onClick = event=>{
       const button=event.target.closest('button');if(!button||button.disabled)return;
       if(button.hasAttribute('data-accept-review'))void action('review');
       if(button.hasAttribute('data-accept-submit'))void action('accept');
       if(button.hasAttribute('data-accept-cancel')){confirmation=null;update();region.querySelector('[data-accept-review]').focus({preventScroll:true});}
       if(button.hasAttribute('data-accept-result'))void action('result');
       if(button.hasAttribute('data-accept-cleanup'))void action('cleanup');
-      if(button.hasAttribute('data-open-history')){dialog.showModal();region.querySelector('[data-close-history]').focus();void refreshHistory().catch(error=>region.querySelector('[data-history-message]').textContent=error.message);}
-      if(button.hasAttribute('data-close-history')||button.hasAttribute('data-return-candidate')){dialog.close();if(button.hasAttribute('data-return-candidate'))region.scrollIntoView({block:'start'});}
-      if(button.dataset.fromRevision)void action('from-history',{revisionId:button.dataset.fromRevision}).then(()=>{region.querySelector('[data-history-message]').textContent=message;});
-    });
+      if(button.hasAttribute('data-open-history')){openHistory(button);}
+      if(button.hasAttribute('data-close-history')||button.hasAttribute('data-return-candidate')){dialog.close();if(button.hasAttribute('data-return-candidate'))void changed({ status: 'return-candidate' }).then(()=>region.scrollIntoView({block:'start'}));}
+      if(button.dataset.fromRevision)void action('from-history',{revisionId:button.dataset.fromRevision}).then(()=>{historyDialog.querySelector('[data-history-message]').textContent=message;});
+    };
+    region.addEventListener('click', onClick); dialog.addEventListener('click', onClick);
     void refreshHistory().catch(()=>{}); update();
   }};
 }

@@ -33317,6 +33317,7 @@ var tools = [
     _meta: { ui: { visibility: ["app"] } }
   },
   { name: "restore_project", title: "\u4ECE\u6062\u590D\u5FEB\u7167\u521B\u5EFA\u9879\u76EE", description: "\u53EA\u8BFB\u68C0\u67E5\u6062\u590D\u6750\u6599\u548C\u8BA1\u5212\uFF0C\u660E\u786E\u786E\u8BA4\u540E\u5728\u65B0\u8DEF\u5F84\u6062\u590D\u539F\u8EAB\u4EFD\u9879\u76EE\uFF1B\u6765\u6E90\u53D7\u963B\u65F6\u53EF\u63D0\u53D6\u666E\u901A\u6587\u4EF6\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["inspect", "plan", "content", "recover", "extract", "status", "cancel"] }, snapshotPath: { type: "string" }, sourcePath: { type: "string" }, targetPath: { type: "string" }, planId: { type: "string" }, briefResult: { type: "string" }, component: { enum: ["dsl", "briefLocal", "briefBase"] }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
+  { name: "close_project", title: "\u5173\u95ED\u9879\u76EE", description: "\u4FDD\u5B58\u5B8C\u6210\u540E\u505C\u6B62\u6267\u884C\u5E76\u91CA\u653E\u5F53\u524D\u9879\u76EE\uFF0C\u4FDD\u7559\u5019\u9009\u548C\u9879\u76EE\u6587\u4EF6\u3002", inputSchema: { type: "object", required: ["projectDirectory", "projectId"], additionalProperties: false, properties: { projectDirectory: { type: "string" }, projectId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "project_recovery", title: "\u9879\u76EE\u6062\u590D\u5FEB\u7167", description: "\u6838\u5BF9\u9879\u76EE\u8EAB\u4EFD\u3001\u5C01\u5B58\u672A\u4FDD\u5B58\u7F16\u8F91\u5E76\u5728\u9879\u76EE\u5916\u5BFC\u51FA\u6062\u590D\u5FEB\u7167\u3002", inputSchema: { type: "object", required: ["action", "projectDirectory", "projectId"], additionalProperties: false, properties: { action: { enum: ["check", "seal", "export", "status", "leave"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, draft: { type: "object", additionalProperties: false, properties: { dsl: { type: "string" }, briefLocal: { type: "string" }, briefBase: { type: "string" } } }, target: { type: "string" }, operationId: { type: "string" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "copy_project", title: "\u590D\u5236\u9879\u76EE", description: "\u5B89\u5168\u505C\u6B62\u5E76\u5173\u95ED\u6765\u6E90\uFF0C\u5B8C\u6574\u590D\u5236\u540E\u6253\u5F00\u72EC\u7ACB\u526F\u672C\uFF1B\u53EF\u67E5\u8BE2\u9636\u6BB5\u548C\u5728\u53D1\u5E03\u524D\u53D6\u6D88\u3002", inputSchema: { type: "object", required: ["action"], additionalProperties: false, properties: { action: { enum: ["start", "status", "cancel"] }, projectDirectory: { type: "string" }, projectId: { type: "string" }, targetDirectory: { type: "string" }, operationId: { type: "string" }, confirmTemporaryCleanup: { type: "boolean" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
   { name: "creation_step", description: "\u5F53\u524D\u5BF9\u8BDD Agent \u8BFB\u53D6\u521B\u4F5C\u6B65\u9AA4\u6216\u63D0\u4EA4\u7ED3\u6784\u5316\u7ED3\u679C\u3002\u4EC5\u6536\u5230\u56DE\u6267\u4E0D\u4EE3\u8868\u5019\u9009\u843D\u76D8\uFF0C\u987B\u7EE7\u7EED\u8BFB\u53D6\u76F4\u5230\u7B49\u5F85\u7528\u6237\u6216\u505C\u6B62\u3002", inputSchema: { type: "object", additionalProperties: false, required: ["projectDirectory", "projectId", "taskId", "action"], properties: { projectDirectory: { type: "string" }, projectId: { type: "string" }, taskId: { type: "string" }, action: { enum: ["read", "submit", "interrupt"] }, reason: { enum: ["CODEX_INTERRUPTED", "CODEX_THREAD_UNAVAILABLE", "CODEX_USAGE_LIMIT", "CODEX_AUTH_REQUIRED", "CODEX_UNAVAILABLE"] }, stepId: { type: "string" }, answer: { type: "object" } } }, outputSchema: { type: "object" }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ["app"] } } },
@@ -34007,6 +34008,26 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
       for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
       throw error51;
     }
+  }
+  async closeProject(input) {
+    const opened = this.#opened;
+    if (!opened || opened.inspection.projectDirectory !== input?.projectDirectory || opened.inspection.manifest.projectId !== input?.projectId) throw new Error("\u5173\u95ED\u8BF7\u6C42\u4E0E\u5F53\u524D\u9879\u76EE\u8EAB\u4EFD\u4E0D\u5339\u914D\u3002");
+    if (this.#copyPromise || this.#opening) throw new Error("\u9879\u76EE\u64CD\u4F5C\u5C1A\u672A\u5B8C\u6210\uFF0C\u8BF7\u7A0D\u540E\u5173\u95ED\u3002");
+    await opened.assertWritable();
+    if (this.creation?.value && this.creation.value.status !== "terminated") await this.creation.respond({ action: "stop" });
+    await this.creation?.close();
+    await this.render.close();
+    for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
+    await Promise.all([...this.#speechPending]);
+    await opened.assertWritable();
+    await opened.release();
+    this.#opened = null;
+    this.creation = null;
+    this.delivery.clear();
+    this.checks.clear();
+    this.#credentials.clear();
+    this.#speechJobs.clear();
+    return { status: "launcher", connection: launcherConnectionState() };
   }
   async recoveryOperation(input) {
     const opened = this.#opened;
@@ -34717,6 +34738,13 @@ async function callTool(params, hostValidation, workspace) {
       await workspace.checkIdentity();
     } catch (error51) {
       return { isError: true, structuredContent: { status: "identity-lost", error: { code: "PROJECT_IDENTITY_LOST", message: error51.message } }, content: [] };
+    }
+  }
+  if (name === "close_project") {
+    try {
+      return { structuredContent: await workspace.closeProject(argumentsValue), content: [] };
+    } catch (error51) {
+      return { isError: true, structuredContent: { error: { code: "PROJECT_CLOSE_FAILED", message: error51.message } }, content: [] };
     }
   }
   if (name === "copy_project") {

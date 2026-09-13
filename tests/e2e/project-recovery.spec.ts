@@ -76,7 +76,7 @@ for (const mode of ['empty', 'brief', 'both', 'conflict']) test(`恢复清单与
     await page.getByRole('button', { name: '打开项目检查' }).click();
     await page.locator('[data-open-brief]').first().click();
     await page.locator('[data-brief-editor]').fill('保留 Brief LOCAL');
-    if (mode === 'conflict') { await expect(page.locator('[data-brief-merge]')).toBeVisible(); await page.locator('[data-brief-merge]').fill('正在合并的 LOCAL'); }
+    if (mode === 'conflict') { await page.locator('[data-brief-editor]').blur(); await expect(page.locator('[data-brief-merge]')).toBeVisible(); await page.locator('[data-brief-merge]').fill('正在合并的 LOCAL'); }
   }
   await page.evaluate(() => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: { status: 'identity-lost', error: { message: '项目访问权已失效。' } } } }, '*'));
   const dialog = page.locator('#recovery-page');
