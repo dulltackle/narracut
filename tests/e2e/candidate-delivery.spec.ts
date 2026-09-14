@@ -70,7 +70,7 @@ test('Preview 先于交付摘要，警告及建议展开，采集与检查分离
   await expect(page.locator('[data-go-scene="0"]')).toBeDisabled({ timeout: 10000 });
   await expect(page.locator('[data-delivery-suggestions]')).toContainText('目标 Scene 已删除');
   stale=true;await expect(page.locator('[data-delivery-state]')).toContainText('已过期',{timeout:10000});
-  await expect(page.getByRole('button', {name:'审阅并接受',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button', {name:'审阅并接受',exact:true})).toHaveCount(0);
 });
 test('超过四个 Scene 的分页保持键盘上下文与完整计划',async({page})=>{
   const scenes=validResult(9).scenes.map((scene,i)=>({id:scene.id,time:{startFrame:i*3,durationInFrames:3}}));

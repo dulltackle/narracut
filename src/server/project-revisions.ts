@@ -6,10 +6,14 @@ import { z } from 'zod';
 import { regular, directory, readTree, identity, writeTree, writeBytes, syncDirectory, CandidateError } from './project-candidate';
 const uuid = z.string().uuid(), digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const refSchema = z.object({ revisionId: uuid, metadata: digest, program: digest, requestId: uuid.optional() }).strict();
+const updateSchema = z.object({ hasDesign: z.boolean(), undo: z.object({ requestId: uuid, kind: z.enum(['sync', 'generate', 'adjust']), at: z.string().datetime(), previousRevisionId: uuid.nullable(), revisionId: uuid }).strict().nullable(), result: z.object({ requestId: uuid, operationId: uuid, status: z.enum(['published', 'undone']) }).strict() }).strict();
+export type UpdateRequest = { requestId: string; kind: 'sync' | 'generate' | 'adjust'; revisionId: string; summary: string; acceptance: Record<string, unknown> };
 const pointerSchema = z.object({ revisionId: uuid, history: z.array(refSchema).min(1).max(20).optional(),
   consumed: z.object({ pointer: digest, generation: z.string().regex(/^\.narracut\/candidate-[0-9a-f-]{36}$/), requestId: uuid, taskCheckpoint: digest.optional() }).strict().optional(),
+  update: updateSchema.optional(),
   pruned: z.array(uuid).max(1).optional(),
 }).strict().superRefine((value, ctx) => {
+  if (value.update?.undo && (value.update.undo.revisionId !== value.revisionId || !value.update.hasDesign || (value.update.undo.previousRevisionId && !value.history?.some(ref => ref.revisionId === value.update!.undo!.previousRevisionId)))) ctx.addIssue({ code: 'custom', message: '视频更新撤回记录与修订不一致' });
   if (value.history && (value.history[0].revisionId !== value.revisionId || new Set(value.history.map(item => item.revisionId)).size !== value.history.length)) ctx.addIssue({ code: 'custom', message: '当前修订与历史不一致' });
 });
 const metadataSchema = z.object({ revisionId: uuid, previousRevisionId: uuid.nullable(), briefFingerprint: digest.optional(), source: z.string(), summary: z.string(),
@@ -88,6 +92,7 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
   async function accept(request: { baseline: string; summary: string; source: string; acceptance: Record<string, unknown>; requestId?: string }, tree: Awaited<ReturnType<typeof readTree>>, raw: Buffer, state: { sourceRevision: string; candidate: { path: string } | null }, validate: () => Promise<void>) {
     if ((await cleanup()).cleanupPending) throw new CandidateError('ACCEPTANCE_CLEANUP_PENDING', '请先重试上次接受的清理。');
     const beforeBytes = await regular(join(internal, 'current.json'), 16384), before = await readCurrentPointer(project);
+    if (before.update) throw new CandidateError('UPDATE_REQUIRED', '项目已使用视频更新流程，请通过完整更新发布，不能再接受旧候选。');
     const previous = await verifyRevision(project, before.revisionId);
     const id = randomUUID(), requestId = request.requestId ?? randomUUID();
     const record = request.acceptance as { identity?: { brief?: string; input?: string } };
@@ -120,7 +125,75 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
       if (!committed) await rm(root, { recursive: true, force: true }).catch(() => undefined);
     }
   }
-  return { history, cleanup, accept, verify: (id: string) => verifyRevision(project, id) };
+  async function updateState() {
+    await assertWritable();
+    const pointer = await readCurrentPointer(project);
+    const revision = await verifyRevision(project, pointer.revisionId);
+    return { revisionId: pointer.revisionId, hasDesign: pointer.update?.hasDesign ?? !!revision.metadata.acceptance,
+      undo: pointer.update?.undo ?? null, result: pointer.update?.result ?? null, revision: revision.metadata };
+  }
+  // 与修订及恢复绑定共用一个 rename；绝不把撤回拆成第二个文件提交。
+  async function commitUpdate(beforeBytes: Buffer, next: Pointer, validate: () => Promise<void>) {
+    const temporary = join(internal, `update-${randomUUID()}.json`), bytes = Buffer.from(JSON.stringify(pointerSchema.parse(next)));
+    try {
+      await writeBytes(temporary, bytes);
+      await validate(); await assertWritable();
+      if (!beforeBytes.equals(await regular(join(internal, 'current.json'), 16384))) throw new CandidateError('UPDATE_STALE', '视频状态已变化，请核对原操作。');
+      await validate();
+      observeCommit?.(join(internal, 'current.json'), bytes, false);
+      await rename(temporary, join(internal, 'current.json'));
+      observeCommit?.(join(internal, 'current.json'), bytes, true);
+      await syncDirectory(internal);
+    } finally { await rm(temporary, { force: true }).catch(() => undefined); }
+  }
+  async function publishUpdate(request: UpdateRequest, tree: Awaited<ReturnType<typeof readTree>>, validate: () => Promise<void>) {
+    uuid.parse(request.requestId);
+    const beforeBytes = await regular(join(internal, 'current.json'), 16384), before = await readCurrentPointer(project);
+    if (before.update?.result.requestId === request.requestId) {
+      if (before.update.result.status !== 'published') throw new CandidateError('UPDATE_REQUEST_REUSED', '此操作身份已用于撤回。');
+      return { status: 'published' as const, revision: (await verifyRevision(project, before.revisionId)).metadata };
+    }
+    if (before.history?.some(ref => ref.requestId === request.requestId)) throw new CandidateError('UPDATE_ALREADY_PROCESSED', '此更新已处理，不能重新应用。');
+    const previous = await verifyRevision(project, before.revisionId);
+    if (before.revisionId !== request.revisionId) throw new CandidateError('UPDATE_STALE', '同步来源已变化。');
+    const hasDesign = before.update?.hasDesign ?? !!previous.metadata.acceptance;
+    if (request.kind === 'sync' && !hasDesign) throw new CandidateError('UPDATE_NO_DESIGN', '尚未生成画面设计，请先在当前对话生成。');
+    const id = randomUUID(), root = join(internal, 'revisions', id);
+    const record = request.acceptance as { identity?: { brief?: string; input?: string } };
+    const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: before.revisionId,
+      source: request.kind, summary: request.summary, acceptedAt: new Date().toISOString(), requestId: request.requestId,
+      programFingerprint: identity(tree), briefFingerprint: record.identity?.brief, inputFingerprint: record.identity?.input, acceptance: request.acceptance });
+    // 未发布目录属于内部成果；回执不明时保留，不能删除可能已被指针引用的字节。
+    await mkdir(root); await writeTree(join(root, 'render-program'), tree);
+    const bytes = Buffer.from(JSON.stringify(revision));
+    if (bytes.length > 1048576) throw new Error('发布证据超过 1 MiB');
+    await writeBytes(join(root, 'revision.json'), bytes); await syncDirectory(root); await syncDirectory(join(internal, 'revisions'));
+    const refs = [{ revisionId: id, metadata: hash(bytes), program: identity(tree), requestId: request.requestId }, ...(before.history ?? [previous.ref])];
+    const next = pointerSchema.parse({ ...before, revisionId: id, history: refs.slice(0,20), pruned: refs.slice(20).map(ref => ref.revisionId),
+      update: { hasDesign: true, undo: { requestId: request.requestId, kind: request.kind, at: revision.acceptedAt!, previousRevisionId: hasDesign ? before.revisionId : null, revisionId: id },
+        result: { requestId: request.requestId, operationId: request.requestId, status: 'published' } } });
+    await commitUpdate(beforeBytes, next, async () => {
+      await validate(); await verifyRevision(project, before.revisionId);
+      if (!(await regular(join(root, 'revision.json'), 1048576)).equals(bytes) || identity(await readTree(join(root, 'render-program'))) !== revision.programFingerprint) throw new CandidateError('UPDATE_INTEGRITY_FAILED', '待发布设计字节已变化。');
+    });
+    return { status: 'published' as const, revision };
+  }
+  async function undoUpdate(request: { requestId: string; operationId: string }, validate: () => Promise<void>) {
+    uuid.parse(request.requestId); uuid.parse(request.operationId);
+    const beforeBytes = await regular(join(internal, 'current.json'), 16384), before = await readCurrentPointer(project);
+    const result = { status: 'undone' as const, requestId: request.requestId, operationId: request.operationId };
+    if (before.update?.result.requestId === request.requestId && before.update.result.operationId === request.operationId && before.update.result.status === 'undone') return result;
+    const undo = before.update?.undo;
+    if (!undo || undo.requestId !== request.operationId) throw new CandidateError('UPDATE_NOT_UNDOABLE', '此更新已不可撤回，请核对最近操作。');
+    const target = undo.previousRevisionId ?? before.revisionId;
+    await verifyRevision(project, target);
+    const refs = before.history!;
+    const next = pointerSchema.parse({ ...before, revisionId: target, history: [refs.find(ref => ref.revisionId === target)!, ...refs.filter(ref => ref.revisionId !== target)],
+      update: { hasDesign: undo.previousRevisionId !== null, undo: null, result: { ...result } } });
+    await commitUpdate(beforeBytes, next, async () => { await validate(); await verifyRevision(project, target); });
+    return result;
+  }
+  return { history, cleanup, accept, updateState, publishUpdate, undoUpdate, verify: (id: string) => verifyRevision(project, id) };
 }
 
 /** 指纹只消费提交时的旧检查点；后续新任务不会被旧收尾删除。 */

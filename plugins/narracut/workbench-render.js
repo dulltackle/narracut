@@ -2,7 +2,7 @@
 function createRenderWorkbench(call, getProject, settled, preview, toTable, uuid) {
   let region, projectKey, source, prepared, job, outputPath = '', busy = false, polling = false, unknown, message = '', issuesKey = '', refreshError = false;
   const active = () => job && ['running', 'cancelling'].includes(job.status);
-  const stages = { preparing: '准备与校验', rebuilding: '正在离线重建已接受 Bundle', frames: '渲染帧', encoding: '编码', publishing: '验证并写入产物', completed: '产物已验证并发布' };
+  const stages = { preparing: '准备与校验', rebuilding: '正在离线重建已更新 Bundle', frames: '渲染帧', encoding: '编码', publishing: '验证并写入产物', completed: '产物已验证并发布' };
   // 只有可核对的任务回执才能解除“不明”状态；空响应不代表未启动。
   function validJob(value, requestId) {
     const string = item => typeof item === 'string' && item.length > 0;
@@ -17,8 +17,8 @@ function createRenderWorkbench(call, getProject, settled, preview, toTable, uuid
   function update() {
     if (!region?.isConnected) return;
     const target = active() ? job.source : prepared ?? source;
-    text('[data-render-source]', target ? `${target.revisionId.slice(0, 8)} · ${target.summary}` : '正在读取当前已接受版本');
-    text('[data-render-accepted]', !source ? '正在核对接受状态' : source.accepted ? (job?.status === 'succeeded' && job.source.key === source.key ? '已接受，已有输出' : active() ? '已接受，正在输出' : '已接受，尚未输出') : '尚未接受');
+    text('[data-render-source]', target ? `${target.revisionId.slice(0, 8)} · ${target.summary}` : '正在读取当前已更新版本');
+    text('[data-render-accepted]', !source ? '正在核对更新状态' : source.accepted ? (job?.status === 'succeeded' && job.source.key === source.key ? '已更新，已有输出' : active() ? '已更新，正在输出' : '已更新，尚未输出') : '尚未更新');
     text('[data-render-ready]', !source ? '正在检查输出条件' : source.ready ? '可以输出' : '输出已阻断');
     const issues = source?.issues ?? [], nextIssuesKey = JSON.stringify(issues);
     if (nextIssuesKey !== issuesKey) {
@@ -39,7 +39,7 @@ function createRenderWorkbench(call, getProject, settled, preview, toTable, uuid
       }));
     }
     text('[data-render-location]', active() ? job.outputPath : outputPath || '尚未选择输出位置');
-    text('[data-render-format]', target?.output ? `${(target.durationInFrames / target.output.fps).toFixed(2)} 秒 · ${target.output.width} × ${target.output.height} · ${target.output.fps} fps` : '画幅和帧率来自已接受状态');
+    text('[data-render-format]', target?.output ? `${(target.durationInFrames / target.output.fps).toFixed(2)} 秒 · ${target.output.width} × ${target.output.height} · ${target.output.fps} fps` : '画幅和帧率来自已更新状态');
     text('[data-render-details]', JSON.stringify(target?.details ?? {}, null, 2));
     const mismatch = !!target && preview.viewingRevision() !== target.revisionId;
     region.querySelector('[data-render-mismatch]').hidden = !mismatch;
@@ -61,7 +61,7 @@ function createRenderWorkbench(call, getProject, settled, preview, toTable, uuid
     region.querySelector('[data-render-retry]').hidden = job?.status !== 'failed' || !job.retryable;
     region.querySelector('[data-render-retry]').disabled = busy || !!unknown || !settled();
     text('[data-render-success-path]', job?.status === 'succeeded' ? `${job.outputPath.split('/').at(-1)} · 来源修订 ${job.source.revisionId.slice(0, 8)}\n${job.outputPath}${job.projectUpdated ? '\n项目已更新，这是启动时状态的产物。' : ''}` : '');
-    text('[data-render-feedback]', unknown ? '正在核对 Render 状态；核对前不会重复启动。' : !settled() ? (getProject()?.writable === false ? '当前为只读，无法开始输出；请在拥有写权的当前对话中操作。' : '项目尚未保存、连接中断或身份不可确认，请先恢复连接并完成保存。') : message || (busy ? '正在核对输出条件…' : job?.status === 'cancelled' ? '已取消，未生成完整产物' : job?.status === 'failed' ? `${job.retryable ? '已接受，Render 未完成' : '此状态已接受，但已阻断再次 Render'}：${job.error.message}` : active() ? (job.status === 'cancelling' ? '正在取消并清理产物…' : `${stages[job.stage]}${job.stage === 'frames' && Number.isInteger(job.renderedFrames) ? ` · ${job.renderedFrames} / ${job.source.durationInFrames} 帧` : ''}`) : job?.status === 'succeeded' ? '产物已验证并发布' : ''));
+    text('[data-render-feedback]', unknown ? '正在核对 Render 状态；核对前不会重复启动。' : !settled() ? (getProject()?.writable === false ? '当前为只读，无法开始输出；请在拥有写权的当前对话中操作。' : '项目尚未保存、连接中断或身份不可确认，请先恢复连接并完成保存。') : message || (busy ? '正在核对输出条件…' : job?.status === 'cancelled' ? '已取消，未生成完整产物' : job?.status === 'failed' ? `${job.retryable ? '已更新，Render 未完成' : '此状态已更新，但已阻断再次 Render'}：${job.error.message}` : active() ? (job.status === 'cancelling' ? '正在取消并清理产物…' : `${stages[job.stage]}${job.stage === 'frames' && Number.isInteger(job.renderedFrames) ? ` · ${job.renderedFrames} / ${job.source.durationInFrames} 帧` : ''}`) : job?.status === 'succeeded' ? '产物已验证并发布' : ''));
   }
   async function request(action, args = {}) {
     const key = projectKey, response = await call(action, args), value = response.structuredContent ?? response;
@@ -81,7 +81,7 @@ function createRenderWorkbench(call, getProject, settled, preview, toTable, uuid
       }
       const value = await request('status'); source = value.source; if (refreshError) { message = ''; refreshError = false; }
       if (Array.isArray(value.jobs)) { const latest = value.jobs.filter(item => validJob(item, unknown)).at(-1); if (latest) job = latest; }
-      if (prepared && prepared.key !== source?.key && !active()) { prepared = null; message = '接受状态或输入已变化，请重新准备最终 Render。'; }
+      if (prepared && prepared.key !== source?.key && !active()) { prepared = null; message = '更新状态或输入已变化，请重新准备最终 Render。'; }
     } catch (error) { refreshError = true; if (active()) unknown = job.requestId; else { source = undefined; if (!unknown) prepared = null; message = error.message; } }
     finally { polling = false; update(); }
   }
@@ -120,7 +120,7 @@ function createRenderWorkbench(call, getProject, settled, preview, toTable, uuid
     const project = getProject(), key = project && `${project.projectId}:${project.directory}`;
     if (key !== projectKey) { projectKey = key; source = prepared = job = unknown = undefined; outputPath = message = issuesKey = ''; refreshError = false; }
     if (region === node) { update(); return; } region = node; issuesKey = ''; if (!region) return;
-    region.innerHTML = `<header><div><h2>视频输出</h2><p data-render-source></p><div class="render-status"><span data-render-accepted></span><span data-render-ready></span></div></div><button class="render-primary" data-render-prepare>输出视频</button></header><p data-render-mismatch hidden>正在查看的 Preview 与本次输出来源不同。<button data-render-target>查看目标修订</button></p><section data-render-preparation hidden><p data-render-format></p><div class="render-output"><div><strong>输出位置</strong><p data-render-location></p></div><button data-render-pick>选择输出文件夹</button></div><button class="render-primary" data-render-start>开始输出</button><button data-render-close>收起输出</button></section><ul data-render-issues class="render-issues"></ul><button data-render-table hidden>前往表格工作区处理</button><button data-render-candidate hidden>前往候选检查与验收</button><p data-render-feedback role="status" aria-live="polite"></p><div class="render-actions"><button data-render-cancel hidden>取消 Render</button><button data-render-retry hidden>重试 Render</button><button data-render-reconcile hidden>核对 Render 状态</button></div><section data-render-success hidden><p data-render-success-path></p><button data-render-reveal>在文件夹中显示</button><button data-render-copy>复制输出路径</button></section><details><summary>Render 详情</summary><pre data-render-details></pre></details>`;
+    region.innerHTML = `<header><div><h2>视频输出</h2><p data-render-source></p><div class="render-status"><span data-render-accepted></span><span data-render-ready></span></div></div><button class="render-primary" data-render-prepare>输出视频</button></header><p data-render-mismatch hidden>正在查看的 Preview 与本次输出来源不同。<button data-render-target>查看目标修订</button></p><section data-render-preparation hidden><p data-render-format></p><div class="render-output"><div><strong>输出位置</strong><p data-render-location></p></div><button data-render-pick>选择输出文件夹</button></div><button class="render-primary" data-render-start>开始输出</button><button data-render-close>收起输出</button></section><ul data-render-issues class="render-issues"></ul><button data-render-table hidden>前往表格工作区处理</button><button data-render-candidate hidden>查看更新检查</button><p data-render-feedback role="status" aria-live="polite"></p><div class="render-actions"><button data-render-cancel hidden>取消 Render</button><button data-render-retry hidden>重试 Render</button><button data-render-reconcile hidden>核对 Render 状态</button></div><section data-render-success hidden><p data-render-success-path></p><button data-render-reveal>在文件夹中显示</button><button data-render-copy>复制输出路径</button></section><details><summary>Render 详情</summary><pre data-render-details></pre></details>`;
     region.addEventListener('click', event => {
       const button = event.target.closest('button'); if (!button || button.disabled) return;
       if (button.hasAttribute('data-render-issue')) { toTable(source?.issues?.[Number(button.dataset.renderIssue)]?.location); return; }

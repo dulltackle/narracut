@@ -73,10 +73,10 @@ export class ProjectPreview {
     const signature = previewDigest(JSON.stringify([state.projectRevision, state.videoBriefRevision, target === 'candidate' ? candidate.baseline : source.revision, source.identity, manifest.toString(), [...media.keys()].sort(), input, speech]));
     return { input, speech, media, mediaPaths, signature, brief: state.videoBriefRevision, projectInput: previewDigest(JSON.stringify([state.projectRevision, input, speech])), baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
   }
-  async build(opened: OpenedProjectVNext, target: 'current' | 'candidate', parentOrigin: string) {
+  async build(opened: OpenedProjectVNext, target: 'current' | 'candidate', parentOrigin: string, signal?: AbortSignal) {
     if (this.#active.size >= 4) throw new Error('Preview 实例已达上限，请关闭隐藏实例后重试。');
     const before = await this.capture(opened, target);
-    const bundle = await opened.buildCandidateBundle({ input: before.input, speech: before.speech, media: before.media, baseline: before.baseline, sourceIdentity: before.sourceIdentity, target });
+    const bundle = await opened.buildCandidateBundle({ input: before.input, speech: before.speech, media: before.media, baseline: before.baseline, sourceIdentity: before.sourceIdentity, target, signal });
     const after = await this.capture(opened, target);
     if (before.signature !== after.signature) throw new Error('构建期间输入或媒体已变化，请重试。');
     this.#bundles.set(bundle.identity, bundle);
@@ -128,6 +128,7 @@ export class ProjectPreview {
     entry.descriptor.revisionId = revision;
     entry.revision = revision;
   }
+  releaseCurrent() { for (const entry of [...this.#active.values()]) if (entry.descriptor.target === 'current') this.release(entry.descriptor.instanceId); }
   invalidate() { for (const entry of this.#active.values()) entry.stale = true; }
   latestCandidate() { return [...this.#active.values()].filter(entry => entry.descriptor.target === 'candidate').at(-1)?.descriptor.instanceId; }
   release(instanceId: string) { const entry = this.#active.get(instanceId); if (entry) this.source.release(entry.descriptor.url); this.#active.delete(instanceId); }

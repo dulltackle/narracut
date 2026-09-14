@@ -13,14 +13,14 @@ import { compareVisualFrames } from '../support/visual-comparison';
 // 与认证胶囊使用同一软件图形后端，避免宿主 GPU 色彩转换差异。
 test.use({ launchOptions: { args: ['--use-gl=angle', '--use-angle=swiftshader', '--in-process-gpu'] } });
 
-test('插件工作台：关闭移动后断网重建、精确 Preview、接受与同 Bundle 最终 Render', async ({ page }, info) => {
+test('插件工作台：关闭移动后断网同步、精确 Preview 与同 Bundle 最终 Render', async ({ page }, info) => {
   test.setTimeout(600000);
   const root = await mkdtemp(join(tmpdir(), 'portable-vnext-'));
   let directory = join(root, '原项目'), projectId: string;
   let handler = createNarracutRequestHandler({ conversation: { threadId: 'portable-creation' } });
   let lastPreview: any;
   let stepImageCount = 0;
-  const raw = async (name: string, args: any) => { const result = await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any; if (name === 'creation_step') stepImageCount = result.content?.filter((item: any) => item.type === 'image').length ?? 0; if (name === 'project_preview' && args.action === 'build') lastPreview = result.structuredContent?.preview; return result; };
+  const raw = async (name: string, args: any) => { const result = await handler({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as any; if (name === 'creation_step') stepImageCount = result.content?.filter((item: any) => item.type === 'image').length ?? 0; if (name === 'project_video_update' && args.action === 'view') lastPreview = result.structuredContent?.preview; return result; };
   const call = async (name: string, args: any = {}) => {
     const result = await raw(name, { projectDirectory: directory, projectId, ...args });
     expect(result.isError, JSON.stringify(result)).not.toBe(true); return result.structuredContent;
@@ -77,6 +77,11 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     await expect.poll(async () => (await call('get_creation_task')).creationTask.reason).toBe('CANDIDATE_READY');
     const candidateBeforeMove = (await call('manage_project_candidate', { action: 'read' })).candidate;
     const lockBeforeMove = await readFile(join(directory, candidateBeforeMove.candidate.path, 'pnpm-lock.yaml'));
+    // 构造存量已接受项目；旧接受仅用于兼容准备，新页面不再提供接受入口。
+    const delivered = await call('project_delivery', { action: 'status' });
+    await call('project_delivery_display', { deliveryId: delivered.delivery.id, reportRevision: delivered.delivery.reportRevision, batchId: delivered.checks.batches.at(-1).id, warningsKey: delivered.warningsKey });
+    const confirmation = (await call('project_acceptance', { action: 'review' })).confirmation;
+    await call('project_acceptance', { ...confirmation, action: 'accept', confirmed: true });
     // 关闭服务销毁全部内存缓存与安装树，然后移动完整项目，旧绝对路径消失。
     await handler.dispose();
     const previous = directory;
@@ -90,81 +95,26 @@ test('插件工作台：关闭移动后断网重建、精确 Preview、接受与
     await page.reload(); await page.evaluate(() => { (window as any).openai = { callTool: (name: string, args: any) => (window as any).handleNarracutAppTool(name, args) }; });
     await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), reopened);
     await page.getByRole('tab', { name: 'Agent 工作区' }).click();
-    await expect(page.locator('[data-preview-state]')).toContainText('尚无预览');
-    expect((await call('get_creation_task')).creationTask).toMatchObject({ taskId, status: 'stopped', reason: 'APP_RESTARTED' });
-    expect((await call('creation_step', { taskId, action: 'read' })).step).toBeNull();
-    await page.getByRole('button', { name: '构建候选', exact: true }).click();
-    await expect.poll(async () => { const state = await page.locator('[data-preview-state]').textContent(); if (state?.includes('失败')) throw new Error(state); return page.locator('[data-frame-output]').textContent(); }, { timeout: 120000 }).toContain('已提交帧 0');
-    // 从公开工具状态取得同一候选的实例，再通过公开交付工具审阅完整证据。
-    const checks = await call('project_checks', { action: 'start' });
-    const preview = lastPreview;
-    const boundaries = preview.input.scenes.slice(1).map((scene: any) => scene.time.startFrame);
-    const supplements = boundaries.flatMap((frame: number) => [{ frame: frame - 2, source: 'transition', reason: '叠化中段' }, { frame: frame + 2, source: 'motion', reason: '边界后运动' }]);
-    await call('project_delivery', { action: 'prepare', instanceId: preview.instanceId, supplements });
-    let delivery: any;
-    await expect.poll(async () => { delivery = await call('project_delivery', { action: 'status' }); return !delivery.collecting && delivery.checks.batches.at(-1)?.status === 'complete'; }, { timeout: 180000 }).toBe(true);
-    const samples = delivery.delivery.frames;
+    await expect(page.getByRole('button', { name: '仅同步表格内容', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: '仅同步表格内容', exact: true }).click();
+    await expect(page.locator('[data-update-state]')).toContainText('视频已同步', { timeout: 180000 });
+    const preview = (await call('project_video_update', { action: 'view', parentOrigin: origin })).preview;
+    expect(preview.stale).toBe(false);
+    const published = await call('project_video_update', { action: 'status' });
+    expect(published.undo.kind).toBe('sync');
+    const samples = published.revision.acceptance.frames;
     const images = new Map<number, string>();
     const player = page.locator('[data-preview-screen] iframe:not([hidden])');
+    await expect(player).toBeVisible();
     await player.evaluate((node: HTMLIFrameElement) => { node.style.cssText = 'position:fixed;top:0;left:0;width:320px;height:240px;z-index:9999'; });
     for (const sample of samples) {
-      expect(sample.digest, JSON.stringify(sample)).toBeTruthy();
       await page.getByLabel('帧号', { exact: true }).fill(String(sample.frame));
       await page.getByRole('button', { name: '跳转', exact: true }).click();
       await expect(page.locator('[data-frame-output]')).toContainText(`已提交帧 ${sample.frame}`);
       const browserImage = info.outputPath(`browser-${sample.frame}.png`); await player.screenshot({ path: browserImage });
-      const result = await raw('project_delivery', { projectDirectory: directory, projectId, action: 'image', deliveryId: delivery.delivery.id, frame: sample.frame });
-      const image = result.content.find((item: any) => item.type === 'image');
-      const path = info.outputPath(`preview-${sample.frame}.png`); await writeFile(path, Buffer.from(image.data, 'base64')); images.set(sample.frame, path);
-      await compareVisualFrames(browserImage, path, { sceneId: 'portable-browser', frame: sample.frame, channelThreshold: 30, maxDifferentPixelRatio: 0.012, artifactDirectory: info.outputDir });
+      images.set(sample.frame, browserImage);
     }
-    for (let start = 0; start < samples.length; start += 12) await call('project_delivery', { action: 'review', deliveryId: delivery.delivery.id, reviews: samples.slice(start, start + 12).map((sample: any) => ({ frame: sample.frame, digest: sample.digest, observation: '三幕素材、叠化和 seeded 运动代表帧已读取，将与最终输出逐帧比较。' })) });
-    const goal = '离线可移动短片：' + '保持旁白与 Scene 顺序，以画面变化呈现三个段落。'.repeat(16);
-    const suggestions = [
-      { sceneId: preview.input.scenes[1].id, observation: '第二幕信息密集', action: '精简 Narration', content: '留下最重要的一句话', reason: '给画面留出阅读时间' },
-      { sceneId: preview.input.scenes[2].id, observation: '第三幕还有调整空间', action: '核对结尾旁白', content: '保留可复制的建议值', reason: '供用户参考' },
-    ];
-    await call('project_delivery', { action: 'describe', deliveryId: delivery.delivery.id, report: { goal, summary: '三幕素材与跨 Scene 叠化', warnings: ['草稿节奏需要结合成片判断。'], suggestions } });
-    await expect(page.locator('[data-delivery-summary]')).toContainText(goal);
-    await expect(page.locator('[data-delivery-warnings]')).toContainText('草稿节奏需要结合成片判断。');
-    await expect(page.locator('[data-delivery-suggestions] article')).toHaveCount(2);
-    await expect(page.locator('[data-go-scene="1"]')).toBeEnabled();
-    const beforeSuggestion = (await call('get_workbench')).projectDsl;
-    await page.getByRole('button', { name: '审阅详情', exact: true }).click();
-    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-    await page.locator('[data-copy-suggestion="0"]').click();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(suggestions[0].content);
-    await page.locator('[data-go-scene="0"]').click();
-    await expect(page.getByRole('textbox', { name: 'Scene 02 Narration' })).toHaveValue(beforeSuggestion.scenes[1].narration.text);
-    expect((await call('get_workbench')).projectDsl).toEqual(beforeSuggestion);
-    await page.getByRole('tab', { name: 'Agent 工作区' }).click();
-    await expect(page.locator('[data-preview-title]')).toContainText('候选');
-    await page.getByRole('button', { name: '关闭审阅详情' }).click();
-    await page.getByRole('button', { name: '对比当前', exact: true }).click();
-    await expect(page.locator('[data-preview-title]')).toContainText('正在查看：当前', { timeout: 120000 });
-    await expect(page.locator('[data-preview-screen] iframe')).toHaveCount(2);
-    await expect(page.locator('[data-preview-screen] iframe:not([hidden])')).toHaveCount(1);
-    await page.getByRole('tab', { name: '表格工作区' }).click();
-    await page.getByRole('tab', { name: 'Agent 工作区' }).click();
-    await expect(page.locator('[data-preview-title]')).toContainText('正在查看：当前');
-    await page.getByRole('button', { name: '返回候选', exact: true }).click();
-    await expect(page.locator('[data-preview-title]')).toContainText('正在查看：候选');
-    // 完整候选报告在实际面板宽度下可读。
     await player.evaluate((node: HTMLIFrameElement) => { node.style.cssText = ''; });
-    await page.locator('#workspace-agent').evaluate(node => { node.scrollTop = 0; });
-    await page.getByRole('button', { name: '审阅详情', exact: true }).click();
-    await page.screenshot({ path: info.outputPath('review-desktop.png') });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: info.outputPath('review-mobile.png') });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.getByRole('button', { name: '关闭审阅详情' }).click();
-    // 等待工作台实际展示报告并提交展示回执，随后由用户明确接受。
-    await expect(page.locator('[data-delivery-state]')).toHaveText('可交付 · 等待用户判断', { timeout: 30000 });
-    await page.getByRole('button', { name: '审阅并接受', exact: true }).click();
-    await expect(page.getByRole('button', { name: '接受完整候选', exact: true })).toBeVisible({ timeout: 30000 });
-    await page.getByRole('button', { name: '接受完整候选', exact: true }).click();
-    await expect(page.locator('[data-accept-message]')).toContainText('已接受', { timeout: 30000 });
     const renderRegion = page.getByRole('region', { name: '最终 Render', exact: true });
     await page.evaluate(path => { (window as any).openai.selectDirectory = async () => ({ path }); }, root);
     await renderRegion.getByRole('button', { name: '输出视频', exact: true }).click();

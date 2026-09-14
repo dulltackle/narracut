@@ -388,7 +388,7 @@
       <div class="project-tools" role="group" aria-label="项目工具">
         <button type="button" data-open-brief aria-label="Video Brief ${briefStatusLabel()}">创作说明</button>
         <button type="button" data-open-tts>声音配置</button>
-        <button type="button" data-project-history>程序历史</button>
+
         <button type="button" data-open-inspection aria-label="打开项目检查" aria-expanded="${state.inspectionOpen}">项目检查</button>
       </div><div class="project-exit"><button type="button" data-close-project>关闭项目</button></div>
     </header>`;
@@ -397,7 +397,7 @@
   let closingProject = false;
   async function closeProject() {
     if (closingProject || briefWriteBlocked()) return;
-    if (state.assetBusy || state.taskOperation || state.candidateBusy || acceptanceWorkbench.blocked()) { announce('项目操作尚未完成，请稍后关闭。'); return; }
+    if (state.assetBusy || state.taskOperation || state.candidateBusy || previewWorkbench.blocked()) { announce('项目操作尚未完成，请稍后关闭。'); return; }
     closingProject = true;
     try {
       await saveProject(); await saveVideoBrief();
@@ -439,7 +439,7 @@
   }
 
   function conversationFooter() {
-    return `<footer class="conversation-footer" data-conversation-footer>${state.result?.conversation?.status === 'unavailable' ? escapeHtml(state.result.conversation.reason) : '在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。'}</footer>`;
+    return `<footer class="conversation-footer" data-conversation-footer>${state.result?.conversation?.status === 'unavailable' ? escapeHtml(state.result.conversation.reason) : '在当前 Codex 对话中表达创作目标；在这里编辑 Scene、更新视频与独立输出。'}</footer>`;
   }
 
   function launcherRail() {
@@ -760,7 +760,7 @@
 
   function enforceInputFreshness() {
     const blocked = inputsPending();
-    if (state.version !== state.savedVersion || state.brief.version !== state.brief.savedVersion) previewWorkbench.inputsChanged();
+    if (state.version !== state.savedVersion || state.brief.version !== state.brief.savedVersion) previewWorkbench.inputsChanged(`draft:${state.version}:${state.brief.version}`);
     app.querySelectorAll('[data-build-preview],[data-check-start],[data-delivery-create]').forEach(button => {
       if (blocked && !button.disabled) { button.dataset.inputDisabled = 'true'; button.disabled = true; }
       else if (!blocked && button.dataset.inputDisabled) { delete button.dataset.inputDisabled; button.disabled = false; }
@@ -1081,7 +1081,7 @@
     if (!['stop', 'finish-stop'].includes(action) || taskActionBusy) return;
     if (action === 'finish-stop' && state.creationTask?.operation !== 'stop-uncertain') return;
     if (action === 'stop' && (state.taskOperation === 'stop-uncertain' || state.creationTask?.operation === 'stop-uncertain')) { schedulePoll(0); return; }
-    if (!state.result?.writable || state.disconnected || state.creationTask?.transferred || state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked()) return;
+    if (!state.result?.writable || state.disconnected || state.creationTask?.transferred || state.candidateBusy || state.candidateUncertain || previewWorkbench.blocked()) return;
     const project = state.result.project;
     taskActionBusy = true; state.taskOperation = 'stopping'; updateTaskRegion();
     try {
@@ -1095,7 +1095,7 @@
   function taskControls(task) {
     if (!task || task.transferred || task.status === 'terminated' || state.creationRecovery) return '';
     const operation = state.taskOperation ?? task.operation;
-    const disabled = taskActionBusy || state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked() || !state.result?.writable || state.disconnected;
+    const disabled = taskActionBusy || state.candidateBusy || state.candidateUncertain || previewWorkbench.blocked() || !state.result?.writable || state.disconnected;
     if (operation === 'stopping') return '<p class="creation-details" role="status">正在停止…</p>';
     if (operation === 'stop-uncertain') return `<div class="creation-details"><p role="status">停止结果待核对；正在自动核对，完成前不会重复提交。仍可只读查看。</p><button class="agent-action" data-task-action="stop" data-task-check>重新核对停止结果</button>${task.operation === 'stop-uncertain' ? `<p>已核对：停止收尾尚未完成。可重试完成原停止操作，候选继续保留。</p><button class="agent-action" data-task-action="finish-stop" ${disabled ? 'disabled' : ''}>重试停止收尾</button>` : ''}</div>`;
     return ['running', 'waiting'].includes(task.status) ? `<div class="creation-details"><p>停止保留候选和任务检查点；只有你在当前 Codex 对话明确继续，才会恢复同一任务。</p><button class="agent-action" data-task-action="stop" ${disabled ? 'disabled' : ''}>停止任务</button></div>` : '';
@@ -1131,7 +1131,7 @@
 
   function taskNotice(includeStop = true) {
     const task = state.creationTask;
-    return task ? `<span>${task.transferred ? '任务已转移到另一线程' : state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${creationStopCopy[task.reason]?.[0] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${includeStop && ["running","waiting"].includes(task.status) && !task.transferred && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || state.taskOperation || task.operation || state.candidateBusy || state.candidateUncertain || acceptanceWorkbench.blocked() || !state.result?.writable || state.disconnected ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
+    return task ? `<span>${task.transferred ? '任务已转移到另一线程' : state.taskOperation === 'stopping' || task.operation === 'stopping' ? '正在停止…' : state.taskOperation === 'stop-uncertain' || task.operation === 'stop-uncertain' ? '停止结果待核对' : task.status === 'running' ? task.pending ? '运行中 · 正在跟进最新项目内容' : 'Agent 正在创作' : task.status === 'stopped' ? `已停止 · ${creationStopCopy[task.reason]?.[0] ?? '候选与任务检查点已保留'}` : escapeHtml(task.pending ?? (task.status === 'terminated' ? '任务已终结' : '等待用户'))}</span><button class="agent-action" data-view-task>查看任务</button>${includeStop && ["running","waiting"].includes(task.status) && !task.transferred && !state.creationRecovery ? `<button class="agent-action" data-task-action="stop" ${taskActionBusy || state.taskOperation || task.operation || state.candidateBusy || state.candidateUncertain || previewWorkbench.blocked() || !state.result?.writable || state.disconnected ? "disabled" : ""}>${state.taskOperation === "stopping" || task.operation === "stopping" ? "正在停止…" : "停止任务"}</button>` : ""}` : '';
   }
   function updateTaskRegion() {
     updateRecoveryRegion();
@@ -1251,7 +1251,7 @@
   function candidatePanel() {
     const candidate = state.candidate;
     const absent = candidate?.status === "absent";
-    const disabled = state.candidateBusy || state.candidateUncertain || state.taskOperation || state.disconnected || acceptanceWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation || state.autosaveStopped || !state.result?.writable;
+    const disabled = state.candidateBusy || state.candidateUncertain || state.taskOperation || state.disconnected || previewWorkbench.blocked() || state.creationTask?.status === 'running' || !!state.creationTask?.operation || state.autosaveStopped || !state.result?.writable;
     return `<section class="candidate-panel" aria-labelledby="candidate-title"><header><h2 id="candidate-title">候选 Render Program</h2><span class="candidate-save" role="status"><span class="status-mark" data-status="${candidate?.status === "saved" ? "succeeded" : "unavailable"}" aria-hidden="true"></span>${candidateLabel()}</span></header>
       <p>${absent ? "尚无候选，请在当前 Codex 对话中表达创作目标。" : "Agent、人工与受控工具共享这个候选。停止活动或切换工作区都会保留它。"}</p>
       <dl><div><dt>检查</dt><dd>检查批次与操作条件见下方；构建与播放见上方成片 Preview</dd></div><div><dt>恢复检查点</dt><dd>${candidate?.checkpoint ? "上一份完整候选已保留" : "尚无恢复检查点"}</dd></div></dl>
@@ -1275,7 +1275,7 @@
   }
 
   async function candidateOperation(action, quiet = false) {
-    if (state.candidateBusy || (action !== 'read' && (state.candidateUncertain || state.taskOperation || acceptanceWorkbench.blocked() || !state.result?.writable || state.disconnected || state.autosaveStopped)) || !state.result?.project || (quiet && state.candidateConfirm)) return;
+    if (state.candidateBusy || (action !== 'read' && (state.candidateUncertain || state.taskOperation || previewWorkbench.blocked() || !state.result?.writable || state.disconnected || state.autosaveStopped)) || !state.result?.project || (quiet && state.candidateConfirm)) return;
     const project = state.result.project;
     state.candidateBusy = true;
     state.candidateAction = action;
@@ -1340,7 +1340,7 @@
   });
   setInterval(() => { if (!document.hidden && state.candidate) candidateOperation("read", true); }, 4000);
 
-  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project ? { ...state.result.project, writable: state.result.writable } : undefined, instanceId => deliveryWorkbench.candidateReady(instanceId), () => !!state.result?.conversation);
+  const previewWorkbench = createPreviewWorkbench((action, args) => callHostTool("project_preview", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.project ? { ...state.result.project, writable: state.result.writable } : undefined, instanceId => deliveryWorkbench.candidateReady(instanceId), () => false, (action, args) => callHostTool('project_video_update', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }), () => state.result?.writable === true && !state.disconnected && state.version === state.savedVersion && !state.saveInFlight && !state.autosaveStopped && !state.assetBusy && state.brief.version === state.brief.savedVersion && !state.brief.saveInFlight && !state.brief.conflict && state.creationTask?.status !== 'running', createUuid);
   const deliveryWorkbench = createDeliveryWorkbench((action, args) => callHostTool(action === "displayed" ? "project_delivery_display" : "project_delivery", { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, ...(action === "displayed" ? {} : { action }), ...args }), () => state.result?.project ? { ...state.result.project, hasCandidate: !!state.candidate?.candidate, scenes: currentScenes() } : undefined, previewWorkbench, id => locateSuggestion(id));
   const finalRenderWorkbench = createRenderWorkbench(
     (action, args) => callHostTool('project_render', { projectDirectory: state.result.project.directory, projectId: state.result.project.projectId, action, ...args }),
@@ -1381,7 +1381,7 @@
   function valid(result) {
     return `<div class="workspace"><div class="workspace-panel" id="workspace-table" role="tabpanel" aria-labelledby="workspace-tab-table"><div data-review-return></div><div data-table-content></div></div><div class="workspace-panel" id="workspace-agent" role="tabpanel" aria-labelledby="workspace-tab-agent">
       <div class="review-task" data-review-task></div><section class="preview-context" data-program-preview aria-label="成片 Preview"></section>
-      <div class="review-decision"><p data-review-summary>尚无候选 · 请在当前 Codex 对话中描述创作目标。</p><button class="agent-action" data-open-review aria-controls="review-drawer" aria-expanded="false">审阅详情</button><section class="delivery-panel" data-program-acceptance aria-label="接受候选"></section></div>
+      <div class="review-decision"><p data-review-summary>在当前 Codex 对话中描述创作目标。</p><button class="agent-action" data-open-review aria-controls="review-drawer" aria-expanded="false">审阅详情</button></div>
       <div class="review-notices" data-review-notices role="status"></div>
       <section class="delivery-panel" data-brief-review-state hidden></section>
       <section class="preview-context" data-final-render aria-label="最终 Render"></section>
@@ -1512,7 +1512,7 @@
         updateCandidate();
         previewWorkbench.mount(document.querySelector("[data-program-preview]"));
         deliveryWorkbench.mount(document.querySelector("[data-program-delivery]"));
-        acceptanceWorkbench.mount(document.querySelector("[data-program-acceptance]"));
+
         finalRenderWorkbench.mount(document.querySelector("[data-final-render]"));
         checksWorkbench.mount(document.querySelector("[data-program-checks]"));
         updateRegion(document.querySelector("[data-inspector-region]"), inspector(result));
@@ -3461,7 +3461,7 @@
     updateRecoveryRegion();
     if (!changed) { schedulePoll(); return; }
     updateTaskRegion();
-    if (task?.preview) previewWorkbench.receive(task.preview);
+    // 内部创作成果只有完整发布后才进入单一视频主面。
     if (task?.deliveryId) void deliveryWorkbench.refresh();
     bindings.abort(); bindings = new AbortController(); bind();
     if (previousStatus !== task?.status || previousReason !== task?.reason) document.getElementById('agent-status-announcer').textContent = task ? `${{running:'运行中',waiting:'等待用户',stopped:'已停止',terminated:'已终结'}[task.status]}。${task.pending ?? creationStages[task.stage]}` : '尚无任务';
@@ -3484,7 +3484,7 @@
     if (result?.status === 'open-cancelled') return;
     if (projectCopy?.busy && !fromCopy) return;
     if (result?.status === 'valid' && state.result?.project?.projectId === result.project?.projectId && state.result.project.directory === result.project.directory) {
-      if (result.projectRevision !== state.result.projectRevision || result.videoBrief?.revision !== state.result.videoBrief?.revision) previewWorkbench.inputsChanged();
+      if (result.projectRevision !== state.result.projectRevision || result.videoBrief?.revision !== state.result.videoBrief?.revision) previewWorkbench.inputsChanged(`persisted:${result.projectRevision}:${result.videoBrief?.revision}`);
       if (!result.writable && state.result.writable) retainControlDraft();
       if (state.version === state.savedVersion && !state.saveInFlight && !document.activeElement?.matches("[data-narration-editor],[data-expanded-editor]")) {
         state.project = clone(result.projectDsl); state.baselineRevision = result.projectRevision;

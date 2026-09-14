@@ -1,5 +1,8 @@
 # 唯一候选操作
 
+> 存量与内部成果操作指南。正常视频同步、发布和一步撤回使用 `project_video_update`，见 [现行规范第 7.2 节](../spec/project-vnext.md#72-视频更新发布与一步撤回)。已有新更新状态的项目不能再走旧接受流程；首次生成／画面调整的 Agent 接续由 #123 实施。
+
+
 直接调用 `manage_project_candidate` 时使用本指南。当前对话创作任务按[插件工作台技能](../../plugins/narracut/skills/narracut-workbench/SKILL.md)驱动；候选与修订的产品约束见[规范第 7 节](../spec/project-vnext.md#7-候选修订与历史)。
 
 每次调用携带 `projectDirectory`、`projectId` 和 `action`：

@@ -40,7 +40,7 @@ test('最终输出展示准确来源，核对未知结果、取消与重试保�
   await expect(region).toContainText('正在查看的 Preview 与本次输出来源不同');
   await region.getByRole('button', { name: '查看目标修订', exact: true }).click();
   await expect(page.locator('[data-preview-title]')).toBeFocused();
-  await expect(region).toContainText('已接受，尚未输出');
+  await expect(region).toContainText('已更新，尚未输出');
   await expect(region.getByRole('button', { name: '选择输出文件夹' })).toBeHidden();
   await region.getByRole('button', { name: '输出视频', exact: true }).click();
   await expect(region.getByRole('button', { name: '选择输出文件夹' })).toBeFocused();
@@ -61,7 +61,7 @@ test('最终输出展示准确来源，核对未知结果、取消与重试保�
   await expect(region.getByRole('button', { name: '开始输出', exact: true })).toBeDisabled();
   expect(starts).toBe(1); disconnected = false;
   await region.getByRole('button', { name: '核对 Render 状态', exact: true }).click();
-  await expect(region).toContainText('正在离线重建已接受 Bundle');
+  await expect(region).toContainText('正在离线重建已更新 Bundle');
   job.stage = 'frames'; job.renderedFrames = 90;
   await expect(region).toContainText('90 / 300 帧', { timeout: 10000 });
   await page.getByRole('tab', { name: '表格工作区' }).click();
@@ -73,13 +73,13 @@ test('最终输出展示准确来源，核对未知结果、取消与重试保�
   await expect(region).toContainText('已取消，未生成完整产物', { timeout: 10000 });
   job.status = 'failed'; job.retryable = false; job.error = { code: 'RENDER_FRAME_FAILED', message: '帧 99 的内容执行失败，请修复候选并重新验收。' };
   source.ready = false; source.issues = [job.error];
-  await expect(region).toContainText('此状态已接受，但已阻断再次 Render', { timeout: 10000 });
+  await expect(region).toContainText('此状态已更新，但已阻断再次 Render', { timeout: 10000 });
   await expect(region.getByRole('button', { name: '重试 Render', exact: true })).toBeHidden();
-  await region.getByRole('button', { name: '前往候选检查与验收', exact: true }).click();
+  await region.getByRole('button', { name: '查看更新检查', exact: true }).click();
   await expect(page.getByRole('button', { name: '关闭审阅详情' })).toBeVisible();
   await expect(page.locator('[data-candidate-region]')).toBeFocused();
   await page.getByRole('button', { name: '关闭审阅详情' }).click();
-  await expect(region.getByRole('button', { name: '前往候选检查与验收', exact: true })).toBeFocused();
+  await expect(region.getByRole('button', { name: '查看更新检查', exact: true })).toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
   await region.evaluate(node => node.scrollIntoView({ block: 'start' }));
   if (process.env.NARRACUT_CAPTURE_OUTPUT) await page.screenshot({ path: '.impeccable/review/render-mobile.png', fullPage: true });
@@ -107,7 +107,7 @@ for (const viewport of [{ width: 902, height: 667 }, { width: 960, height: 640 }
     await page.goto(origin);
     const result = validResult();
     const sceneId = result.scenes[0].id;
-    const source = { revisionId: 'accepted-revision', summary: '已接受的草稿', key: 'draft', accepted: true, ready: false,
+    const source = { revisionId: 'accepted-revision', summary: '已更新的草稿', key: 'draft', accepted: true, ready: false,
       issues: [{ code: 'RENDER_DRAFT_DURATION', message: '缺少匹配 Speech，请生成后重新验收。', location: { sceneId } },
         { code: 'RENDER_MEDIA_MISSING', message: '文件缺失，请恢复原文件或重新验收。', location: { path: 'assets/' + '很长的文件名称'.repeat(25) + '.png' } },
         { code: 'RENDER_NOT_ACCEPTED', message: '当前输入与验收证据不匹配，请重新验收。' }] };

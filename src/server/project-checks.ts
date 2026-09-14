@@ -10,11 +10,13 @@ import { previewDigest } from './preview-origin';
 export class ProjectChecks {
   evidence?: (latest: CheckIdentity | null, batch?: BatchView) => GateEvidence | undefined;
   #batches: CheckBatch[] = []; #starting = false; #generation = 0;
-  constructor(private preview: ProjectPreview) {}
+  constructor(private preview: ProjectPreview, private target: 'current' | 'candidate' = 'candidate') {}
+  #running?: Promise<void>;
+  async wait(opened: OpenedProjectVNext) { await this.#running; return this.status(opened); }
   async #capture(opened: OpenedProjectVNext) {
     const [candidate, source, capture, environment] = await Promise.allSettled([
-      opened.candidate({ action: 'read' }), opened.readPreviewSource('candidate'),
-      this.preview.capture(opened, 'candidate', true), programEnvironmentIdentity(),
+      opened.candidate({ action: 'read' }), opened.readPreviewSource(this.target),
+      this.preview.capture(opened, this.target, true), programEnvironmentIdentity(),
     ]);
     // 单项读取失败只留下未知字段，不能豁免其他成功观察之间的一致性核对。
     const baselines = [candidate.status === 'fulfilled' ? candidate.value.baseline : null,
@@ -67,7 +69,7 @@ export class ProjectChecks {
           if (snapshot.capture.status !== 'fulfilled' || snapshot.source.status !== 'fulfilled') return [fromError(snapshot.capture.status === 'rejected' ? snapshot.capture.reason : undefined, 'RUNTIME_CONTRACT_VIOLATION')];
           try {
             const value = snapshot.capture.value;
-            const bundle = await opened.buildCandidateBundle({ input: value.input, speech: value.speech, media: value.media, baseline: value.baseline, sourceIdentity: value.sourceIdentity, target: 'candidate', signal });
+            const bundle = await opened.buildCandidateBundle({ input: value.input, speech: value.speech, media: value.media, baseline: value.baseline, sourceIdentity: value.sourceIdentity, target: this.target, signal });
             if (bundle.environmentIdentity !== identity.environment) {
               batch.invalidate({ ...identity, environment: bundle.environmentIdentity });
               throw Object.assign(new Error('构建使用的执行环境身份已变化，请重新检查。'), { code: 'CHECK_IDENTITY_CHANGED' });
@@ -82,7 +84,7 @@ export class ProjectChecks {
       ];
       const batch = new CheckBatch(randomUUID(), identity, checks);
       this.#batches.push(batch); this.#batches = this.#batches.slice(-2);
-      void batch.run().then(async () => {
+      this.#running = batch.run().then(async () => {
         if (generation !== this.#generation) return;
         try { batch.invalidate((await this.#capture(opened)).identity); }
         catch { batch.invalidate({ ...identity, project: null }); }

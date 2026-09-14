@@ -18,11 +18,11 @@ Project VNext 是对 Project DSL V1–V3、封闭 Visual Type、Text Preset、�
 Narracut 由 Codex 插件承载完整工作台，并在当前 Codex 对话右侧的面板中打开；面板包含 Scene 表格、素材操作、Preview 和渲染入口。创作对话使用 Codex 当前对话，创作输入使用该对话的 Composer，工作台不另设创作聊天输入框。工作台有两个稳定顶层工作区，始终共享当前项目、所选 Scene 与候选状态：
 
 - **表格工作区**是 Narration、Asset、Speech 和 Scene 顺序的唯一写入入口。
-- **Agent 工作区**定位为候选审阅界面，展示任务状态、当前与候选 Preview、候选交付及接受或放弃操作；完全移除工作区内的聊天输入和发起创作功能，创作通过 Codex 当前对话进行。
+- **Agent 工作区**展示任务状态、视频更新选择、单一最新完整 Preview、更新摘要、检查详情、一步撤回和独立输出；完全移除工作区内的聊天输入和发起创作功能，创作通过 Codex 当前对话进行。
 
 切换工作区不得停止 Agent 创作任务，也不得改变候选、所选 Scene 或 Composer 内容。关闭右侧面板只隐藏工作台，不停止 Agent 创作任务；重新打开面板时展示最新任务与项目状态。关闭面板不等于关闭项目、停止任务或应用退出。Agent、Render Program 和 Preview Bridge 都没有 Scene 写能力；Agent 需要 Scene 变化时只能生成 Scene 修改建议，由用户回到表格工作区手工完成。
 
-Agent 工作区最多同时展示当前版本与候选版本两个 Preview 槽位。候选交付必须包含目标、变更摘要、输入新鲜度、检查结果、候选 Preview、非阻断警告和 Scene 修改建议。Agent 不得自动接受候选。Scene 修改建议绑定稳定 Scene ID，记录当前观察、建议操作与值、理由和相关 Scene，提供定位及可复制内容，不直接或一键修改 Scene。
+Agent 工作区只展示一份成功发布的视频。表格或 Speech 内容变化后立即停止并遮住旧画面，由用户明确选择更新方式；不自动记忆上次方式。Scene 修改建议仍绑定稳定 Scene ID，提供定位及复制，由用户手动修改。首次生成及画面调整的创作接续由 #123 实施，不能以仅同步代替。
 
 右侧面板打开失败时显示失败原因并提供重试，不自动改用外部浏览器。
 
@@ -280,20 +280,23 @@ Render Program 独占画面文字、颜色、字体、Logo、版式、运动、T
 - 接受或放弃候选时同时删除候选恢复检查点。
 - 外部工具在任务运行期间改变候选时，Narracut 保留外部字节，丢弃未提交 Agent 修改，作废检查与 Preview 证据，并让任务以 `EXTERNAL_CANDIDATE_CONFIRMATION_REQUIRED` 进入等待用户；只有用户明确确认基于外部候选继续后才恢复运行，不得自动合并。
 
-### 7.2 接受与修订
+### 7.2 视频更新发布与一步撤回
 
-接受对象是候选 Preview 所代表的完整视频状态。接受必须在临时位置完成冻结、校验和写入，最后以单一原子提交：
+`project_video_update` 提供 `status/start/cancel/undo/view`，绑定当前项目目录、Project ID 和控制权。`start` 只同步最新表格输入，不创建候选、不改写程序、不调用 Speech 或最终 Render。没有已生成设计时拒绝同步，starter 只是内部程序骨架。存量已接受修订作为已有设计读取；存量候选和恢复检查点保留，页面说明在当前对话接续或恢复。
 
-1. 写入完整、不可变 Render Program 修订；
-2. 把单一当前指向关系改为新修订；
-3. 消费候选及其恢复检查点；
-4. 保存精简 Render Program 验收记录。
+每次成功同步形成不可变修订，精简证据包含完整输入身份、Bundle、检查结果、代表帧摘要、全部警告和 `publish` 门禁。画面独立标题、图表和动画规则保持原字节。构建与验证期间不发布半成品；再次编辑、失权、取消、切项目或输入身份变化阻止旧结果生效。未知回执先用原请求 UUID 核对，不重复应用。
 
-提交前失败保留旧当前与候选；提交成功后历史裁剪和遗留文件清理可以幂等重试，不得撤销接受。
+`.narracut/current.json` 的可选 `update` 与当前修订通过同一次原子 rename 提交：
 
-每份修订包含 Manifest、源码、依赖声明、锁文件和 Program Resource，并保存稳定修订 ID、完整程序树指纹、前一当前修订 ID、接受时 Brief 指纹、项目输入指纹、接受时间、来源和一行变更摘要。修订不包含项目输入、安装树、Bundle、Preview 或聊天记录。相同程序字节在不同输入下再次接受仍形成新修订。
+- `hasDesign` 表示是否存在已生成画面设计，撤回首次生成后为 false；仍保留内部修订字节，不暗中展示 starter。
+- `undo` 为 null 或最近成功操作的 `requestId/kind/at/previousRevisionId/revisionId`；`kind` 为 sync、generate 或 adjust，先前无设计时 `previousRevisionId` 为 null。
+- `result` 保存最近发布或撤回的 `requestId/operationId/status` 供幂等核对。成功发布前完整验证程序和输入，失败或取消保持原指针与撤回记录。
 
-项目保留最近 20 份已接受修订，包含当前修订；损坏但非当前的修订在自然裁剪前仍占名额且不可比较或回退。历史回退只能从有效修订创建新候选，再针对最新输入完成检查、Preview 与接受；不得直接移动当前指向。
+撤回只恢复先前设计身份、清空一步记录并回到等待选择；保留最新表格、Speech 和内部成果，不展示旧内容视频，不连续回退或重做。下一次成功才替换撤回记录。修订保留完整树和元数据绑定；一步恢复目标必须位于保留集合。最近 20 份修订索引用于完整性与兼容读取，正常页面没有多版本管理入口。暂存的未发布修订可保留为内部成果，不能成为可见视频。
+
+旧 `project_acceptance` 协议只用于尚未进入新流程的存量兼容，不能在已有 `update` 的项目旁路新发布。同步不消费旧候选。画面生成／调整共用发布和撤回持久边界，其真实 Agent 接续由 #123 完成。
+
+当前指针的精确字节和每份修订的绑定已经纳入正式复制、恢复来源核验及原子恢复；`update` 随该指针进入同一契约。恢复快照仍只携带 DSL／Brief 增量，不加入程序、视频或撤回对象载荷。
 
 ### 7.3 存储完整性失败
 
@@ -387,7 +390,7 @@ Render Program 独占画面文字、颜色、字体、Logo、版式、运动、T
 
 Runtime 在同一不可变 Bundle 中注入最小 Player 壳。Codex 工作台通过跨 origin iframe 和版本化 Preview Bridge 控制它；宿主不得导入项目源码，也不得把 Remotion Studio、Player Ref、iframe DOM 或 Bundle 全局变量作为产品接口。
 
-Preview 实例身份绑定 Bundle 指纹、Render Program Input 指纹、全部 Media Revision 与执行环境指纹。实例只接受一次初始化；任何身份变化都创建新实例。Asset 在 Preview 中原位变化会换代 Media Revision 与输入；旧实例可以继续显示但必须标为过期，不能用于接受。
+Preview 实例身份绑定 Bundle 指纹、Render Program Input 指纹、全部 Media Revision 与执行环境指纹。实例只接受一次初始化；任何身份变化都创建新实例。Asset 在 Preview 中原位变化会换代 Media Revision 与输入；旧实例必须停播并停止展示，等待明确更新。
 
 Bridge V1 支持：
 
@@ -397,7 +400,7 @@ Bridge V1 支持：
 
 主版本不兼容失败关闭；同一主版本只能增加可选字段。宿主必须校验消息 origin、Window source、实例 ID 与会话 token。
 
-当前与候选最多两个 Preview 槽位，隐藏槽位暂停。目标实例 READY 后才能原子切换；目标失败时保留源实例。最新候选构建失败时，可以展示上一份成功 Preview，但必须明确过期且不得用于接受。
+工作台只显示成功发布且输入匹配的实例，READY 后才允许播放。同步中、失败、取消和再次编辑时遮住视频，保留内部成果但不显示旧画面；重开只可按持久发布证据重建同一 Bundle。
 
 iframe 使用与宿主跨 origin 的只读来源和最小脚本权限。CSP 只允许认证的 Bundle、Asset 与 Speech 来源，禁止外网、宿主 API、导航、弹窗、表单、下载和写操作。
 
@@ -438,8 +441,9 @@ iframe 使用与宿主跨 origin 的只读来源和最小脚本权限。CSP 只�
 | --- | --- |
 | 候选 Preview | 目录、Manifest、依赖、静态能力、确定性、类型、Bundle、Composition、Runtime 与胶囊检查通过；允许 Draft Duration 与零 Scene |
 | 候选交付 | 最新候选 Preview 可用，证据新鲜，代表帧检查完成，全部非阻断警告已展示 |
-| Render Program 接受 | 候选交付条件成立，用户明确整体接受，证据精确绑定候选完整视频状态 |
-| 最终 Render | 接受记录新鲜且绑定同一 Bundle；项目 Render-ready；最终 Render 前检查通过 |
+| 仅同步发布 | 最新输入的全部构建硬检查通过；基础代表帧执行和 Runtime 契约通过；全部警告进入常驻结果，记录绑定同一完整视频状态；不声称完成审美判断 |
+| 存量接受兼容 | 原有候选交付及明确接受条件；已有新更新状态时禁止调用 |
+| 最终 Render | 成功发布证据（或存量接受证据）新鲜且绑定同一 Bundle；项目 Render-ready；最终 Render 前检查通过；撤回后必须重新更新 |
 
 安全、身份、确定性、时间和内容权威硬约束不可由用户忽略。主观可读性、节奏、遮挡、黑帧等由 Agent 形成非阻断警告；系统不得自动作审美评分或声称用户完整观看。
 

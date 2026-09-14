@@ -6,6 +6,7 @@ import { RecoveryExportUncertain, RecoveryExports, type RecoveryCut, type Recove
 import { changeProjectIdentity } from '../../../src/server/project-identity';
 import { copyProjectVNext } from '../../../src/server/project-copy';
 import { CreationTask } from './creation-task';
+import { ProjectVideoUpdate } from '../../../src/server/project-video-update';
 import { ProjectAcceptance } from '../../../src/server/project-acceptance';
 import { ProjectRender } from '../../../src/server/project-render';
 import { ProjectDelivery } from '../../../src/server/project-delivery';
@@ -155,6 +156,14 @@ const tools = [
     inputSchema: { type: 'object', required: ['projectDirectory', 'projectId', 'action'], additionalProperties: false, properties: {
       projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['status', 'start', 'result', 'cancel'] },
       requestId: { type: 'string' }, key: { type: 'string' }, outputPath: { type: 'string' }, jobId: { type: 'string' },
+    } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } },
+  },
+  {
+    name: 'project_video_update', title: '同步视频与撤回上次更新',
+    description: '明确同步最新表格，保留画面设计；成功后直接使用完整视频。查询或撤回最近一步更新，不合成 Speech，不输出视频。',
+    inputSchema: { type: 'object', required: ['projectDirectory', 'projectId', 'action'], additionalProperties: false, properties: {
+      projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['status', 'start', 'cancel', 'undo', 'view'] },
+      requestId: { type: 'string' }, operationId: { type: 'string' }, parentOrigin: { type: 'string' },
     } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } },
   },
   {
@@ -796,7 +805,7 @@ class ProjectWorkspaceSession {
     try { await this.#opened.assertWritable(); }
     catch (error) {
       if (this.#transferred || this.#handoffPending) return;
-      void this.creation?.close().catch(() => undefined); void this.render.close().catch(() => undefined);
+      void this.creation?.close().catch(() => undefined); void this.videoUpdate.close().catch(() => undefined); void this.render.close().catch(() => undefined);
       for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
       throw error;
     }
@@ -807,7 +816,7 @@ class ProjectWorkspaceSession {
     if (this.#copyPromise || this.#opening) throw new Error('项目操作尚未完成，请稍后关闭。');
     await opened.assertWritable();
     if (this.creation?.value && this.creation.value.status !== 'terminated') await this.creation.respond({ action: 'stop' });
-    await this.creation?.close(); await this.render.close();
+    await this.creation?.close(); await this.videoUpdate.close(); await this.render.close();
     for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
     await Promise.all([...this.#speechPending]);
     await opened.assertWritable();
@@ -877,7 +886,7 @@ class ProjectWorkspaceSession {
         if (this.creation?.value && this.creation.value.status !== 'terminated') await this.creation.respond({ action: 'stop' });
         controller.signal.throwIfAborted();
         operation.phase = 'waiting';
-        await this.render.close();
+        await this.videoUpdate.close(); await this.render.close();
         for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
         await Promise.all([...this.#speechPending]);
         controller.signal.throwIfAborted();
@@ -917,6 +926,7 @@ class ProjectWorkspaceSession {
     return this.creation.step(request);
   }
   async creationOperation(input: any, start = false, resume = false, respond = false) {
+    if (this.videoUpdate.busy && (start || resume || respond)) throw new Error('视频更新尚未完成，请等待核对结果。');
     if (!input || typeof input.projectDirectory !== 'string' || typeof input.projectId !== 'string' || start && typeof input.instruction !== 'string') throw new Error('创作任务参数无效。');
     if ((this.#transferred || this.#handoffPending) && !start && !resume && !respond && this.#opened?.inspection.projectDirectory === input.projectDirectory && this.#opened?.inspection.manifest.projectId === input.projectId) return { creationTask: this.creation?.value ?? null, candidate: this.#candidateStatus, creationRecovery: this.creation?.recovery ?? null, transferred: this.#transferred };
     this.#requireOpened(input.projectDirectory, input.projectId);
@@ -936,10 +946,21 @@ class ProjectWorkspaceSession {
   delivery = new ProjectDelivery(this.preview, this.checks);
   acceptance = new ProjectAcceptance(this.delivery, this.preview);
   render = new ProjectRender(this.preview);
+  videoUpdate = new ProjectVideoUpdate(this.preview);
+  async videoUpdateOperation(input: any) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.action === 'status') return this.videoUpdate.status(opened, input.requestId);
+    if (input.action === 'view') return this.videoUpdate.view(opened, input.parentOrigin);
+    if (input.action === 'cancel') return this.videoUpdate.cancel(input.requestId);
+    if (this.creation?.blocksCandidateWrites || this.#resolvingCandidate) throw new Error('已有创作正在进行，请先停止并核对在途结果。');
+    if (input.action === 'start') return this.videoUpdate.start(opened, input);
+    if (input.action === 'undo') return this.videoUpdate.undo(opened, input);
+    throw new Error('视频更新参数无效。');
+  }
   async renderOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     if (input.action === 'status') return this.render.status(opened);
-    if (input.action === 'start') return this.render.start(opened, input);
+    if (input.action === 'start') { if (this.videoUpdate.busy) throw new Error('视频更新尚未完成。'); return this.render.start(opened, input); }
     if (input.action === 'result') return this.render.result(input.requestId);
     if (input.action === 'cancel') return this.render.cancel(input.jobId);
     throw new Error('最终 Render 参数无效。');
@@ -950,6 +971,7 @@ class ProjectWorkspaceSession {
     if (this.#resolvingCandidate) throw new Error('正在核对操作结果，请稍候。');
     this.#resolvingCandidate = true;
     try {
+      if (this.videoUpdate.busy) throw new Error('正在更新视频，请等待核对完成。');
       const result = await this.acceptance.operate(opened, input);
       this.#candidateStatus = await opened.candidate({ action: 'read' });
       if ((result.status === 'accepted' && input.action !== 'result' && result.revision.current !== false || input.action === 'cleanup' && this.creation?.value?.reason === 'CANDIDATE_ACCEPTED') && this.#candidateStatus.status === 'absent') {
@@ -1057,7 +1079,7 @@ class ProjectWorkspaceSession {
         })); } finally { await selectedWorkspace.release(); }
       }
       if (owner!.creation?.value && owner!.creation.value.status !== 'terminated') await owner!.creation.respond({ action: 'stop' });
-      await owner!.creation?.close(); await owner!.render.close();
+      await owner!.creation?.close(); await owner!.videoUpdate.close(); await owner!.render.close();
       for (const job of owner!.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) owner!.cancelSpeech(job.id);
       await Promise.all([...owner!.#speechPending]);
       await owner!.#opened?.release(); owner!.#opened = null; owner!.creation = null;
@@ -1084,7 +1106,7 @@ class ProjectWorkspaceSession {
         this.#handoffPending = true; this.#epoch++;
         try { await this.creation?.transfer(); } catch (error) { this.#controlError = (error as Error).message; throw error; }
         await Promise.allSettled([...this.pendingOperations]);
-        await this.render.close();
+        await this.videoUpdate.close(); await this.render.close();
         for (const job of this.#speechJobs.values()) if (!['succeeded', 'cancelled', 'failed', 'rejected'].includes(job.status)) this.cancelSpeech(job.id);
         await this.#opened?.release();
         this.#transferred = true;
@@ -1092,7 +1114,7 @@ class ProjectWorkspaceSession {
     });
     const previous = this.#opened;
     try {
-      if (previous !== null) { await this.creation?.close(); await this.render.close(); await previous.release(); }
+      if (previous !== null) { await this.creation?.close(); await this.videoUpdate.close(); await this.render.close(); await previous.release(); }
     } catch (error) {
       await next.release();
       throw error;
@@ -1506,7 +1528,7 @@ class ProjectWorkspaceSession {
     await this.restore.close();
     ProjectWorkspaceSession.sessions.delete(this);
     await this.creation?.close();
-    await this.render.close();
+    await this.videoUpdate.close(); await this.render.close();
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
     }
@@ -1594,6 +1616,10 @@ async function callTool(
   if (name === 'respond_creation_task' || name === 'start_creation_task' || name === 'get_creation_task' || name === 'continue_creation_task') {
     try { return { structuredContent: await workspace.creationOperation(argumentsValue, name === 'start_creation_task', name === 'continue_creation_task', name === 'respond_creation_task'), content: [] }; }
     catch (error) { return { isError: true, structuredContent: { error: { code: 'CREATION_TASK_FAILED', message: (error as Error).message } }, content: [] }; }
+  }
+  if (name === 'project_video_update') {
+    try { return { structuredContent: await workspace.videoUpdateOperation(argumentsValue), content: [] }; }
+    catch (error) { return { isError: true, structuredContent: { error: { code: (error as any).code ?? 'UPDATE_FAILED', message: (error as Error).message } }, content: [] }; }
   }
   if (name === "project_acceptance") {
     try { return { structuredContent: await workspace.acceptanceOperation(argumentsValue), content: [] }; }

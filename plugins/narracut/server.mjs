@@ -23977,12 +23977,15 @@ import { rename, rm, mkdir, lstat } from "node:fs/promises";
 var uuid3 = external_exports.string().uuid();
 var digest = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
 var refSchema = external_exports.object({ revisionId: uuid3, metadata: digest, program: digest, requestId: uuid3.optional() }).strict();
+var updateSchema = external_exports.object({ hasDesign: external_exports.boolean(), undo: external_exports.object({ requestId: uuid3, kind: external_exports.enum(["sync", "generate", "adjust"]), at: external_exports.string().datetime(), previousRevisionId: uuid3.nullable(), revisionId: uuid3 }).strict().nullable(), result: external_exports.object({ requestId: uuid3, operationId: uuid3, status: external_exports.enum(["published", "undone"]) }).strict() }).strict();
 var pointerSchema = external_exports.object({
   revisionId: uuid3,
   history: external_exports.array(refSchema).min(1).max(20).optional(),
   consumed: external_exports.object({ pointer: digest, generation: external_exports.string().regex(/^\.narracut\/candidate-[0-9a-f-]{36}$/), requestId: uuid3, taskCheckpoint: digest.optional() }).strict().optional(),
+  update: updateSchema.optional(),
   pruned: external_exports.array(uuid3).max(1).optional()
 }).strict().superRefine((value, ctx) => {
+  if (value.update?.undo && (value.update.undo.revisionId !== value.revisionId || !value.update.hasDesign || value.update.undo.previousRevisionId && !value.history?.some((ref) => ref.revisionId === value.update.undo.previousRevisionId))) ctx.addIssue({ code: "custom", message: "\u89C6\u9891\u66F4\u65B0\u64A4\u56DE\u8BB0\u5F55\u4E0E\u4FEE\u8BA2\u4E0D\u4E00\u81F4" });
   if (value.history && (value.history[0].revisionId !== value.revisionId || new Set(value.history.map((item) => item.revisionId)).size !== value.history.length)) ctx.addIssue({ code: "custom", message: "\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5386\u53F2\u4E0D\u4E00\u81F4" });
 });
 var metadataSchema = external_exports.object({
@@ -24088,6 +24091,7 @@ function createRevisionStore(project, assertWritable, observeCommit) {
   async function accept(request2, tree, raw, state, validate) {
     if ((await cleanup()).cleanupPending) throw new CandidateError("ACCEPTANCE_CLEANUP_PENDING", "\u8BF7\u5148\u91CD\u8BD5\u4E0A\u6B21\u63A5\u53D7\u7684\u6E05\u7406\u3002");
     const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project);
+    if (before.update) throw new CandidateError("UPDATE_REQUIRED", "\u9879\u76EE\u5DF2\u4F7F\u7528\u89C6\u9891\u66F4\u65B0\u6D41\u7A0B\uFF0C\u8BF7\u901A\u8FC7\u5B8C\u6574\u66F4\u65B0\u53D1\u5E03\uFF0C\u4E0D\u80FD\u518D\u63A5\u53D7\u65E7\u5019\u9009\u3002");
     const previous = await verifyRevision(project, before.revisionId);
     const id = randomUUID(), requestId = request2.requestId ?? randomUUID();
     const record3 = request2.acceptance;
@@ -24127,7 +24131,111 @@ function createRevisionStore(project, assertWritable, observeCommit) {
       if (!committed) await rm(root, { recursive: true, force: true }).catch(() => void 0);
     }
   }
-  return { history, cleanup, accept, verify: (id) => verifyRevision(project, id) };
+  async function updateState() {
+    await assertWritable();
+    const pointer = await readCurrentPointer(project);
+    const revision = await verifyRevision(project, pointer.revisionId);
+    return {
+      revisionId: pointer.revisionId,
+      hasDesign: pointer.update?.hasDesign ?? !!revision.metadata.acceptance,
+      undo: pointer.update?.undo ?? null,
+      result: pointer.update?.result ?? null,
+      revision: revision.metadata
+    };
+  }
+  async function commitUpdate(beforeBytes, next, validate) {
+    const temporary = join(internal, `update-${randomUUID()}.json`), bytes = Buffer.from(JSON.stringify(pointerSchema.parse(next)));
+    try {
+      await writeBytes(temporary, bytes);
+      await validate();
+      await assertWritable();
+      if (!beforeBytes.equals(await regular(join(internal, "current.json"), 16384))) throw new CandidateError("UPDATE_STALE", "\u89C6\u9891\u72B6\u6001\u5DF2\u53D8\u5316\uFF0C\u8BF7\u6838\u5BF9\u539F\u64CD\u4F5C\u3002");
+      await validate();
+      observeCommit?.(join(internal, "current.json"), bytes, false);
+      await rename(temporary, join(internal, "current.json"));
+      observeCommit?.(join(internal, "current.json"), bytes, true);
+      await syncDirectory(internal);
+    } finally {
+      await rm(temporary, { force: true }).catch(() => void 0);
+    }
+  }
+  async function publishUpdate(request2, tree, validate) {
+    uuid3.parse(request2.requestId);
+    const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project);
+    if (before.update?.result.requestId === request2.requestId) {
+      if (before.update.result.status !== "published") throw new CandidateError("UPDATE_REQUEST_REUSED", "\u6B64\u64CD\u4F5C\u8EAB\u4EFD\u5DF2\u7528\u4E8E\u64A4\u56DE\u3002");
+      return { status: "published", revision: (await verifyRevision(project, before.revisionId)).metadata };
+    }
+    if (before.history?.some((ref) => ref.requestId === request2.requestId)) throw new CandidateError("UPDATE_ALREADY_PROCESSED", "\u6B64\u66F4\u65B0\u5DF2\u5904\u7406\uFF0C\u4E0D\u80FD\u91CD\u65B0\u5E94\u7528\u3002");
+    const previous = await verifyRevision(project, before.revisionId);
+    if (before.revisionId !== request2.revisionId) throw new CandidateError("UPDATE_STALE", "\u540C\u6B65\u6765\u6E90\u5DF2\u53D8\u5316\u3002");
+    const hasDesign = before.update?.hasDesign ?? !!previous.metadata.acceptance;
+    if (request2.kind === "sync" && !hasDesign) throw new CandidateError("UPDATE_NO_DESIGN", "\u5C1A\u672A\u751F\u6210\u753B\u9762\u8BBE\u8BA1\uFF0C\u8BF7\u5148\u5728\u5F53\u524D\u5BF9\u8BDD\u751F\u6210\u3002");
+    const id = randomUUID(), root = join(internal, "revisions", id);
+    const record3 = request2.acceptance;
+    const revision = metadataSchema.parse({
+      revisionId: id,
+      previousRevisionId: before.revisionId,
+      sourceRevision: before.revisionId,
+      source: request2.kind,
+      summary: request2.summary,
+      acceptedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      requestId: request2.requestId,
+      programFingerprint: identity(tree),
+      briefFingerprint: record3.identity?.brief,
+      inputFingerprint: record3.identity?.input,
+      acceptance: request2.acceptance
+    });
+    await mkdir(root);
+    await writeTree(join(root, "render-program"), tree);
+    const bytes = Buffer.from(JSON.stringify(revision));
+    if (bytes.length > 1048576) throw new Error("\u53D1\u5E03\u8BC1\u636E\u8D85\u8FC7 1 MiB");
+    await writeBytes(join(root, "revision.json"), bytes);
+    await syncDirectory(root);
+    await syncDirectory(join(internal, "revisions"));
+    const refs = [{ revisionId: id, metadata: hash2(bytes), program: identity(tree), requestId: request2.requestId }, ...before.history ?? [previous.ref]];
+    const next = pointerSchema.parse({
+      ...before,
+      revisionId: id,
+      history: refs.slice(0, 20),
+      pruned: refs.slice(20).map((ref) => ref.revisionId),
+      update: {
+        hasDesign: true,
+        undo: { requestId: request2.requestId, kind: request2.kind, at: revision.acceptedAt, previousRevisionId: hasDesign ? before.revisionId : null, revisionId: id },
+        result: { requestId: request2.requestId, operationId: request2.requestId, status: "published" }
+      }
+    });
+    await commitUpdate(beforeBytes, next, async () => {
+      await validate();
+      await verifyRevision(project, before.revisionId);
+      if (!(await regular(join(root, "revision.json"), 1048576)).equals(bytes) || identity(await readTree(join(root, "render-program"))) !== revision.programFingerprint) throw new CandidateError("UPDATE_INTEGRITY_FAILED", "\u5F85\u53D1\u5E03\u8BBE\u8BA1\u5B57\u8282\u5DF2\u53D8\u5316\u3002");
+    });
+    return { status: "published", revision };
+  }
+  async function undoUpdate(request2, validate) {
+    uuid3.parse(request2.requestId);
+    uuid3.parse(request2.operationId);
+    const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project);
+    const result = { status: "undone", requestId: request2.requestId, operationId: request2.operationId };
+    if (before.update?.result.requestId === request2.requestId && before.update.result.operationId === request2.operationId && before.update.result.status === "undone") return result;
+    const undo = before.update?.undo;
+    if (!undo || undo.requestId !== request2.operationId) throw new CandidateError("UPDATE_NOT_UNDOABLE", "\u6B64\u66F4\u65B0\u5DF2\u4E0D\u53EF\u64A4\u56DE\uFF0C\u8BF7\u6838\u5BF9\u6700\u8FD1\u64CD\u4F5C\u3002");
+    const target = undo.previousRevisionId ?? before.revisionId;
+    await verifyRevision(project, target);
+    const refs = before.history;
+    const next = pointerSchema.parse({
+      ...before,
+      revisionId: target,
+      history: [refs.find((ref) => ref.revisionId === target), ...refs.filter((ref) => ref.revisionId !== target)],
+      update: { hasDesign: undo.previousRevisionId !== null, undo: null, result: { ...result } }
+    });
+    await commitUpdate(beforeBytes, next, async () => {
+      await validate();
+      await verifyRevision(project, target);
+    });
+    return result;
+  }
+  return { history, cleanup, accept, updateState, publishUpdate, undoUpdate, verify: (id) => verifyRevision(project, id) };
 }
 async function taskCheckpointFingerprint(project) {
   try {
@@ -25994,6 +26102,18 @@ async function createCandidateManager(project, assertWritable, observeCommit) {
   };
   return Object.assign(operate, {
     history: revisions.history,
+    updateState: revisions.updateState,
+    undoUpdate: revisions.undoUpdate,
+    async publishUpdate(request2, target, validate) {
+      const source = target === "current" ? (await revisions.verify(request2.revisionId)).tree : (await inspect()).tree;
+      if (!source) fail4("UPDATE_NO_DESIGN", "\u6CA1\u6709\u5B8C\u6574\u753B\u9762\u8BBE\u8BA1\u3002");
+      const before = await inspect();
+      if (target === "candidate" && before.view.status !== "saved") fail4("UPDATE_STALE", "\u5185\u90E8\u6210\u679C\u9700\u8981\u5148\u6062\u590D\u5B8C\u6574\u6027\u3002");
+      return revisions.publishUpdate(request2, source, async () => {
+        await validate();
+        if (target === "candidate" && (await inspect()).view.baseline !== before.view.baseline) fail4("UPDATE_STALE", "\u5185\u90E8\u6210\u679C\u5728\u53D1\u5E03\u524D\u53D8\u5316\u3002");
+      });
+    },
     cleanupAcceptance: revisions.cleanup,
     async accept(request2, validate) {
       const before = await inspect();
@@ -29464,7 +29584,7 @@ async function openProjectVNext(inputPath, options = {}) {
             await assertWritable();
             const result = await run(candidateManager);
             const accepted = result;
-            if (accepted?.status === "accepted" && accepted.revision?.briefFingerprint && accepted.revision.current !== false && accepted.revision.valid !== false) {
+            if (accepted && ["accepted", "published"].includes(accepted.status ?? "") && accepted.revision?.briefFingerprint && accepted.revision.current !== false && accepted.revision.valid !== false) {
               const currentRenderProgram = { briefRevision: accepted.revision.briefFingerprint, briefReviewPending: accepted.revision.briefFingerprint !== currentInspection.videoBriefRevision, previewPreserved: true };
               currentInspection = { ...currentInspection, currentRenderProgram };
               inspection.currentRenderProgram = currentRenderProgram;
@@ -29515,7 +29635,7 @@ async function openProjectVNext(inputPath, options = {}) {
 }
 
 // src/server/project-copy.ts
-var excluded = (path) => path === ".narracut-operation.json" || path === ".narracut/workspace.lease" || /^\.narracut\/(cache|bundles|previews|node_modules|logs|tmp)(\/|$)/.test(path) || path.split("/").some((name) => name === ".DS_Store" || name === "Thumbs.db" || name.endsWith(".narracut-tmp")) || /^((assets|speech)\/\.(import|speech|probe)-|\.narracut\/\.task-)/.test(path) || /^\.(project\.json|narracut\.json|tts\.json|video\.md)\.[0-9a-f-]+\.tmp$/.test(path) || /^\.narracut\/(task-[0-9a-f-]+\.tmp|(accept|discard|consumed)-[0-9a-f-]+\.json)$/.test(path) || /^(node_modules|bundle|\.cache)(\/|$)/.test(path);
+var excluded = (path) => path === ".narracut-operation.json" || path === ".narracut/workspace.lease" || /^\.narracut\/(cache|bundles|previews|node_modules|logs|tmp)(\/|$)/.test(path) || path.split("/").some((name) => name === ".DS_Store" || name === "Thumbs.db" || name.endsWith(".narracut-tmp")) || /^((assets|speech)\/\.(import|speech|probe)-|\.narracut\/\.task-)/.test(path) || /^\.(project\.json|narracut\.json|tts\.json|video\.md)\.[0-9a-f-]+\.tmp$/.test(path) || /^\.narracut\/(task-[0-9a-f-]+\.tmp|(accept|discard|consumed|update)-[0-9a-f-]+\.json)$/.test(path) || /^(node_modules|bundle|\.cache)(\/|$)/.test(path);
 async function rewrite(path, bytes) {
   const file2 = await open5(path, "w");
   try {
@@ -31692,7 +31812,7 @@ var CreationTask = class {
   }
 };
 
-// src/server/project-acceptance.ts
+// src/server/project-checks.ts
 import { randomUUID as randomUUID13 } from "node:crypto";
 
 // src/server/snapshot-response.ts
@@ -31817,7 +31937,437 @@ var PreviewOrigin = class {
   }
 };
 
+// src/server/project-checks.ts
+var ProjectChecks = class {
+  constructor(preview, target = "candidate") {
+    this.preview = preview;
+    this.target = target;
+  }
+  preview;
+  target;
+  evidence;
+  #batches = [];
+  #starting = false;
+  #generation = 0;
+  #running;
+  async wait(opened) {
+    await this.#running;
+    return this.status(opened);
+  }
+  async #capture(opened) {
+    const [candidate, source, capture, environment2] = await Promise.allSettled([
+      opened.candidate({ action: "read" }),
+      opened.readPreviewSource(this.target),
+      this.preview.capture(opened, this.target, true),
+      programEnvironmentIdentity()
+    ]);
+    const baselines = [
+      candidate.status === "fulfilled" ? candidate.value.baseline : null,
+      source.status === "fulfilled" ? source.value.baseline : null,
+      capture.status === "fulfilled" ? capture.value.baseline : null
+    ].filter((value) => value !== null);
+    const programs = [
+      source.status === "fulfilled" ? source.value.identity : null,
+      capture.status === "fulfilled" ? capture.value.sourceIdentity : null
+    ].filter((value) => value !== null);
+    const coherent = new Set(baselines).size <= 1 && new Set(programs).size <= 1;
+    const identity2 = {
+      project: opened.inspection.manifest.projectId,
+      program: source.status === "fulfilled" ? source.value.identity : candidate.status === "fulfilled" ? candidate.value.candidate?.identity ?? null : null,
+      baseline: candidate.status === "fulfilled" ? candidate.value.baseline : null,
+      brief: capture.status === "fulfilled" ? capture.value.brief : null,
+      input: capture.status === "fulfilled" ? capture.value.projectInput : null,
+      media: capture.status === "fulfilled" ? previewDigest(JSON.stringify([...capture.value.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())) : null,
+      environment: environment2.status === "fulfilled" ? environment2.value : null
+    };
+    return { identity: coherent ? identity2 : { ...identity2, program: null, baseline: null }, candidate, source, capture, environment: environment2, coherent };
+  }
+  async start(opened) {
+    if (this.#starting || this.#batches.at(-1)?.view().status === "running") throw new Error("\u5DF2\u6709\u68C0\u67E5\u6B63\u5728\u8FD0\u884C\u3002");
+    this.#starting = true;
+    const generation = this.#generation;
+    try {
+      const snapshot = await this.#capture(opened);
+      if (generation !== this.#generation) throw new Error("\u68C0\u67E5\u6240\u5C5E\u9879\u76EE\u5DF2\u5173\u95ED\u3002");
+      for (const batch2 of this.#batches) batch2.invalidate(snapshot.identity);
+      if (!snapshot.coherent) throw new Error("\u68C0\u67E5\u51C6\u5907\u671F\u95F4\u5019\u9009\u5DF2\u53D8\u5316\uFF1B\u672A\u521B\u5EFA\u6DF7\u5408\u6279\u6B21\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002");
+      const { identity: identity2 } = snapshot;
+      const fromError = (error51, fallback) => {
+        const code = error51?.code;
+        const item = diagnostic(code && diagnosticCatalog[code] ? code : fallback, identity2);
+        if (code && !diagnosticCatalog[code]) item.externalCode = code;
+        if (item.stage === "manifest") item.location = { kind: "file", path: "program.json" };
+        return item;
+      };
+      const checks = [
+        { id: "layout", dependencies: [], run: async () => snapshot.source.status === "rejected" ? [fromError(snapshot.source.reason, "LAYOUT_INVALID")] : [] },
+        { id: "manifest", dependencies: ["layout"], run: async () => {
+          try {
+            return checkProgramManifest(snapshot.source.status === "fulfilled" ? snapshot.source.value.manifest : void 0).warnings.map((code) => diagnostic(code, identity2, { kind: "file", path: "program.json" }));
+          } catch (error51) {
+            return [fromError(error51, "MANIFEST_INVALID")];
+          }
+        } },
+        { id: "dependencies", dependencies: ["layout"], run: async () => {
+          if (snapshot.source.status !== "fulfilled") return [];
+          const { program, offline } = snapshot.source.value;
+          try {
+            readOfflineDependencyGraph(program.get("package.json") ?? Buffer.alloc(0), program.get("pnpm-lock.yaml") ?? Buffer.alloc(0), offline);
+            return [];
+          } catch (error51) {
+            return [fromError(error51, "DEPENDENCY_LOCK_INVALID")];
+          }
+        } },
+        { id: "capsule", dependencies: [], run: async () => snapshot.environment.status === "rejected" ? [fromError(snapshot.environment.reason, "CAPSULE_UNAVAILABLE")] : [] },
+        { id: "build", dependencies: ["manifest", "dependencies", "capsule"], run: async (signal) => {
+          if (snapshot.capture.status !== "fulfilled" || snapshot.source.status !== "fulfilled") return [fromError(snapshot.capture.status === "rejected" ? snapshot.capture.reason : void 0, "RUNTIME_CONTRACT_VIOLATION")];
+          try {
+            const value = snapshot.capture.value;
+            const bundle = await opened.buildCandidateBundle({ input: value.input, speech: value.speech, media: value.media, baseline: value.baseline, sourceIdentity: value.sourceIdentity, target: this.target, signal });
+            if (bundle.environmentIdentity !== identity2.environment) {
+              batch.invalidate({ ...identity2, environment: bundle.environmentIdentity });
+              throw Object.assign(new Error("\u6784\u5EFA\u4F7F\u7528\u7684\u6267\u884C\u73AF\u5883\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002"), { code: "CHECK_IDENTITY_CHANGED" });
+            }
+            return [];
+          } catch (error51) {
+            if (["CANDIDATE_BASELINE_CONFLICT", "CHECK_IDENTITY_CHANGED"].includes(error51.code ?? "")) throw error51;
+            const facts = error51.diagnostics;
+            return facts?.length ? facts.map((fact) => {
+              const item = fromError(fact, "BUNDLE_FAILED");
+              if (fact.path) item.location = { kind: "file", path: fact.path };
+              return item;
+            }) : [fromError(error51, "BUNDLE_FAILED")];
+          }
+        } }
+      ];
+      const batch = new CheckBatch(randomUUID13(), identity2, checks);
+      this.#batches.push(batch);
+      this.#batches = this.#batches.slice(-2);
+      this.#running = batch.run().then(async () => {
+        if (generation !== this.#generation) return;
+        try {
+          batch.invalidate((await this.#capture(opened)).identity);
+        } catch {
+          batch.invalidate({ ...identity2, project: null });
+        }
+      });
+      return this.#view(identity2);
+    } finally {
+      this.#starting = false;
+    }
+  }
+  cancel(id) {
+    const batch = this.#batches.find((item) => item.id === id);
+    batch?.cancel();
+    return this.#view(null);
+  }
+  async status(opened) {
+    if (!this.#batches.length) return this.#view(null);
+    const latest = (await this.#capture(opened)).identity;
+    for (const batch of this.#batches) batch.invalidate(latest);
+    return this.#view(latest);
+  }
+  #view(latest) {
+    const batches = this.#batches.map((batch) => batch.view());
+    return { batches, gates: gateOperations(batches.at(-1) ?? null, latest, this.evidence?.(latest, batches.at(-1)), void 0, { preview: true, delivery: true, accept: true }) };
+  }
+  invalidate() {
+    for (const batch of this.#batches) {
+      batch.invalidate({ ...batch.view().identity, project: null });
+      batch.cancel();
+    }
+  }
+  clear() {
+    this.#generation++;
+    for (const batch of this.#batches) batch.cancel();
+    this.#batches = [];
+  }
+};
+
+// src/shared/representative-frames.ts
+function representativePlan(input, supplemental = []) {
+  const points = /* @__PURE__ */ new Map();
+  function add(frame, reason) {
+    if (!Number.isSafeInteger(frame) || frame < 0 || frame >= input.durationInFrames) throw new Error("\u4EE3\u8868\u5E27\u5FC5\u987B\u4F4D\u4E8E\u5B8C\u6574\u89C6\u9891\u65F6\u95F4\u8303\u56F4\u5185\u3002");
+    const reasons = points.get(frame) ?? [];
+    if (!reasons.some((item) => JSON.stringify(item) === JSON.stringify(reason))) reasons.push(reason);
+    points.set(frame, reasons);
+  }
+  if (input.scenes.length) {
+    add(0, { kind: "film-start", source: "system" });
+    add(input.durationInFrames - 1, { kind: "film-end", source: "system" });
+    for (const [index, scene] of input.scenes.entries()) {
+      const start = scene.time.startFrame, end = start + scene.time.durationInFrames - 1;
+      for (const [frame, kind] of [[start, "scene-start"], [start + Math.floor((scene.time.durationInFrames - 1) / 2), "scene-middle"], [end, "scene-end"]]) add(frame, { kind, sceneId: scene.id, source: "system" });
+      if (index) {
+        const boundary = `${input.scenes[index - 1].id}:${scene.id}`;
+        add(start - 1, { kind: "boundary-before", boundary, source: "system" });
+        add(start, { kind: "boundary-after", boundary, source: "system" });
+      }
+    }
+  }
+  for (const point of supplemental) {
+    if (!["transition", "motion"].includes(point.source) || typeof point.reason !== "string" || !point.reason.trim() || point.reason.length > 2e3) throw new Error("\u8865\u5145\u5173\u952E\u70B9\u9700\u8981\u6765\u6E90\u4E0E\u5177\u4F53\u7406\u7531\u3002");
+    add(point.frame, { kind: point.source, reason: point.reason, source: "agent" });
+  }
+  return [...points].sort(([a], [b]) => a - b).map(([frame, reasons]) => ({ frame, reasons }));
+}
+
+// src/server/preview-evidence.ts
+import { createRequire as createEvidenceRequire } from "node:module";
+var sharp = createEvidenceRequire(import.meta.url)("sharp");
+async function capturePreviewFrames(descriptor, files, frames, signal, stage = "preview") {
+  if (!descriptor.parentOrigin || frames.length < 1 || frames.length > 12 || new Set(frames).size !== frames.length || frames.some((frame) => !Number.isSafeInteger(frame) || frame < 0 || frame >= descriptor.input.durationInFrames)) throw new Error("\u91C7\u96C6\u8BF7\u6C42\u9700\u5305\u542B\u51C6\u786E\u5B9E\u4F8B\u53CA 1\u201312 \u4E2A\u6709\u6548\u5E27\u3002");
+  const { width, height } = descriptor.input.output;
+  if (width > 4096 || height > 4096 || width * height > 8294400) throw new Error("\u91C7\u96C6\u8F93\u51FA\u8D85\u8FC7 4096 \u8FB9\u957F\u6216 8294400 \u50CF\u7D20\u4E0A\u9650\u3002");
+  if (await programEnvironmentIdentity() !== descriptor.identity.environment) throw new Error("\u6267\u884C\u73AF\u5883\u5DF2\u53D8\u5316\uFF0C\u4E0D\u80FD\u91C7\u96C6\u65E7 Preview\u3002");
+  const inputs = { "bundle/driver.mjs": await bundleApplicationWorker("evidence") };
+  const urls = {};
+  for (const [path, bytes] of files) {
+    const target = path.startsWith("media/") ? path : `bundle/${path}`;
+    inputs[target] = bytes;
+    urls[new URL(path, descriptor.url).href] = target;
+  }
+  inputs["input/capture.json"] = Buffer.from(JSON.stringify({ descriptor, frames, files: urls, parentOrigin: descriptor.parentOrigin }));
+  const capsule = await localExecutionCapsule();
+  const output = await capsule.run({ stage, entry: "bundle/driver.mjs", inputs, signal }, async (values) => {
+    const report2 = JSON.parse(values.get("result.json")?.toString() ?? "null");
+    if (report2?.instanceId !== descriptor.instanceId || JSON.stringify(report2.identity) !== JSON.stringify(descriptor.identity) || JSON.stringify(report2.results?.map((item) => item.frame)) !== JSON.stringify(frames)) return false;
+    if ([...values.keys()].some((name) => name !== "result.json" && !frames.some((frame) => name === `${frame}.png`))) return false;
+    for (const result of report2.results) if (!result.error) {
+      const png = values.get(`${result.frame}.png`);
+      if (!png || png.length > 8 * 1024 * 1024) return false;
+      const metadata = await sharp(png).metadata();
+      if (metadata.format !== "png" || metadata.width !== width || metadata.height !== height) return false;
+    }
+    return true;
+  });
+  if (await programEnvironmentIdentity() !== descriptor.identity.environment) throw new Error("\u91C7\u96C6\u671F\u95F4\u6267\u884C\u73AF\u5883\u53D1\u751F\u53D8\u5316\uFF0C\u7ED3\u679C\u5DF2\u4E22\u5F03\u3002");
+  const report = JSON.parse(output.get("result.json").toString());
+  return report.results.map((item) => ({ ...item, image: item.error ? void 0 : output.get(`${item.frame}.png`) }));
+}
+
+// src/server/project-video-update.ts
+var ProjectVideoUpdate = class {
+  constructor(preview) {
+    this.preview = preview;
+    this.#checks = new ProjectChecks(preview, "current");
+  }
+  preview;
+  #job;
+  #running;
+  #abort;
+  #checks;
+  #closing = false;
+  #preparingRequest;
+  get busy() {
+    return !!this.#abort;
+  }
+  async status(opened, requestId) {
+    const state = await opened.programTransaction((manager) => manager.updateState());
+    const candidate = await opened.candidate({ action: "read" });
+    return {
+      ...state,
+      requestStatus: !requestId ? void 0 : state.result?.requestId === requestId ? state.result.status : this.#job?.requestId === requestId ? this.#job.status : this.#preparingRequest === requestId ? "running" : "not-started",
+      checks: await this.#checks.status(opened),
+      job: this.#job ? structuredClone(this.#job) : null,
+      compatibility: candidate.status !== "absent" ? `\u4FDD\u7559\u7684\u5185\u90E8\u6210\u679C\uFF1A${candidate.status}\u3002\u4EC5\u540C\u6B65\u6CBF\u7528\u5F53\u524D\u8BBE\u8BA1\uFF1B\u7EE7\u7EED\u521B\u4F5C\u6216\u6062\u590D\u5B8C\u6574\u6027\u8BF7\u5728\u5F53\u524D\u5BF9\u8BDD\u5904\u7406\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u53D1\u5E03\u6216\u5220\u9664\u3002` : candidate.error?.message ?? null
+    };
+  }
+  #viewing;
+  async view(opened, parentOrigin) {
+    if (this.busy || this.#closing) return { preview: null };
+    if (this.#viewing) return this.#viewing;
+    this.#viewing = (async () => {
+      const state = await opened.programTransaction((manager) => manager.updateState());
+      const record3 = state.revision.acceptance;
+      if (!state.hasDesign || state.result?.status === "undone" || !record3?.identity || !record3.gates?.some((gate) => ["publish", "accept"].includes(gate.operation) && gate.status === "available")) return { preview: null };
+      const capture = await this.preview.capture(opened, "current");
+      if (capture.projectInput !== record3.identity.input || capture.sourceIdentity !== record3.identity.program || capture.brief !== record3.identity.brief) return { preview: null };
+      let view = await this.preview.view(opened, "current", parentOrigin);
+      if (!view.preview || view.preview.stale) {
+        if (view.preview) this.preview.release(view.preview.sourceInstanceId);
+        const descriptor = await this.preview.build(opened, "current", parentOrigin);
+        if (descriptor.identity.bundle !== record3.bundle) {
+          this.preview.release(descriptor.instanceId);
+          throw new Error("\u91CD\u5EFA\u7ED3\u679C\u4E0E\u53D1\u5E03\u8BC1\u636E\u4E0D\u4E00\u81F4\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65\u3002");
+        }
+        view = await this.preview.view(opened, "current", parentOrigin);
+      }
+      if (this.busy || this.#closing || view.preview?.stale || (await opened.programTransaction((manager) => manager.updateState())).revisionId !== state.revisionId) return { preview: null };
+      return view;
+    })();
+    try {
+      return await this.#viewing;
+    } finally {
+      this.#viewing = void 0;
+    }
+  }
+  async start(opened, args) {
+    external_exports.string().uuid().parse(args.requestId);
+    if (this.#closing) throw new Error("\u9879\u76EE\u6B63\u5728\u5173\u95ED\u3002");
+    if (this.#job?.requestId === args.requestId) return { job: structuredClone(this.#job) };
+    if (this.busy) throw new Error("\u6B63\u5728\u6838\u5BF9\u672C\u6B21\u66F4\u65B0\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210\u3002");
+    const abort = this.#abort = new AbortController();
+    this.#preparingRequest = args.requestId;
+    let ready;
+    const preparing = new Promise((resolve6) => {
+      ready = resolve6;
+    });
+    this.#running = preparing;
+    try {
+      const state = await opened.programTransaction((manager) => manager.updateState());
+      if (state.result?.requestId === args.requestId) return { job: { requestId: args.requestId, status: state.result.status, stage: "\u5DF2\u6838\u5BF9\u6301\u4E45\u7ED3\u679C", revisionId: state.revisionId } };
+      if (!state.hasDesign) throw new CandidateError("UPDATE_NO_DESIGN", "\u5C1A\u672A\u751F\u6210\u753B\u9762\u8BBE\u8BA1\uFF0C\u8BF7\u5148\u5728\u5F53\u524D\u5BF9\u8BDD\u751F\u6210\u3002");
+      abort.signal.throwIfAborted();
+      this.preview.invalidate();
+      const job = { requestId: args.requestId, status: "running", stage: "\u6B63\u5728\u68C0\u67E5\u6700\u65B0\u8868\u683C\u4E0E\u753B\u9762\u8BBE\u8BA1" };
+      this.#job = job;
+      this.#running = this.#run(opened, args, state.revisionId, job, abort);
+      return { job: structuredClone(job) };
+    } catch (error51) {
+      this.#job = { requestId: args.requestId, status: abort.signal.aborted ? "cancelled" : "failed", stage: abort.signal.aborted ? "\u5DF2\u53D6\u6D88\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9\u66F4\u65B0\u65B9\u5F0F" : "\u540C\u6B65\u672A\u5F00\u59CB", error: error51.message };
+      this.#abort = void 0;
+      throw error51;
+    } finally {
+      this.#preparingRequest = void 0;
+      ready();
+      if (this.#running === preparing) {
+        this.#running = void 0;
+        this.#abort = void 0;
+      }
+    }
+  }
+  cancel(requestId) {
+    if (this.busy && (this.#job?.requestId === requestId || this.#preparingRequest === requestId)) {
+      if (this.#job?.requestId !== requestId) this.#job = { requestId, status: "cancelling", stage: "\u6B63\u5728\u53D6\u6D88\u5E76\u6838\u5BF9\u5728\u9014\u7ED3\u679C" };
+      else {
+        this.#job.status = "cancelling";
+        this.#job.stage = "\u6B63\u5728\u53D6\u6D88\u5E76\u6838\u5BF9\u5728\u9014\u7ED3\u679C";
+      }
+      this.#abort?.abort();
+    }
+    return { job: this.#job ? structuredClone(this.#job) : null };
+  }
+  async undo(opened, args) {
+    if (this.busy || this.#closing) throw new Error("\u6B63\u5728\u6838\u5BF9\u66F4\u65B0\uFF0C\u6682\u4E0D\u80FD\u64A4\u56DE\u3002");
+    const abort = this.#abort = new AbortController();
+    this.preview.invalidate();
+    const operation = opened.programTransaction((manager) => manager.undoUpdate(args, async () => {
+      abort.signal.throwIfAborted();
+    }));
+    this.#running = operation.then(() => {
+    }, () => {
+    });
+    try {
+      return await operation;
+    } finally {
+      this.#abort = void 0;
+      this.#running = void 0;
+    }
+  }
+  async close() {
+    this.#closing = true;
+    this.#abort?.abort();
+    this.#checks.invalidate();
+    await this.#running;
+    await this.#viewing?.catch(() => {
+    });
+    this.#checks.clear();
+    this.#job = void 0;
+    this.#closing = false;
+  }
+  async #run(opened, args, revisionId, job, abort) {
+    let instanceId;
+    try {
+      const before = await this.preview.capture(opened, "current");
+      abort.signal.throwIfAborted();
+      const checks = await this.#checks.start(opened);
+      const batchId = checks.batches.at(-1).id;
+      const cancel = () => {
+        this.#checks.cancel(batchId);
+      };
+      abort.signal.addEventListener("abort", cancel, { once: true });
+      if (abort.signal.aborted) cancel();
+      let checked;
+      try {
+        checked = await this.#checks.wait(opened);
+      } finally {
+        abort.signal.removeEventListener("abort", cancel);
+      }
+      abort.signal.throwIfAborted();
+      if (checked.gates.find((gate) => gate.operation === "preview")?.status !== "available") throw new Error("\u5FC5\u8981\u68C0\u67E5\u672A\u901A\u8FC7\uFF0C\u8BF7\u5728\u68C0\u67E5\u8BE6\u60C5\u67E5\u770B\u539F\u56E0\u540E\u91CD\u8BD5\u3002");
+      job.stage = "\u6B63\u5728\u6784\u5EFA\u6700\u65B0\u5185\u5BB9\u7684\u5B8C\u6574\u89C6\u9891";
+      this.preview.releaseCurrent();
+      const descriptor = await this.preview.build(opened, "current", args.parentOrigin, abort.signal);
+      instanceId = descriptor.instanceId;
+      job.stage = "\u6B63\u5728\u9A8C\u8BC1\u4EE3\u8868\u5E27\u4E0E\u8FD0\u884C\u5951\u7EA6";
+      const plan = representativePlan(descriptor.input, []), frames = [];
+      for (let offset = 0; offset < plan.length; offset += 12) {
+        abort.signal.throwIfAborted();
+        const captured = await capturePreviewFrames(descriptor, this.preview.source.snapshot(descriptor.url), plan.slice(offset, offset + 12).map((item) => item.frame), abort.signal);
+        for (const frame of captured) {
+          if (frame.error || !frame.image) throw new Error(frame.error ?? "\u4EE3\u8868\u5E27\u672A\u5B8C\u6210");
+          frames.push({ frame: frame.frame, digest: previewDigest(frame.image) });
+        }
+      }
+      const batch = checked.batches.at(-1);
+      const warnings = batch.diagnostics.filter((item) => item.severity === "warning").map((item) => `${item.message} ${item.suggestion}`);
+      for (const scene of descriptor.input.scenes) if (scene.time.source === "draft") warnings.push(`Scene ${descriptor.input.scenes.indexOf(scene) + 1} \u7F3A\u5C11\u6709\u6548 Speech\uFF1A\u672C\u53E5\u65E0\u58F0\uFF0C\u4F7F\u7528\u8349\u7A3F\u65F6\u957F\u3002\u6700\u7EC8\u8F93\u51FA\u524D\u8BF7\u751F\u6210 Speech \u5E76\u91CD\u65B0\u540C\u6B65\u3002`);
+      if (batch.truncated || batch.warningsTruncated) throw new Error("\u68C0\u67E5\u4FE1\u606F\u5DF2\u622A\u65AD\uFF0C\u8BF7\u4FEE\u590D\u540E\u91CD\u65B0\u540C\u6B65\u3002");
+      const record3 = {
+        protocolVersion: 1,
+        checkerVersion: 1,
+        bridgeVersion: 1,
+        identity: batch.identity,
+        bundle: descriptor.identity.bundle,
+        instanceId,
+        stages: batch.stages,
+        frames,
+        warnings,
+        gates: [{ operation: "publish", status: "available" }],
+        zeroScenes: !descriptor.input.scenes.length
+      };
+      job.stage = "\u6B63\u5728\u53D1\u5E03\u5E76\u4FDD\u5B58\u4E00\u6B65\u64A4\u56DE\u8BB0\u5F55";
+      await opened.programTransaction(async (manager) => {
+        const local2 = { ...opened, candidate: manager, readPreviewSource: manager.previewSource };
+        return manager.publishUpdate({ requestId: args.requestId, kind: "sync", revisionId, summary: "\u4EC5\u540C\u6B65\u8868\u683C\u5185\u5BB9\uFF0C\u6CBF\u7528\u73B0\u6709\u753B\u9762\u8BBE\u8BA1", acceptance: record3 }, "current", async () => {
+          abort.signal.throwIfAborted();
+          if ((await this.preview.capture(local2, "current")).signature !== before.signature || (await this.preview.status(local2, descriptor.instanceId)).stale) throw new CandidateError("UPDATE_STALE", "\u8868\u683C\u3001\u5A92\u4F53\u6216\u753B\u9762\u8BBE\u8BA1\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9\u66F4\u65B0\u65B9\u5F0F\u3002");
+          abort.signal.throwIfAborted();
+        });
+      });
+      const state = await opened.programTransaction((manager) => manager.updateState());
+      this.preview.accept(descriptor.instanceId, state.revisionId);
+      job.status = "published";
+      job.stage = "\u89C6\u9891\u5DF2\u540C\u6B65";
+      job.revisionId = state.revisionId;
+    } catch (error51) {
+      let state;
+      try {
+        state = await opened.programTransaction((manager) => manager.updateState());
+      } catch {
+      }
+      if (state?.result?.requestId === args.requestId && state.result.status === "published") {
+        job.status = "published";
+        job.stage = "\u5DF2\u6838\u5BF9\u89C6\u9891\u53D1\u5E03";
+        job.revisionId = state.revisionId;
+        if (instanceId) this.preview.accept(instanceId, state.revisionId);
+      } else {
+        job.status = abort.signal.aborted ? "cancelled" : "failed";
+        job.stage = abort.signal.aborted ? "\u5DF2\u53D6\u6D88\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9\u66F4\u65B0\u65B9\u5F0F" : "\u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9\u66F4\u65B0\u65B9\u5F0F";
+        job.error = error51.message;
+        if (instanceId) this.preview.release(instanceId);
+      }
+    } finally {
+      this.#abort = void 0;
+      this.#running = void 0;
+    }
+  }
+};
+
 // src/server/project-acceptance.ts
+import { randomUUID as randomUUID14 } from "node:crypto";
 var ProjectAcceptance = class {
   constructor(delivery, preview) {
     this.delivery = delivery;
@@ -31852,7 +32402,7 @@ var ProjectAcceptance = class {
     };
     const summary = delivery.report.summary;
     const key = previewDigest(JSON.stringify([delivery, batch, history.current, history.revisions.map((item) => item.revisionId), record3]));
-    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID13() };
+    return { key, summary, record: record3, sourceRevision: candidate.sourceRevision, currentRevision: history.current, willPrune: history.revisions.length >= 20, baseline: candidate.baseline, requestId: randomUUID14() };
   }
   async operate(opened, args) {
     if (args.action === "review") return { confirmation: await this.review(opened) };
@@ -31894,7 +32444,7 @@ var ProjectAcceptance = class {
 };
 
 // src/server/project-render.ts
-import { randomUUID as randomUUID14, randomBytes as randomBytes3 } from "node:crypto";
+import { randomUUID as randomUUID15, randomBytes as randomBytes3 } from "node:crypto";
 import { constants as constants4, watch } from "node:fs";
 import { open as open9, realpath as realpath8, link as link4, unlink as unlink2, lstat as lstat10 } from "node:fs/promises";
 import { basename as basename5, dirname as dirname10, isAbsolute as isAbsolute7, join as join15 } from "node:path";
@@ -32040,10 +32590,10 @@ var ProjectPreview = class {
     const signature = previewDigest(JSON.stringify([state.projectRevision, state.videoBriefRevision, target === "candidate" ? candidate.baseline : source.revision, source.identity, manifest.toString(), [...media.keys()].sort(), input, speech]));
     return { input, speech, media, mediaPaths, signature, brief: state.videoBriefRevision, projectInput: previewDigest(JSON.stringify([state.projectRevision, input, speech])), baseline: candidate.baseline, sourceIdentity: source.identity, revision: source.revision, candidate };
   }
-  async build(opened, target, parentOrigin) {
+  async build(opened, target, parentOrigin, signal) {
     if (this.#active.size >= 4) throw new Error("Preview \u5B9E\u4F8B\u5DF2\u8FBE\u4E0A\u9650\uFF0C\u8BF7\u5173\u95ED\u9690\u85CF\u5B9E\u4F8B\u540E\u91CD\u8BD5\u3002");
     const before = await this.capture(opened, target);
-    const bundle = await opened.buildCandidateBundle({ input: before.input, speech: before.speech, media: before.media, baseline: before.baseline, sourceIdentity: before.sourceIdentity, target });
+    const bundle = await opened.buildCandidateBundle({ input: before.input, speech: before.speech, media: before.media, baseline: before.baseline, sourceIdentity: before.sourceIdentity, target, signal });
     const after = await this.capture(opened, target);
     if (before.signature !== after.signature) throw new Error("\u6784\u5EFA\u671F\u95F4\u8F93\u5165\u6216\u5A92\u4F53\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u8BD5\u3002");
     this.#bundles.set(bundle.identity, bundle);
@@ -32100,6 +32650,9 @@ var ProjectPreview = class {
     entry.descriptor.revisionId = revision;
     entry.revision = revision;
   }
+  releaseCurrent() {
+    for (const entry of [...this.#active.values()]) if (entry.descriptor.target === "current") this.release(entry.descriptor.instanceId);
+  }
   invalidate() {
     for (const entry of this.#active.values()) entry.stale = true;
   }
@@ -32123,40 +32676,6 @@ var ProjectPreview = class {
     await this.source.close();
   }
 };
-
-// src/server/preview-evidence.ts
-import { createRequire as createEvidenceRequire } from "node:module";
-var sharp = createEvidenceRequire(import.meta.url)("sharp");
-async function capturePreviewFrames(descriptor, files, frames, signal, stage = "preview") {
-  if (!descriptor.parentOrigin || frames.length < 1 || frames.length > 12 || new Set(frames).size !== frames.length || frames.some((frame) => !Number.isSafeInteger(frame) || frame < 0 || frame >= descriptor.input.durationInFrames)) throw new Error("\u91C7\u96C6\u8BF7\u6C42\u9700\u5305\u542B\u51C6\u786E\u5B9E\u4F8B\u53CA 1\u201312 \u4E2A\u6709\u6548\u5E27\u3002");
-  const { width, height } = descriptor.input.output;
-  if (width > 4096 || height > 4096 || width * height > 8294400) throw new Error("\u91C7\u96C6\u8F93\u51FA\u8D85\u8FC7 4096 \u8FB9\u957F\u6216 8294400 \u50CF\u7D20\u4E0A\u9650\u3002");
-  if (await programEnvironmentIdentity() !== descriptor.identity.environment) throw new Error("\u6267\u884C\u73AF\u5883\u5DF2\u53D8\u5316\uFF0C\u4E0D\u80FD\u91C7\u96C6\u65E7 Preview\u3002");
-  const inputs = { "bundle/driver.mjs": await bundleApplicationWorker("evidence") };
-  const urls = {};
-  for (const [path, bytes] of files) {
-    const target = path.startsWith("media/") ? path : `bundle/${path}`;
-    inputs[target] = bytes;
-    urls[new URL(path, descriptor.url).href] = target;
-  }
-  inputs["input/capture.json"] = Buffer.from(JSON.stringify({ descriptor, frames, files: urls, parentOrigin: descriptor.parentOrigin }));
-  const capsule = await localExecutionCapsule();
-  const output = await capsule.run({ stage, entry: "bundle/driver.mjs", inputs, signal }, async (values) => {
-    const report2 = JSON.parse(values.get("result.json")?.toString() ?? "null");
-    if (report2?.instanceId !== descriptor.instanceId || JSON.stringify(report2.identity) !== JSON.stringify(descriptor.identity) || JSON.stringify(report2.results?.map((item) => item.frame)) !== JSON.stringify(frames)) return false;
-    if ([...values.keys()].some((name) => name !== "result.json" && !frames.some((frame) => name === `${frame}.png`))) return false;
-    for (const result of report2.results) if (!result.error) {
-      const png = values.get(`${result.frame}.png`);
-      if (!png || png.length > 8 * 1024 * 1024) return false;
-      const metadata = await sharp(png).metadata();
-      if (metadata.format !== "png" || metadata.width !== width || metadata.height !== height) return false;
-    }
-    return true;
-  });
-  if (await programEnvironmentIdentity() !== descriptor.identity.environment) throw new Error("\u91C7\u96C6\u671F\u95F4\u6267\u884C\u73AF\u5883\u53D1\u751F\u53D8\u5316\uFF0C\u7ED3\u679C\u5DF2\u4E22\u5F03\u3002");
-  const report = JSON.parse(output.get("result.json").toString());
-  return report.results.map((item) => ({ ...item, image: item.error ? void 0 : output.get(`${item.frame}.png`) }));
-}
 
 // src/server/program-render.ts
 var FinalRenderError = class extends Error {
@@ -32235,13 +32754,15 @@ var ProjectRender = class {
   #running;
   async #inspect(opened) {
     return opened.programTransaction(async (manager) => {
+      const update = await manager.updateState();
       const history = await manager.history(), current = history.revisions.find((item) => item.current);
       const source = { revisionId: history.current, summary: current.summary ?? "\u5F53\u524D\u4FEE\u8BA2", key: "", accepted: !!current.acceptance, ready: false, issues: [] };
       try {
+        if (!update.hasDesign || update.result?.status === "undone") throw new FinalRenderError("RENDER_UPDATE_REQUIRED", "\u8BF7\u5148\u9009\u62E9\u66F4\u65B0\u65B9\u5F0F\u5E76\u6210\u529F\u540C\u6B65\u6700\u65B0\u89C6\u9891\u3002");
         if (!current.valid) throw new FinalRenderError("REVISION_INTEGRITY_FAILED", current.error ?? "\u5F53\u524D\u4FEE\u8BA2\u5B8C\u6574\u6027\u65E0\u6CD5\u786E\u8BA4\u3002");
-        if (!current.acceptance) throw new FinalRenderError("RENDER_NOT_ACCEPTED", "\u5F53\u524D\u89C6\u9891\u72B6\u6001\u5C1A\u672A\u9A8C\u6536\uFF0C\u8BF7\u524D\u5F80\u5019\u9009\u68C0\u67E5\u4E0E\u63A5\u53D7\u6D41\u7A0B\u3002");
+        if (!current.acceptance) throw new FinalRenderError("RENDER_NOT_ACCEPTED", "\u5F53\u524D\u89C6\u9891\u72B6\u6001\u5C1A\u672A\u9A8C\u6536\uFF0C\u8BF7\u524D\u5F80\u89C6\u9891\u66F4\u65B0\u68C0\u67E5\u3002");
         const parsed = recordSchema.safeParse(current.acceptance);
-        if (!parsed.success || !parsed.data.gates.some((gate) => gate.operation === "accept" && gate.status === "available")) throw new FinalRenderError("RENDER_ACCEPTANCE_INVALID", "\u9A8C\u6536\u8BB0\u5F55\u6216\u534F\u8BAE\u8EAB\u4EFD\u65E0\u6CD5\u786E\u8BA4\uFF0C\u8BF7\u91CD\u65B0\u5F62\u6210\u5019\u9009\u5E76\u9A8C\u6536\u3002");
+        if (!parsed.success || !parsed.data.gates.some((gate) => ["accept", "publish"].includes(gate.operation) && gate.status === "available")) throw new FinalRenderError("RENDER_ACCEPTANCE_INVALID", "\u9A8C\u6536\u8BB0\u5F55\u6216\u534F\u8BAE\u8EAB\u4EFD\u65E0\u6CD5\u786E\u8BA4\uFF0C\u8BF7\u91CD\u65B0\u5F62\u6210\u5019\u9009\u5E76\u9A8C\u6536\u3002");
         const record3 = parsed.data;
         const local2 = { ...opened, candidate: manager, readPreviewSource: manager.previewSource };
         const capture = await this.preview.capture(local2, "current");
@@ -32258,13 +32779,13 @@ var ProjectRender = class {
         };
         source.key = previewDigest(JSON.stringify([source.revisionId, record3.bundle, identity2]));
         source.details = { bundle: record3.bundle, ...identity2 };
-        if (!capture.input.scenes.length) source.issues.push({ code: "RENDER_ZERO_SCENES", message: "\u96F6 Scene \u65E0\u6CD5\u6700\u7EC8 Render\uFF0C\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u8865\u5145\u5185\u5BB9\u540E\u91CD\u65B0\u9A8C\u6536\u3002" });
+        if (!capture.input.scenes.length) source.issues.push({ code: "RENDER_ZERO_SCENES", message: "\u96F6 Scene \u65E0\u6CD5\u6700\u7EC8 Render\uFF0C\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u8865\u5145\u5185\u5BB9\u540E\u91CD\u65B0\u540C\u6B65\u3002" });
         for (const scene of capture.input.scenes) {
-          if (!scene.narration.trim()) source.issues.push({ code: "RENDER_EMPTY_NARRATION", message: "Narration \u4E3A\u7A7A\uFF0C\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u8865\u5145\u5E76\u91CD\u65B0\u9A8C\u6536\u3002", location: { sceneId: scene.id } });
-          if (scene.time.source !== "speech") source.issues.push({ code: "RENDER_DRAFT_DURATION", message: "\u7F3A\u5C11\u6709\u6548 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u8BF7\u751F\u6210 Speech \u540E\u91CD\u65B0\u9A8C\u6536\u3002", location: { sceneId: scene.id } });
+          if (!scene.narration.trim()) source.issues.push({ code: "RENDER_EMPTY_NARRATION", message: "Narration \u4E3A\u7A7A\uFF0C\u8BF7\u5728\u8868\u683C\u5DE5\u4F5C\u533A\u8865\u5145\u5E76\u91CD\u65B0\u540C\u6B65\u3002", location: { sceneId: scene.id } });
+          if (scene.time.source !== "speech") source.issues.push({ code: "RENDER_DRAFT_DURATION", message: "\u7F3A\u5C11\u6709\u6548 Speech\uFF0C\u5F53\u524D\u4F7F\u7528 Draft Duration\uFF1B\u8BF7\u751F\u6210 Speech \u540E\u91CD\u65B0\u540C\u6B65\u3002", location: { sceneId: scene.id } });
         }
-        for (const asset of capture.input.assets) if (asset.availability !== "available") source.issues.push({ code: "RENDER_MEDIA_MISSING", message: "\u6267\u884C\u6240\u9700 Asset \u7F3A\u5931\uFF0C\u6062\u590D\u539F\u5B57\u8282\u540E\u91CD\u65B0\u68C0\u67E5\uFF1B\u5B57\u8282\u53D8\u5316\u5219\u91CD\u65B0\u9A8C\u6536\u3002", location: { path: asset.path } });
-        if (Object.keys(identity2).some((key) => identity2[key] !== record3.identity[key])) source.issues.push({ code: "RENDER_NOT_ACCEPTED", message: "\u5F53\u524D\u8F93\u5165\u3001\u5A92\u4F53\u6216\u6267\u884C\u73AF\u5883\u5DF2\u4E0D\u5BF9\u5E94\u9A8C\u6536\u8BB0\u5F55\uFF1B\u6062\u590D\u539F\u72B6\u6001\uFF0C\u6216\u5F62\u6210\u65B0\u5019\u9009\u91CD\u65B0\u9A8C\u6536\u3002" });
+        for (const asset of capture.input.assets) if (asset.availability !== "available") source.issues.push({ code: "RENDER_MEDIA_MISSING", message: "\u6267\u884C\u6240\u9700 Asset \u7F3A\u5931\uFF0C\u6062\u590D\u539F\u5B57\u8282\u540E\u91CD\u65B0\u68C0\u67E5\uFF1B\u5B57\u8282\u53D8\u5316\u5219\u91CD\u65B0\u540C\u6B65\u3002", location: { path: asset.path } });
+        if (Object.keys(identity2).some((key) => identity2[key] !== record3.identity[key])) source.issues.push({ code: "RENDER_NOT_ACCEPTED", message: "\u5F53\u524D\u8F93\u5165\u3001\u5A92\u4F53\u6216\u6267\u884C\u73AF\u5883\u5DF2\u4E0D\u5BF9\u5E94\u9A8C\u6536\u8BB0\u5F55\uFF1B\u6062\u590D\u539F\u72B6\u6001\uFF0C\u6216\u9009\u62E9\u89C6\u9891\u66F4\u65B0\u91CD\u65B0\u540C\u6B65\u3002" });
         const blocked = this.#blocked.get(source.key);
         if (blocked) source.issues.push(blocked);
         source.ready = source.issues.length === 0;
@@ -32293,7 +32814,7 @@ var ProjectRender = class {
     this.#pending.add(args.requestId);
     try {
       const prepared = await this.#inspect(opened);
-      if (!prepared.source.ready || prepared.source.key !== args.key || !prepared.capture || !prepared.record || !prepared.program) throw new FinalRenderError("RENDER_NOT_READY", prepared.source.issues.map((issue2) => issue2.message).join("\uFF1B") || "\u51C6\u5907\u671F\u95F4\u63A5\u53D7\u72B6\u6001\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
+      if (!prepared.source.ready || prepared.source.key !== args.key || !prepared.capture || !prepared.record || !prepared.program) throw new FinalRenderError("RENDER_NOT_READY", prepared.source.issues.map((issue2) => issue2.message).join("\uFF1B") || "\u51C6\u5907\u671F\u95F4\u66F4\u65B0\u72B6\u6001\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
       const parent = await realpath8(dirname10(args.outputPath));
       const outputPath = join15(parent, basename5(args.outputPath));
       try {
@@ -32303,7 +32824,7 @@ var ProjectRender = class {
         if (error51.code !== "ENOENT") throw error51;
       }
       abort.signal.throwIfAborted();
-      const job = { id: randomUUID14(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
+      const job = { id: randomUUID15(), requestId: args.requestId, source: prepared.source, outputPath, status: "running", stage: "preparing" };
       this.#jobs.set(job.id, job);
       this.#running = this.#run(opened, prepared, job, abort);
       this.#pending.delete(args.requestId);
@@ -32384,15 +32905,15 @@ var ProjectRender = class {
         job.stage = "rebuilding";
         bundle = await buildProgramBundle({ program: prepared.program.program, offline: prepared.program.offline, input: capture.input, speech: capture.speech, media: capture.media, signal: abort.signal });
       }
-      if (bundle.identity !== record3.bundle || bundle.environmentIdentity !== record3.identity.environment || await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("BUNDLE_FINGERPRINT_MISMATCH", "\u65E0\u6CD5\u91CD\u5EFA\u540C\u4E00\u5DF2\u63A5\u53D7 Bundle\uFF1B\u6062\u590D\u539F\u8BA4\u8BC1\u73AF\u5883\u4E0E\u79BB\u7EBF\u4F9D\u8D56\u540E\u91CD\u8BD5\uFF0C\u4E0D\u540C\u7ED3\u679C\u5FC5\u987B\u901A\u8FC7\u65B0\u5019\u9009\u9A8C\u6536\u3002");
+      if (bundle.identity !== record3.bundle || bundle.environmentIdentity !== record3.identity.environment || await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("BUNDLE_FINGERPRINT_MISMATCH", "\u65E0\u6CD5\u91CD\u5EFA\u540C\u4E00\u5DF2\u66F4\u65B0 Bundle\uFF1B\u6062\u590D\u539F\u8BA4\u8BC1\u73AF\u5883\u4E0E\u79BB\u7EBF\u4F9D\u8D56\u540E\u91CD\u8BD5\uFF0C\u4E0D\u540C\u7ED3\u679C\u5FC5\u987B\u901A\u8FC7\u65B0\u89C6\u9891\u66F4\u65B0\u68C0\u67E5\u3002");
       const latest = await this.#inspect(opened);
-      if (!latest.source.ready || latest.source.key !== job.source.key) throw new FinalRenderError("RENDER_NOT_READY", "\u542F\u52A8\u524D\u63A5\u53D7\u8BB0\u5F55\u6216\u8F93\u5165\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
+      if (!latest.source.ready || latest.source.key !== job.source.key) throw new FinalRenderError("RENDER_NOT_READY", "\u542F\u52A8\u524D\u53D1\u5E03\u8BC1\u636E\u6216\u8F93\u5165\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u51C6\u5907\u6700\u7EC8 Render\u3002");
       const descriptor = await origin.publish({ bundle, input: capture.input, speech: capture.speech, media: capture.media, parentOrigin: "https://narracut.invalid", target: "current", baseline: capture.baseline, label: job.source.summary, key: randomBytes3(24).toString("hex") });
       const bytes = await renderAcceptedProgram(descriptor, origin.snapshot(descriptor.url), capture.speech, abort.signal, (value) => Object.assign(job, value));
       job.stage = "publishing";
       await verifyMedia();
       if (await programEnvironmentIdentity() !== record3.identity.environment) throw new FinalRenderError("CAPSULE_UNAVAILABLE", "\u6267\u884C\u73AF\u5883\u5728 Render \u671F\u95F4\u53D8\u5316\uFF0C\u672A\u751F\u6210\u4EA7\u7269\u3002");
-      temporary = join15(dirname10(job.outputPath), `.narracut-render-${randomUUID14()}.tmp`);
+      temporary = join15(dirname10(job.outputPath), `.narracut-render-${randomUUID15()}.tmp`);
       const file2 = await open9(temporary, constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | constants4.O_NOFOLLOW, 384);
       try {
         await file2.writeFile(bytes);
@@ -32438,36 +32959,7 @@ var ProjectRender = class {
 };
 
 // src/server/project-delivery.ts
-import { randomUUID as randomUUID15 } from "node:crypto";
-
-// src/shared/representative-frames.ts
-function representativePlan(input, supplemental = []) {
-  const points = /* @__PURE__ */ new Map();
-  function add(frame, reason) {
-    if (!Number.isSafeInteger(frame) || frame < 0 || frame >= input.durationInFrames) throw new Error("\u4EE3\u8868\u5E27\u5FC5\u987B\u4F4D\u4E8E\u5B8C\u6574\u89C6\u9891\u65F6\u95F4\u8303\u56F4\u5185\u3002");
-    const reasons = points.get(frame) ?? [];
-    if (!reasons.some((item) => JSON.stringify(item) === JSON.stringify(reason))) reasons.push(reason);
-    points.set(frame, reasons);
-  }
-  if (input.scenes.length) {
-    add(0, { kind: "film-start", source: "system" });
-    add(input.durationInFrames - 1, { kind: "film-end", source: "system" });
-    for (const [index, scene] of input.scenes.entries()) {
-      const start = scene.time.startFrame, end = start + scene.time.durationInFrames - 1;
-      for (const [frame, kind] of [[start, "scene-start"], [start + Math.floor((scene.time.durationInFrames - 1) / 2), "scene-middle"], [end, "scene-end"]]) add(frame, { kind, sceneId: scene.id, source: "system" });
-      if (index) {
-        const boundary = `${input.scenes[index - 1].id}:${scene.id}`;
-        add(start - 1, { kind: "boundary-before", boundary, source: "system" });
-        add(start, { kind: "boundary-after", boundary, source: "system" });
-      }
-    }
-  }
-  for (const point of supplemental) {
-    if (!["transition", "motion"].includes(point.source) || typeof point.reason !== "string" || !point.reason.trim() || point.reason.length > 2e3) throw new Error("\u8865\u5145\u5173\u952E\u70B9\u9700\u8981\u6765\u6E90\u4E0E\u5177\u4F53\u7406\u7531\u3002");
-    add(point.frame, { kind: point.source, reason: point.reason, source: "agent" });
-  }
-  return [...points].sort(([a], [b]) => a - b).map(([frame, reasons]) => ({ frame, reasons }));
-}
+import { randomUUID as randomUUID16 } from "node:crypto";
 
 // src/shared/candidate-delivery.ts
 var CandidateDelivery = class {
@@ -32579,7 +33071,7 @@ var ProjectDelivery = class {
       if (this.#current && this.#current.binding.instanceId === args.instanceId && !args.supplements && await this.#fresh(opened, this.#current)) return this.status(opened);
       const supplements = supplementsSchema.parse(args.supplements ?? []);
       this.clear();
-      const current2 = new CandidateDelivery(randomUUID15(), snapshot.binding, snapshot.descriptor.input, supplements);
+      const current2 = new CandidateDelivery(randomUUID16(), snapshot.binding, snapshot.descriptor.input, supplements);
       this.#current = current2;
       this.#output = snapshot.descriptor.input.output;
       if (!await this.#fresh(opened, current2)) throw new Error("\u5019\u9009 Preview \u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u6784\u5EFA\u3002");
@@ -32684,147 +33176,6 @@ var ProjectDelivery = class {
     this.#displayedKey = void 0;
     this.#output = void 0;
     this.#busy = false;
-  }
-};
-
-// src/server/project-checks.ts
-import { randomUUID as randomUUID16 } from "node:crypto";
-var ProjectChecks = class {
-  constructor(preview) {
-    this.preview = preview;
-  }
-  preview;
-  evidence;
-  #batches = [];
-  #starting = false;
-  #generation = 0;
-  async #capture(opened) {
-    const [candidate, source, capture, environment2] = await Promise.allSettled([
-      opened.candidate({ action: "read" }),
-      opened.readPreviewSource("candidate"),
-      this.preview.capture(opened, "candidate", true),
-      programEnvironmentIdentity()
-    ]);
-    const baselines = [
-      candidate.status === "fulfilled" ? candidate.value.baseline : null,
-      source.status === "fulfilled" ? source.value.baseline : null,
-      capture.status === "fulfilled" ? capture.value.baseline : null
-    ].filter((value) => value !== null);
-    const programs = [
-      source.status === "fulfilled" ? source.value.identity : null,
-      capture.status === "fulfilled" ? capture.value.sourceIdentity : null
-    ].filter((value) => value !== null);
-    const coherent = new Set(baselines).size <= 1 && new Set(programs).size <= 1;
-    const identity2 = {
-      project: opened.inspection.manifest.projectId,
-      program: source.status === "fulfilled" ? source.value.identity : candidate.status === "fulfilled" ? candidate.value.candidate?.identity ?? null : null,
-      baseline: candidate.status === "fulfilled" ? candidate.value.baseline : null,
-      brief: capture.status === "fulfilled" ? capture.value.brief : null,
-      input: capture.status === "fulfilled" ? capture.value.projectInput : null,
-      media: capture.status === "fulfilled" ? previewDigest(JSON.stringify([...capture.value.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())) : null,
-      environment: environment2.status === "fulfilled" ? environment2.value : null
-    };
-    return { identity: coherent ? identity2 : { ...identity2, program: null, baseline: null }, candidate, source, capture, environment: environment2, coherent };
-  }
-  async start(opened) {
-    if (this.#starting || this.#batches.at(-1)?.view().status === "running") throw new Error("\u5DF2\u6709\u68C0\u67E5\u6B63\u5728\u8FD0\u884C\u3002");
-    this.#starting = true;
-    const generation = this.#generation;
-    try {
-      const snapshot = await this.#capture(opened);
-      if (generation !== this.#generation) throw new Error("\u68C0\u67E5\u6240\u5C5E\u9879\u76EE\u5DF2\u5173\u95ED\u3002");
-      for (const batch2 of this.#batches) batch2.invalidate(snapshot.identity);
-      if (!snapshot.coherent) throw new Error("\u68C0\u67E5\u51C6\u5907\u671F\u95F4\u5019\u9009\u5DF2\u53D8\u5316\uFF1B\u672A\u521B\u5EFA\u6DF7\u5408\u6279\u6B21\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002");
-      const { identity: identity2 } = snapshot;
-      const fromError = (error51, fallback) => {
-        const code = error51?.code;
-        const item = diagnostic(code && diagnosticCatalog[code] ? code : fallback, identity2);
-        if (code && !diagnosticCatalog[code]) item.externalCode = code;
-        if (item.stage === "manifest") item.location = { kind: "file", path: "program.json" };
-        return item;
-      };
-      const checks = [
-        { id: "layout", dependencies: [], run: async () => snapshot.source.status === "rejected" ? [fromError(snapshot.source.reason, "LAYOUT_INVALID")] : [] },
-        { id: "manifest", dependencies: ["layout"], run: async () => {
-          try {
-            return checkProgramManifest(snapshot.source.status === "fulfilled" ? snapshot.source.value.manifest : void 0).warnings.map((code) => diagnostic(code, identity2, { kind: "file", path: "program.json" }));
-          } catch (error51) {
-            return [fromError(error51, "MANIFEST_INVALID")];
-          }
-        } },
-        { id: "dependencies", dependencies: ["layout"], run: async () => {
-          if (snapshot.source.status !== "fulfilled") return [];
-          const { program, offline } = snapshot.source.value;
-          try {
-            readOfflineDependencyGraph(program.get("package.json") ?? Buffer.alloc(0), program.get("pnpm-lock.yaml") ?? Buffer.alloc(0), offline);
-            return [];
-          } catch (error51) {
-            return [fromError(error51, "DEPENDENCY_LOCK_INVALID")];
-          }
-        } },
-        { id: "capsule", dependencies: [], run: async () => snapshot.environment.status === "rejected" ? [fromError(snapshot.environment.reason, "CAPSULE_UNAVAILABLE")] : [] },
-        { id: "build", dependencies: ["manifest", "dependencies", "capsule"], run: async (signal) => {
-          if (snapshot.capture.status !== "fulfilled" || snapshot.source.status !== "fulfilled") return [fromError(snapshot.capture.status === "rejected" ? snapshot.capture.reason : void 0, "RUNTIME_CONTRACT_VIOLATION")];
-          try {
-            const value = snapshot.capture.value;
-            const bundle = await opened.buildCandidateBundle({ input: value.input, speech: value.speech, media: value.media, baseline: value.baseline, sourceIdentity: value.sourceIdentity, target: "candidate", signal });
-            if (bundle.environmentIdentity !== identity2.environment) {
-              batch.invalidate({ ...identity2, environment: bundle.environmentIdentity });
-              throw Object.assign(new Error("\u6784\u5EFA\u4F7F\u7528\u7684\u6267\u884C\u73AF\u5883\u8EAB\u4EFD\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5\u3002"), { code: "CHECK_IDENTITY_CHANGED" });
-            }
-            return [];
-          } catch (error51) {
-            if (["CANDIDATE_BASELINE_CONFLICT", "CHECK_IDENTITY_CHANGED"].includes(error51.code ?? "")) throw error51;
-            const facts = error51.diagnostics;
-            return facts?.length ? facts.map((fact) => {
-              const item = fromError(fact, "BUNDLE_FAILED");
-              if (fact.path) item.location = { kind: "file", path: fact.path };
-              return item;
-            }) : [fromError(error51, "BUNDLE_FAILED")];
-          }
-        } }
-      ];
-      const batch = new CheckBatch(randomUUID16(), identity2, checks);
-      this.#batches.push(batch);
-      this.#batches = this.#batches.slice(-2);
-      void batch.run().then(async () => {
-        if (generation !== this.#generation) return;
-        try {
-          batch.invalidate((await this.#capture(opened)).identity);
-        } catch {
-          batch.invalidate({ ...identity2, project: null });
-        }
-      });
-      return this.#view(identity2);
-    } finally {
-      this.#starting = false;
-    }
-  }
-  cancel(id) {
-    const batch = this.#batches.find((item) => item.id === id);
-    batch?.cancel();
-    return this.#view(null);
-  }
-  async status(opened) {
-    if (!this.#batches.length) return this.#view(null);
-    const latest = (await this.#capture(opened)).identity;
-    for (const batch of this.#batches) batch.invalidate(latest);
-    return this.#view(latest);
-  }
-  #view(latest) {
-    const batches = this.#batches.map((batch) => batch.view());
-    return { batches, gates: gateOperations(batches.at(-1) ?? null, latest, this.evidence?.(latest, batches.at(-1)), void 0, { preview: true, delivery: true, accept: true }) };
-  }
-  invalidate() {
-    for (const batch of this.#batches) {
-      batch.invalidate({ ...batch.view().identity, project: null });
-      batch.cancel();
-    }
-  }
-  clear() {
-    this.#generation++;
-    for (const batch of this.#batches) batch.cancel();
-    this.#batches = [];
   }
 };
 
@@ -33337,6 +33688,22 @@ var tools = [
       key: { type: "string" },
       outputPath: { type: "string" },
       jobId: { type: "string" }
+    } },
+    outputSchema: { type: "object" },
+    annotations: taskToolAnnotations,
+    _meta: { ui: { visibility: ["app"] } }
+  },
+  {
+    name: "project_video_update",
+    title: "\u540C\u6B65\u89C6\u9891\u4E0E\u64A4\u56DE\u4E0A\u6B21\u66F4\u65B0",
+    description: "\u660E\u786E\u540C\u6B65\u6700\u65B0\u8868\u683C\uFF0C\u4FDD\u7559\u753B\u9762\u8BBE\u8BA1\uFF1B\u6210\u529F\u540E\u76F4\u63A5\u4F7F\u7528\u5B8C\u6574\u89C6\u9891\u3002\u67E5\u8BE2\u6216\u64A4\u56DE\u6700\u8FD1\u4E00\u6B65\u66F4\u65B0\uFF0C\u4E0D\u5408\u6210 Speech\uFF0C\u4E0D\u8F93\u51FA\u89C6\u9891\u3002",
+    inputSchema: { type: "object", required: ["projectDirectory", "projectId", "action"], additionalProperties: false, properties: {
+      projectDirectory: { type: "string" },
+      projectId: { type: "string" },
+      action: { enum: ["status", "start", "cancel", "undo", "view"] },
+      requestId: { type: "string" },
+      operationId: { type: "string" },
+      parentOrigin: { type: "string" }
     } },
     outputSchema: { type: "object" },
     annotations: taskToolAnnotations,
@@ -34007,6 +34374,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     } catch (error51) {
       if (this.#transferred || this.#handoffPending) return;
       void this.creation?.close().catch(() => void 0);
+      void this.videoUpdate.close().catch(() => void 0);
       void this.render.close().catch(() => void 0);
       for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
       throw error51;
@@ -34019,6 +34387,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     await opened.assertWritable();
     if (this.creation?.value && this.creation.value.status !== "terminated") await this.creation.respond({ action: "stop" });
     await this.creation?.close();
+    await this.videoUpdate.close();
     await this.render.close();
     for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
     await Promise.all([...this.#speechPending]);
@@ -34106,6 +34475,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
         if (this.creation?.value && this.creation.value.status !== "terminated") await this.creation.respond({ action: "stop" });
         controller.signal.throwIfAborted();
         operation.phase = "waiting";
+        await this.videoUpdate.close();
         await this.render.close();
         for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
         await Promise.all([...this.#speechPending]);
@@ -34150,6 +34520,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     return this.creation.step(request2);
   }
   async creationOperation(input, start = false, resume = false, respond = false) {
+    if (this.videoUpdate.busy && (start || resume || respond)) throw new Error("\u89C6\u9891\u66F4\u65B0\u5C1A\u672A\u5B8C\u6210\uFF0C\u8BF7\u7B49\u5F85\u6838\u5BF9\u7ED3\u679C\u3002");
     if (!input || typeof input.projectDirectory !== "string" || typeof input.projectId !== "string" || start && typeof input.instruction !== "string") throw new Error("\u521B\u4F5C\u4EFB\u52A1\u53C2\u6570\u65E0\u6548\u3002");
     if ((this.#transferred || this.#handoffPending) && !start && !resume && !respond && this.#opened?.inspection.projectDirectory === input.projectDirectory && this.#opened?.inspection.manifest.projectId === input.projectId) return { creationTask: this.creation?.value ?? null, candidate: this.#candidateStatus, creationRecovery: this.creation?.recovery ?? null, transferred: this.#transferred };
     this.#requireOpened(input.projectDirectory, input.projectId);
@@ -34169,10 +34540,24 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
   delivery = new ProjectDelivery(this.preview, this.checks);
   acceptance = new ProjectAcceptance(this.delivery, this.preview);
   render = new ProjectRender(this.preview);
+  videoUpdate = new ProjectVideoUpdate(this.preview);
+  async videoUpdateOperation(input) {
+    const opened = this.#requireOpened(input.projectDirectory, input.projectId);
+    if (input.action === "status") return this.videoUpdate.status(opened, input.requestId);
+    if (input.action === "view") return this.videoUpdate.view(opened, input.parentOrigin);
+    if (input.action === "cancel") return this.videoUpdate.cancel(input.requestId);
+    if (this.creation?.blocksCandidateWrites || this.#resolvingCandidate) throw new Error("\u5DF2\u6709\u521B\u4F5C\u6B63\u5728\u8FDB\u884C\uFF0C\u8BF7\u5148\u505C\u6B62\u5E76\u6838\u5BF9\u5728\u9014\u7ED3\u679C\u3002");
+    if (input.action === "start") return this.videoUpdate.start(opened, input);
+    if (input.action === "undo") return this.videoUpdate.undo(opened, input);
+    throw new Error("\u89C6\u9891\u66F4\u65B0\u53C2\u6570\u65E0\u6548\u3002");
+  }
   async renderOperation(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
     if (input.action === "status") return this.render.status(opened);
-    if (input.action === "start") return this.render.start(opened, input);
+    if (input.action === "start") {
+      if (this.videoUpdate.busy) throw new Error("\u89C6\u9891\u66F4\u65B0\u5C1A\u672A\u5B8C\u6210\u3002");
+      return this.render.start(opened, input);
+    }
     if (input.action === "result") return this.render.result(input.requestId);
     if (input.action === "cancel") return this.render.cancel(input.jobId);
     throw new Error("\u6700\u7EC8 Render \u53C2\u6570\u65E0\u6548\u3002");
@@ -34183,6 +34568,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     if (this.#resolvingCandidate) throw new Error("\u6B63\u5728\u6838\u5BF9\u64CD\u4F5C\u7ED3\u679C\uFF0C\u8BF7\u7A0D\u5019\u3002");
     this.#resolvingCandidate = true;
     try {
+      if (this.videoUpdate.busy) throw new Error("\u6B63\u5728\u66F4\u65B0\u89C6\u9891\uFF0C\u8BF7\u7B49\u5F85\u6838\u5BF9\u5B8C\u6210\u3002");
       const result = await this.acceptance.operate(opened, input);
       this.#candidateStatus = await opened.candidate({ action: "read" });
       if ((result.status === "accepted" && input.action !== "result" && result.revision.current !== false || input.action === "cleanup" && this.creation?.value?.reason === "CANDIDATE_ACCEPTED") && this.#candidateStatus.status === "absent") {
@@ -34307,6 +34693,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
       }
       if (owner.creation?.value && owner.creation.value.status !== "terminated") await owner.creation.respond({ action: "stop" });
       await owner.creation?.close();
+      await owner.videoUpdate.close();
       await owner.render.close();
       for (const job of owner.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) owner.cancelSpeech(job.id);
       await Promise.all([...owner.#speechPending]);
@@ -34344,6 +34731,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
           throw error51;
         }
         await Promise.allSettled([...this.pendingOperations]);
+        await this.videoUpdate.close();
         await this.render.close();
         for (const job of this.#speechJobs.values()) if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
         await this.#opened?.release();
@@ -34354,6 +34742,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     try {
       if (previous !== null) {
         await this.creation?.close();
+        await this.videoUpdate.close();
         await this.render.close();
         await previous.release();
       }
@@ -34695,6 +35084,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
     await this.restore.close();
     _ProjectWorkspaceSession.sessions.delete(this);
     await this.creation?.close();
+    await this.videoUpdate.close();
     await this.render.close();
     for (const job of this.#speechJobs.values()) {
       if (!["succeeded", "cancelled", "failed", "rejected"].includes(job.status)) this.cancelSpeech(job.id);
@@ -34803,6 +35193,13 @@ async function callTool(params, hostValidation, workspace) {
       return { structuredContent: await workspace.creationOperation(argumentsValue, name === "start_creation_task", name === "continue_creation_task", name === "respond_creation_task"), content: [] };
     } catch (error51) {
       return { isError: true, structuredContent: { error: { code: "CREATION_TASK_FAILED", message: error51.message } }, content: [] };
+    }
+  }
+  if (name === "project_video_update") {
+    try {
+      return { structuredContent: await workspace.videoUpdateOperation(argumentsValue), content: [] };
+    } catch (error51) {
+      return { isError: true, structuredContent: { error: { code: error51.code ?? "UPDATE_FAILED", message: error51.message } }, content: [] };
     }
   }
   if (name === "project_acceptance") {

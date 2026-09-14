@@ -13,7 +13,7 @@
 | 本地插件构建、安装与启动验证 | [插件打包](plugin-packaging.md) |
 | 当前对话右侧工作台与展示重试 | [工作台面板](workbench-panel.md) |
 | 首次 Speech 配置、原句续生成与声音变更确认 | [#116 验收记录](acceptance/issue116/README.md) |
-| Speech 试听、单一视频设计与更新撤回（已定稿，待实施） | [#121 规格](https://github.com/dulltackle/narracut/issues/121)、[ADR-0013](adr/0013-single-design-latest-preview-and-update-undo.md) |
+| 仅同步与持久一步撤回；其余 #121 路径按子工单实施 | [#121 规格](https://github.com/dulltackle/narracut/issues/121)、[ADR-0013](adr/0013-single-design-latest-preview-and-update-undo.md)、[#122 验收](acceptance/issue122/README.md) |
 | 分组项目工具栏、Brief 编辑、外部冲突与持久验证 | [#115 验收记录](acceptance/issue115/README.md) |
 | 独立视频输出、阻断定位与真实产物 | [#114 验收记录](acceptance/issue114/README.md) |
 | 候选决策、回执核对与接受收尾 | [#113 验收记录](acceptance/issue113/README.md) |

@@ -32,13 +32,15 @@ export class ProjectRender {
   constructor(private preview: ProjectPreview) {}
   async #inspect(opened: OpenedProjectVNext) {
     return opened.programTransaction(async manager => {
+      const update = await manager.updateState();
       const history = await manager.history(), current = history.revisions.find(item => item.current)!;
       const source: RenderSource = { revisionId: history.current, summary: current.summary ?? '当前修订', key: '', accepted: !!current.acceptance, ready: false, issues: [] };
       try {
+        if (!update.hasDesign || update.result?.status === 'undone') throw new FinalRenderError('RENDER_UPDATE_REQUIRED', '请先选择更新方式并成功同步最新视频。');
         if (!current.valid) throw new FinalRenderError('REVISION_INTEGRITY_FAILED', current.error ?? '当前修订完整性无法确认。');
-        if (!current.acceptance) throw new FinalRenderError('RENDER_NOT_ACCEPTED', '当前视频状态尚未验收，请前往候选检查与接受流程。');
+        if (!current.acceptance) throw new FinalRenderError('RENDER_NOT_ACCEPTED', '当前视频状态尚未验收，请前往视频更新检查。');
         const parsed = recordSchema.safeParse(current.acceptance);
-        if (!parsed.success || !parsed.data.gates.some(gate => gate.operation === 'accept' && gate.status === 'available')) throw new FinalRenderError('RENDER_ACCEPTANCE_INVALID', '验收记录或协议身份无法确认，请重新形成候选并验收。');
+        if (!parsed.success || !parsed.data.gates.some(gate => ['accept', 'publish'].includes(gate.operation) && gate.status === 'available')) throw new FinalRenderError('RENDER_ACCEPTANCE_INVALID', '验收记录或协议身份无法确认，请重新形成候选并验收。');
         const record = parsed.data;
         const local = { ...opened, candidate: manager, readPreviewSource: manager.previewSource };
         const capture = await this.preview.capture(local, 'current');
@@ -48,13 +50,13 @@ export class ProjectRender {
           media: previewDigest(JSON.stringify([...capture.media].map(([path, bytes]) => [path, previewDigest(bytes)]).sort())), environment };
         source.key = previewDigest(JSON.stringify([source.revisionId, record.bundle, identity]));
         source.details = { bundle: record.bundle, ...identity };
-        if (!capture.input.scenes.length) source.issues.push({ code: 'RENDER_ZERO_SCENES', message: '零 Scene 无法最终 Render，请在表格工作区补充内容后重新验收。' });
+        if (!capture.input.scenes.length) source.issues.push({ code: 'RENDER_ZERO_SCENES', message: '零 Scene 无法最终 Render，请在表格工作区补充内容后重新同步。' });
         for (const scene of capture.input.scenes) {
-          if (!scene.narration.trim()) source.issues.push({ code: 'RENDER_EMPTY_NARRATION', message: 'Narration 为空，请在表格工作区补充并重新验收。', location: { sceneId: scene.id } });
-          if (scene.time.source !== 'speech') source.issues.push({ code: 'RENDER_DRAFT_DURATION', message: '缺少有效 Speech，当前使用 Draft Duration；请生成 Speech 后重新验收。', location: { sceneId: scene.id } });
+          if (!scene.narration.trim()) source.issues.push({ code: 'RENDER_EMPTY_NARRATION', message: 'Narration 为空，请在表格工作区补充并重新同步。', location: { sceneId: scene.id } });
+          if (scene.time.source !== 'speech') source.issues.push({ code: 'RENDER_DRAFT_DURATION', message: '缺少有效 Speech，当前使用 Draft Duration；请生成 Speech 后重新同步。', location: { sceneId: scene.id } });
         }
-        for (const asset of capture.input.assets) if (asset.availability !== 'available') source.issues.push({ code: 'RENDER_MEDIA_MISSING', message: '执行所需 Asset 缺失，恢复原字节后重新检查；字节变化则重新验收。', location: { path: asset.path } });
-        if (Object.keys(identity).some(key => identity[key as keyof typeof identity] !== record.identity[key as keyof typeof identity])) source.issues.push({ code: 'RENDER_NOT_ACCEPTED', message: '当前输入、媒体或执行环境已不对应验收记录；恢复原状态，或形成新候选重新验收。' });
+        for (const asset of capture.input.assets) if (asset.availability !== 'available') source.issues.push({ code: 'RENDER_MEDIA_MISSING', message: '执行所需 Asset 缺失，恢复原字节后重新检查；字节变化则重新同步。', location: { path: asset.path } });
+        if (Object.keys(identity).some(key => identity[key as keyof typeof identity] !== record.identity[key as keyof typeof identity])) source.issues.push({ code: 'RENDER_NOT_ACCEPTED', message: '当前输入、媒体或执行环境已不对应验收记录；恢复原状态，或选择视频更新重新同步。' });
         const blocked = this.#blocked.get(source.key); if (blocked) source.issues.push(blocked);
         source.ready = source.issues.length === 0;
         return { source, capture, record, program: await manager.previewSource('current') };
@@ -76,7 +78,7 @@ export class ProjectRender {
     this.#pending.add(args.requestId);
     try {
       const prepared = await this.#inspect(opened);
-      if (!prepared.source.ready || prepared.source.key !== args.key || !prepared.capture || !prepared.record || !prepared.program) throw new FinalRenderError('RENDER_NOT_READY', prepared.source.issues.map(issue => issue.message).join('；') || '准备期间接受状态发生变化，请重新准备最终 Render。');
+      if (!prepared.source.ready || prepared.source.key !== args.key || !prepared.capture || !prepared.record || !prepared.program) throw new FinalRenderError('RENDER_NOT_READY', prepared.source.issues.map(issue => issue.message).join('；') || '准备期间更新状态发生变化，请重新准备最终 Render。');
       const parent = await realpath(dirname(args.outputPath));
       const outputPath = join(parent, basename(args.outputPath));
       try { await lstat(outputPath); throw new FinalRenderError('RENDER_OUTPUT_FAILED', '输出文件已存在，请选择新位置；不会覆盖已有文件。'); }
@@ -124,9 +126,9 @@ export class ProjectRender {
         job.stage = 'rebuilding';
         bundle = await buildProgramBundle({ program: prepared.program.program, offline: prepared.program.offline, input: capture.input, speech: capture.speech, media: capture.media, signal: abort.signal });
       }
-      if (bundle.identity !== record.bundle || bundle.environmentIdentity !== record.identity.environment || await programEnvironmentIdentity() !== record.identity.environment) throw new FinalRenderError('BUNDLE_FINGERPRINT_MISMATCH', '无法重建同一已接受 Bundle；恢复原认证环境与离线依赖后重试，不同结果必须通过新候选验收。');
+      if (bundle.identity !== record.bundle || bundle.environmentIdentity !== record.identity.environment || await programEnvironmentIdentity() !== record.identity.environment) throw new FinalRenderError('BUNDLE_FINGERPRINT_MISMATCH', '无法重建同一已更新 Bundle；恢复原认证环境与离线依赖后重试，不同结果必须通过新视频更新检查。');
       const latest = await this.#inspect(opened);
-      if (!latest.source.ready || latest.source.key !== job.source.key) throw new FinalRenderError('RENDER_NOT_READY', '启动前接受记录或输入发生变化，请重新准备最终 Render。');
+      if (!latest.source.ready || latest.source.key !== job.source.key) throw new FinalRenderError('RENDER_NOT_READY', '启动前发布证据或输入发生变化，请重新准备最终 Render。');
       const descriptor = await origin.publish({ bundle, input: capture.input, speech: capture.speech, media: capture.media, parentOrigin: 'https://narracut.invalid', target: 'current', baseline: capture.baseline, label: job.source.summary, key: randomBytes(24).toString('hex') });
       const bytes = await renderAcceptedProgram(descriptor, origin.snapshot(descriptor.url), capture.speech, abort.signal, value => Object.assign(job, value));
       job.stage = 'publishing'; await verifyMedia();

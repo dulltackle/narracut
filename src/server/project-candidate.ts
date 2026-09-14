@@ -322,6 +322,18 @@ export async function createCandidateManager(project: string, assertWritable: ()
   };
   return Object.assign(operate, {
     history: revisions.history,
+    updateState: revisions.updateState,
+    undoUpdate: revisions.undoUpdate,
+    async publishUpdate(request: import('./project-revisions').UpdateRequest, target: 'current' | 'candidate', validate: () => Promise<void>) {
+      const source = target === 'current' ? (await revisions.verify(request.revisionId)).tree : (await inspect()).tree;
+      if (!source) fail('UPDATE_NO_DESIGN', '没有完整画面设计。');
+      const before = await inspect();
+      if (target === 'candidate' && before.view.status !== 'saved') fail('UPDATE_STALE', '内部成果需要先恢复完整性。');
+      return revisions.publishUpdate(request, source!, async () => {
+        await validate();
+        if (target === 'candidate' && (await inspect()).view.baseline !== before.view.baseline) fail('UPDATE_STALE', '内部成果在发布前变化。');
+      });
+    },
     cleanupAcceptance: revisions.cleanup,
     async accept(request: { baseline: string; summary: string; source: string; acceptance: Record<string, unknown>; requestId?: string }, validate: () => Promise<void>) {
       const before = await inspect();

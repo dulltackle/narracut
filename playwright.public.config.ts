@@ -6,6 +6,7 @@ export default defineConfig({
   testDir: "tests/e2e",
   testMatch: [
     "portable-project.spec.ts",
+    "video-update.spec.ts",
     "candidate-review.spec.ts",
     "workbench-panel.spec.ts",
     "panel-reconnect.spec.ts",

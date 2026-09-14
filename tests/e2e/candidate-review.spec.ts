@@ -54,7 +54,7 @@ test('公开面板只读禁用候选决策，服务端拒绝接受和放弃，�
     const readonly = other.frameLocator('iframe');
     await readonly.getByRole('tab', { name: 'Agent 工作区' }).click();
     if (!await readonly.getByRole('button', { name: '关闭审阅详情' }).isVisible()) await readonly.getByRole('button', { name: '审阅详情', exact: true }).click();
-    await expect(readonly.getByRole('button', { name: '审阅并接受', exact: true })).toBeDisabled();
+    await expect(readonly.getByRole('button', { name: '审阅并接受', exact: true })).toHaveCount(0);
     await expect(readonly.getByRole('button', { name: '放弃候选', exact: true })).toBeDisabled();
     for (const [name, args] of [['project_acceptance', { action: 'review' }], ['manage_project_candidate', { action: 'discard' }]] as const) {
       const denied = await call(viewer, name, { ...identity, ...args });

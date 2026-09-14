@@ -18,7 +18,7 @@ const excluded = (path: string) => path === '.narracut-operation.json' || path =
   path.split('/').some(name => name === '.DS_Store' || name === 'Thumbs.db' || name.endsWith('.narracut-tmp')) ||
   /^((assets|speech)\/\.(import|speech|probe)-|\.narracut\/\.task-)/.test(path) ||
   /^\.(project\.json|narracut\.json|tts\.json|video\.md)\.[0-9a-f-]+\.tmp$/.test(path) ||
-  /^\.narracut\/(task-[0-9a-f-]+\.tmp|(accept|discard|consumed)-[0-9a-f-]+\.json)$/.test(path) ||
+  /^\.narracut\/(task-[0-9a-f-]+\.tmp|(accept|discard|consumed|update)-[0-9a-f-]+\.json)$/.test(path) ||
   /^(node_modules|bundle|\.cache)(\/|$)/.test(path);
 
 /** 分块读取以支持大资源；逐文件字节指纹与目录身份共同检测复制期间外部变化。 */

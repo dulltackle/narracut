@@ -549,7 +549,7 @@ test("键盘焦点不改变 Scene，显式激活后切换工作区仍保留选�
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
   await expect(page.getByRole("tab", { name: "Agent 工作区" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("button", { name: "审阅详情", exact: true })).toBeVisible();
-  await expect(page.getByText("在当前 Codex 对话中表达创作目标；在这里编辑 Scene、审阅候选与输出。", { exact: true })).toBeVisible();
+  await expect(page.getByText("在当前 Codex 对话中表达创作目标；在这里编辑 Scene、更新视频与独立输出。", { exact: true })).toBeVisible();
 });
 
 test("零 Scene 与无效项目都有明确、非纯颜色状态", async ({ page }) => {
@@ -1323,7 +1323,7 @@ test("工作区标签支持手动键盘激活，零 Scene 在窄屏可用", asyn
   await agent.press("Enter");
   await expect(page.getByRole("tabpanel", { name: "Agent 工作区" })).toBeVisible();
   await expect(page.getByRole("button", { name: "审阅详情", exact: true })).toBeVisible();
-  await expect(page.getByText("尚无预览 · 构建当前版本或候选后检查成片", { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '仅同步表格内容', exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "审阅详情", exact: true }).click();
   await page.getByRole("heading", { name: "候选审阅" }).scrollIntoViewIfNeeded();
   expect(await page.locator("#workspace-agent .stage").evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true);
@@ -1445,7 +1445,7 @@ test('放弃确认默认取消，回执不明先核对且不重复删除', async
   await expect(page.locator('[data-candidate-cancel]')).toBeFocused();
   await expect(page.getByRole('alertdialog')).toContainText('Agent 任务检查点');
   await page.getByRole('button', { name: '放弃候选并终结任务', exact: true }).click();
-  await expect(page.getByRole('button', { name: '审阅并接受' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '审阅并接受' })).toHaveCount(0);
   await page.locator('[data-candidate-region]').getByRole('button', { name: '核对操作结果' }).click();
   await expect(page.locator('.creation-state')).toContainText('已终结');
   await expect(page.locator('[data-candidate-region]')).toContainText('尚无候选');

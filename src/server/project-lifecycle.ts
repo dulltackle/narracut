@@ -2126,7 +2126,7 @@ export async function openProjectVNext(
             await assertWritable();
             const result = await run(candidateManager);
             const accepted = result as { status?: string; revision?: { briefFingerprint?: string; current?: boolean; valid?: boolean } } | null;
-            if (accepted?.status === 'accepted' && accepted.revision?.briefFingerprint && accepted.revision.current !== false && accepted.revision.valid !== false) {
+            if (accepted && ['accepted', 'published'].includes(accepted.status ?? '') && accepted.revision?.briefFingerprint && accepted.revision.current !== false && accepted.revision.valid !== false) {
               const currentRenderProgram = { briefRevision: accepted.revision.briefFingerprint, briefReviewPending: accepted.revision.briefFingerprint !== currentInspection.videoBriefRevision, previewPreserved: true as const };
               currentInspection = { ...currentInspection, currentRenderProgram }; inspection.currentRenderProgram = currentRenderProgram;
             }
