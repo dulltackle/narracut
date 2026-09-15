@@ -63,7 +63,7 @@ test('页面编排保存重开保持 Scene 身份、顺序及 Asset，历史只�
     const saved = await disk();
     expect(await readFile(join(directory, saved.assets[0].path), 'utf8')).toBe('删除 Scene 不得删除此 Asset');
     await page.reload();
-    await expect(app.getByRole('button', { name: '没有可撤销的记录' })).toBeDisabled();
+    await expect(app.getByRole('button', { name: '没有可撤销表格编辑的记录' })).toBeDisabled();
     await expect(app.getByRole('group', { name: 'Scene 03 行', exact: true })).toContainText('第一句');
     expect(await disk()).toEqual(saved);
   } finally { await page.close(); await panel.close(); await rm(root, { recursive: true, force: true }); }

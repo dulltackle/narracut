@@ -146,14 +146,15 @@
 
   .video-update { color: var(--ink); background: #fff; padding: 16px 0; font-size: 14px; line-height: 1.65; }
 .video-update p { max-width: 75ch; overflow-wrap: anywhere; margin: 8px 0; }
-.video-update-actions, .video-update-last { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.video-update-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .video-update button { min-height: 44px; padding: 8px 14px; border: 1px solid #cbd0d3; background: #fff; color: #25292d; cursor: pointer; }
 .video-update [data-update-start] { background: #333; color: #fff; border-color: #333; }
 .video-update button:disabled { opacity: .5; cursor: default; }
 .video-update button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 .video-update button:not(:disabled):hover { border-color: #25292d; }
 .video-update pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
-.video-update-last { margin-top: 20px; }
+.video-update-last { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.video-update h3 { margin: 0 0 8px; font-size: 14px; font-weight: 650; }
 [data-update-warnings] { color: #805c1e; }
 </style>
   <style>

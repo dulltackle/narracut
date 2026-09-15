@@ -6,14 +6,14 @@ import { z } from 'zod';
 import { regular, directory, readTree, identity, writeTree, writeBytes, syncDirectory, CandidateError } from './project-candidate';
 const uuid = z.string().uuid(), digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const refSchema = z.object({ revisionId: uuid, metadata: digest, program: digest, requestId: uuid.optional() }).strict();
-const updateSchema = z.object({ hasDesign: z.boolean(), undo: z.object({ requestId: uuid, kind: z.enum(['sync', 'generate', 'adjust']), at: z.string().datetime(), previousRevisionId: uuid.nullable(), revisionId: uuid }).strict().nullable(), result: z.object({ requestId: uuid, operationId: uuid, status: z.enum(['published', 'undone']) }).strict() }).strict();
+const updateSchema = z.object({ hasDesign: z.boolean(), undo: z.object({ requestId: uuid, kind: z.enum(['sync', 'generate', 'adjust']), at: z.string().datetime(), previousRevisionId: uuid.nullable(), revisionId: uuid }).strict().nullable(), result: z.object({ requestId: uuid, operationId: uuid, status: z.enum(['published', 'undone']) }).strict(), restoration: z.object({ requestId: uuid, operationId: uuid, syncRequestId: uuid, synced: z.boolean() }).strict().optional(), undoUnavailable: z.string().optional() }).strict();
 export type UpdateRequest = { requestId: string; kind: 'sync' | 'generate' | 'adjust'; revisionId: string; summary: string; acceptance: Record<string, unknown> };
 const pointerSchema = z.object({ revisionId: uuid, history: z.array(refSchema).min(1).max(20).optional(),
   consumed: z.object({ pointer: digest, generation: z.string().regex(/^\.narracut\/candidate-[0-9a-f-]{36}$/), requestId: uuid, taskCheckpoint: digest.optional() }).strict().optional(),
   update: updateSchema.optional(),
   pruned: z.array(uuid).max(1).optional(),
 }).strict().superRefine((value, ctx) => {
-  if (value.update?.undo && (value.update.undo.revisionId !== value.revisionId || !value.update.hasDesign || (value.update.undo.previousRevisionId && !value.history?.some(ref => ref.revisionId === value.update!.undo!.previousRevisionId)))) ctx.addIssue({ code: 'custom', message: '视频更新撤回记录与修订不一致' });
+  if (value.update?.undo && (!value.history?.some(ref => ref.revisionId === value.update!.undo!.revisionId) || !value.update.hasDesign || (value.update.undo.previousRevisionId && !value.history?.some(ref => ref.revisionId === value.update!.undo!.previousRevisionId)))) ctx.addIssue({ code: 'custom', message: '视频更新撤回记录与修订不一致' });
   if (value.history && (value.history[0].revisionId !== value.revisionId || new Set(value.history.map(item => item.revisionId)).size !== value.history.length)) ctx.addIssue({ code: 'custom', message: '当前修订与历史不一致' });
 });
 const metadataSchema = z.object({ revisionId: uuid, previousRevisionId: uuid.nullable(), briefFingerprint: digest.optional(), source: z.string(), summary: z.string(),
@@ -125,12 +125,25 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
       if (!committed) await rm(root, { recursive: true, force: true }).catch(() => undefined);
     }
   }
+  async function verifiedUndo(pointer: Pointer) {
+    const undo = pointer.update?.undo;
+    if (!undo) return { undo: null, undoUnavailable: pointer.update?.undoUnavailable ?? null };
+    if (undo.kind === 'sync') return { undo: null, undoUnavailable: '存量记录仅证明内容同步，无法确认可撤回的画面创作。' };
+    try {
+      const created = (await verifyRevision(project, undo.revisionId)).metadata;
+      if (created.requestId !== undo.requestId || created.source !== undo.kind || created.acceptedAt !== undo.at || (undo.previousRevisionId !== null && created.previousRevisionId !== undo.previousRevisionId)) throw new Error('创作记录与修订不匹配');
+      // 首次生成的空设计目标必须由原子发布记录证明，不能根据 starter 外观猜测。
+      if (undo.previousRevisionId === null && undo.kind !== 'generate') throw new Error('缺少先前设计身份');
+      if (undo.previousRevisionId) await verifyRevision(project, undo.previousRevisionId);
+      return { undo: { ...undo, summary: created.summary }, undoUnavailable: null };
+    } catch { return { undo: null, undoUnavailable: '持久创作记录或目标无法验证，无法确认可撤回的画面创作。' }; }
+  }
   async function updateState() {
     await assertWritable();
     const pointer = await readCurrentPointer(project);
     const revision = await verifyRevision(project, pointer.revisionId);
     return { revisionId: pointer.revisionId, hasDesign: pointer.update?.hasDesign ?? !!revision.metadata.acceptance,
-      undo: pointer.update?.undo ?? null, result: pointer.update?.result ?? null, revision: revision.metadata };
+      ...await verifiedUndo(pointer), restoration: pointer.update?.restoration ?? null, result: pointer.update?.result ?? null, revision: revision.metadata };
   }
   // 与修订及恢复绑定共用一个 rename；绝不把撤回拆成第二个文件提交。
   async function commitUpdate(beforeBytes: Buffer, next: Pointer, validate: () => Promise<void>) {
@@ -157,7 +170,7 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
     const previous = await verifyRevision(project, before.revisionId);
     if (before.revisionId !== request.revisionId) throw new CandidateError('UPDATE_STALE', '同步来源已变化。');
     const hasDesign = before.update?.hasDesign ?? !!previous.metadata.acceptance;
-    if (request.kind === 'sync' && !hasDesign) throw new CandidateError('UPDATE_NO_DESIGN', '尚未生成画面设计，请先在当前对话生成。');
+    if ((request.kind === 'sync' || request.kind === 'adjust') && !hasDesign) throw new CandidateError('UPDATE_NO_DESIGN', '尚未生成画面设计，请先在当前对话生成。');
     const id = randomUUID(), root = join(internal, 'revisions', id);
     const record = request.acceptance as { identity?: { brief?: string; input?: string } };
     const revision = metadataSchema.parse({ revisionId: id, previousRevisionId: before.revisionId, sourceRevision: before.revisionId,
@@ -169,8 +182,15 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
     if (bytes.length > 1048576) throw new Error('发布证据超过 1 MiB');
     await writeBytes(join(root, 'revision.json'), bytes); await syncDirectory(root); await syncDirectory(join(internal, 'revisions'));
     const refs = [{ revisionId: id, metadata: hash(bytes), program: identity(tree), requestId: request.requestId }, ...(before.history ?? [previous.ref])];
-    const next = pointerSchema.parse({ ...before, revisionId: id, history: refs.slice(0,20), pruned: refs.slice(20).map(ref => ref.revisionId),
-      update: { hasDesign: true, undo: { requestId: request.requestId, kind: request.kind, at: revision.acceptedAt!, previousRevisionId: hasDesign ? before.revisionId : null, revisionId: id },
+    const verified = await verifiedUndo(before);
+    const undo = request.kind === 'sync' ? before.update?.undo ?? null : { requestId: request.requestId, kind: request.kind, at: revision.acceptedAt!, previousRevisionId: hasDesign ? before.revisionId : null, revisionId: id };
+    // 内容同步可无限发生；在有限索引内固定创作身份及恢复目标，不能让同步挤掉它们。
+    const protectedIds = new Set([id, undo?.revisionId, undo?.previousRevisionId].filter(Boolean));
+    const retained = refs.filter(ref => protectedIds.has(ref.revisionId));
+    for (const ref of refs) if (retained.length < 20 && !retained.includes(ref)) retained.push(ref);
+    const next = pointerSchema.parse({ ...before, revisionId: id, history: refs.filter(ref => retained.includes(ref)), pruned: refs.filter(ref => !retained.includes(ref)).map(ref => ref.revisionId),
+      update: { hasDesign: true, undo, undoUnavailable: request.kind === 'sync' ? verified.undoUnavailable ?? undefined : undefined,
+        restoration: request.kind === 'sync' && before.update?.restoration ? { ...before.update.restoration, synced: true } : undefined,
         result: { requestId: request.requestId, operationId: request.requestId, status: 'published' } } });
     await commitUpdate(beforeBytes, next, async () => {
       await validate(); await verifyRevision(project, before.revisionId);
@@ -183,13 +203,14 @@ export function createRevisionStore(project: string, assertWritable: () => Promi
     const beforeBytes = await regular(join(internal, 'current.json'), 16384), before = await readCurrentPointer(project);
     const result = { status: 'undone' as const, requestId: request.requestId, operationId: request.operationId };
     if (before.update?.result.requestId === request.requestId && before.update.result.operationId === request.operationId && before.update.result.status === 'undone') return result;
-    const undo = before.update?.undo;
+    if (before.update?.restoration?.requestId === request.requestId && before.update.restoration.operationId === request.operationId) return result;
+    const undo = (await verifiedUndo(before)).undo;
     if (!undo || undo.requestId !== request.operationId) throw new CandidateError('UPDATE_NOT_UNDOABLE', '此更新已不可撤回，请核对最近操作。');
     const target = undo.previousRevisionId ?? before.revisionId;
     await verifyRevision(project, target);
     const refs = before.history!;
     const next = pointerSchema.parse({ ...before, revisionId: target, history: [refs.find(ref => ref.revisionId === target)!, ...refs.filter(ref => ref.revisionId !== target)],
-      update: { hasDesign: undo.previousRevisionId !== null, undo: null, result: { ...result } } });
+      update: { hasDesign: undo.previousRevisionId !== null, undo: null, result: { ...result }, restoration: { requestId: request.requestId, operationId: request.operationId, syncRequestId: randomUUID(), synced: false } } });
     await commitUpdate(beforeBytes, next, async () => { await validate(); await verifyRevision(project, target); });
     return result;
   }

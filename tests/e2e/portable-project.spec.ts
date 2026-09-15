@@ -101,7 +101,7 @@ test('插件工作台：关闭移动后断网同步、精确 Preview 与同 Bund
     const preview = (await call('project_video_update', { action: 'view', parentOrigin: origin })).preview;
     expect(preview.stale).toBe(false);
     const published = await call('project_video_update', { action: 'status' });
-    expect(published.undo.kind).toBe('sync');
+    expect(published.undo).toBeNull();
     const samples = published.revision.acceptance.frames;
     const images = new Map<number, string>();
     const player = page.locator('[data-preview-screen] iframe:not([hidden])');

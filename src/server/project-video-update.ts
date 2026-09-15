@@ -15,13 +15,16 @@ export class ProjectVideoUpdate {
   #abort?: AbortController;
   #checks: ProjectChecks;
   #closing = false;
+  #generation = 0;
   #preparingRequest?: string;
   constructor(private preview: ProjectPreview) { this.#checks = new ProjectChecks(preview, 'current'); }
   get busy() { return !!this.#abort; }
-  async status(opened: OpenedProjectVNext, requestId?: string) {
+  async status(opened: OpenedProjectVNext, requestId?: string, parentOrigin?: string) {
+    const generation = this.#generation;
     const state = await opened.programTransaction(manager => manager.updateState());
+    if (generation === this.#generation && parentOrigin && state.hasDesign && state.restoration && !state.restoration.synced && !this.#job && !this.busy && !this.#closing) await this.start(opened, { requestId: state.restoration.syncRequestId, parentOrigin });
     const candidate = await opened.candidate({ action: 'read' });
-    return { ...state, requestStatus: !requestId ? undefined : state.result?.requestId === requestId ? state.result.status : this.#job?.requestId === requestId ? this.#job.status : this.#preparingRequest === requestId ? 'running' : 'not-started', checks: await this.#checks.status(opened), job: this.#job ? structuredClone(this.#job) : null,
+    return { ...state, requestStatus: !requestId ? undefined : state.restoration?.requestId === requestId ? 'undone' : state.result?.requestId === requestId ? state.result.status : this.#job?.requestId === requestId ? this.#job.status : this.#preparingRequest === requestId ? 'running' : 'not-started', checks: await this.#checks.status(opened), job: this.#job ? structuredClone(this.#job) : null,
       compatibility: candidate.status !== 'absent' ? `保留的内部成果：${candidate.status}。仅同步沿用当前设计；继续创作或恢复完整性请在当前对话处理，不会自动发布或删除。` : candidate.error?.message ?? null };
   }
   #viewing?: Promise<any>;
@@ -41,7 +44,8 @@ export class ProjectVideoUpdate {
         if (descriptor.identity.bundle !== record.bundle) { this.preview.release(descriptor.instanceId); throw new Error('重建结果与发布证据不一致，请重新同步。'); }
         view = await this.preview.view(opened, 'current', parentOrigin);
       }
-      if (this.busy || this.#closing || view.preview?.stale || (await opened.programTransaction(manager => manager.updateState())).revisionId !== state.revisionId) return { preview: null };
+      const latest = await opened.programTransaction(manager => manager.updateState());
+      if (this.busy || this.#closing || view.preview?.stale || !latest.hasDesign || latest.result?.status === 'undone' || latest.revisionId !== state.revisionId || latest.result?.requestId !== state.result?.requestId) return { preview: null };
       return view;
     })();
     try { return await this.#viewing; } finally { this.#viewing = undefined; }
@@ -70,15 +74,35 @@ export class ProjectVideoUpdate {
     if (this.busy && (this.#job?.requestId === requestId || this.#preparingRequest === requestId)) { if (this.#job?.requestId !== requestId) this.#job = { requestId, status: 'cancelling', stage: '正在取消并核对在途结果' }; else { this.#job.status = 'cancelling'; this.#job.stage = '正在取消并核对在途结果'; } this.#abort?.abort(); }
     return { job: this.#job ? structuredClone(this.#job) : null };
   }
-  async undo(opened: OpenedProjectVNext, args: { requestId: string; operationId: string }) {
+  async undo(opened: OpenedProjectVNext, args: { requestId: string; operationId: string; parentOrigin: string }) {
     if (this.busy || this.#closing) throw new Error('正在核对更新，暂不能撤回。');
     const abort = this.#abort = new AbortController();
     this.preview.invalidate();
-    const operation = opened.programTransaction(manager => manager.undoUpdate(args, async () => { abort.signal.throwIfAborted(); }));
+    const generation = this.#generation;
+    const operation = (async () => {
+      let result;
+      try { result = await opened.programTransaction(manager => manager.undoUpdate(args, async () => { abort.signal.throwIfAborted(); })); }
+      catch (error) {
+        const state = await opened.programTransaction(manager => manager.updateState());
+        if (state.restoration?.requestId !== args.requestId || state.restoration.operationId !== args.operationId) throw error;
+        result = { status: 'undone' as const, requestId: args.requestId, operationId: args.operationId };
+      }
+      return { result, state: await opened.programTransaction(manager => manager.updateState()) };
+    })();
+    // 排空包含恢复提交后的读取；关闭、取消与失权不能在移交同步的间隙启动旧项目工作。
     this.#running = operation.then(() => {}, () => {});
-    try { return await operation; } finally { this.#abort = undefined; this.#running = undefined; }
+    let outcome;
+    try { outcome = await operation; } finally { this.#abort = undefined; this.#running = undefined; }
+    const { result, state } = outcome;
+    if (abort.signal.aborted || generation !== this.#generation || this.#closing) return result;
+    this.#job = undefined;
+    if (state.hasDesign && state.restoration && !state.restoration.synced) {
+      try { return { ...result, ...await this.start(opened, { requestId: state.restoration.syncRequestId, parentOrigin: args.parentOrigin }) }; }
+      catch (error) { return { ...result, syncError: (error as Error).message }; }
+    }
+    return result;
   }
-  async close() { this.#closing = true; this.#abort?.abort(); this.#checks.invalidate(); await this.#running; await this.#viewing?.catch(() => {}); this.#checks.clear(); this.#job = undefined; this.#closing = false; }
+  async close() { this.#generation++; this.#closing = true; this.#abort?.abort(); this.#checks.invalidate(); await this.#running; await this.#viewing?.catch(() => {}); this.#checks.clear(); this.#job = undefined; this.#closing = false; }
   async #run(opened: OpenedProjectVNext, args: { requestId: string; parentOrigin: string }, revisionId: string, job: VideoUpdateJob, abort: AbortController) {
     let instanceId: string | undefined;
     try {
@@ -113,7 +137,7 @@ export class ProjectVideoUpdate {
       if (batch.truncated || batch.warningsTruncated) throw new Error('检查信息已截断，请修复后重新同步。');
       const record = { protocolVersion: 1, checkerVersion: 1, bridgeVersion: 1, identity: batch.identity, bundle: descriptor.identity.bundle, instanceId,
         stages: batch.stages, frames, warnings, gates: [{ operation: 'publish', status: 'available' }], zeroScenes: !descriptor.input.scenes.length };
-      job.stage = '正在发布并保存一步撤回记录';
+      job.stage = '正在发布最新内容视频';
       await opened.programTransaction(async manager => {
         const local = { ...opened, candidate: manager, readPreviewSource: manager.previewSource };
         return manager.publishUpdate({ requestId: args.requestId, kind: 'sync', revisionId, summary: '仅同步表格内容，沿用现有画面设计', acceptance: record }, 'current', async () => {

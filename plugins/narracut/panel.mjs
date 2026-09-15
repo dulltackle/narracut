@@ -23981,7 +23981,7 @@ import { rename, rm, mkdir, lstat } from "node:fs/promises";
 var uuid3 = external_exports.string().uuid();
 var digest = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
 var refSchema = external_exports.object({ revisionId: uuid3, metadata: digest, program: digest, requestId: uuid3.optional() }).strict();
-var updateSchema = external_exports.object({ hasDesign: external_exports.boolean(), undo: external_exports.object({ requestId: uuid3, kind: external_exports.enum(["sync", "generate", "adjust"]), at: external_exports.string().datetime(), previousRevisionId: uuid3.nullable(), revisionId: uuid3 }).strict().nullable(), result: external_exports.object({ requestId: uuid3, operationId: uuid3, status: external_exports.enum(["published", "undone"]) }).strict() }).strict();
+var updateSchema = external_exports.object({ hasDesign: external_exports.boolean(), undo: external_exports.object({ requestId: uuid3, kind: external_exports.enum(["sync", "generate", "adjust"]), at: external_exports.string().datetime(), previousRevisionId: uuid3.nullable(), revisionId: uuid3 }).strict().nullable(), result: external_exports.object({ requestId: uuid3, operationId: uuid3, status: external_exports.enum(["published", "undone"]) }).strict(), restoration: external_exports.object({ requestId: uuid3, operationId: uuid3, syncRequestId: uuid3, synced: external_exports.boolean() }).strict().optional(), undoUnavailable: external_exports.string().optional() }).strict();
 var pointerSchema = external_exports.object({
   revisionId: uuid3,
   history: external_exports.array(refSchema).min(1).max(20).optional(),
@@ -23989,7 +23989,7 @@ var pointerSchema = external_exports.object({
   update: updateSchema.optional(),
   pruned: external_exports.array(uuid3).max(1).optional()
 }).strict().superRefine((value, ctx) => {
-  if (value.update?.undo && (value.update.undo.revisionId !== value.revisionId || !value.update.hasDesign || value.update.undo.previousRevisionId && !value.history?.some((ref) => ref.revisionId === value.update.undo.previousRevisionId))) ctx.addIssue({ code: "custom", message: "\u89C6\u9891\u66F4\u65B0\u64A4\u56DE\u8BB0\u5F55\u4E0E\u4FEE\u8BA2\u4E0D\u4E00\u81F4" });
+  if (value.update?.undo && (!value.history?.some((ref) => ref.revisionId === value.update.undo.revisionId) || !value.update.hasDesign || value.update.undo.previousRevisionId && !value.history?.some((ref) => ref.revisionId === value.update.undo.previousRevisionId))) ctx.addIssue({ code: "custom", message: "\u89C6\u9891\u66F4\u65B0\u64A4\u56DE\u8BB0\u5F55\u4E0E\u4FEE\u8BA2\u4E0D\u4E00\u81F4" });
   if (value.history && (value.history[0].revisionId !== value.revisionId || new Set(value.history.map((item) => item.revisionId)).size !== value.history.length)) ctx.addIssue({ code: "custom", message: "\u5F53\u524D\u4FEE\u8BA2\u4E0E\u5386\u53F2\u4E0D\u4E00\u81F4" });
 });
 var metadataSchema = external_exports.object({
@@ -24135,6 +24135,20 @@ function createRevisionStore(project2, assertWritable, observeCommit) {
       if (!committed) await rm(root, { recursive: true, force: true }).catch(() => void 0);
     }
   }
+  async function verifiedUndo(pointer) {
+    const undo = pointer.update?.undo;
+    if (!undo) return { undo: null, undoUnavailable: pointer.update?.undoUnavailable ?? null };
+    if (undo.kind === "sync") return { undo: null, undoUnavailable: "\u5B58\u91CF\u8BB0\u5F55\u4EC5\u8BC1\u660E\u5185\u5BB9\u540C\u6B65\uFF0C\u65E0\u6CD5\u786E\u8BA4\u53EF\u64A4\u56DE\u7684\u753B\u9762\u521B\u4F5C\u3002" };
+    try {
+      const created = (await verifyRevision(project2, undo.revisionId)).metadata;
+      if (created.requestId !== undo.requestId || created.source !== undo.kind || created.acceptedAt !== undo.at || undo.previousRevisionId !== null && created.previousRevisionId !== undo.previousRevisionId) throw new Error("\u521B\u4F5C\u8BB0\u5F55\u4E0E\u4FEE\u8BA2\u4E0D\u5339\u914D");
+      if (undo.previousRevisionId === null && undo.kind !== "generate") throw new Error("\u7F3A\u5C11\u5148\u524D\u8BBE\u8BA1\u8EAB\u4EFD");
+      if (undo.previousRevisionId) await verifyRevision(project2, undo.previousRevisionId);
+      return { undo: { ...undo, summary: created.summary }, undoUnavailable: null };
+    } catch {
+      return { undo: null, undoUnavailable: "\u6301\u4E45\u521B\u4F5C\u8BB0\u5F55\u6216\u76EE\u6807\u65E0\u6CD5\u9A8C\u8BC1\uFF0C\u65E0\u6CD5\u786E\u8BA4\u53EF\u64A4\u56DE\u7684\u753B\u9762\u521B\u4F5C\u3002" };
+    }
+  }
   async function updateState() {
     await assertWritable();
     const pointer = await readCurrentPointer(project2);
@@ -24142,7 +24156,8 @@ function createRevisionStore(project2, assertWritable, observeCommit) {
     return {
       revisionId: pointer.revisionId,
       hasDesign: pointer.update?.hasDesign ?? !!revision.metadata.acceptance,
-      undo: pointer.update?.undo ?? null,
+      ...await verifiedUndo(pointer),
+      restoration: pointer.update?.restoration ?? null,
       result: pointer.update?.result ?? null,
       revision: revision.metadata
     };
@@ -24174,7 +24189,7 @@ function createRevisionStore(project2, assertWritable, observeCommit) {
     const previous = await verifyRevision(project2, before.revisionId);
     if (before.revisionId !== request2.revisionId) throw new CandidateError("UPDATE_STALE", "\u540C\u6B65\u6765\u6E90\u5DF2\u53D8\u5316\u3002");
     const hasDesign = before.update?.hasDesign ?? !!previous.metadata.acceptance;
-    if (request2.kind === "sync" && !hasDesign) throw new CandidateError("UPDATE_NO_DESIGN", "\u5C1A\u672A\u751F\u6210\u753B\u9762\u8BBE\u8BA1\uFF0C\u8BF7\u5148\u5728\u5F53\u524D\u5BF9\u8BDD\u751F\u6210\u3002");
+    if ((request2.kind === "sync" || request2.kind === "adjust") && !hasDesign) throw new CandidateError("UPDATE_NO_DESIGN", "\u5C1A\u672A\u751F\u6210\u753B\u9762\u8BBE\u8BA1\uFF0C\u8BF7\u5148\u5728\u5F53\u524D\u5BF9\u8BDD\u751F\u6210\u3002");
     const id = randomUUID(), root = join(internal, "revisions", id);
     const record3 = request2.acceptance;
     const revision = metadataSchema.parse({
@@ -24198,14 +24213,21 @@ function createRevisionStore(project2, assertWritable, observeCommit) {
     await syncDirectory(root);
     await syncDirectory(join(internal, "revisions"));
     const refs = [{ revisionId: id, metadata: hash2(bytes), program: identity(tree), requestId: request2.requestId }, ...before.history ?? [previous.ref]];
+    const verified = await verifiedUndo(before);
+    const undo = request2.kind === "sync" ? before.update?.undo ?? null : { requestId: request2.requestId, kind: request2.kind, at: revision.acceptedAt, previousRevisionId: hasDesign ? before.revisionId : null, revisionId: id };
+    const protectedIds = new Set([id, undo?.revisionId, undo?.previousRevisionId].filter(Boolean));
+    const retained = refs.filter((ref) => protectedIds.has(ref.revisionId));
+    for (const ref of refs) if (retained.length < 20 && !retained.includes(ref)) retained.push(ref);
     const next = pointerSchema.parse({
       ...before,
       revisionId: id,
-      history: refs.slice(0, 20),
-      pruned: refs.slice(20).map((ref) => ref.revisionId),
+      history: refs.filter((ref) => retained.includes(ref)),
+      pruned: refs.filter((ref) => !retained.includes(ref)).map((ref) => ref.revisionId),
       update: {
         hasDesign: true,
-        undo: { requestId: request2.requestId, kind: request2.kind, at: revision.acceptedAt, previousRevisionId: hasDesign ? before.revisionId : null, revisionId: id },
+        undo,
+        undoUnavailable: request2.kind === "sync" ? verified.undoUnavailable ?? void 0 : void 0,
+        restoration: request2.kind === "sync" && before.update?.restoration ? { ...before.update.restoration, synced: true } : void 0,
         result: { requestId: request2.requestId, operationId: request2.requestId, status: "published" }
       }
     });
@@ -24222,7 +24244,8 @@ function createRevisionStore(project2, assertWritable, observeCommit) {
     const beforeBytes = await regular(join(internal, "current.json"), 16384), before = await readCurrentPointer(project2);
     const result = { status: "undone", requestId: request2.requestId, operationId: request2.operationId };
     if (before.update?.result.requestId === request2.requestId && before.update.result.operationId === request2.operationId && before.update.result.status === "undone") return result;
-    const undo = before.update?.undo;
+    if (before.update?.restoration?.requestId === request2.requestId && before.update.restoration.operationId === request2.operationId) return result;
+    const undo = (await verifiedUndo(before)).undo;
     if (!undo || undo.requestId !== request2.operationId) throw new CandidateError("UPDATE_NOT_UNDOABLE", "\u6B64\u66F4\u65B0\u5DF2\u4E0D\u53EF\u64A4\u56DE\uFF0C\u8BF7\u6838\u5BF9\u6700\u8FD1\u64CD\u4F5C\u3002");
     const target = undo.previousRevisionId ?? before.revisionId;
     await verifyRevision(project2, target);
@@ -24231,7 +24254,7 @@ function createRevisionStore(project2, assertWritable, observeCommit) {
       ...before,
       revisionId: target,
       history: [refs.find((ref) => ref.revisionId === target), ...refs.filter((ref) => ref.revisionId !== target)],
-      update: { hasDesign: undo.previousRevisionId !== null, undo: null, result: { ...result } }
+      update: { hasDesign: undo.previousRevisionId !== null, undo: null, result: { ...result }, restoration: { requestId: request2.requestId, operationId: request2.operationId, syncRequestId: randomUUID(), synced: false } }
     });
     await commitUpdate(beforeBytes, next, async () => {
       await validate();
@@ -26109,6 +26132,7 @@ async function createCandidateManager(project2, assertWritable, observeCommit) {
     updateState: revisions.updateState,
     undoUpdate: revisions.undoUpdate,
     async publishUpdate(request2, target, validate) {
+      if (request2.kind === "sync" && target !== "current") fail4("UPDATE_INVALID_SOURCE", "\u5185\u5BB9\u540C\u6B65\u53EA\u80FD\u6CBF\u7528\u5F53\u524D\u753B\u9762\u8BBE\u8BA1\u3002");
       const source = target === "current" ? (await revisions.verify(request2.revisionId)).tree : (await inspect()).tree;
       if (!source) fail4("UPDATE_NO_DESIGN", "\u6CA1\u6709\u5B8C\u6574\u753B\u9762\u8BBE\u8BA1\u3002");
       const before = await inspect();
@@ -32163,16 +32187,19 @@ var ProjectVideoUpdate = class {
   #abort;
   #checks;
   #closing = false;
+  #generation = 0;
   #preparingRequest;
   get busy() {
     return !!this.#abort;
   }
-  async status(opened, requestId) {
+  async status(opened, requestId, parentOrigin) {
+    const generation = this.#generation;
     const state = await opened.programTransaction((manager) => manager.updateState());
+    if (generation === this.#generation && parentOrigin && state.hasDesign && state.restoration && !state.restoration.synced && !this.#job && !this.busy && !this.#closing) await this.start(opened, { requestId: state.restoration.syncRequestId, parentOrigin });
     const candidate = await opened.candidate({ action: "read" });
     return {
       ...state,
-      requestStatus: !requestId ? void 0 : state.result?.requestId === requestId ? state.result.status : this.#job?.requestId === requestId ? this.#job.status : this.#preparingRequest === requestId ? "running" : "not-started",
+      requestStatus: !requestId ? void 0 : state.restoration?.requestId === requestId ? "undone" : state.result?.requestId === requestId ? state.result.status : this.#job?.requestId === requestId ? this.#job.status : this.#preparingRequest === requestId ? "running" : "not-started",
       checks: await this.#checks.status(opened),
       job: this.#job ? structuredClone(this.#job) : null,
       compatibility: candidate.status !== "absent" ? `\u4FDD\u7559\u7684\u5185\u90E8\u6210\u679C\uFF1A${candidate.status}\u3002\u4EC5\u540C\u6B65\u6CBF\u7528\u5F53\u524D\u8BBE\u8BA1\uFF1B\u7EE7\u7EED\u521B\u4F5C\u6216\u6062\u590D\u5B8C\u6574\u6027\u8BF7\u5728\u5F53\u524D\u5BF9\u8BDD\u5904\u7406\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u53D1\u5E03\u6216\u5220\u9664\u3002` : candidate.error?.message ?? null
@@ -32198,7 +32225,8 @@ var ProjectVideoUpdate = class {
         }
         view = await this.preview.view(opened, "current", parentOrigin);
       }
-      if (this.busy || this.#closing || view.preview?.stale || (await opened.programTransaction((manager) => manager.updateState())).revisionId !== state.revisionId) return { preview: null };
+      const latest = await opened.programTransaction((manager) => manager.updateState());
+      if (this.busy || this.#closing || view.preview?.stale || !latest.hasDesign || latest.result?.status === "undone" || latest.revisionId !== state.revisionId || latest.result?.requestId !== state.result?.requestId) return { preview: null };
       return view;
     })();
     try {
@@ -32257,20 +32285,44 @@ var ProjectVideoUpdate = class {
     if (this.busy || this.#closing) throw new Error("\u6B63\u5728\u6838\u5BF9\u66F4\u65B0\uFF0C\u6682\u4E0D\u80FD\u64A4\u56DE\u3002");
     const abort = this.#abort = new AbortController();
     this.preview.invalidate();
-    const operation = opened.programTransaction((manager) => manager.undoUpdate(args, async () => {
-      abort.signal.throwIfAborted();
-    }));
+    const generation = this.#generation;
+    const operation = (async () => {
+      let result2;
+      try {
+        result2 = await opened.programTransaction((manager) => manager.undoUpdate(args, async () => {
+          abort.signal.throwIfAborted();
+        }));
+      } catch (error51) {
+        const state2 = await opened.programTransaction((manager) => manager.updateState());
+        if (state2.restoration?.requestId !== args.requestId || state2.restoration.operationId !== args.operationId) throw error51;
+        result2 = { status: "undone", requestId: args.requestId, operationId: args.operationId };
+      }
+      return { result: result2, state: await opened.programTransaction((manager) => manager.updateState()) };
+    })();
     this.#running = operation.then(() => {
     }, () => {
     });
+    let outcome;
     try {
-      return await operation;
+      outcome = await operation;
     } finally {
       this.#abort = void 0;
       this.#running = void 0;
     }
+    const { result, state } = outcome;
+    if (abort.signal.aborted || generation !== this.#generation || this.#closing) return result;
+    this.#job = void 0;
+    if (state.hasDesign && state.restoration && !state.restoration.synced) {
+      try {
+        return { ...result, ...await this.start(opened, { requestId: state.restoration.syncRequestId, parentOrigin: args.parentOrigin }) };
+      } catch (error51) {
+        return { ...result, syncError: error51.message };
+      }
+    }
+    return result;
   }
   async close() {
+    this.#generation++;
     this.#closing = true;
     this.#abort?.abort();
     this.#checks.invalidate();
@@ -32332,7 +32384,7 @@ var ProjectVideoUpdate = class {
         gates: [{ operation: "publish", status: "available" }],
         zeroScenes: !descriptor.input.scenes.length
       };
-      job.stage = "\u6B63\u5728\u53D1\u5E03\u5E76\u4FDD\u5B58\u4E00\u6B65\u64A4\u56DE\u8BB0\u5F55";
+      job.stage = "\u6B63\u5728\u53D1\u5E03\u6700\u65B0\u5185\u5BB9\u89C6\u9891";
       await opened.programTransaction(async (manager) => {
         const local2 = { ...opened, candidate: manager, readPreviewSource: manager.previewSource };
         return manager.publishUpdate({ requestId: args.requestId, kind: "sync", revisionId, summary: "\u4EC5\u540C\u6B65\u8868\u683C\u5185\u5BB9\uFF0C\u6CBF\u7528\u73B0\u6709\u753B\u9762\u8BBE\u8BA1", acceptance: record3 }, "current", async () => {
@@ -33699,8 +33751,8 @@ var tools = [
   },
   {
     name: "project_video_update",
-    title: "\u540C\u6B65\u89C6\u9891\u4E0E\u64A4\u56DE\u4E0A\u6B21\u66F4\u65B0",
-    description: "\u660E\u786E\u540C\u6B65\u6700\u65B0\u8868\u683C\uFF0C\u4FDD\u7559\u753B\u9762\u8BBE\u8BA1\uFF1B\u6210\u529F\u540E\u76F4\u63A5\u4F7F\u7528\u5B8C\u6574\u89C6\u9891\u3002\u67E5\u8BE2\u6216\u64A4\u56DE\u6700\u8FD1\u4E00\u6B65\u66F4\u65B0\uFF0C\u4E0D\u5408\u6210 Speech\uFF0C\u4E0D\u8F93\u51FA\u89C6\u9891\u3002",
+    title: "\u540C\u6B65\u89C6\u9891\u4E0E\u64A4\u56DE\u753B\u9762\u521B\u4F5C",
+    description: "\u660E\u786E\u540C\u6B65\u6700\u65B0\u8868\u683C\uFF0C\u4FDD\u7559\u753B\u9762\u8BBE\u8BA1\uFF1B\u6210\u529F\u540E\u76F4\u63A5\u4F7F\u7528\u5B8C\u6574\u89C6\u9891\u3002\u540C\u6B65\u4E0D\u5360\u7528\u753B\u9762\u64A4\u56DE\uFF1B\u64A4\u56DE\u6700\u8FD1\u6210\u529F\u751F\u6210\u6216\u8C03\u6574\uFF0C\u6062\u590D\u8BBE\u8BA1\u540E\u81EA\u52A8\u540C\u6B65\u6700\u65B0\u5185\u5BB9\u3002undo \u4E0E\u9875\u9762 status \u643A\u5E26 parentOrigin\uFF1B\u6309\u539F requestId \u6838\u5BF9\u64A4\u56DE\uFF0Crestoration \u4FDD\u7559\u6062\u590D\u4E8B\u5B9E\u4E0E\u540E\u7EED\u540C\u6B65\u8EAB\u4EFD\u3002\u4E0D\u5408\u6210 Speech\uFF0C\u4E0D\u8F93\u51FA\u89C6\u9891\u3002",
     inputSchema: { type: "object", required: ["projectDirectory", "projectId", "action"], additionalProperties: false, properties: {
       projectDirectory: { type: "string" },
       projectId: { type: "string" },
@@ -34547,7 +34599,7 @@ var ProjectWorkspaceSession = class _ProjectWorkspaceSession {
   videoUpdate = new ProjectVideoUpdate(this.preview);
   async videoUpdateOperation(input) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
-    if (input.action === "status") return this.videoUpdate.status(opened, input.requestId);
+    if (input.action === "status") return this.videoUpdate.status(opened, input.requestId, this.creation?.blocksCandidateWrites || this.#resolvingCandidate ? void 0 : input.parentOrigin);
     if (input.action === "view") return this.videoUpdate.view(opened, input.parentOrigin);
     if (input.action === "cancel") return this.videoUpdate.cancel(input.requestId);
     if (this.creation?.blocksCandidateWrites || this.#resolvingCandidate) throw new Error("\u5DF2\u6709\u521B\u4F5C\u6B63\u5728\u8FDB\u884C\uFF0C\u8BF7\u5148\u505C\u6B62\u5E76\u6838\u5BF9\u5728\u9014\u7ED3\u679C\u3002");

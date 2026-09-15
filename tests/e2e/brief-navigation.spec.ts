@@ -90,7 +90,7 @@ test('Brief 再次冲突保留三方证据及合并草稿，导出不解除冲�
     await expect(page.getByRole('alert')).toContainText('导出目录不可写');
     exportMode = 'ok';
     await page.getByRole('button', { name: '导出本地内容' }).click();
-    await expect(page.getByText(/本地内容已导出到/)).toContainText(exports);
+    await expect(page.getByRole('dialog', { name: '编辑 Video Brief' }).getByText(/本地内容已导出到/)).toContainText(exports);
     expect(await readFile(join(exports, 'video-brief-local.md'), 'utf8')).toBe('# 本地\n\n保留中文目标。');
     await expect(merge).toHaveValue('# 完整合并草稿\n本地与磁盘内容。');
     expect(await readFile(join(root, 'video.md'), 'utf8')).toBe('# 磁盘第一版\n');

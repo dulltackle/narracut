@@ -223,7 +223,7 @@ test("Video Brief 使用独立历史与串行 ETag 保存，关闭后恢复入�
   await page.getByRole("button", { name: "关闭 Video Brief 编辑器" }).click();
   await expect(entry).toBeFocused();
   await expect(page.locator("[data-scene-row]").first()).toHaveAttribute("data-selected", "true");
-  await expect(page.getByRole("button", { name: /^(撤销：|没有可撤销)/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^(撤销表格编辑：|没有可撤销表格编辑)/ })).toBeDisabled();
   await page.getByRole("tab", { name: "Agent 工作区" }).click();
   await expect(page.getByText("Brief 待复核", { exact: true })).toBeVisible();
   await expect(page.getByText("当前 Render Program 与既有 Preview 保持不变", { exact: true })).toBeVisible();
@@ -847,7 +847,7 @@ test("编辑、复制、移动、删除与 Undo/Redo 保持 Scene 身份和保�
     assetIds: initial.projectDsl.scenes[1]!.assetIds,
   });
 
-  await page.getByRole("button", { name: /^(撤销：|没有可撤销)/ }).click();
+  await page.getByRole("button", { name: /^(撤销表格编辑：|没有可撤销表格编辑)/ }).click();
   await expect(page.locator(`[data-scene-id="${secondId}"] .narration-view`)).toHaveText(initial.scenes[1]!.narration);
   await page.getByRole("button", { name: /^(重做：|没有可重做)/ }).click();
   await expect(page.locator(`[data-scene-id="${secondId}"] .narration-view`)).toHaveText("改写完成");
@@ -929,7 +929,7 @@ test("保存失败可显式重试，工作区切换保留编辑与历史；冲�
   await page.getByRole("button", { name: "返回编辑", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Scene 01 Narration" })).toBeFocused();
   await expect(page.getByRole("textbox", { name: "Scene 01 Narration" })).toHaveValue("保留在内存中的合法修改");
-  await expect(page.getByRole("button", { name: /^(撤销：|没有可撤销)/ })).toBeEnabled();
+  await expect(page.getByRole("button", { name: /^(撤销表格编辑：|没有可撤销表格编辑)/ })).toBeEnabled();
   mode = "success";
   await page.getByRole("button", { name: "重试保存" }).click();
   await expect(page.getByText("已保存", { exact: true })).toBeVisible();
@@ -1031,7 +1031,7 @@ test("从 Scene Asset 面板逐项导入并绑定，失败项不回滚且 Undo �
   await expect(page.getByRole("button", { name: "第 01 个 Scene 的 Asset：mountain.png" })).toBeVisible();
 
   await page.getByRole("button", { name: "关闭项目检查" }).click();
-  await page.getByRole("button", { name: /^(撤销：|没有可撤销)/ }).click();
+  await page.getByRole("button", { name: /^(撤销表格编辑：|没有可撤销表格编辑)/ }).click();
   await expect.poll(() => calls.filter((call) => call.name === "save_project_scenes").at(-1)?.args.project)
     .toMatchObject({ assets: [importedAsset], scenes: [{ assetIds: [] }] });
   await expect(page.getByRole("button", { name: "第 01 个 Scene 的 Asset：未绑定 · 添加" })).toBeVisible();
@@ -1798,9 +1798,9 @@ test('Scene 删除定位下一句，撤销恢复身份并提示下一步对象�
   const remaining = page.getByRole('group', { name: 'Scene 01 行', exact: true });
   await expect(remaining).toBeFocused();
   await expect(remaining).toContainText(initial.scenes[1]!.narration);
-  await expect(page.getByRole('button', { name: '撤销：删除 Scene 01', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '撤销表格编辑：删除 Scene 01', exact: true })).toBeEnabled();
   await expect(page.getByRole('status').filter({ has: page.getByRole('button', { name: '撤销删除' }) })).toBeVisible();
-  await page.getByRole('button', { name: '撤销：删除 Scene 01', exact: true }).click();
+  await page.getByRole('button', { name: '撤销表格编辑：删除 Scene 01', exact: true }).click();
   await expect(first).toBeFocused();
   await expect(first).toHaveAttribute('data-scene-id', initial.scenes[0]!.id);
   await page.getByRole('button', { name: '重做：删除 Scene 01', exact: true }).click();
@@ -1834,7 +1834,7 @@ for (const size of [{ width: 902, height: 667 }, { width: 960, height: 640 }, { 
       await expect(menu.getByRole('menuitem', { name: '下移', exact: true })).toBeDisabled();
       await expect(menu.getByRole('menuitem', { name: '复制', exact: true }))[count === 1000 ? 'toBeDisabled' : 'toBeEnabled']();
       await expect(page.getByRole('button', { name: '新增 Scene', exact: true })).toBeInViewport();
-      await expect(page.getByRole('button', { name: '没有可撤销的记录' })).toBeInViewport();
+      await expect(page.getByRole('button', { name: '没有可撤销表格编辑的记录' })).toBeInViewport();
       const bounds = await menu.boundingBox();
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
       expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(size.height);
@@ -1854,7 +1854,7 @@ for (const size of [{ width: 902, height: 667 }, { width: 960, height: 640 }, { 
       await moved.getByRole('button', { name: '拖动第 1 行' }).dragTo(page.getByRole('group', { name: 'Scene 02 行', exact: true }), { targetPosition: { x: 24, y: 20 } });
       await expect.poll(() => saved?.scenes[1].id).toBe(initial.scenes.at(-1)!.id);
       await expect(page.getByRole('group', { name: 'Scene 02 行', exact: true })).toBeFocused();
-      await page.getByRole('button', { name: '撤销：移动 Scene 01 到位置 2', exact: true }).click();
+      await page.getByRole('button', { name: '撤销表格编辑：移动 Scene 01 到位置 2', exact: true }).click();
       await expect(moved).toBeFocused();
       await expect.poll(() => saved?.scenes[0].id).toBe(initial.scenes.at(-1)!.id);
     }

@@ -1,6 +1,6 @@
 /** 成片 Preview 宿主仅消费版本化消息；不读取 iframe DOM、Player 或 Bundle 全局对象。 */
 function createPreviewWorkbench(call, getProject, candidateReady = () => {}, canViewExisting = () => false, callUpdate, canOperate = () => true, createUuid = () => crypto.randomUUID()) {
-  let updateState, updateError = '', operationError = '', updateRequest = null, updatePolling = false, waitChoice = false, editGeneration = 0, lastInputKey;
+  let updateState, updateError = '', operationError = '', updateRequest = null, updatePolling = false, waitChoice = false, editGeneration = 0, lastInputKey, undoConfirmation = null, updateViewing = false, viewSerial = 0;
   const updateBusy = () => !!updateRequest || ['running', 'cancelling'].includes(updateState?.job?.status);
   function hideVideo() { for (const slot of slots.values()) { if (slot.playing) command(slot, 'PAUSE'); slot.playing = false; slot.iframe.hidden = true; slot.buildStale = true; } }
   async function updateCall(action, args = {}) {
@@ -12,42 +12,57 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}, can
     if (!callUpdate || !region?.isConnected || updatePolling || !getProject() || isHidden() && !updateBusy()) return;
     updatePolling = true; const key = projectKey, generation = editGeneration;
     try {
-      const data = await updateCall('status', updateRequest ? { requestId: updateRequest.requestId } : {}); if (key !== projectKey) return;
+      const data = await updateCall('status', { ...(updateRequest ? { requestId: updateRequest.requestId } : {}), ...(canOperate() ? { parentOrigin: location.origin } : {}) }); if (key !== projectKey) return;
+      const previousPublication = updateState?.result?.requestId;
       updateState = data;
+      if (data.result?.status === 'published' && data.result.requestId !== previousPublication && generation === editGeneration) waitChoice = false;
       if (updateRequest && data.requestStatus === 'not-started') { updateRequest = null; operationError = updateError || '本次操作未开始，请重新选择更新方式。'; }
-      if (updateRequest && (data.result?.requestId === updateRequest.requestId || data.job?.requestId === updateRequest.requestId && ['published', 'failed', 'cancelled'].includes(data.job.status))) {
+      if (updateRequest && (data.restoration?.requestId === updateRequest.requestId || data.result?.requestId === updateRequest.requestId || data.job?.requestId === updateRequest.requestId && ['published', 'failed', 'cancelled'].includes(data.job.status))) {
         if (data.result?.requestId === updateRequest.requestId && data.result.status === 'published' && updateRequest.generation === editGeneration) waitChoice = false;
         updateRequest = null;
       }
       if (data.result?.status === 'undone') { waitChoice = true; hideVideo(); }
       if (data.job?.status === 'failed' || data.job?.status === 'cancelled') { waitChoice = true; hideVideo(); }
       if (updateBusy()) hideVideo();
-      if (!updateBusy() && !waitChoice && canOperate() && data.hasDesign) {
-        const view = await updateCall('view', { parentOrigin: location.origin });
-        if (key !== projectKey || generation !== editGeneration || waitChoice) return;
-        if (view.preview && !view.preview.stale) { if (active?.instanceId !== view.preview.instanceId) { for (const slot of [...slots.values()]) dispose(slot); active = pending = null; receive(view.preview); } else { active.buildStale = false; active.stale = false; active.iframe.hidden = false; } }
-        else hideVideo();
-      }
+      update();
+      if (!updateBusy() && !waitChoice && canOperate() && data.hasDesign) void refreshUpdateView(data, key, generation);
       updateError = '';
-    } catch (error) { if (key === projectKey) { updateError = error.message; hideVideo(); } }
+    } catch (error) { if (key === projectKey) { viewSerial++; updateViewing = false; updateError = error.message; hideVideo(); } }
     finally { if (key === projectKey) { updatePolling = false; update(); } }
   }
-  async function operateUpdate(action) {
+  async function refreshUpdateView(data, key, generation) {
+    if (updateViewing) return;
+    updateViewing = true; const token = ++viewSerial;
+    try {
+      const view = await updateCall('view', { parentOrigin: location.origin });
+      if (token !== viewSerial || key !== projectKey || generation !== editGeneration || waitChoice || updateBusy() || !canOperate() || !updateState?.hasDesign || updateState?.result?.requestId !== data.result?.requestId) return;
+      if (view.preview && !view.preview.stale) {
+        if (active?.instanceId !== view.preview.instanceId) { for (const slot of [...slots.values()]) dispose(slot); active = pending = null; receive(view.preview); }
+        else { active.buildStale = false; active.stale = false; active.iframe.hidden = false; }
+      } else hideVideo();
+    } catch (error) {
+      if (token === viewSerial && key === projectKey && !waitChoice && updateState?.result?.requestId === data.result?.requestId) { updateError = error.message; hideVideo(); }
+    } finally {
+      if (token === viewSerial && key === projectKey) { updateViewing = false; update(); }
+    }
+  }
+  async function operateUpdate(action, operationId) {
     if (action === 'cancel' ? getProject()?.writable === false : !canOperate() || updateBusy()) return;
     const key = projectKey;
     if (action === 'cancel') {
-      try { await updateCall('cancel', { requestId: updateRequest?.requestId ?? updateState?.job?.requestId }); } catch (error) { updateError = error.message; }
+      try { await updateCall('cancel', { requestId: updateRequest?.action === 'start' ? updateRequest.requestId : updateState?.job?.requestId ?? updateRequest?.requestId }); } catch (error) { updateError = error.message; }
       await refreshUpdate(); return;
     }
     hideVideo(); waitChoice = true; updateError = ''; operationError = '';
-    updateRequest = { requestId: createUuid(), generation: editGeneration };
+    undoConfirmation = null;
+    updateRequest = { requestId: createUuid(), generation: editGeneration, action };
     const request = updateRequest; update();
     try {
-      const result = await updateCall(action, { requestId: request.requestId, ...(action === 'undo' ? { operationId: updateState.undo.requestId } : { parentOrigin: location.origin }) });
+      const result = await updateCall(action, { requestId: request.requestId, parentOrigin: location.origin, ...(action === 'undo' ? { operationId } : {}) });
       if (key !== projectKey) return;
       if (result.job) updateState = { ...updateState, job: result.job };
       if (result.status === 'undone') updateRequest = null;
-    } catch (error) { if (key === projectKey) updateError = `正在核对更新结果：${error.message}`; }
+    } catch (error) { if (key === projectKey) updateError = `正在核对${action === 'undo' ? '撤回' : '更新'}结果：${error.message}`; }
     finally { if (key === projectKey) { update(); await refreshUpdate(); } }
   }
   function renderUpdate() {
@@ -57,18 +72,24 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}, can
     const controls = find('.video-update');
     if (current) { if (find('.preview-position').nextElementSibling !== controls) find('.preview-position').after(controls); } else if (controls.nextElementSibling !== find('[data-preview-screen]')) region.insertBefore(controls, find('[data-preview-screen]'));
     find('[data-preview-title]').textContent = '完整视频';
-    const reason = updateError || operationError || (running ? updateState?.job?.stage ?? '正在核对更新结果' : updateState?.job?.error) || (!known ? '正在读取视频状态' : !hasDesign ? '尚未生成画面设计' : waitChoice || !active || active.buildStale || active.stale ? '表格内容已变化，需要更新视频' : '视频已同步');
+    const restoring = updateState?.hasDesign && updateState?.restoration && !updateState.restoration.synced;
+    const restoredReason = restoring ? running ? '画面设计已恢复，正在同步最新内容…' : updateState?.job?.status === 'cancelled' ? '画面设计已恢复，内容同步已取消。可重试同步。' : updateState?.job?.status === 'failed' ? '画面设计已恢复，但最新内容同步失败。请重试同步。' : '画面设计已恢复，尚未同步最新内容。' : '';
+    const reason = updateError || operationError || (updateRequest?.action === 'undo' ? '正在恢复画面设计…' : '') || restoredReason || (running ? updateState?.job?.stage ?? '正在核对更新结果' : updateState?.job?.error) || (!known ? '正在读取视频状态' : !hasDesign ? '尚无画面设计' : waitChoice || !active || active.buildStale || active.stale ? '表格内容已变化，需要更新视频' : '视频已同步');
     find('[data-update-state]').textContent = reason;
-    const start = find('[data-update-start]'); start.disabled = !known || !hasDesign || running || !canOperate();
-    find('[data-update-cancel]').hidden = !running; find('[data-update-cancel]').disabled = !canOperate();
+    const start = find('[data-update-start]'); start.textContent = restoring && !running ? '重试同步' : '仅同步表格内容'; start.disabled = !known || !hasDesign || running || !canOperate();
+    find('[data-update-cancel]').hidden = !['running', 'cancelling'].includes(updateState?.job?.status); find('[data-update-cancel]').disabled = !canOperate();
     find('[data-update-reconcile]').hidden = !updateError && !updateRequest;
     find('[data-update-note]').textContent = !hasDesign ? '请先在当前 Codex 对话中生成画面设计，再同步表格内容。' : !canOperate() ? '请先保存表格并恢复连接和控制权，再更新视频。' : '沿用现有画面设计，不自动修改独立标题、图表和动画。';
     const summary = document.querySelector('[data-review-summary]'); if (summary) summary.textContent = updateState?.revision?.summary ?? '在当前 Codex 对话中描述创作目标。';
     const undo = updateState?.undo, undoButton = find('[data-update-undo]');
-    undoButton.hidden = !undo; undoButton.disabled = running || !canOperate();
-    undoButton.textContent = undo?.kind === 'sync' ? '撤回上次同步' : undo?.kind === 'generate' ? '撤回上次生成' : '撤回上次画面调整';
-    find('[data-update-last]').textContent = undo ? `${undo.kind === 'sync' ? '仅同步表格内容' : undo.kind === 'generate' ? '生成画面设计' : '调整画面'} · ${new Date(undo.at).toLocaleString()}。保留当前表格，撤回后需重新选择更新方式。` : '';
-    find('[data-update-compatibility]').textContent = updateState?.compatibility ?? '';
+    undoButton.hidden = !undo || !!undoConfirmation; undoButton.disabled = running || !canOperate();
+    undoButton.textContent = undo?.previousRevisionId === null ? '撤回首次生成' : '撤回上次画面调整';
+    find('[data-update-last]').textContent = undo ? `${undo.summary} · ${new Date(undo.at).toLocaleString()}` : updateState?.undoUnavailable ? '无法确认可撤回的画面创作' : updateState?.restoration ? '该步画面撤回已用完，不能重做。' : '暂无可撤回的画面创作';
+    const confirmation = find('[data-update-confirmation]');
+    confirmation.hidden = !undoConfirmation;
+    find('[data-update-confirm-note]').textContent = undoConfirmation?.previousRevisionId === null ? '移除首次生成的画面设计，保留最新表格和 Speech，回到无设计状态。本次撤回后不能重做。' : '恢复调整前的画面设计，保留最新表格和 Speech，随后自动同步最新内容。本次撤回后不能重做。';
+    find('[data-update-confirm]').disabled = running || !canOperate() || !undo || undo.requestId !== undoConfirmation?.requestId;
+    find('[data-update-compatibility]').textContent = [updateState?.undoUnavailable, updateState?.compatibility].filter(Boolean).join('；');
     find('[data-update-evidence]').textContent = JSON.stringify(updateState?.job && updateState.job.status !== 'published' ? updateState.checks : updateState?.revision?.acceptance ?? updateState?.checks ?? {}, null, 2);
     const warnings = updateState?.revision?.acceptance?.warnings ?? [];
     find('[data-update-warnings]').textContent = warnings.join('；');
@@ -337,17 +358,19 @@ function createPreviewWorkbench(call, getProject, candidateReady = () => {}, can
     mount(node) {
       const project = getProject();
       const key = project ? `${project.projectId}:${project.directory}` : undefined;
-      if (key !== projectKey) { for (const slot of slots.values()) dispose(slot); active = pending = null; requested = null; failure = ''; busy = false; projectKey = key; deferredScene = null; sceneNotice = ''; buildStates.current = buildStates.candidate = ''; observed.clear(); comparisonTarget = null; updateState = undefined; updateRequest = null; updateError = ''; operationError = ''; waitChoice = false; lastInputKey = undefined; editGeneration++; updatePolling = false; }
+      if (key !== projectKey) { for (const slot of slots.values()) dispose(slot); active = pending = null; requested = null; failure = ''; busy = false; projectKey = key; deferredScene = null; sceneNotice = ''; buildStates.current = buildStates.candidate = ''; observed.clear(); comparisonTarget = null; updateState = undefined; updateRequest = null; undoConfirmation = null; updateViewing = false; viewSerial++; updateError = ''; operationError = ''; waitChoice = false; lastInputKey = undefined; editGeneration++; updatePolling = false; }
       if (node === region) { update(); return; }
       region = node; if (!region) return;
       region.innerHTML = `<header><h2 data-preview-title>成片 Preview</h2><div class="preview-versions"><button data-preview-compare disabled>对比当前</button><button data-build-preview="current">构建当前版本</button><button data-build-preview="candidate">构建候选</button></div></header><details class="preview-evidence"><summary>版本与输入新鲜度</summary><div class="preview-comparison" data-preview-versions aria-label="当前与候选状态对照">${['current', 'candidate'].map(target => `<section data-version="${target}" aria-label="${targetName(target)}状态"><button data-version-switch="${target}" aria-pressed="false">${targetName(target)}</button><span data-version-label></span><p data-version-state></p><dl>${[['brief','Brief'],['input','项目输入'],['media','Media Revision'],['environment','执行环境']].map(([key,label]) => `<div><dt>${label}</dt><dd data-evidence="${key}">状态未知</dd></div>`).join('')}</dl><p data-version-eligibility></p></section>`).join('')}</div></details><p data-preview-freshness role="status" hidden></p><p data-preview-state role="status" aria-live="polite"></p><button data-preview-switch hidden></button><div data-preview-screen></div><div class="preview-controls"><button data-play data-playback disabled>播放</button><button data-step="-1" data-playback disabled aria-label="上一帧">上一帧</button><button data-step="1" data-playback disabled aria-label="下一帧">下一帧</button><label class="preview-progress">进度<input type="range" min="0" max="0" value="0" data-seek data-playback disabled></label><label>帧号<input type="number" min="0" step="1" value="0" data-frame-input data-playback disabled></label><button data-jump data-playback disabled>跳转</button><label>音量<input type="range" min="0" max="1" step="0.05" value="1" data-volume data-playback disabled></label><button data-mute data-playback disabled aria-pressed="false">静音</button></div><div class="preview-position"><output data-frame-output>尚无已提交帧</output><span data-playing-scene>暂无可播放 Scene</span></div><details><summary>预览详情</summary><pre data-preview-details></pre></details>`;
       if (callUpdate) {
         const controls = document.createElement('section'); controls.className = 'video-update'; controls.setAttribute('aria-label', '视频更新');
-        controls.innerHTML = '<p data-update-state role="status" aria-live="polite"></p><div class="video-update-actions"><button data-update-start>仅同步表格内容</button><button data-update-cancel hidden>取消同步</button><button data-update-reconcile hidden>核对更新结果</button></div><p data-update-note></p><p>同步内容并调整画面：请在当前 Codex 对话提出要求。</p><p data-update-warnings></p><div class="video-update-last"><button data-update-undo hidden>撤回上次同步</button><p data-update-last></p></div><details><summary>更新检查详情</summary><p data-update-compatibility></p><pre data-update-evidence></pre></details>';
+        controls.innerHTML = '<h3>内容同步</h3><p data-update-state role="status" aria-live="polite"></p><div class="video-update-actions"><button data-update-start>仅同步表格内容</button><button data-update-cancel hidden>取消同步</button><button data-update-reconcile hidden>核对更新结果</button></div><p data-update-note></p><p>同步内容并调整画面：请在当前 Codex 对话提出要求。</p><p data-update-warnings></p><section class="video-update-last" aria-label="最近画面创作"><h3>最近画面创作</h3><p data-update-last></p><button data-update-undo hidden>撤回上次画面调整</button><div data-update-confirmation hidden><p data-update-confirm-note></p><div class="video-update-actions"><button data-update-confirm-cancel>取消</button><button data-update-confirm>确认撤回</button></div></div></section><details><summary>更新检查详情</summary><p data-update-compatibility></p><pre data-update-evidence></pre></details>';
         region.insertBefore(controls, find('[data-preview-screen]'));
         controls.querySelector('[data-update-start]').onclick = () => void operateUpdate('start');
         controls.querySelector('[data-update-cancel]').onclick = () => void operateUpdate('cancel');
-        controls.querySelector('[data-update-undo]').onclick = () => void operateUpdate('undo');
+        controls.querySelector('[data-update-undo]').onclick = () => { undoConfirmation = updateState?.undo; renderUpdate(); find('[data-update-confirm-cancel]').focus(); };
+        controls.querySelector('[data-update-confirm-cancel]').onclick = () => { undoConfirmation = null; renderUpdate(); find('[data-update-undo]').focus(); };
+        controls.querySelector('[data-update-confirm]').onclick = () => { if (undoConfirmation) void operateUpdate('undo', undoConfirmation.requestId); };
         controls.querySelector('[data-update-reconcile]').onclick = () => void refreshUpdate();
         queueMicrotask(() => void refreshUpdate());
       }

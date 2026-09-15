@@ -159,8 +159,8 @@ const tools = [
     } }, outputSchema: { type: 'object' }, annotations: taskToolAnnotations, _meta: { ui: { visibility: ['app'] } },
   },
   {
-    name: 'project_video_update', title: '同步视频与撤回上次更新',
-    description: '明确同步最新表格，保留画面设计；成功后直接使用完整视频。查询或撤回最近一步更新，不合成 Speech，不输出视频。',
+    name: 'project_video_update', title: '同步视频与撤回画面创作',
+    description: '明确同步最新表格，保留画面设计；成功后直接使用完整视频。同步不占用画面撤回；撤回最近成功生成或调整，恢复设计后自动同步最新内容。undo 与页面 status 携带 parentOrigin；按原 requestId 核对撤回，restoration 保留恢复事实与后续同步身份。不合成 Speech，不输出视频。',
     inputSchema: { type: 'object', required: ['projectDirectory', 'projectId', 'action'], additionalProperties: false, properties: {
       projectDirectory: { type: 'string' }, projectId: { type: 'string' }, action: { enum: ['status', 'start', 'cancel', 'undo', 'view'] },
       requestId: { type: 'string' }, operationId: { type: 'string' }, parentOrigin: { type: 'string' },
@@ -949,7 +949,7 @@ class ProjectWorkspaceSession {
   videoUpdate = new ProjectVideoUpdate(this.preview);
   async videoUpdateOperation(input: any) {
     const opened = this.#requireOpened(input.projectDirectory, input.projectId);
-    if (input.action === 'status') return this.videoUpdate.status(opened, input.requestId);
+    if (input.action === 'status') return this.videoUpdate.status(opened, input.requestId, this.creation?.blocksCandidateWrites || this.#resolvingCandidate ? undefined : input.parentOrigin);
     if (input.action === 'view') return this.videoUpdate.view(opened, input.parentOrigin);
     if (input.action === 'cancel') return this.videoUpdate.cancel(input.requestId);
     if (this.creation?.blocksCandidateWrites || this.#resolvingCandidate) throw new Error('已有创作正在进行，请先停止并核对在途结果。');

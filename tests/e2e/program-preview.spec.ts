@@ -81,11 +81,42 @@ test('无设计拒绝同步，失败显示本次检查并保持键盘入口', as
   await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), validResult());
   await page.getByRole('tab', { name: 'Agent 工作区' }).click();
   await expect(page.getByRole('button', { name: '仅同步表格内容', exact: true })).toBeDisabled();
-  await expect(page.locator('[data-update-state]')).toContainText('尚未生成画面设计');
+  await expect(page.locator('[data-update-state]')).toContainText('尚无画面设计');
   hasDesign = true; failed = true;
   await expect(page.locator('[data-update-state]')).toContainText('构建失败', { timeout: 10000 });
   await page.getByText('更新检查详情', { exact: true }).click();
   await expect(page.locator('[data-update-evidence]')).toContainText('本次缺少程序入口');
   await expect(page.locator('[data-update-evidence]')).not.toContainText('旧成功证据');
   await expect(page.locator('[data-preview-screen]')).toBeHidden();
+});
+
+test('状态查询失败后迟到的预览不能重新显示，恢复查询后才重新加载', async ({ page }) => {
+  await page.goto(origin);
+  let release!: () => void, waiting = false, failStatus = false, failures = 0;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await installAppToolBridge(page, async (name, args) => {
+    if (name !== 'project_video_update') return { structuredContent: {} };
+    if (args.action === 'view') {
+      if (!waiting) { waiting = true; await held; }
+      return { structuredContent: { preview: { ...first, stale: false } } };
+    }
+    if (failStatus) { failures++; return { isError: true, structuredContent: { error: { message: '状态查询暂时失败' } } }; }
+    return { structuredContent: { hasDesign: true, undo: null, job: null, revision: { acceptance: {} } } };
+  });
+  await page.evaluate(result => window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: result } }, '*'), validResult());
+  await page.getByRole('tab', { name: 'Agent 工作区' }).click();
+  await expect.poll(() => waiting).toBe(true);
+  failStatus = true;
+  await expect(page.locator('[data-update-state]')).toContainText('状态查询暂时失败');
+  await page.evaluate(() => {
+    const screen = document.querySelector<HTMLElement>('[data-preview-screen]')!;
+    (window as any).latePreviewShown = false;
+    new MutationObserver(() => { if (!screen.hidden) (window as any).latePreviewShown = true; }).observe(screen, { attributes: true, attributeFilter: ['hidden'] });
+  });
+  const before = failures; release();
+  await expect.poll(() => failures, { timeout: 12000 }).toBeGreaterThanOrEqual(before + 2);
+  expect(await page.evaluate(() => (window as any).latePreviewShown)).toBe(false);
+  await expect(page.locator('[data-preview-screen]')).toBeHidden();
+  failStatus = false;
+  await expect(page.locator('[data-preview-screen]')).toBeVisible({ timeout: 10000 });
 });

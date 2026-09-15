@@ -325,6 +325,7 @@ export async function createCandidateManager(project: string, assertWritable: ()
     updateState: revisions.updateState,
     undoUpdate: revisions.undoUpdate,
     async publishUpdate(request: import('./project-revisions').UpdateRequest, target: 'current' | 'candidate', validate: () => Promise<void>) {
+      if (request.kind === 'sync' && target !== 'current') fail('UPDATE_INVALID_SOURCE', '内容同步只能沿用当前画面设计。');
       const source = target === 'current' ? (await revisions.verify(request.revisionId)).tree : (await inspect()).tree;
       if (!source) fail('UPDATE_NO_DESIGN', '没有完整画面设计。');
       const before = await inspect();

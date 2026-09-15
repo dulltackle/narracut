@@ -926,7 +926,7 @@
     return `<div class="scene-toolbar" aria-label="Scene 操作轨">
       <span class="scene-count">${count(currentScenes().length)} 个 Scene</span><div class="toolbar-primary"><button class="scene-action" data-primary="true" type="button" data-add title="${addReason}" ${currentScenes().length >= 1000 || stopped ? 'disabled' : ''}>新增 Scene</button></div>
       <div class="toolbar-history">
-        <button class="scene-action" type="button" data-undo title="${escapeHtml(historyLabel(state.undo, '撤销'))}" aria-label="${escapeHtml(historyLabel(state.undo, '撤销'))}" ${state.undo.length === 0 || stopped ? 'disabled' : ''}>撤销</button>
+        <button class="scene-action" type="button" data-undo title="${escapeHtml(historyLabel(state.undo, '撤销表格编辑'))}" aria-label="${escapeHtml(historyLabel(state.undo, '撤销表格编辑'))}" ${state.undo.length === 0 || stopped ? 'disabled' : ''}>撤销表格编辑</button>
         <button class="scene-action" type="button" data-redo title="${escapeHtml(historyLabel(state.redo, '重做'))}" aria-label="${escapeHtml(historyLabel(state.redo, '重做'))}" ${state.redo.length === 0 || stopped ? 'disabled' : ''}>重做</button>
       </div>
       <p class="scene-operation-hint">${currentScenes().length >= 1000 ? '已达到 1,000 个 Scene 上限 · ' : ''}右键 Scene 或按 Shift+F10 打开操作；撤销记录仅保留在当前页面。</p>
@@ -1678,7 +1678,7 @@
     updateSharedFeedback();
     enforceInputFreshness();
     if (indicator) { indicator.dataset.status = state.saveStatus; indicator.textContent = saveLabel(); }
-    for (const [selector, stack, verb] of [['[data-undo]', state.undo, '撤销'], ['[data-redo]', state.redo, '重做']]) {
+    for (const [selector, stack, verb] of [['[data-undo]', state.undo, '撤销表格编辑'], ['[data-redo]', state.redo, '重做']]) {
       const button = document.querySelector(selector);
       if (!button) continue;
       button.disabled = stack.length === 0 || sceneWriteBlocked();
