@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-13T08:31:19.354Z",
+  "generatedAt": "2026-09-15T04:51:46.645957+00:00",
   "title": "Design System: Narracut",
   "extensions": {
     "colorMeta": {
@@ -213,6 +213,62 @@
           "oklch(83.57% 0.00000 0.00)",
           "oklch(95.00% 0.00000 0.00)"
         ]
+      },
+      "update-primary": {
+        "role": "primary",
+        "displayName": "内容同步深灰",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95.00% 0.00000 89.88)"
+        ]
+      },
+      "update-copy": {
+        "role": "neutral",
+        "displayName": "更新说明灰",
+        "tonalRamp": [
+          "oklch(15.00% 0.01533 244.51)",
+          "oklch(26.43% 0.01533 244.51)",
+          "oklch(37.86% 0.01533 244.51)",
+          "oklch(49.29% 0.01533 244.51)",
+          "oklch(60.71% 0.01533 244.51)",
+          "oklch(72.14% 0.01533 244.51)",
+          "oklch(83.57% 0.01533 244.51)",
+          "oklch(95.00% 0.01533 244.51)"
+        ]
+      },
+      "update-ink": {
+        "role": "neutral",
+        "displayName": "更新状态深灰",
+        "tonalRamp": [
+          "oklch(15.00% 0.00935 248.16)",
+          "oklch(26.43% 0.00935 248.16)",
+          "oklch(37.86% 0.00935 248.16)",
+          "oklch(49.29% 0.00935 248.16)",
+          "oklch(60.71% 0.00935 248.16)",
+          "oklch(72.14% 0.00935 248.16)",
+          "oklch(83.57% 0.00935 248.16)",
+          "oklch(95.00% 0.00935 248.16)"
+        ]
+      },
+      "update-warning": {
+        "role": "secondary",
+        "displayName": "草稿警告琥珀",
+        "tonalRamp": [
+          "oklch(15.00% 0.09007 77.17)",
+          "oklch(26.43% 0.09007 77.17)",
+          "oklch(37.86% 0.09007 77.17)",
+          "oklch(49.29% 0.09007 77.17)",
+          "oklch(60.71% 0.09007 77.17)",
+          "oklch(72.14% 0.09007 77.17)",
+          "oklch(83.57% 0.09007 77.17)",
+          "oklch(95.00% 0.09007 77.17)"
+        ]
       }
     },
     "typographyMeta": {
@@ -351,20 +407,20 @@
       "css": ".ds-reason{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;width:min(330px,calc(100vw - 16px));padding:16px;border-radius:6px;background:var(--paper,#fff);color:var(--ink,#171717);box-shadow:0 8px 24px #00000024;font-size:13px;line-height:1.65;overflow-wrap:anywhere}.ds-reason header{display:flex;align-items:center;justify-content:space-between;gap:12px}.ds-reason p{margin:12px 0 0}.ds-reason button{font:inherit;min-height:32px;border:1px solid var(--line,#e3e3e3);border-radius:6px;padding:4px 8px;background:var(--paper,#fff);color:var(--ink,#171717);cursor:pointer}.ds-reason button:focus-visible{outline:2px solid var(--focus-blue,#315e9a);outline-offset:2px}@media(max-width:700px){.ds-reason button{min-height:44px;min-width:44px}}"
     },
     {
-      "name": "审阅抽屉容器",
+      "name": "内容同步",
       "kind": "custom",
-      "refersTo": "review-drawer",
-      "description": "展示抽屉的层级与尺寸；实际版本切换、焦点循环和媒体实例由工作台管理。",
-      "html": "<aside class=\"ds-review\" aria-label=\"审阅详情\"><header><h2>审阅详情</h2></header><div><h3>检查证据</h3><p>查看候选对应的检查结果与 Scene 建议。</p></div></aside>",
-      "css": ".ds-review{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;width:min(560px,100%);background:var(--paper,#fff);color:var(--ink,#171717);box-shadow:-12px 8px 36px #00000014;display:flex;flex-direction:column;min-height:0}.ds-review header{padding:12px 16px;border-bottom:1px solid var(--line,#e3e3e3)}.ds-review h2{margin:0;font-size:16px}.ds-review h3{font-size:14px}.ds-review>div{overflow:auto;padding:0 16px 16px;overscroll-behavior:contain}.ds-review p{overflow-wrap:anywhere}@media(max-width:700px){.ds-review header,.ds-review>div{padding-inline:12px}}"
+      "refersTo": "video-update",
+      "description": "单一视频的同步状态与显式操作；示例不执行同步。",
+      "html": "<section class=\"ds-update\"><h3>内容同步</h3><p class=\"ds-state\">视频已同步</p><button class=\"ds-sync\">仅同步表格内容</button><p>沿用现有画面设计，不自动修改独立标题、图表和动画。</p></section>",
+      "css": ".ds-update{background:#fff;color:#4e565d;padding:16px 0;font:14px/1.65 \"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif}.ds-update h3{margin:0 0 8px;font-size:14px;font-weight:650}.ds-update p{margin:8px 0;max-width:75ch;overflow-wrap:anywhere}.ds-update button{min-height:44px;padding:8px 14px;border:1px solid #4a5556;border-radius:0;background:#f5f5f5;color:#171717;font:inherit;cursor:pointer}.ds-update button:hover:not(:disabled){border-color:#25292d}.ds-update button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}.ds-update button:disabled{opacity:.5;cursor:default}.ds-update .ds-sync{background:#333;color:#fff;border-color:#333}.ds-update .ds-actions{display:flex;gap:12px;flex-wrap:wrap}.ds-update .ds-state{color:#25292d}.ds-update .ds-last{margin-top:20px;padding-top:16px;border-top:1px solid #e3e3e3}"
     },
     {
-      "name": "候选接受确认",
+      "name": "画面撤回原位确认",
       "kind": "custom",
-      "refersTo": "acceptance-confirm",
-      "description": "展示原位确认的样式与取消优先顺序；身份、检查和完整后果由生产页面填充，此示例不执行接受。",
-      "html": "<section class=\"ds-accept ds-confirm\" aria-label=\"候选接受确认样式\"><h3>接受完整候选</h3><p>调整标题位置，保留 Scene 顺序</p><p>当前没有非阻断警告。</p><p>接受后创建不可变修订；最终 Render 尚需独立发起。</p><footer><button>取消</button><button class=\"ds-confirm-submit\">接受完整候选</button></footer></section>",
-      "css": ".ds-confirm{font-family:\"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif;font-size:16px;color:#262626;padding:20px;background:#fff;border:1px solid #364041}.ds-confirm h3{margin:0 0 12px}.ds-confirm p{max-width:72ch;overflow-wrap:anywhere}.ds-confirm footer{display:flex;flex-wrap:wrap;gap:8px}.ds-accept button{min-height:36px;padding:8px 16px;border:1px solid #4a5556;border-radius:6px;background:#fff;color:#262626;font:inherit;cursor:pointer}.ds-accept button:hover:not(:disabled){background:#fff}.ds-accept button:focus-visible{outline:2px solid #9dbcf0;outline-offset:3px}.ds-accept button:disabled{opacity:.5;cursor:not-allowed}.ds-confirm .ds-confirm-submit{border-color:#4e88df}@media(max-width:680px){.ds-confirm{padding:16px}}"
+      "refersTo": "video-update",
+      "description": "轻分隔线与原位确认；示例不执行撤回。",
+      "html": "<section class=\"ds-update\"><div class=\"ds-last\"><h3>最近画面创作</h3><p>恢复调整前的画面设计，保留最新表格和 Speech，随后自动同步最新内容。本次撤回后不能重做。</p><div class=\"ds-actions\"><button>取消</button><button>确认撤回</button></div></div></section>",
+      "css": ".ds-update{background:#fff;color:#4e565d;padding:16px 0;font:14px/1.65 \"Noto Sans SC\",\"Source Han Sans SC\",\"Microsoft YaHei\",sans-serif}.ds-update h3{margin:0 0 8px;font-size:14px;font-weight:650}.ds-update p{margin:8px 0;max-width:75ch;overflow-wrap:anywhere}.ds-update button{min-height:44px;padding:8px 14px;border:1px solid #4a5556;border-radius:0;background:#f5f5f5;color:#171717;font:inherit;cursor:pointer}.ds-update button:hover:not(:disabled){border-color:#25292d}.ds-update button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}.ds-update button:disabled{opacity:.5;cursor:default}.ds-update .ds-sync{background:#333;color:#fff;border-color:#333}.ds-update .ds-actions{display:flex;gap:12px;flex-wrap:wrap}.ds-update .ds-state{color:#25292d}.ds-update .ds-last{margin-top:20px;padding-top:16px;border-top:1px solid #e3e3e3}"
     },
     {
       "name": "Video Brief 原始 Markdown",
@@ -377,12 +433,12 @@
   ],
   "narrative": {
     "northStar": "浅色连续 Scene 编辑台",
-    "overview": "白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。\n\n本记录刷新已过时的“暗房接触印样台”体系。#109 已移除表格的暗色框体、纸张与胶片纹理、背光和装饰边码。Agent 工作区、启动器及宿主连接反馈的基础色已迁移到浅色；其具体布局仍沿现有模块。#112 已将候选审阅改为视频主面与按需右侧抽屉；#115 已将项目入口、分段工作区、项目工具与独立关闭入口组成分组顶栏，并以居中弹窗编辑 Video Brief。\n\n依据为 `plugins/narracut/workbench.html` 最终 CSS 层叠、`plugins/narracut/workbench.js` 与 `plugins/narracut/src/workbench-panel.ts`。方向参考 `docs/design-references/prototype-navigation-light/README.md` 及其 `evidence/final-workbench-902.png`，但原型不是生产行为依据。基础编辑页面证据见 [#109 验收记录](docs/acceptance/issue109/README.md)，包括 [902px 桌面](docs/acceptance/issue109/issue109-902.png)、[430px 窄屏](docs/acceptance/issue109/issue109-430.png)及[横滚到 Speech](docs/acceptance/issue109/issue109-430-speech.png)。页面自动化与这些截图不等于真实 Codex 宿主、系统窗口及端到端后端验收。\n\n本次刷新（2026-09-13）保留现有设计方向，核对当前工作台资源的最终 CSS 层叠，并通过 Chromium 协议夹具检查 902×667 与 430×860 视口的导航、表格、Brief 与冲突界面。计算样式确认工作区标签为 13px、400 字重，桌面最小高度 30px、窄屏 44px，选中态为白底轻投影。此次未执行真实 Codex 宿主、系统窗口或媒体输出验收；既有行为证据仍以各验收记录为准。\n\n组件示例与叙述同步保存在 `.impeccable/design.json`，已更新分段导航、901px 导航断点和 Brief 编辑框。其派生 OKLCH 色阶仅供设计面板展示，不是生产调色板；组件片段展示外观与 CSS 状态，不执行真实保存、导航或候选接受。文件结构遵循 [DESIGN.md 格式](https://raw.githubusercontent.com/google-labs-code/design.md/main/docs/spec.md)，前置令牌记录规范值，正文说明应用范围。\n\n#115 页面证据见 [902px 分组顶栏](docs/acceptance/issue115/toolbar-902.png)、[430px 分行顶栏](docs/acceptance/issue115/toolbar-430.png)、[长 Brief 弹窗](docs/acceptance/issue115/brief-902.png)、[窄屏冲突比较](docs/acceptance/issue115/conflict-430.png)与 [measurements.json](docs/acceptance/issue115/measurements.json)。这些截图和尺寸来自协议夹具；实际文件保存、再次冲突与导出行为由 `tests/e2e/brief-navigation.spec.ts` 验证，不代表真实 Codex 宿主验收。",
+    "overview": "白色工作面、近黑正文、灰色辅助信息、轻边框与深色主按钮共同服务密集的脚本编辑。Narration 是主阅读列，Asset 与 Speech 与其保持同行，状态与操作贴近对应内容。\n\n本次刷新（2026-09-14）保留已确认的视觉方向。依据为 `plugins/narracut/workbench.html` 的最终 CSS 层叠、`workbench.js`、`workbench-preview.js` 和 `workbench-render.js`。本次查看了 [#122 桌面视频主面](docs/acceptance/issue122/synced-902.png)与 [#128 窄屏撤回确认](docs/acceptance/issue128/confirm-adjust-430.png)，并对照现有代码核对变化；#122 截图中的旧页脚及同步占用撤回语义以 #128 当前实现为准。本地 Chromium 因沙箱限制未启动，未生成新截图或执行真实宿主、Speech 合成及媒体输出验收。\n\n正常视频流程以 [ADR-0013](docs/adr/0013-single-design-latest-preview-and-update-undo.md) 已实施的 #122 内容同步和 #128 独立画面撤回为准；成功同步直接显示最新视频，旧候选比较、接受和多修订历史不再是正常入口。默认自动同步、Scene 范围调整及完整 Agent 创作接入仍按后续工单实施，不作为当前已实现行为。PRODUCT.md 中的候选审阅表述尚未同步；本次只刷新视觉文档与配套示例，产品事实以现行规范及上述实施边界为准。\n\n基础表格、导航、Brief 和声音配置的证据分别见 [#109](docs/acceptance/issue109/README.md)、[#115](docs/acceptance/issue115/README.md)与 [#116](docs/acceptance/issue116/README.md)。原型是方向参考，历史截图只证明对应基线，不代表当前完整产品验收。\n\n`.impeccable/design.json` 与本文同步，保留颜色命名、浅色气质和平面层级，更新内容同步与撤回示例。派生 OKLCH 色阶仅供设计面板展示，组件片段仅演示外观与 CSS 状态，不执行保存、同步或撤回。前置令牌记录复用的规范值；正文另列当前模块的局部差异。",
     "keyCharacteristics": [
       "连续表格优先，避免每个 Scene 独立成卡。",
       "内容按长度展开，选择、编辑与保存反馈可核对。",
       "表格全宽使用可用空间；项目检查按需打开抽屉。",
-      "创作入口仍是 Codex 当前对话；Agent 工作区用于任务状态与候选审阅。"
+      "创作入口仍是 Codex 当前对话；Agent 工作区用于查看最新视频、同步状态与独立画面撤回。"
     ],
     "rules": [],
     "dos": [
@@ -396,7 +452,7 @@
       "恢复暗房框体、纸张胶片纹理、背光表格或装饰印章。",
       "把窄屏表格改为隐藏 Asset／Speech 列，或用固定行高截断长 Narration。",
       "以常驻检查侧栏挤占 Scene 主编辑区。",
-      "用短暂成功提示覆盖过期 Preview，或把接受候选等同最终输出完成。"
+      "展示与最新表格不匹配的视频，或把同步成功等同最终输出完成。"
     ]
   }
 }
